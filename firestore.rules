@@ -70,6 +70,36 @@ service cloud.firestore {
         && get(interventoriaRolePath(empresaId)).data.rol in allowedRoles;
     }
 
+    function interventoriaConfigPath(empresaId) {
+      return /databases/$(database)/documents/TBL_INTERVENTORIA_CONFIG/$(empresaId);
+    }
+
+    // Las empresas sin configuración conservan el flujo histórico. Cuando
+    // Administración asigna programas y actas, el servidor exige que cada
+    // acta nueva use una de esas plantillas; ocultarla en la UI no bastaría.
+    function tipoActaInterventoriaPermitido(empresaId, data) {
+      let path = interventoriaConfigPath(empresaId);
+      return !exists(path)
+        || !('tiposActaHabilitados' in get(path).data)
+        || (
+          get(path).data.tiposActaHabilitados is list
+          && 'tipoActa' in data
+          && data.tipoActa is string
+          && data.tipoActa in get(path).data.tiposActaHabilitados
+        );
+    }
+
+    function conservaTipoActaInterventoria(antes, despues) {
+      return (
+          !('tipoActa' in antes)
+          && !('tipoActa' in despues)
+        ) || (
+          'tipoActa' in antes
+          && 'tipoActa' in despues
+          && antes.tipoActa == despues.tipoActa
+        );
+    }
+
     function visitasRolePath(empresaId) {
       return /databases/$(database)/documents/TBL_VISITAS_ROLES/$(empresaId + '_' + request.auth.token.userDocId);
     }
@@ -84,6 +114,20 @@ service cloud.firestore {
       return belongsToCompany(empresaId)
         && (isDeveloper() || isDeveloperIn(empresaId)
           || hasVisitasRole(empresaId, ['jefe']));
+    }
+
+    function areaVisitasUsuario(empresaId, userId) {
+      let path = /databases/$(database)/documents/TBL_VISITAS_ROLES/$(empresaId + '_' + userId);
+      return exists(path) && 'areaId' in get(path).data
+        ? get(path).data.areaId : '';
+    }
+
+    function administraVisitasArea(empresaId, areaId) {
+      return belongsToCompany(empresaId)
+        && (isDeveloper() || isDeveloperIn(empresaId)
+          || (areaId is string && areaId.size() > 0
+            && hasVisitasRole(empresaId, ['jefe'])
+            && areaVisitasUsuario(empresaId, request.auth.token.userDocId) == areaId));
     }
 
     function participaEnVisitas(empresaId) {
@@ -227,9 +271,23 @@ service cloud.firestore {
     match /TBL_INTERVENTORIA_VISITAS/{docId} {
       allow get: if resource == null || belongsToCompany(resource.data.empresaId);
       allow list: if belongsToCompany(resource.data.empresaId);
-      allow create: if belongsToCompany(request.resource.data.empresaId);
+      allow create: if belongsToCompany(request.resource.data.empresaId)
+        && tipoActaInterventoriaPermitido(
+          request.resource.data.empresaId,
+          request.resource.data
+        );
       allow update: if resource.data.empresaId == request.resource.data.empresaId
-        && belongsToCompany(resource.data.empresaId);
+        && belongsToCompany(resource.data.empresaId)
+        && (
+          conservaTipoActaInterventoria(
+            resource.data,
+            request.resource.data
+          )
+          || tipoActaInterventoriaPermitido(
+            request.resource.data.empresaId,
+            request.resource.data
+          )
+        );
       allow delete: if false;
     }
     match /TBL_INTERVENTORIA_HALLAZGOS/{docId} {
@@ -256,37 +314,82 @@ service cloud.firestore {
     // El módulo de visitas comparte empresa, pero cada profesional solo puede
     // responder sus propias visitas. Las asignaciones y formatos pertenecen
     // al jefe; el rol no se puede autoasignar usando el fallback general.
+    // `get` de un doc que no existe: `resource` es null y evaluar
+    // `resource.data` niega la lectura entera. La app pregunta por id si la
+    // persona tiene rol, si existe el formato SST o la ubicación del
+    // subcentro, y con la regla anterior recibía permission-denied cuando
+    // la respuesta era "no existe" (21 sep 2026, "no me quiere cargar").
+    // Mismo arreglo que Interventoría el 11 sep.
     match /TBL_VISITAS_ROLES/{docId} {
-      allow read: if belongsToCompany(resource.data.empresaId)
+      allow get: if resource == null
+        || (belongsToCompany(resource.data.empresaId)
+          && (administraVisitas(resource.data.empresaId)
+            || resource.data.userId == request.auth.token.userDocId));
+      allow list: if belongsToCompany(resource.data.empresaId)
         && (administraVisitas(resource.data.empresaId)
           || resource.data.userId == request.auth.token.userDocId);
-      allow create: if administraVisitas(request.resource.data.empresaId)
+      allow create: if belongsToCompany(request.resource.data.empresaId)
         && docId == request.resource.data.empresaId + '_' + request.resource.data.userId
-        && request.resource.data.rol in ['jefe', 'profesional', 'consulta'];
+        && request.resource.data.rol in ['jefe', 'profesional', 'consulta']
+        && request.resource.data.areaId is string
+        && (isDeveloper() || isDeveloperIn(request.resource.data.empresaId)
+          || (request.resource.data.rol == 'profesional'
+            && administraVisitasArea(request.resource.data.empresaId,
+              request.resource.data.areaId)));
       allow update: if resource.data.empresaId == request.resource.data.empresaId
         && resource.data.userId == request.resource.data.userId
-        && administraVisitas(resource.data.empresaId)
-        && request.resource.data.rol in ['jefe', 'profesional', 'consulta'];
-      allow delete: if administraVisitas(resource.data.empresaId);
+        && belongsToCompany(resource.data.empresaId)
+        && request.resource.data.rol in ['jefe', 'profesional', 'consulta']
+        && request.resource.data.areaId is string
+        && (isDeveloper() || isDeveloperIn(resource.data.empresaId)
+          || (resource.data.rol == 'profesional'
+            && request.resource.data.rol == 'profesional'
+            && resource.data.areaId == request.resource.data.areaId
+            && resource.data.userId != request.auth.token.userDocId
+            && administraVisitasArea(resource.data.empresaId,
+              resource.data.areaId)));
+      allow delete: if belongsToCompany(resource.data.empresaId)
+        && (isDeveloper() || isDeveloperIn(resource.data.empresaId)
+          || (resource.data.rol == 'profesional'
+            && resource.data.userId != request.auth.token.userDocId
+            && administraVisitasArea(resource.data.empresaId,
+              resource.data.areaId)));
     }
 
     match /TBL_VISITAS_FORMATOS/{docId} {
-      allow read: if participaEnVisitas(resource.data.empresaId);
-      allow create: if administraVisitas(request.resource.data.empresaId);
+      allow get: if resource == null
+        || participaEnVisitas(resource.data.empresaId);
+      allow list: if belongsToCompany(resource.data.empresaId)
+        && (isDeveloper() || isDeveloperIn(resource.data.empresaId)
+          || hasVisitasRole(resource.data.empresaId, ['consulta'])
+          || (hasVisitasRole(resource.data.empresaId, ['jefe', 'profesional'])
+            && resource.data.areaId == areaVisitasUsuario(
+              resource.data.empresaId, request.auth.token.userDocId)));
+      allow create: if administraVisitasArea(request.resource.data.empresaId,
+          request.resource.data.areaId);
       allow update: if resource.data.empresaId == request.resource.data.empresaId
-        && administraVisitas(resource.data.empresaId);
+        && resource.data.areaId == request.resource.data.areaId
+        && administraVisitasArea(resource.data.empresaId, resource.data.areaId);
       allow delete: if false;
     }
 
     match /TBL_VISITAS/{docId} {
-      allow read: if belongsToCompany(resource.data.empresaId)
-        && (administraVisitas(resource.data.empresaId)
+      allow get: if resource == null
+        || (belongsToCompany(resource.data.empresaId)
+          && (administraVisitasArea(resource.data.empresaId, resource.data.areaId)
+            || hasVisitasRole(resource.data.empresaId, ['consulta'])
+            || (hasVisitasRole(resource.data.empresaId, ['profesional'])
+              && resource.data.profesionalId == request.auth.token.userDocId)));
+      allow list: if belongsToCompany(resource.data.empresaId)
+        && (administraVisitasArea(resource.data.empresaId, resource.data.areaId)
           || hasVisitasRole(resource.data.empresaId, ['consulta'])
           || (hasVisitasRole(resource.data.empresaId, ['profesional'])
             && resource.data.profesionalId == request.auth.token.userDocId));
-      allow create: if administraVisitas(request.resource.data.empresaId)
+      allow create: if administraVisitasArea(request.resource.data.empresaId,
+          request.resource.data.areaId)
         && request.resource.data.asignadoPorId == request.auth.token.userDocId
-        && request.resource.data.estado == 'programada';
+        && request.resource.data.estado == 'programada'
+        && asignacionVisitaValida();
       // 17 sep 2026: reprogramar (jefe cualquiera, profesional la suya),
       // encabezado del formato al iniciar, tablas y firmas mientras está en
       // curso. Las firmas van con la visita en curso y NO en el cierre: el
@@ -305,7 +408,7 @@ service cloud.firestore {
                   .hasOnly(['estado', 'motivoCancelacion', 'updatedAt']))
               || esReprogramacionDeVisita()
             )
-            && administraVisitas(resource.data.empresaId))
+            && administraVisitasArea(resource.data.empresaId, resource.data.areaId))
           || (resource.data.profesionalId == request.auth.token.userDocId
             && hasVisitasRole(resource.data.empresaId, ['profesional'])
             && (
@@ -320,7 +423,8 @@ service cloud.firestore {
                 && request.resource.data.diff(resource.data).affectedKeys()
                   .hasOnly(['respuestas', 'tablas', 'observacionGeneral',
                     'responsableEstablecimiento', 'ciudad', 'cargoProfesional',
-                    'firmaProfesional', 'firmaEstablecimiento', 'updatedAt']))
+                    'firmaProfesional', 'firmaEstablecimiento', 'updatedAt'])
+                && firmaVisitaSinCambiosDeContenido())
               || (resource.data.estado == 'en_curso'
                 && request.resource.data.estado == 'terminada'
                 && request.resource.data.cerradaPor == request.auth.token.userDocId
@@ -330,6 +434,50 @@ service cloud.firestore {
             ))
         );
       allow delete: if false;
+    }
+
+    function asignacionVisitaValida() {
+      let v = request.resource.data;
+      let formato = /databases/$(database)/documents/TBL_VISITAS_FORMATOS/$(v.formatoId);
+      let profesional = /databases/$(database)/documents/TBL_VISITAS_ROLES/$(v.empresaId + '_' + v.profesionalId);
+      return v.formatoId is string && v.profesionalId is string
+        && v.esPrueba is bool && v.formatoAsignado is map
+        && exists(formato)
+        && get(formato).data.empresaId == v.empresaId
+        && get(formato).data.estado != 'retirado'
+        && v.formatoAsignado.empresaId == v.empresaId
+        && v.areaId == get(formato).data.areaId
+        && v.formatoAsignado.areaId == v.areaId
+        && v.formatoAsignado.version == get(formato).data.version
+        && v.formatoAsignado.items == get(formato).data.items
+        && v.formatoAsignado.partes == get(formato).data.partes
+        && v.formatoAsignado.tablas == get(formato).data.tablas
+        && (v.esPrueba || get(formato).data.estado == 'vigente')
+        && ((exists(profesional)
+          && get(profesional).data.rol == 'profesional'
+          && areaVisitasUsuario(v.empresaId, v.profesionalId) == v.areaId)
+          || (v.esPrueba && v.profesionalId == request.auth.token.userDocId));
+    }
+
+    // La primera firma solo se agrega cuando ya se guardó el contenido.
+    // Desde entonces se puede añadir la otra firma, pero no reescribir el
+    // acta ni sustituir una firma existente.
+    function firmaVisitaSinCambiosDeContenido() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let firmada = ('firmaProfesional' in resource.data
+          && resource.data.firmaProfesional != null)
+        || ('firmaEstablecimiento' in resource.data
+          && resource.data.firmaEstablecimiento != null);
+      return firmada
+        ? changed.hasOnly(['firmaProfesional', 'firmaEstablecimiento', 'updatedAt'])
+          && (!('firmaProfesional' in resource.data)
+            || resource.data.firmaProfesional == null
+            || request.resource.data.firmaProfesional == resource.data.firmaProfesional)
+          && (!('firmaEstablecimiento' in resource.data)
+            || resource.data.firmaEstablecimiento == null
+            || request.resource.data.firmaEstablecimiento == resource.data.firmaEstablecimiento)
+        : (!changed.hasAny(['firmaProfesional', 'firmaEstablecimiento'])
+          || changed.hasOnly(['firmaProfesional', 'firmaEstablecimiento', 'updatedAt']));
     }
 
     // Reprogramar solo mueve la fecha y añade al historial; el estado sigue
@@ -344,7 +492,9 @@ service cloud.firestore {
     // que participe en Visitas (el profesional lo necesita para iniciar),
     // lo escribe solo Desarrollo. No es un rol del módulo a propósito.
     match /TBL_VISITAS_UBICACIONES/{docId} {
-      allow read: if participaEnVisitas(resource.data.empresaId);
+      allow get: if resource == null
+        || participaEnVisitas(resource.data.empresaId);
+      allow list: if participaEnVisitas(resource.data.empresaId);
       allow create: if belongsToCompany(request.resource.data.empresaId)
         && (isDeveloper() || isDeveloperIn(request.resource.data.empresaId));
       allow update: if resource.data.empresaId == request.resource.data.empresaId

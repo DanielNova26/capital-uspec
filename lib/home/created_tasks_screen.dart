@@ -720,10 +720,14 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                                   Container(
                                     padding: const EdgeInsets.all(12),
                                     decoration: BoxDecoration(
-                                      color: Colors.teal.withValues(alpha: 0.08),
+                                      color: Colors.teal.withValues(
+                                        alpha: 0.08,
+                                      ),
                                       borderRadius: BorderRadius.circular(12),
                                       border: Border.all(
-                                        color: Colors.teal.withValues(alpha: 0.16),
+                                        color: Colors.teal.withValues(
+                                          alpha: 0.16,
+                                        ),
                                       ),
                                     ),
                                     child: Column(
@@ -1434,275 +1438,146 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
+      // El panel crece con las acciones pendientes (finalización, novedades,
+      // reasignación) y en un celular se salía de la pantalla sin forma de
+      // llegar a "Aprobar": va dentro de un scroll acotado al alto visible.
       builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Wrap(
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(10),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.92,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Wrap(
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 24, width: double.infinity),
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'GESTIÓN OPERATIVA',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 10,
-                            color: Colors.blueGrey,
-                            letterSpacing: 1,
-                          ),
-                        ),
-                        Text(
-                          (data['titulo'] ?? '(Sin título)').toString(),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w900,
-                            fontSize: 20,
-                            fontFamily: _kFont,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        UserNameText(
-                          (data['asignado_uid'] ?? data['assignedTo'] ?? '')
-                              .toString(),
-                          fallbackName: assignee,
-                          prefix: 'Asignada a: ',
-                          style: const TextStyle(
-                            color: Colors.black54,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  _StatusBadge(status: status),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    tooltip: 'Cerrar',
-                    onPressed: () => Navigator.of(sheetContext).pop(),
-                    icon: const Icon(Icons.close_rounded),
-                  ),
-                ],
-              ),
-              if (hasAvance || hasNovedad) ...[
-                const SizedBox(height: 16, width: double.infinity),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: hasAvance
-                        ? const Color(0xFF0D9488).withValues(alpha: 0.08)
-                        : const Color(0xFF3B82F6).withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: hasAvance
-                          ? const Color(0xFF0D9488).withValues(alpha: 0.25)
-                          : const Color(0xFF3B82F6).withValues(alpha: 0.25),
-                    ),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          color: hasAvance
-                              ? const Color(0xFF0D9488).withValues(alpha: 0.15)
-                              : const Color(0xFF3B82F6).withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(
-                          hasAvance
-                              ? Icons.trending_up_rounded
-                              : Icons.markunread_mailbox_rounded,
-                          size: 20,
-                          color: hasAvance
-                              ? const Color(0xFF0D9488)
-                              : const Color(0xFF3B82F6),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              hasAvance ? 'NUEVO AVANCE' : 'NUEVA NOVEDAD',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w900,
-                                fontSize: 10,
-                                letterSpacing: 1,
-                                color: hasAvance
-                                    ? const Color(0xFF0D9488)
-                                    : const Color(0xFF3B82F6),
-                              ),
+                const SizedBox(height: 24, width: double.infinity),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'GESTIÓN OPERATIVA',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 10,
+                              color: Colors.blueGrey,
+                              letterSpacing: 1,
                             ),
-                            if (lastEventText.isNotEmpty) ...[
-                              const SizedBox(height: 4),
-                              Text(
-                                lastEventText,
-                                maxLines: 3,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.black87,
-                                  height: 1.35,
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
+                          ),
+                          Text(
+                            (data['titulo'] ?? '(Sin título)').toString(),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 20,
+                              fontFamily: _kFont,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          UserNameText(
+                            (data['asignado_uid'] ?? data['assignedTo'] ?? '')
+                                .toString(),
+                            fallbackName: assignee,
+                            prefix: 'Asignada a: ',
+                            style: const TextStyle(
+                              color: Colors.black54,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                    _StatusBadge(status: status),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      tooltip: 'Cerrar',
+                      onPressed: () => Navigator.of(sheetContext).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
                 ),
-              ],
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 20),
-                child: Divider(height: 1),
-              ),
-              if (hasPendingFinish || hasPendingReassign) ...[
-                const Text(
-                  'ACCIONES PENDIENTES DE TU APROBACIÓN',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 10,
-                    color: Colors.orange,
-                    letterSpacing: 1,
-                  ),
-                ),
-                const SizedBox(height: 12, width: double.infinity),
-                if (hasPendingFinish) ...[
-                  _ActionTile(
-                    icon: Icons.attach_file_rounded,
-                    color: Colors.indigo,
-                    title: 'Ver evidencias enviadas',
-                    subtitle:
-                        'Revisa los adjuntos antes de aprobar o devolver.',
-                    onTap: () async {
-                      await _showCollectionDialog(
-                        title: 'Evidencias de finalización',
-                        taskId: doc.id,
-                        collection: 'finalizacion',
-                      );
-                    },
-                  ),
-                  _ActionTile(
-                    icon: Icons.check_circle_rounded,
-                    color: Colors.green,
-                    title: 'Aprobar finalización',
-                    subtitle: 'La tarea pasará al historial como completada.',
-                    onTap: () async {
-                      Navigator.pop(context);
-                      await _approveFinish(doc);
-                    },
-                  ),
-                  _ActionTile(
-                    icon: Icons.reply_rounded,
-                    color: Colors.orange,
-                    title: 'Devolver tarea',
-                    subtitle: 'Solicita correcciones al responsable.',
-                    onTap: () async {
-                      Navigator.pop(context);
-                      await _returnTask(doc);
-                    },
-                  ),
-                ],
-                if (hasPendingReassign) ...[
+                if (hasAvance || hasNovedad) ...[
+                  const SizedBox(height: 16, width: double.infinity),
                   Container(
                     width: double.infinity,
-                    margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          Colors.purple.withValues(alpha: 0.10),
-                          Colors.deepPurple.withValues(alpha: 0.05),
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(18),
+                      color: hasAvance
+                          ? const Color(0xFF0D9488).withValues(alpha: 0.08)
+                          : const Color(0xFF3B82F6).withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(14),
                       border: Border.all(
-                        color: Colors.purple.withValues(alpha: 0.22),
+                        color: hasAvance
+                            ? const Color(0xFF0D9488).withValues(alpha: 0.25)
+                            : const Color(0xFF3B82F6).withValues(alpha: 0.25),
                       ),
                     ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Container(
-                          width: 52,
-                          height: 52,
+                          width: 36,
+                          height: 36,
                           decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.9),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: Colors.purple.withValues(alpha: 0.18),
-                            ),
+                            color: hasAvance
+                                ? const Color(
+                                    0xFF0D9488,
+                                  ).withValues(alpha: 0.15)
+                                : const Color(
+                                    0xFF3B82F6,
+                                  ).withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(10),
                           ),
-                          child: const Icon(
-                            Icons.person_search_rounded,
-                            color: Colors.purple,
-                            size: 28,
+                          child: Icon(
+                            hasAvance
+                                ? Icons.trending_up_rounded
+                                : Icons.markunread_mailbox_rounded,
+                            size: 20,
+                            color: hasAvance
+                                ? const Color(0xFF0D9488)
+                                : const Color(0xFF3B82F6),
                           ),
                         ),
-                        const SizedBox(width: 14),
+                        const SizedBox(width: 12),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                'REASIGNAR A',
+                              Text(
+                                hasAvance ? 'NUEVO AVANCE' : 'NUEVA NOVEDAD',
                                 style: TextStyle(
                                   fontWeight: FontWeight.w900,
-                                  fontSize: 11,
-                                  color: Colors.purple,
-                                  letterSpacing: 1.1,
+                                  fontSize: 10,
+                                  letterSpacing: 1,
+                                  color: hasAvance
+                                      ? const Color(0xFF0D9488)
+                                      : const Color(0xFF3B82F6),
                                 ),
                               ),
-                              const SizedBox(height: 6),
-                              Text(
-                                reassignTarget,
-                                style: const TextStyle(
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w800,
-                                  fontFamily: _kFont,
-                                  height: 1.1,
-                                ),
-                              ),
-                              if (resolvedAreaName.isNotEmpty ||
-                                  resolvedCargoName.isNotEmpty) ...[
-                                const SizedBox(height: 8),
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: [
-                                    if (resolvedAreaName.isNotEmpty)
-                                      _ReassignMetaPill(
-                                        icon: Icons.apartment_rounded,
-                                        label: resolvedAreaName,
-                                      ),
-                                    if (resolvedCargoName.isNotEmpty)
-                                      _ReassignMetaPill(
-                                        icon: Icons.badge_rounded,
-                                        label: resolvedCargoName,
-                                      ),
-                                  ],
+                              if (lastEventText.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  lastEventText,
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.black87,
+                                    height: 1.35,
+                                  ),
                                 ),
                               ],
                             ],
@@ -1711,75 +1586,216 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                       ],
                     ),
                   ),
-                  _ActionTile(
-                    icon: Icons.swap_horiz_rounded,
-                    color: Colors.purple,
-                    title: 'Aprobar reasignación',
-                    subtitle: 'Confirmar el cambio al responsable propuesto.',
-                    onTap: () async {
-                      Navigator.pop(context);
-                      await _resolveReassign(doc, approve: true);
-                    },
-                  ),
-                  _ActionTile(
-                    icon: Icons.close_rounded,
-                    color: Colors.redAccent,
-                    title: 'Rechazar reasignación',
-                    subtitle: 'Mantener el responsable actual de la tarea.',
-                    onTap: () async {
-                      Navigator.pop(context);
-                      await _resolveReassign(doc, approve: false);
-                    },
-                  ),
                 ],
                 const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
+                  padding: EdgeInsets.symmetric(vertical: 20),
                   child: Divider(height: 1),
                 ),
-              ],
-              const Text(
-                'CONSULTA Y SEGUIMIENTO',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 10,
-                  color: Colors.blueGrey,
-                  letterSpacing: 1,
+                if (hasPendingFinish || hasPendingReassign) ...[
+                  const Text(
+                    'ACCIONES PENDIENTES DE TU APROBACIÓN',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 10,
+                      color: Colors.orange,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                  const SizedBox(height: 12, width: double.infinity),
+                  if (hasPendingFinish) ...[
+                    _ActionTile(
+                      icon: Icons.attach_file_rounded,
+                      color: Colors.indigo,
+                      title: 'Ver evidencias enviadas',
+                      subtitle:
+                          'Revisa los adjuntos antes de aprobar o devolver.',
+                      onTap: () async {
+                        await _showCollectionDialog(
+                          title: 'Evidencias de finalización',
+                          taskId: doc.id,
+                          collection: 'finalizacion',
+                        );
+                      },
+                    ),
+                    _ActionTile(
+                      icon: Icons.check_circle_rounded,
+                      color: Colors.green,
+                      title: 'Aprobar finalización',
+                      subtitle: 'La tarea pasará al historial como completada.',
+                      onTap: () async {
+                        Navigator.pop(context);
+                        await _approveFinish(doc);
+                      },
+                    ),
+                    _ActionTile(
+                      icon: Icons.reply_rounded,
+                      color: Colors.orange,
+                      title: 'Devolver tarea',
+                      subtitle: 'Solicita correcciones al responsable.',
+                      onTap: () async {
+                        Navigator.pop(context);
+                        await _returnTask(doc);
+                      },
+                    ),
+                  ],
+                  if (hasPendingReassign) ...[
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.purple.withValues(alpha: 0.10),
+                            Colors.deepPurple.withValues(alpha: 0.05),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(
+                          color: Colors.purple.withValues(alpha: 0.22),
+                        ),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 52,
+                            height: 52,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.9),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: Colors.purple.withValues(alpha: 0.18),
+                              ),
+                            ),
+                            child: const Icon(
+                              Icons.person_search_rounded,
+                              color: Colors.purple,
+                              size: 28,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'REASIGNAR A',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 11,
+                                    color: Colors.purple,
+                                    letterSpacing: 1.1,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  reassignTarget,
+                                  style: const TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w800,
+                                    fontFamily: _kFont,
+                                    height: 1.1,
+                                  ),
+                                ),
+                                if (resolvedAreaName.isNotEmpty ||
+                                    resolvedCargoName.isNotEmpty) ...[
+                                  const SizedBox(height: 8),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: [
+                                      if (resolvedAreaName.isNotEmpty)
+                                        _ReassignMetaPill(
+                                          icon: Icons.apartment_rounded,
+                                          label: resolvedAreaName,
+                                        ),
+                                      if (resolvedCargoName.isNotEmpty)
+                                        _ReassignMetaPill(
+                                          icon: Icons.badge_rounded,
+                                          label: resolvedCargoName,
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _ActionTile(
+                      icon: Icons.swap_horiz_rounded,
+                      color: Colors.purple,
+                      title: 'Aprobar reasignación',
+                      subtitle: 'Confirmar el cambio al responsable propuesto.',
+                      onTap: () async {
+                        Navigator.pop(context);
+                        await _resolveReassign(doc, approve: true);
+                      },
+                    ),
+                    _ActionTile(
+                      icon: Icons.close_rounded,
+                      color: Colors.redAccent,
+                      title: 'Rechazar reasignación',
+                      subtitle: 'Mantener el responsable actual de la tarea.',
+                      onTap: () async {
+                        Navigator.pop(context);
+                        await _resolveReassign(doc, approve: false);
+                      },
+                    ),
+                  ],
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Divider(height: 1),
+                  ),
+                ],
+                const Text(
+                  'CONSULTA Y SEGUIMIENTO',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 10,
+                    color: Colors.blueGrey,
+                    letterSpacing: 1,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12, width: double.infinity),
-              _ActionTile(
-                icon: Icons.markunread_mailbox_rounded,
-                color: Colors.blue,
-                title: 'Ver novedades',
-                subtitle: 'Revisa comunicaciones y devoluciones registradas.',
-                onTap: () async {
-                  await _showCollectionDialog(
-                    title: 'Novedades de la tarea',
-                    taskId: doc.id,
-                    collection: 'novedades',
-                  );
-                },
-              ),
-              _ActionTile(
-                icon: Icons.trending_up_rounded,
-                color: Colors.teal,
-                title: 'Ver avances',
-                subtitle: 'Consulta avances reportados por el responsable.',
-                onTap: () async {
-                  await _showAvancesDialog(doc.id);
-                },
-              ),
-              _ActionTile(
-                icon: Icons.attach_file_rounded,
-                color: Colors.blueGrey,
-                title: 'Ver adjuntos',
-                subtitle: 'Abre archivos y evidencias cargadas en la tarea.',
-                onTap: () async {
-                  await _showAllAttachmentsDialog(doc);
-                },
-              ),
-              const SizedBox(height: 12, width: double.infinity),
-            ],
+                const SizedBox(height: 12, width: double.infinity),
+                _ActionTile(
+                  icon: Icons.markunread_mailbox_rounded,
+                  color: Colors.blue,
+                  title: 'Ver novedades',
+                  subtitle: 'Revisa comunicaciones y devoluciones registradas.',
+                  onTap: () async {
+                    await _showCollectionDialog(
+                      title: 'Novedades de la tarea',
+                      taskId: doc.id,
+                      collection: 'novedades',
+                    );
+                  },
+                ),
+                _ActionTile(
+                  icon: Icons.trending_up_rounded,
+                  color: Colors.teal,
+                  title: 'Ver avances',
+                  subtitle: 'Consulta avances reportados por el responsable.',
+                  onTap: () async {
+                    await _showAvancesDialog(doc.id);
+                  },
+                ),
+                _ActionTile(
+                  icon: Icons.attach_file_rounded,
+                  color: Colors.blueGrey,
+                  title: 'Ver adjuntos',
+                  subtitle: 'Abre archivos y evidencias cargadas en la tarea.',
+                  onTap: () async {
+                    await _showAllAttachmentsDialog(doc);
+                  },
+                ),
+                const SizedBox(height: 12, width: double.infinity),
+              ],
+            ),
           ),
         ),
       ),

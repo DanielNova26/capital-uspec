@@ -273,6 +273,29 @@ bool comprasRolPuedeCompletarRecepcion(String? raw) {
   return rol == kRolBodega || rol == kRolAdmin;
 }
 
+/// Quién puede borrar lo que él mismo registró mientras Calidad no lo haya
+/// revisado: una recepción pendiente o una ficha técnica sin versión
+/// aprobada. Admin borra cualquier cosa por otra vía (`kRolAdmin`).
+///
+/// Pedido por Bodega el 21 sep 2026: registraban una recepción o una ficha
+/// por error y no tenían forma de retirarla sin pasar por Admin Documental.
+bool comprasRolPuedeEliminarPropiasPendientes(String? raw) {
+  final rol = normalizeComprasRol(raw);
+  return rol == kRolBodega || rol == kRolCompras;
+}
+
+/// Una ficha se puede retirar por quien la subió solo si Calidad nunca la
+/// aprobó: sin versión aprobada y con la actual todavía sin decisión.
+bool fichaTecnicaEliminablePorAutor(FichaTecnicaDoc f, String userId) {
+  if (f.creadoPor.trim().isEmpty || f.creadoPor.trim() != userId.trim()) {
+    return false;
+  }
+  if (f.documentoAprobado?.tieneDoc == true) return false;
+  final actual = f.documentoActual;
+  if (actual == null || !actual.tieneDoc) return true;
+  return actual.pendienteRevisionCalidad || actual.estadoCalidad.isEmpty;
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // MarcaRef  (referencia liviana incrustada en ProductoDoc.marcas)
 // ══════════════════════════════════════════════════════════════════════════════

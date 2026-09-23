@@ -248,6 +248,22 @@ class FacturacionService {
     }, SetOptions(merge: true));
   }
 
+  /// Establecimientos a los que aplica la obligación (vacío = todos).
+  Future<void> setObligacionEstablecimientos(
+    FacObligacion obligacion,
+    List<String> centroIds,
+  ) async {
+    await _db.collection(_colObligaciones).doc(obligacion.id).set({
+      ...obligacion.toMap(),
+      'establecimientos': centroIds
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toSet()
+          .toList(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
   Future<void> moverObligacion(
     List<FacObligacion> obligaciones,
     int from,
@@ -332,6 +348,12 @@ class FacturacionService {
             final facMap = <String, Map<String, dynamic>>{
               for (final d in facSnap.docs) d.id: d.data(),
             };
+            // Alcance de las obligaciones (maestro): lo que no aplica a un
+            // establecimiento se lee como "no aplica".
+            List<FacObligacion> obligaciones = const [];
+            try {
+              obligaciones = await getObligacionesActivas(empresaId);
+            } catch (_) {}
 
             final list = <FacEstablecimiento>[];
             for (final centroDoc in centrosSnap.docs) {
@@ -359,7 +381,7 @@ class FacturacionService {
               (a, b) =>
                   a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()),
             );
-            return list;
+            return aplicarAlcanceObligaciones(list, obligaciones);
           });
 
   /// Lee un establecimiento específico fusionando el nombre de TBL_CENTROS_COSTOS
@@ -406,12 +428,18 @@ class FacturacionService {
       }
     }
 
-    return _mergeCentroFac(
+    final est = _mergeCentroFac(
       empresaId: empresaId,
       centroId: estId,
       nombre: nombre,
       facData: facData,
     );
+    try {
+      final obligaciones = await getObligacionesActivas(empresaId);
+      return aplicarAlcanceObligaciones([est], obligaciones).first;
+    } catch (_) {
+      return est;
+    }
   }
 
   /// Escucha únicamente la configuración del establecimiento solicitado.

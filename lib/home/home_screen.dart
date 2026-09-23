@@ -49,6 +49,7 @@ import 'notifications_screen.dart';
 import 'task_history_screen.dart' hide kArial;
 import 'create_task_screen.dart' hide kArial;
 import '../core/access_guard.dart';
+import '../core/app_catalog.dart';
 import '../core/task_route_guard.dart';
 import '../facturacion/facturacion_navigation.dart';
 
@@ -63,6 +64,14 @@ class HomeScreen extends StatefulWidget {
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
+}
+
+/// Tarjeta de módulo del inicio con su appId, para ubicarla en la franja del
+/// mapa de procesos que le corresponde ([procesoDeApp]).
+class _HomeModulo {
+  final String appId;
+  final Widget card;
+  const _HomeModulo(this.appId, this.card);
 }
 
 class _HomeScreenState extends State<HomeScreen> {
@@ -353,9 +362,12 @@ class _HomeScreenState extends State<HomeScreen> {
           .doc(userId)
           .set({
             'fcmTokens': FieldValue.arrayUnion([token]),
-            'fcmDevices.$token': {
-              'platform': platform,
-              'updatedAt': FieldValue.serverTimestamp(),
+            // set(merge) no interpreta los puntos: el mapa va anidado.
+            'fcmDevices': {
+              token: {
+                'platform': platform,
+                'updatedAt': FieldValue.serverTimestamp(),
+              },
             },
           }, SetOptions(merge: true));
     } catch (_) {}
@@ -480,14 +492,11 @@ class _HomeScreenState extends State<HomeScreen> {
         .where('empresaId', isEqualTo: empresaId)
         .where('profesionalId', isEqualTo: cedula)
         .snapshots()
-        .listen(
-          (snap) {
-            if (mounted && _lastVisitasKey == key) {
-              setState(() => _visitasMiasEvents = _visitasAEventos(snap));
-            }
-          },
-          onError: (_) {},
-        );
+        .listen((snap) {
+          if (mounted && _lastVisitasKey == key) {
+            setState(() => _visitasMiasEvents = _visitasAEventos(snap));
+          }
+        }, onError: (_) {});
 
     String? rol;
     try {
@@ -502,14 +511,11 @@ class _HomeScreenState extends State<HomeScreen> {
         .where('empresaId', isEqualTo: empresaId)
         .where('asignadoPorId', isEqualTo: cedula)
         .snapshots()
-        .listen(
-          (snap) {
-            if (mounted && _lastVisitasKey == key) {
-              setState(() => _visitasJefeEvents = _visitasAEventos(snap));
-            }
-          },
-          onError: (_) {},
-        );
+        .listen((snap) {
+          if (mounted && _lastVisitasKey == key) {
+            setState(() => _visitasJefeEvents = _visitasAEventos(snap));
+          }
+        }, onError: (_) {});
   }
 
   /// Suscribe (o re-suscribe) a TBL_CITAS_NUTRICION para el cedula+empresa activa.
@@ -983,10 +989,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     ]) {
                       if (!seen.add(doc.id)) continue;
                       final data = doc.data();
+                      // Estricto por empresa, igual que "Mis tareas": con
+                      // `allowLegacyWithoutEmpresa: true` las tareas sin
+                      // empresaId salían en el calendario de TODAS las UT
+                      // (reporte del 21 sep 2026 desde Servir).
                       if (matchesEmpresaScope(
                         data,
                         scopeEmpresa,
-                        allowLegacyWithoutEmpresa: true,
+                        allowLegacyWithoutEmpresa: false,
                       )) {
                         tasks.add({'id': doc.id, ...data});
                       }
@@ -1251,7 +1261,9 @@ class _HomeScreenState extends State<HomeScreen> {
     bool isDev,
     Set<String> disabledAppIds,
   ) {
-    final modules = _getModuleWidgets(
+    // En el teléfono no hay columnas: la franja horizontal conserva el
+    // orden del mapa de procesos (estratégicos, misionales, apoyo).
+    final todos = _getModuleWidgets(
       cedula,
       empresaId,
       userData,
@@ -1260,6 +1272,11 @@ class _HomeScreenState extends State<HomeScreen> {
       disabledAppIds,
       false,
     );
+    final modules = [
+      for (final p in ProcesoMapa.values)
+        for (final m in todos)
+          if (procesoDeApp(m.appId) == p) m.card,
+    ];
     if (modules.isEmpty) return const SizedBox.shrink();
 
     // La tarjeta mide icono + dos líneas de título. Con la letra del sistema
@@ -1400,17 +1417,92 @@ class _HomeScreenState extends State<HomeScreen> {
       disabledAppIds,
       isWeb,
     );
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: isWeb ? 300 : 160,
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 16,
-        childAspectRatio: isWeb ? 1.6 : 1.3,
-      ),
-      itemCount: modules.length,
-      itemBuilder: (context, index) => modules[index],
+    // Mapa de procesos (reunión 18 sep 2026): los módulos se agrupan en
+    // estratégicos, misionales y de apoyo, y cada franja conserva su lugar
+    // aunque la persona solo tenga módulos en una de ellas, para que todo el
+    // mundo los vea en el mismo orden.
+    final porProceso = <ProcesoMapa, List<Widget>>{
+      for (final p in ProcesoMapa.values) p: <Widget>[],
+    };
+    for (final m in modules) {
+      porProceso[procesoDeApp(m.appId)]!.add(m.card);
+    }
+    final franjas = ProcesoMapa.values
+        .where((p) => porProceso[p]!.isNotEmpty)
+        .toList();
+    if (franjas.isEmpty) return const SizedBox.shrink();
+
+    // En columnas, la tarjeta ocupa todo el ancho de la franja; con una
+    // proporción fija salían botones enormes en pantallas anchas (Oscar, 23
+    // sep 2026: "los botones deben ser más pequeños"). Ahí la altura es fija:
+    // icono + dos líneas de título, y acompaña la escala de texto.
+    final escalaTexto = MediaQuery.textScalerOf(context).scale(13) / 13;
+    final altoEnColumna = (96 + 29 * (escalaTexto - 1)).clamp(96.0, 140.0);
+
+    Widget rejilla(
+      List<Widget> cards, {
+      required double maxExtent,
+      double? altoFijo,
+    }) =>
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: maxExtent,
+            mainAxisSpacing: altoFijo != null ? 10 : 16,
+            crossAxisSpacing: 16,
+            mainAxisExtent: altoFijo,
+            childAspectRatio: isWeb ? 1.6 : 1.3,
+          ),
+          itemCount: cards.length,
+          itemBuilder: (context, index) => cards[index],
+        );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // En escritorio, tres columnas lado a lado como en el diagrama; en
+        // pantallas angostas, las mismas franjas una debajo de otra.
+        final enColumnas = isWeb && constraints.maxWidth >= 720;
+        if (enColumnas) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (var i = 0; i < ProcesoMapa.values.length; i++) ...[
+                if (i > 0) const SizedBox(width: 16),
+                Expanded(
+                  child: FranjaProceso(
+                    titulo: ProcesoMapa.values[i].label,
+                    descripcion: ProcesoMapa.values[i].descripcion,
+                    vacia: porProceso[ProcesoMapa.values[i]]!.isEmpty,
+                    child: rejilla(
+                      porProceso[ProcesoMapa.values[i]]!,
+                      // Una tarjeta por fila dentro de cada columna.
+                      maxExtent: 400,
+                      altoFijo: altoEnColumna,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < franjas.length; i++) ...[
+              if (i > 0) const SizedBox(height: 18),
+              FranjaProceso(
+                titulo: franjas[i].label,
+                descripcion: franjas[i].descripcion,
+                child: rejilla(
+                  porProceso[franjas[i]]!,
+                  maxExtent: isWeb ? 300 : 160,
+                ),
+              ),
+            ],
+          ],
+        );
+      },
     );
   }
 
@@ -1469,7 +1561,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return userHasApp(userData, appId, empresaId: empresaId);
   }
 
-  List<Widget> _getModuleWidgets(
+  List<_HomeModulo> _getModuleWidgets(
     String cedula,
     String empresaId,
     Map<String, dynamic> userData,
@@ -1481,82 +1573,93 @@ class _HomeScreenState extends State<HomeScreen> {
     final cardWidth = isWeb ? null : 140.0;
     return [
       if (_moduleVisible(apps, isDev, 'admindashboard', disabledAppIds))
-        ModuleCard(
-          width: cardWidth,
-          title: 'Administración',
-          icon: Icons.admin_panel_settings_rounded,
-          color: const Color(0xFF475569),
-          compact: !isWeb,
-          onTap: () async {
-            final permitido = await _guardModuleNavigation(
-              userData: userData,
-              empresaId: empresaId,
-              appId: 'admindashboard',
-              deniedMessage: 'Sin acceso',
-            );
-            if (!permitido || !mounted) return;
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) =>
-                    AdminDashboardScreen(userId: cedula, empresaId: empresaId),
-              ),
-            );
-          },
+        _HomeModulo(
+          'admindashboard',
+          ModuleCard(
+            width: cardWidth,
+            title: 'Administración',
+            icon: Icons.admin_panel_settings_rounded,
+            color: const Color(0xFF475569),
+            compact: !isWeb,
+            onTap: () async {
+              final permitido = await _guardModuleNavigation(
+                userData: userData,
+                empresaId: empresaId,
+                appId: 'admindashboard',
+                deniedMessage: 'Sin acceso',
+              );
+              if (!permitido || !mounted) return;
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => AdminDashboardScreen(
+                    userId: cedula,
+                    empresaId: empresaId,
+                  ),
+                ),
+              );
+            },
+          ),
         ),
 
       if (_moduleVisible(apps, isDev, 'talentohumanodashboard', disabledAppIds))
-        ModuleCard(
-          width: cardWidth,
-          title: 'Talento Humano',
-          icon: Icons.groups_rounded,
-          color: const Color(0xFF4F46E5),
-          compact: !isWeb,
-          onTap: () async {
-            final permitido = await _guardModuleNavigation(
-              userData: userData,
-              empresaId: empresaId,
-              appId: 'talentohumanodashboard',
-              deniedMessage: 'Sin acceso',
-            );
-            if (!permitido || !mounted) return;
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => TalentoHumanoDashboardScreen(
-                  userId: cedula,
-                  empresaId: empresaId,
+        _HomeModulo(
+          'talentohumanodashboard',
+          ModuleCard(
+            width: cardWidth,
+            title: 'Talento Humano',
+            icon: Icons.groups_rounded,
+            color: const Color(0xFF4F46E5),
+            compact: !isWeb,
+            onTap: () async {
+              final permitido = await _guardModuleNavigation(
+                userData: userData,
+                empresaId: empresaId,
+                appId: 'talentohumanodashboard',
+                deniedMessage: 'Sin acceso',
+              );
+              if (!permitido || !mounted) return;
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => TalentoHumanoDashboardScreen(
+                    userId: cedula,
+                    empresaId: empresaId,
+                  ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
 
       if (_moduleVisible(apps, isDev, 'gerenciadashboard', disabledAppIds))
-        ModuleCard(
-          width: cardWidth,
-          title: 'Gerencia',
-          icon: Icons.query_stats_rounded,
-          color: const Color(0xFF7C3AED),
-          compact: !isWeb,
-          onTap: () async {
-            final permitido = await _guardModuleNavigation(
-              userData: userData,
-              empresaId: empresaId,
-              appId: 'gerenciadashboard',
-              deniedMessage: 'Sin acceso',
-            );
-            if (!permitido || !mounted) return;
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => GerenciaDashboardScreen(
-                  userId: cedula,
-                  empresaId: empresaId,
+        _HomeModulo(
+          'gerenciadashboard',
+          ModuleCard(
+            width: cardWidth,
+            title: 'Gerencia',
+            icon: Icons.query_stats_rounded,
+            color: const Color(0xFF7C3AED),
+            compact: !isWeb,
+            onTap: () async {
+              final permitido = await _guardModuleNavigation(
+                userData: userData,
+                empresaId: empresaId,
+                appId: 'gerenciadashboard',
+                deniedMessage: 'Sin acceso',
+              );
+              if (!permitido || !mounted) return;
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => GerenciaDashboardScreen(
+                    userId: cedula,
+                    empresaId: empresaId,
+                  ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
 
       if (_moduleVisible(
@@ -1565,183 +1668,217 @@ class _HomeScreenState extends State<HomeScreen> {
         'gestiondocumentaldashboard',
         disabledAppIds,
       ))
-        ModuleCard(
-          width: cardWidth,
-          title: 'Gestión de Correspondencia',
-          icon: Icons.auto_stories_rounded,
-          color: const Color(0xFF0D9488),
-          compact: !isWeb,
-          onTap: () async {
-            final permitido = await _guardModuleNavigation(
-              userData: userData,
-              empresaId: empresaId,
-              appId: 'gestiondocumentaldashboard',
-              deniedMessage: 'Sin acceso',
-            );
-            if (!permitido || !mounted) return;
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => DocumentManagementScreen(
-                  currentUserId: cedula,
-                  empresaId: empresaId,
+        _HomeModulo(
+          'gestiondocumentaldashboard',
+          ModuleCard(
+            width: cardWidth,
+            title: 'Gestión de Correspondencia',
+            icon: Icons.auto_stories_rounded,
+            color: const Color(0xFF0D9488),
+            compact: !isWeb,
+            onTap: () async {
+              final permitido = await _guardModuleNavigation(
+                userData: userData,
+                empresaId: empresaId,
+                appId: 'gestiondocumentaldashboard',
+                deniedMessage: 'Sin acceso',
+              );
+              if (!permitido || !mounted) return;
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => DocumentManagementScreen(
+                    currentUserId: cedula,
+                    empresaId: empresaId,
+                  ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
 
       if (_bibliotecaVisible(userData, empresaId, apps, isDev, disabledAppIds))
-        ModuleCard(
-          width: cardWidth,
-          title: 'Biblioteca Documental',
-          icon: Icons.local_library_rounded,
-          color: const Color(0xFF2563A6),
-          compact: !isWeb,
-          onTap: () async {
-            const appId = 'bibliotecadocumentaldashboard';
-            final permitido = await _guardModuleNavigation(
-              userData: userData,
-              empresaId: empresaId,
-              appId: appId,
-              deniedMessage: 'Sin acceso a Biblioteca Documental',
-            );
-            if (!permitido || !mounted) return;
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => LibraryManagementScreen(
-                  currentUserId: cedula,
-                  empresaId: empresaId,
+        _HomeModulo(
+          'bibliotecadocumentaldashboard',
+          ModuleCard(
+            width: cardWidth,
+            title: 'Biblioteca Documental',
+            icon: Icons.local_library_rounded,
+            color: const Color(0xFF2563A6),
+            compact: !isWeb,
+            onTap: () async {
+              const appId = 'bibliotecadocumentaldashboard';
+              final permitido = await _guardModuleNavigation(
+                userData: userData,
+                empresaId: empresaId,
+                appId: appId,
+                deniedMessage: 'Sin acceso a Biblioteca Documental',
+              );
+              if (!permitido || !mounted) return;
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => LibraryManagementScreen(
+                    currentUserId: cedula,
+                    empresaId: empresaId,
+                  ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
 
       if (_planillasVisible(userData, empresaId, apps, isDev, disabledAppIds))
-        ModuleCard(
-          width: cardWidth,
-          title: 'Planillas de Pago',
-          icon: Icons.request_quote_rounded,
-          color: const Color(0xFFB45309),
-          compact: !isWeb,
-          onTap: () async {
-            final permitido = await _guardModuleNavigation(
-              userData: userData,
-              empresaId: empresaId,
-              appId: kPlanillasPagoAppId,
-              deniedMessage: 'Sin acceso a Planillas de Pago',
-            );
-            if (!permitido || !mounted) return;
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => PlanillasPagoModuleScreen(
-                  userId: cedula,
-                  empresaId: empresaId,
+        _HomeModulo(
+          'planillaspagodashboard',
+          ModuleCard(
+            width: cardWidth,
+            title: 'Planillas de Pago',
+            icon: Icons.request_quote_rounded,
+            color: const Color(0xFFB45309),
+            compact: !isWeb,
+            onTap: () async {
+              final permitido = await _guardModuleNavigation(
+                userData: userData,
+                empresaId: empresaId,
+                appId: kPlanillasPagoAppId,
+                deniedMessage: 'Sin acceso a Planillas de Pago',
+              );
+              if (!permitido || !mounted) return;
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PlanillasPagoModuleScreen(
+                    userId: cedula,
+                    empresaId: empresaId,
+                  ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
 
       if (_moduleVisible(apps, isDev, 'nutriciondashboard', disabledAppIds))
-        ModuleCard(
-          width: cardWidth,
-          title: 'Nutrición',
-          icon: Icons.restaurant_menu_rounded,
-          color: const Color(0xFFEA580C),
-          compact: !isWeb,
-          onTap: () async {
-            final permitido = await _guardModuleNavigation(
-              userData: userData,
-              empresaId: empresaId,
-              appId: 'nutriciondashboard',
-              deniedMessage: 'Sin acceso',
-            );
-            if (!permitido || !mounted) return;
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => NutricionDashboardScreen(
-                  userId: cedula,
-                  empresaId: empresaId,
+        _HomeModulo(
+          'nutriciondashboard',
+          ModuleCard(
+            width: cardWidth,
+            title: 'Nutrición',
+            icon: Icons.restaurant_menu_rounded,
+            color: const Color(0xFFEA580C),
+            compact: !isWeb,
+            onTap: () async {
+              final permitido = await _guardModuleNavigation(
+                userData: userData,
+                empresaId: empresaId,
+                appId: 'nutriciondashboard',
+                deniedMessage: 'Sin acceso',
+              );
+              if (!permitido || !mounted) return;
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => NutricionDashboardScreen(
+                    userId: cedula,
+                    empresaId: empresaId,
+                  ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
 
       if (_moduleVisible(apps, isDev, 'comprasdashboard', disabledAppIds))
-        ModuleCard(
-          width: cardWidth,
-          title: 'Compras',
-          icon: Icons.shopping_bag_rounded,
-          color: const Color(0xFF2563EB),
-          compact: !isWeb,
-          onTap: () => _abrirCompras(context, cedula, empresaId, userData),
+        _HomeModulo(
+          'comprasdashboard',
+          ModuleCard(
+            width: cardWidth,
+            title: 'Compras',
+            icon: Icons.shopping_bag_rounded,
+            color: const Color(0xFF2563EB),
+            compact: !isWeb,
+            onTap: () => _abrirCompras(context, cedula, empresaId, userData),
+          ),
         ),
 
       if (_moduleVisible(apps, isDev, 'correodashboard', disabledAppIds))
-        ModuleCard(
-          width: cardWidth,
-          title: 'Correo',
-          icon: Icons.mark_email_unread_rounded,
-          color: const Color(0xFF0F766E),
-          compact: !isWeb,
-          onTap: () => _abrirCorreo(context, cedula, empresaId, userData),
+        _HomeModulo(
+          'correodashboard',
+          ModuleCard(
+            width: cardWidth,
+            title: 'Correo',
+            icon: Icons.mark_email_unread_rounded,
+            color: const Color(0xFF0F766E),
+            compact: !isWeb,
+            onTap: () => _abrirCorreo(context, cedula, empresaId, userData),
+          ),
         ),
 
       if (_moduleVisible(apps, isDev, kDianTokensAppId, disabledAppIds))
-        ModuleCard(
-          width: cardWidth,
-          title: 'Tokens DIAN',
-          icon: Icons.vpn_key_rounded,
-          color: const Color(0xFF0E7490),
-          compact: !isWeb,
-          onTap: () => _abrirTokensDian(context, cedula, empresaId, userData),
+        _HomeModulo(
+          'tokensdiandashboard',
+          ModuleCard(
+            width: cardWidth,
+            title: 'Tokens DIAN',
+            icon: Icons.vpn_key_rounded,
+            color: const Color(0xFF0E7490),
+            compact: !isWeb,
+            onTap: () => _abrirTokensDian(context, cedula, empresaId, userData),
+          ),
         ),
 
       if (_moduleVisible(apps, isDev, kInterventoriaAppId, disabledAppIds))
-        ModuleCard(
-          width: cardWidth,
-          title: 'Interventoria',
-          icon: Icons.document_scanner_rounded,
-          color: const Color(0xFF0F766E),
-          compact: !isWeb,
-          onTap: () =>
-              _abrirInterventoria(context, cedula, empresaId, userData),
+        _HomeModulo(
+          'interventoriadashboard',
+          ModuleCard(
+            width: cardWidth,
+            title: 'Interventoria',
+            icon: Icons.document_scanner_rounded,
+            color: const Color(0xFF0F766E),
+            compact: !isWeb,
+            onTap: () =>
+                _abrirInterventoria(context, cedula, empresaId, userData),
+          ),
         ),
 
       if (_moduleVisible(apps, isDev, kFacAppId, disabledAppIds))
-        ModuleCard(
-          width: cardWidth,
-          title: 'Facturación',
-          icon: Icons.receipt_long_rounded,
-          color: const Color(0xFF0369A1),
-          compact: !isWeb,
-          onTap: () => _abrirFacturacion(context, cedula, empresaId, userData),
+        _HomeModulo(
+          'facturaciondashboard',
+          ModuleCard(
+            width: cardWidth,
+            title: 'Facturación',
+            icon: Icons.receipt_long_rounded,
+            color: const Color(0xFF0369A1),
+            compact: !isWeb,
+            onTap: () =>
+                _abrirFacturacion(context, cedula, empresaId, userData),
+          ),
         ),
 
       if (_moduleVisible(apps, isDev, kRutasAppId, disabledAppIds))
-        ModuleCard(
-          width: cardWidth,
-          title: 'Rutas',
-          icon: Icons.local_shipping_rounded,
-          color: kRutasColor,
-          compact: !isWeb,
-          onTap: () => _abrirRutas(context, cedula, empresaId, userData),
+        _HomeModulo(
+          'rutasdashboard',
+          ModuleCard(
+            width: cardWidth,
+            title: 'Rutas',
+            icon: Icons.local_shipping_rounded,
+            color: kRutasColor,
+            compact: !isWeb,
+            onTap: () => _abrirRutas(context, cedula, empresaId, userData),
+          ),
         ),
 
       if (_moduleVisible(apps, isDev, kVisitasAppId, disabledAppIds))
-        ModuleCard(
-          width: cardWidth,
-          title: 'Visitas',
-          icon: Icons.fact_check_rounded,
-          color: kVisitasColor,
-          compact: !isWeb,
-          onTap: () => _abrirVisitas(context, cedula, empresaId, userData),
+        _HomeModulo(
+          'visitasdashboard',
+          ModuleCard(
+            width: cardWidth,
+            title: 'Visitas',
+            icon: Icons.fact_check_rounded,
+            color: kVisitasColor,
+            compact: !isWeb,
+            onTap: () => _abrirVisitas(context, cedula, empresaId, userData),
+          ),
         ),
     ];
   }

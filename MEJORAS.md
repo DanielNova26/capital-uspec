@@ -6,6 +6,29 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Inicio: botones de módulo más pequeños en web — 23 sep 2026 (Claude)
+
+- En el mapa de procesos por columnas (web, ancho ≥ 720) la tarjeta ya no
+  usa proporción 1.6 sobre todo el ancho de la franja: tiene alto fijo de
+  96 px (icono + dos líneas de título), que crece con la escala de texto
+  hasta 140. El espacio vertical entre tarjetas baja de 16 a 10.
+- Móvil y web angosto no cambian.
+
+---
+
+## Abastecimiento: indicadores según el periodo elegido — 23 sep 2026 (Claude)
+
+- Hoy / Atrasadas / Cancelados / Pendientes / Entregados se cuentan solo
+  sobre las filas del corte elegido: periodo (consumo principal + rango de
+  entrega) más proveedor, producto y grupo, con `_enCorte()` compartido con
+  el filtro de la tabla.
+- Estado, "Con pendientes" y búsqueda no cambian los números: son lo que el
+  indicador mide, y si entraran los demás indicadores quedarían en cero.
+- Tocar un indicador ya no borra el rango de entrega (salvo "Hoy", que lo
+  fija en hoy), para que la lista que aparece cuadre con el número tocado.
+
+---
+
 ## Visitas: formato SST oficial, ubicación obligatoria, firmas y calendario — 17 sep 2026 (Claude)
 
 Origen: el Excel "FORMATO INSPECCIÓN SST, EXTINTOR Y BOTIQUÍN" (F-UT-SST-02,
@@ -6086,3 +6109,186 @@ reunión con Oscar, cuando esa acta se entendía como anterior a la
 división—; confirmado el 18 sep 2026 que el establecimiento tiene su propia
 acta, se quitó ese filtro en `compararUltimaActaPorEstablecimiento` y se
 actualizó la prueba en `interventoria_visita_items_test.dart`.
+
+## Reunión 18 sep 2026 + reportes de TH, Bodega y Gerencia (21 sep 2026)
+
+Origen: notas de Gemini de la reunión con Oscar del 18 sep 2026 y los
+reportes del 20-21 sep (Talento Humano, Bodega y Gerencia).
+
+**Bugs**
+
+- **Talento Humano inactivaba a alguien y "volvía a aparecer activo".**
+  `PersonnelStatusService.changeStatus` escribía el bloque de
+  `TBL_ESTRUCTURA_ORGANIZACIONAL` con `set(merge: true)` y claves con punto
+  (`empresasDetalle.X.estado`). `set()` NO interpreta los puntos como ruta:
+  creaba un campo literal con ese nombre y el bloque anidado seguía en
+  `activo`; al reabrir el organigrama, `_syncAllTH` copiaba ese `activo` a la
+  raíz y la persona "revivía". Ahora va por `update()` (que sí entiende las
+  rutas) y borra el campo literal que dejó la versión anterior. Además
+  `_syncAllTH` repara sola a quienes ya quedaron con el campo literal: lo
+  pasa al bloque real y lo elimina. Mismo patrón corregido en el registro
+  de tokens FCM (`home_screen`, `notification_service`) y en la auditoría
+  de login (`session_audit_service`): mapas anidados en vez de claves con
+  punto.
+- **Bodega: recepción "Finalizada" sin haber hecho nada.** Una recepción
+  guardada sin ningún documento (permitido: la ficha no puede frenar la
+  recepción física) caía en `historico` y quedaba bloqueada como
+  "Finalizada" sin botón de completar. `estadoRecepcionCompras`: sin
+  soportes = `pendiente`. Prueba en `compras_recepcion_logic_test.dart`.
+- **Bodega: "Dart exception thrown from converted Future…" al enviar
+  correcciones.** En Flutter web el manejador de `runTransaction` se
+  convierte en una promesa de JavaScript y cualquier `StateError` lanzado
+  adentro (las validaciones de `reenviarRecepcionCorregida`: "Debes
+  corregir todos los documentos rechazados…", "Solo se pueden reemplazar
+  documentos rechazados…") salía afuera con ese texto genérico. Las cinco
+  transacciones de `ComprasService` pasan ahora por `_transaccion`, que
+  guarda el error de adentro y lo relanza tal cual; la pantalla muestra el
+  mensaje sin el prefijo "Bad state:".
+- **Bodega/Compras pueden borrar lo propio mientras Calidad no lo revise:**
+  la recepción pendiente que ellos mismos registraron y la ficha técnica sin
+  versión aprobada (`comprasRolPuedeEliminarPropiasPendientes`,
+  `fichaTecnicaEliminablePorAutor`). Admin sigue borrando todo.
+- **Móvil: no se podía desplazar el panel de la tarea para llegar a
+  "Aprobar".** Los paneles de Mis tareas y Tareas creadas eran un `Wrap`
+  sin scroll dentro del bottom sheet; con finalización pendiente + novedades
+  se salían de la pantalla. Van en `SingleChildScrollView` acotado al 92 %
+  del alto.
+
+- **Calendario del inicio mezclaba empresas.** Citas, abastecimiento y
+  visitas ya filtraban por empresa, pero las tareas entraban con
+  `allowLegacyWithoutEmpresa: true`: cualquier tarea sin `empresaId` salía
+  en el calendario y en "Pendientes de hoy" de todas las UT. Ahora es
+  estricto, igual que "Mis tareas".
+
+**Compras (reunión)**
+
+- Se quita el botón "Nueva Recepción": toda recepción nace de una entrega
+  programada en Abastecimiento. La pantalla queda para completar, corregir,
+  eliminar y ver cuánto lleva Calidad sin revisar. Los cancelados se
+  conservan (Oscar: "ahí se ve la gestión").
+
+**Gerencia → Interventoría (reunión)**
+
+- **Numerales al abrir un establecimiento**: en el detalle salen chips por
+  sección del acta (1..11) con su conteo; un clic deja solo esa sección. La
+  lista se ordena por numeral. `gerencia_hallazgos_export.dart`
+  (`seccionDelHallazgo`, `conteoPorSeccion`, `compararPorNumeral`) con
+  pruebas en `test/gerencia/`.
+- **Exportar según el nivel del filtro**: Excel de todo lo filtrado (botón en
+  la gráfica) o del grupo / sección abierta (botones en el detalle). PDF solo
+  del detalle, como se acordó ("la de PDF solamente sería esta"). El archivo
+  lleva el alcance y los filtros en la cabecera.
+- **Paginación arriba y tarjetas del mismo alto**: en escritorio, gráfica y
+  detalle miden lo mismo (640 px) con scroll interno y la barra de páginas
+  encima, que era lo que pidió Oscar. `PagedListSection` acepta
+  `barraArriba` para el mismo caso en otras pantallas.
+- **Subcentros separados**: cada subcentro es una fila propia con su nombre
+  como título y "Subcentro de X" debajo; la clave se normaliza con
+  `claveSubcentro` para que "Alta" y "Cómbita Alta" caigan juntas. Los
+  hallazgos de observaciones generales y conclusiones ahora llevan el
+  subcentro del acta.
+- **WhatsApp de nueva acta**: "Centro de costo: Planta externa (Estación
+  Soacha)" (`etiquetaCentroConSubcentro` en
+  `workflow_whatsapp_notifications.ts`). Falta desplegar functions.
+
+**Interventoría**
+
+- La solicitud de eliminación/corrección de acta ya solo notificaba a los
+  roles que pueden aprobarla; ahora además excluye a quien ya está retirado
+  de la empresa (`userIsActiveInEmpresa` en `interventoria_deletion.ts`).
+  Falta desplegar functions.
+- El diálogo "Copiar a otras empresas" del maestro lleva también la
+  configuración del módulo (programas, actas habilitadas, plazos de
+  subsanación, semáforo, OCR) con `copiarConfiguracionInterventoria`. Roles
+  y actas no se copian: son personas y datos de cada empresa.
+
+**Visitas (reunión)**
+
+- Pestaña **"Registro de visita"** para el profesional: al llegar toca
+  "Estoy en el establecimiento", la app toma el GPS, busca dentro de qué
+  radio del maestro está y "jala" la visita programada ahí (Iniciar /
+  Continuar). Sin visita programada en ese sitio no puede iniciar nada: lo
+  corrige el jefe. Lógica pura en `resolverRegistroVisita`
+  (`visitas_models.dart`) con pruebas en `test/visitas/visitas_registro_test.dart`.
+- Reprogramar queda solo para el jefe (`visitasPuedeReprogramar`): el 17 sep
+  se había dejado que el profesional moviera la suya; el 18 sep Oscar cerró
+  que el cronograma lo arma y corrige únicamente la dirección.
+- Pendiente de la sesión anterior: desplegar `firestore.rules` (sin eso
+  reprogramar/tablas/firmas dan permission-denied en producción; es la causa
+  probable del "no me quiere cargar" de la reunión).
+
+- **Cronograma como calendario de verdad** (pedido del 21 sep: "un
+  calendario, no algo tan cuadriculado"): `TableCalendar` con un punto por
+  visita del color de su estado (rojo = vencida), se toca un día y abajo (o
+  al lado, en escritorio) salen sus visitas; "Programar" ya trae ese día
+  elegido. El filtro por estado se conserva.
+- **Los roles de Visitas se asignan desde Admin → Roles y permisos**, como
+  Rutas o Interventoría (matriz central, `TBL_VISITAS_ROLES` con el mismo
+  docId `{empresaId}_{userId}` que exigen las reglas). Se quitó la pestaña
+  "Roles" del módulo.
+- **El "no me quiere cargar" de la reunión era la regla, no el deploy.**
+  Se reprodujo el 21 sep en web: `permission-denied` al cargar el formato
+  SST aun con las reglas desplegadas. `cargarFormatoSst` (y `getRolUsuario`,
+  `ubicacionPara`) hacen `get()` por id de un documento que puede no existir;
+  con `resource == null`, `participaEnVisitas(resource.data.empresaId)`
+  revienta y niega. Las cuatro colecciones de Visitas separan ahora `get`
+  (`resource == null || …`) de `list`, igual que Interventoría desde el 11
+  sep. Prueba nueva en `functions/test/visitas_profesionales.rules.js`
+  (20/20 en el emulador). **Hay que volver a desplegar las reglas.**
+
+**Inicio por mapa de procesos (reunión)**
+
+- `ProcesoMapa` en `core/app_catalog.dart`: cada módulo declara su franja
+  (estratégico / misional / apoyo). En web el inicio pinta tres columnas con
+  cabecera, y las tres conservan su lugar aunque la persona solo tenga
+  módulos en una; en pantallas angostas van una debajo de otra y en el
+  teléfono la franja horizontal respeta el mismo orden. Cuadro
+  definitivo de Oscar (21 sep): **Gerencial** = Gerencia; **Misional** =
+  Nutrición, Interventoría, Facturación, Rutas, Visitas; **Apoyo** = Talento
+  Humano, Correspondencia, Planillas, Compras, Correo, Tokens; **Maestros** =
+  Biblioteca documental (y Administración, que él no listó). Mover un módulo
+  es cambiar `proceso:` en el catálogo.
+
+**Web: descargar la app (reunión)**
+
+- `core/app_stores.dart` + `widgets/app_store_links.dart`: botones "Descargar
+  en Google Play / App Store" **solo en el login** (se quitaron del menú
+  lateral el 21 sep: "que no salga tanto ahí como en el home"), solo en web. El de Google Play ya apunta al `applicationId`; el de App Store queda
+  vacío (no se pinta) hasta tener el id numérico de la ficha.
+
+**Biblioteca**
+
+- **Vista previa de Word/Excel/PowerPoint** con el visor en línea de
+  Microsoft (y el de Google como alternativa) dentro de un iframe en web;
+  en el teléfono se abre el visor en el navegador
+  (`widgets/office_preview/`). Los PDF siguen igual.
+- **"Copiar a otra empresa"** (Oscar: "trasladar toda la documentación de
+  una UT a otra"): `GdService.copiarBibliotecaAEmpresa` lleva cada documento
+  con su versión vigente como v1 y duplica el archivo en Storage bajo la
+  empresa destino; salta los códigos que ya existen, así que se puede
+  repetir. Botón en la cabecera de Biblioteca para Admin Documental /
+  Desarrollo, con barra de progreso.
+
+**Facturación**
+
+- Obligaciones por establecimiento: cada obligación del maestro dice si
+  aplica a todos o a una lista de establecimientos (`establecimientos` en
+  `TBL_FAC_OBLIGACIONES`, vacío = todos). Para los que quedan por fuera se
+  lee como "no aplica" (`ignoradosEfectivos`), aplicado en
+  `streamEstablecimientos`/`getEstablecimiento` para que todas las pantallas
+  lo vean igual, sin pisar lo marcado a mano. Pruebas en
+  `facturacion_models_test.dart`.
+
+**Correspondencia**
+
+- Al radicar un correo, el diálogo muestra "Así quedará la tarea": título
+  (`Responder GD-2026-······: asunto`), descripción, responsable, prioridad,
+  vencimiento y aprobación, con el mismo molde que arma el backend.
+
+**Queda por fuera / pendiente de datos**
+
+- Centros de costo: la planta y cada estación como centro independiente es
+  configuración en Admin (25 estaciones), no código.
+- Usuario ficticio "administrador de bodega" para pruebas: se crea desde
+  Talento Humano / Admin.
+- Equipo nuevo, accesos al servidor y tokens de Servir: fuera de la app.

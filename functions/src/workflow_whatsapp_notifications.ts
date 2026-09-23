@@ -118,6 +118,31 @@ export const ppWhatsAppCambioFirma = functions
     }
   });
 
+/**
+ * "Planta externa (Estación Soacha)". El subcentro quedó guardado de dos
+ * formas en las actas ("Alta" y "Cómbita Alta"): se le quita el centro del
+ * frente para no repetirlo, y si coincide con el centro no se muestra.
+ * @param {string} centro Nombre del centro.
+ * @param {string} subcentro Nombre del subcentro.
+ * @return {string} Etiqueta legible sin repetir el nombre del centro.
+ */
+export function etiquetaCentroConSubcentro(centro: string, subcentro: string): string {
+  const c = centro.trim();
+  let s = subcentro.trim();
+  if (!c) return s;
+  if (!s) return c;
+  const norm = (v: string) => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (norm(s) === norm(c)) return c;
+  if (norm(s).startsWith(norm(c))) {
+    const palabras = s.split(/\s+/);
+    const n = c.split(/\s+/).length;
+    if (palabras.length > n && norm(palabras.slice(0, n).join(" ")) === norm(c)) {
+      s = palabras.slice(n).join(" ");
+    }
+  }
+  return `${c} (${s})`;
+}
+
 // `onWrite` y no `onUpdate`: el acta se crea en UNA sola escritura con sus
 // imágenes ya adentro (`guardarVisita` hace un `set` completo), así que con
 // `onUpdate` la creación nunca se veía y el aviso de "nueva acta" no salía
@@ -135,7 +160,10 @@ export const interventoriaWhatsAppNuevaActa = functions
     if (current <= previous) return;
     const empresaId = text(after.empresaId);
     if (!empresaId) return;
-    const centro = text(after.centroCostoNombre || after.centroCostoCodigo);
+    // "Centro (Subcentro)": Gerencia pidió (18 sep 2026) que la estación no
+    // se lea como si el acta fuera de la planta principal.
+    const centroBase = text(after.centroCostoNombre || after.centroCostoCodigo);
+    const centro = etiquetaCentroConSubcentro(centroBase, text(after.subcentroNombre));
     const fecha = after.fechaVisita?.toDate instanceof Function
       ? after.fechaVisita.toDate().toLocaleDateString("es-CO")
       : "";

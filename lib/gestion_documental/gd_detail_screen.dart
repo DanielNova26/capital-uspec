@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../utils/user_company.dart';
+import '../widgets/office_preview/office_preview.dart';
 import '../widgets/internal_module_layout.dart';
 import '../widgets/user_avatar.dart';
 import 'correspondencia/gd_colaboracion_models.dart';
@@ -1059,6 +1060,11 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                       fileName:
                           previewVersion.nombreArchivo ??
                           '${previewVersion.etiqueta}.pdf',
+                    )
+                  : tieneVistaPreviaOffice(previewVersion.nombreArchivo)
+                  ? OfficePreview(
+                      url: previewVersion.urlPdf!,
+                      nombreArchivo: previewVersion.nombreArchivo ?? '',
                     )
                   : _buildOfficePreview(previewVersion),
             ),

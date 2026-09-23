@@ -2030,8 +2030,9 @@ class _GestionTabState extends State<_GestionTab> {
     );
 
     // Nombre del autor: nunca la cédula si hay forma de resolverlo.
-    final autorNombre = (await UserDirectory.instance.resolve(widget.userId))
-        .displayName;
+    final autorNombre = (await UserDirectory.instance.resolve(
+      widget.userId,
+    )).displayName;
 
     try {
       final recipient = await widget.svc.findEstablishmentRecipient(

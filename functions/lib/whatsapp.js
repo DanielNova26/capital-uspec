@@ -158,7 +158,7 @@ const MESSAGE_TEMPLATE_DEFINITIONS = {
         ].join("\n"),
         placeholders: ["centroCosto", "fecha"],
         variableInfo: {
-            centroCosto: { label: "Centro de costo", sample: "Complejo Norte" },
+            centroCosto: { label: "Centro de costo (subcentro)", sample: "Planta externa (Estación Soacha)" },
             fecha: { label: "Fecha de la visita", sample: "08/09/2026" },
         },
         metaName: "interventoria_actividad",

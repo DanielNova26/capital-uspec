@@ -679,6 +679,8 @@ class AppDrawer extends StatelessWidget {
                 // soporte, y en web confirma que el navegador no está sirviendo
                 // una build cacheada.
                 const VersionLabel(),
+                // Los enlaces a las tiendas van solo en el login (21 sep
+                // 2026: "que no salga tanto ahí como en el home").
               ],
             );
 

@@ -59,22 +59,41 @@ class PersonnelStatusService {
 
     final batch = _db.batch();
     final orgData = orgSnap.data() ?? const <String, dynamic>{};
-    final orgPatch = <String, dynamic>{
-      'empresasDetalle.$empresaId.estado': nextStatus,
-      'empresasDetalle.$empresaId.estadoActualizadoAt': now,
-      'empresasDetalle.$empresaId.estadoActualizadoPor': changedBy,
-      'empresasDetalle.$empresaId.motivoEstado': trimmedReason,
-      'updatedAt': now,
+    final scopedEstado = <String, dynamic>{
+      'estado': nextStatus,
+      'estadoActualizadoAt': now,
+      'estadoActualizadoPor': changedBy,
+      'motivoEstado': trimmedReason,
     };
-    if ((orgData['empresaId'] ?? '').toString().trim() == empresaId) {
-      orgPatch.addAll({
-        'estado': nextStatus,
-        'estadoActualizadoAt': now,
-        'estadoActualizadoPor': changedBy,
-        'motivoEstado': trimmedReason,
+    final esEmpresaPrincipal =
+        (orgData['empresaId'] ?? '').toString().trim() == empresaId;
+    if (orgSnap.exists) {
+      // update() sí interpreta las rutas con punto. Con set(merge) las claves
+      // 'empresasDetalle.X.estado' quedaban como campos literales con punto,
+      // el bloque anidado seguía en 'activo' y la sincronización del
+      // organigrama devolvía a la persona a activa al reabrir la pantalla.
+      final orgPatch = <Object, Object?>{
+        for (final e in scopedEstado.entries)
+          'empresasDetalle.$empresaId.${e.key}': e.value,
+        if (esEmpresaPrincipal) ...scopedEstado,
+        'updatedAt': now,
+        // Se borran los campos literales que dejó la versión anterior.
+        for (final k in scopedEstado.keys)
+          FieldPath(<String>['empresasDetalle.$empresaId.$k']):
+              FieldValue.delete(),
+      };
+      batch.update(orgRef, orgPatch);
+    } else {
+      batch.set(orgRef, {
+        'cedula': cedula,
+        'empresaId': empresaId,
+        'empresas': <String>[empresaId],
+        'empresasDetalle': {empresaId: scopedEstado},
+        ...scopedEstado,
+        'updatedAt': now,
+        'createdAt': now,
       });
     }
-    batch.set(orgRef, orgPatch, SetOptions(merge: true));
 
     if (userSnap.exists) {
       // No se altera `estado` global: ese campo controla la autenticación.

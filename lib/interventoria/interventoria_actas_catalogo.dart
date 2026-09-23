@@ -28,6 +28,17 @@ const String kActaRegular = 'REGULAR';
 const String kActaSeguimiento = 'SEGUIMIENTO';
 const String kActaInfraestructura = 'INFRAESTRUCTURA';
 const String kActaEstacionPolicia = 'ESTACION_POLICIA';
+const String kActaAlcaldiaPlanta = 'ALCALDIA_PLANTA';
+const String kActaAlcaldiaEstacionPolicia = 'ALCALDIA_ESTACION_POLICIA';
+
+const List<String> kTodosTiposActaInterventoria = [
+  kActaRegular,
+  kActaSeguimiento,
+  kActaInfraestructura,
+  kActaEstacionPolicia,
+  kActaAlcaldiaPlanta,
+  kActaAlcaldiaEstacionPolicia,
+];
 
 /// Nombre legible del tipo de acta.
 ///
@@ -43,6 +54,10 @@ String etiquetaTipoActa(String? tipo) {
       return 'Infraestructura';
     case kActaEstacionPolicia:
       return 'Estación de policía';
+    case kActaAlcaldiaPlanta:
+      return 'Alcaldía · Planta de preparación y ensamble';
+    case kActaAlcaldiaEstacionPolicia:
+      return 'Alcaldía · Estación de policía';
     default:
       return tipo == null || tipo.trim().isEmpty ? 'Sin tipo' : tipo;
   }
@@ -63,6 +78,10 @@ String familiaReglasActa(String? tipoActa) {
       return kActaInfraestructura;
     case kActaEstacionPolicia:
       return kActaEstacionPolicia;
+    case kActaAlcaldiaPlanta:
+      return kActaAlcaldiaPlanta;
+    case kActaAlcaldiaEstacionPolicia:
+      return kActaAlcaldiaEstacionPolicia;
     default:
       // REGULAR, SEGUIMIENTO, vacío o desconocido caen en la familia regular,
       // que es la única que existía cuando se guardaron las reglas actuales.
@@ -78,6 +97,8 @@ const List<String> kActasConMaestro = [
   kActaRegular,
   kActaInfraestructura,
   kActaEstacionPolicia,
+  kActaAlcaldiaPlanta,
+  kActaAlcaldiaEstacionPolicia,
 ];
 
 /// Una sección del acta, con sus aspectos en el orden impreso.
@@ -103,6 +124,8 @@ String numeralDeAspecto(int seccion, int indiceCeroBasado) =>
 const Map<String, List<SeccionActa>> kSeccionesPorTipoActa = {
   kActaInfraestructura: kSeccionesActaInfraestructura,
   kActaEstacionPolicia: kSeccionesActaEstacionPolicia,
+  kActaAlcaldiaPlanta: kSeccionesActaAlcaldiaPlanta,
+  kActaAlcaldiaEstacionPolicia: kSeccionesActaAlcaldiaEstacionPolicia,
 };
 
 /// ¿El tipo de acta trae su catálogo propio en este archivo?
@@ -388,6 +411,214 @@ const List<SeccionActa> kSeccionesActaEstacionPolicia = [
           'enfermedades infectocontagiosas, en la entrega de la alimentación se '
           'usa empaque en material desechable que cumpla con lo establecido en '
           'la Resolución 683 de 2012 (si aplica).',
+    ],
+  ),
+];
+
+// ───────────────────────────────────────────────────────────────────────────
+// ALCALDÍA MAYOR DE BOGOTÁ - PLANTA DE PREPARACIÓN Y ENSAMBLE
+//
+// Formato de verificación diaria para CDT, versión 202508. El documento
+// recibido el 18 sep 2026 contiene 8 secciones y 63 aspectos. No se reutiliza
+// REGULAR: aunque comparte temas, la numeración y los aspectos son distintos.
+// ───────────────────────────────────────────────────────────────────────────
+const List<SeccionActa> kSeccionesActaAlcaldiaPlanta = [
+  SeccionActa(
+    numero: 1,
+    nombre: 'Localización, instalaciones físicas y sanitarias',
+    aspectos: [
+      'El contratista mantiene los accesos y alrededores limpios, libres de acumulación de basuras, estancamiento de aguas u otras fuentes de contaminación para el alimento.',
+      'Se cuenta con las áreas establecidas en los documentos contractuales, señalizadas, operativas y usadas para la actividad prevista.',
+      'Las áreas se encuentran en adecuado estado de orden, limpieza, desinfección e iluminación, y las lámparas están protegidas en caso de rotura.',
+      'Cuenta con área debidamente señalizada para el almacenamiento de alimentos o materias primas clasificadas como productos no conformes.',
+      'El contratista garantiza un área exclusiva para ensamble de las raciones.',
+      'Las instalaciones sanitarias están alejadas del área de producción, limpias y dotadas con elementos de higiene personal y equipos para el secado de manos.',
+    ],
+  ),
+  SeccionActa(
+    numero: 2,
+    nombre: 'Almacenamiento de materias primas e insumos',
+    aspectos: [
+      'Se cuenta con proyección del plan de compras de acuerdo con el promedio del parte diario y las cantidades establecidas en la minuta patrón, análisis nutricional y proveedores ofertados.',
+      'Existen fichas técnicas de las materias primas acorde con el listado de proveedores ofertados.',
+      'Las materias primas e insumos se reciben y almacenan en adecuadas condiciones de higiene y temperatura, con rotación PEPS y registros actualizados.',
+      'El contratista recibe materias primas aplicando criterios de aceptación y rechazo y diligencia los formatos establecidos.',
+      'No se evidencian alimentos o preparaciones prohibidas ni aditivos o saborizantes artificiales no permitidos.',
+      'Los alimentos presentan adecuadas condiciones de higiene, fechas de vencimiento vigentes y ausencia de contaminación biológica, química o física.',
+      'Las materias primas se almacenan separadas físicamente, en empaques de primer uso y con adecuadas condiciones de mantenimiento, limpieza y desinfección.',
+      'Las materias primas que requieren cadena de frío se almacenan de acuerdo con su naturaleza, en refrigeración o congelación.',
+      'Se cumplen las distancias perimetrales en el almacenamiento de alimentos y la organización permite limpiar y verificar el área.',
+      'Se aplica el método PEPS y los productos se encuentran debidamente identificados.',
+      'Los alimentos cumplen con etiquetado y rotulado conforme con la normativa vigente y sus empaques están en adecuadas condiciones.',
+      'Se mantienen actualizados los registros de recepción, entradas y salidas, producto no conforme y control de temperatura de equipos.',
+    ],
+  ),
+  SeccionActa(
+    numero: 3,
+    nombre: 'Equipos, utensilios y menaje',
+    aspectos: [
+      'Se cuenta con los equipos mínimos requeridos y con capacidad, suficiencia, volumen y funcionalidad acordes con las necesidades del servicio.',
+      'Los equipos son de materiales inertes y resistentes, fáciles de desarmar, limpiar y desinfectar, y se encuentran en buen estado y adecuadas condiciones de higiene.',
+      'Los equipos se encuentran en adecuadas condiciones de mantenimiento y funcionamiento, con soportes de mantenimientos preventivos o correctivos.',
+      'Los utensilios y menaje son de materiales inertes y resistentes, fáciles de desarmar, limpiar y desinfectar, y se encuentran en buen estado.',
+      'Cuenta con equipos de medición básicos requeridos, documentados y en adecuadas condiciones de limpieza, desinfección y funcionamiento.',
+    ],
+  ),
+  SeccionActa(
+    numero: 4,
+    nombre: 'Condiciones de producción y producto terminado',
+    aspectos: [
+      'Se cumplen las temperaturas de seguridad de acuerdo con la naturaleza de la preparación: alimentos calientes mayores a 60 °C y fríos no mayores a 4 °C +/- 2 °C.',
+      'Se garantizan temperaturas de seguridad durante alistamiento, producción, ensamble, distribución y reparto, evitando proliferación de microorganismos.',
+      'Se cuenta con utensilios estandarizados para garantizar el gramaje de cada componente suministrado.',
+      'Se garantiza el servido del producto terminado y las dietas bajo condiciones que evitan cruce de flujos y contaminación cruzada.',
+      'Las raciones terapéuticas para PPL con inmunosupresión o enfermedades infectocontagiosas se suministran en empaque marcado y rotulado.',
+      'Diariamente se toman y conservan durante 72 horas tres muestras de las preparaciones de todos los tiempos de comida.',
+      'Se reemplazan en su totalidad los alimentos devueltos por la PPL, sin reelaboración, reproceso, corrección o reensamble.',
+    ],
+  ),
+  SeccionActa(
+    numero: 5,
+    nombre: 'Características de los alimentos, menús, gramajes y dietas',
+    aspectos: [
+      'Existe cumplimiento de la rotación del ciclo de menú y se verifica mediante registros de producción y contramuestras.',
+      'El contratista suministra la totalidad de los componentes del menú verificado.',
+      'El profesional nutricionista solicita y justifica los intercambios con mínimo 12 horas de anticipación y dentro del mismo grupo de alimentos.',
+      'Las preparaciones cumplen con los ingredientes indicados en los documentos nutricionales que componen la preparación de cada tiempo de comida.',
+      'No se suministran alimentos o preparaciones prohibidas ni aditivos o saborizantes artificiales no permitidos.',
+      'El contratista cumple con los gramajes de las preparaciones del menú y de las dietas terapéuticas entregadas.',
+      'El contratista cumple con la calidad organoléptica del menú verificado.',
+      'Se suministran los refrigerios nocturnos según las condiciones contractuales y el ciclo de menús.',
+      'Se suministra alimentación diferencial por convicción religiosa según la aprobación establecida, cuando aplica.',
+      'Se suministra el menú especial para días festivos en las fechas establecidas y con acta de aprobación de la interventoría.',
+      'Se entregan refrigerios a la PPL que sale de remisión conforme con las características y gramaje establecidos.',
+      'Se entregan dietas terapéuticas a la PPL que las requiere, con las condiciones definidas y el formato firmado correspondiente.',
+      'Cada ración terapéutica se encuentra rotulada de manera legible e indeleble con PPL, centro de detención y tipo de dieta.',
+      'El nutricionista dietista prescribe la dieta de cada PPL a partir de la interconsulta médica y deja constancia en los documentos correspondientes.',
+    ],
+  ),
+  SeccionActa(
+    numero: 6,
+    nombre: 'Personal manipulador de alimentos',
+    aspectos: [
+      'El contratista cumple con el personal mínimo requerido y cuenta con soportes de asistencia o justificación de ausencia.',
+      'El contratista suministra cada cuatro meses, o antes por deterioro, la dotación completa al personal asignado.',
+      'No se permite el ingreso de personal o visitantes sin la debida dotación.',
+      'Los manipuladores utilizan la dotación completa, limpia, en buen estado y de acuerdo con la normativa legal vigente.',
+      'Los manipuladores cumplen hábitos de higiene personal y prácticas higiénicas durante la operación.',
+      'Se observa lavado de manos con agua y jabón desinfectante antes de comenzar y en cada cambio de actividad.',
+      'El personal manipulador no presenta infecciones que puedan contaminar los alimentos y, si se presentan, existen registros de seguimiento.',
+      'Los manipuladores cuentan con certificado médico vigente que acredita su aptitud para manipular alimentos.',
+      'Se implementa y soporta un plan de capacitación continua de mínimo diez horas.',
+    ],
+  ),
+  SeccionActa(
+    numero: 7,
+    nombre: 'Condiciones de saneamiento',
+    aspectos: [
+      'Las actividades se desarrollan de manera secuencial desde la recepción de materias primas hasta la entrega del producto terminado y las áreas están señalizadas.',
+      'Paredes, techos, pisos, mesones, ventanas, puertas y barreras se encuentran limpios, sin contaminación y sin estancamiento de agua.',
+      'El contratista garantiza la limpieza y desinfección de equipos y utensilios del servicio de alimentación.',
+      'Los productos químicos de limpieza y desinfección tienen fichas técnicas, están rotulados y se almacenan en un espacio ventilado, identificado y protegido.',
+      'Los elementos e insumos de aseo están rotulados, organizados y se usan de forma que evita contaminación.',
+      'El contratista garantiza la potabilidad del agua empleada en los procesos del servicio de alimentos.',
+      'Se realizan diariamente análisis de pH y cloro residual y existen registros actualizados.',
+      'Se cuenta con recipientes identificados, en buen estado, con tapa y bolsa para la disposición de residuos sólidos.',
+    ],
+  ),
+  SeccionActa(
+    numero: 8,
+    nombre: 'Aseguramiento y control de la calidad',
+    aspectos: [
+      'Para los equipos de frío se lleva control y registro de temperatura en un lugar visible.',
+      'Se cuenta con un programa de trazabilidad definido e implementado que permite analizar cada etapa productiva.',
+    ],
+  ),
+];
+
+// ───────────────────────────────────────────────────────────────────────────
+// ALCALDÍA MAYOR DE BOGOTÁ - ESTACIONES DE POLICÍA / CDT
+//
+// Formato de transporte y entrega, versión 202508. Es distinto del acta PEC
+// ESTACION_POLICIA ya existente: tiene 7 secciones y 36 aspectos.
+// ───────────────────────────────────────────────────────────────────────────
+const List<SeccionActa> kSeccionesActaAlcaldiaEstacionPolicia = [
+  SeccionActa(
+    numero: 1,
+    nombre: 'Cumplimiento de horario de entrega',
+    aspectos: [
+      'El contratista cumple con el horario establecido para la entrega de las raciones alimentarias según las especificaciones técnicas.',
+    ],
+  ),
+  SeccionActa(
+    numero: 2,
+    nombre: 'Condiciones del vehículo transportador',
+    aspectos: [
+      'Se cuenta con tarjeta de propiedad, SOAT y certificado de revisión técnico-mecánica y de gases vigente, cuando aplica.',
+      'El vehículo cuenta con concepto sanitario favorable o favorable con requerimientos y, cuando corresponde, presenta plan de mejoramiento.',
+      'El conductor del vehículo cuenta con licencia de conducción vigente.',
+      'El vehículo está identificado para transporte de alimentos y cumple las condiciones de higiene de la normativa sanitaria vigente.',
+      'Cuenta con recipientes, canastillas o estibas limpias y en adecuado estado, evitando disponer alimentos directamente sobre el piso.',
+      'Cuenta con kit de limpieza y desinfección de áreas y utensilios y con los elementos de protección personal requeridos.',
+      'Durante el transporte se evita el daño mecánico del empaque y la alteración de la calidad e inocuidad de los alimentos.',
+      'Cuenta con elementos adecuados para el transporte y entrega higiénico-sanitaria de los alimentos.',
+    ],
+  ),
+  SeccionActa(
+    numero: 3,
+    nombre: 'Condiciones de almacenamiento',
+    aspectos: [
+      'El almacenamiento temporal garantiza condiciones higiénicas del producto terminado.',
+      'Cuenta con termómetro certificado y gramera calibrada, transportados preservando su funcionamiento e inocuidad.',
+      'Se realiza seguimiento y registro actualizado de temperatura de los alimentos.',
+    ],
+  ),
+  SeccionActa(
+    numero: 4,
+    nombre: 'Cantidades',
+    aspectos: [
+      'Cumple con las cantidades de raciones programadas y entregadas para el establecimiento verificado.',
+      'Cumple con la cantidad de dietas terapéuticas programadas para el establecimiento.',
+      'Las raciones se entregan con la totalidad de componentes conforme con el menú establecido.',
+    ],
+  ),
+  SeccionActa(
+    numero: 5,
+    nombre: 'Condiciones de entrega',
+    aspectos: [
+      'Durante el descargue y entrega se implementan buenas prácticas de manufactura por parte del personal manipulador.',
+      'Las canastillas, estibas o mesas para almacenamiento temporal y distribución se encuentran limpias y en buen estado.',
+      'Las raciones se empacan o envasan en empaques adecuados y se entregan los utensilios básicos de material apto.',
+      'Las raciones entregadas están libres de contaminación y, ante devoluciones, se reponen en un tiempo no mayor a dos horas.',
+      'Cumple con minuta patrón, ciclo de menús, análisis nutricional e intercambios conforme con los documentos contractuales.',
+      'Las dietas se entregan en recipientes identificados y existe soporte para renuncias o no entrega.',
+      'El ciclo de menús y los horarios de entrega están socializados con los responsables del CDT.',
+      'Las temperaturas de los alimentos se encuentran dentro de los rangos establecidos por la normativa vigente.',
+      'Se cumple con la calidad organoléptica del menú verificado.',
+      'Se cumple con los gramajes establecidos de las preparaciones del menú verificado.',
+      'El plan de rutas corresponde al aprobado por la supervisión o interventoría.',
+      'Los alimentos empacados y envasados cumplen la normativa vigente y están rotulados cuando aplica.',
+    ],
+  ),
+  SeccionActa(
+    numero: 6,
+    nombre: 'Personal manipulador',
+    aspectos: [
+      'El personal manipulador cuenta con exámenes de reconocimiento médico vigentes que acreditan aptitud para manipular alimentos.',
+      'Se cuenta con soporte de capacitación anual de diez horas en buenas prácticas de manufactura.',
+      'Los manipuladores cuentan con dotación completa, limpia, en buen estado y conforme con la normativa vigente.',
+      'Durante la visita se evidencia el recurso humano mínimo requerido contractualmente.',
+    ],
+  ),
+  SeccionActa(
+    numero: 7,
+    nombre: 'Otras condiciones de la contratación',
+    aspectos: [
+      'El contratista entrega los alimentos directamente a la PPL, al responsable del CDT o a quien se delegue.',
+      'El formato de entrega de raciones CDT Bogotá es diligenciado y firmado en cada tiempo de alimentación.',
+      'El contratista garantiza el manejo adecuado de residuos sólidos y líquidos generados por el suministro.',
+      'El almacenamiento temporal de residuos se realiza en canecas grandes, rotuladas, con tapa y en buen estado.',
+      'La recolección y disposición final de residuos está a cargo de una empresa autorizada y evita acumulación o fuentes de contaminación.',
     ],
   ),
 ];

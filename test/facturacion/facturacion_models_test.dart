@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:todo/facturacion/facturacion_models.dart';
 
 void main() {
+  _alcanceObligaciones();
   group('roles de Facturación', () {
     test('normaliza nombres antiguos y visibles', () {
       expect(normalizeFacRole('Facturación'), kRolFacturacion);
@@ -428,6 +429,66 @@ void main() {
 
     test('sin filtros se ve todo', () {
       expect(coincideObservacion(obs(mes: 'Julio_2026'), '', ''), isTrue);
+    });
+  });
+}
+
+void _alcanceObligaciones() {
+  group('alcance de obligaciones por establecimiento', () {
+    const tunja = FacEstablecimiento(
+      id: 'capital_tunja',
+      empresaId: 'capital',
+      nombre: 'Tunja',
+      mes: 'Septiembre_2026',
+      ignoredDocs: {'Nominas': true},
+    );
+    const combita = FacEstablecimiento(
+      id: 'capital_combita',
+      empresaId: 'capital',
+      nombre: 'Cómbita',
+      mes: 'Septiembre_2026',
+    );
+    const todos = FacObligacion(
+      id: 'capital_inventario',
+      empresaId: 'capital',
+      codigo: 'inventario',
+      nombre: 'Inventario',
+      orden: 0,
+    );
+    const soloTunja = FacObligacion(
+      id: 'capital_acueducto',
+      empresaId: 'capital',
+      codigo: 'acueducto',
+      nombre: 'Acueducto',
+      orden: 1,
+      establecimientos: ['tunja'],
+    );
+
+    test('el centroId sale del id del doc FAC', () {
+      expect(tunja.centroId, 'tunja');
+    });
+
+    test('vacío aplica a todos; con lista solo a esos', () {
+      expect(todos.aplicaA('combita'), isTrue);
+      expect(soloTunja.aplicaA('tunja'), isTrue);
+      expect(soloTunja.aplicaA('combita'), isFalse);
+    });
+
+    test('lo que no aplica se lee como "no aplica" sin pisar lo manual', () {
+      final ig = ignoradosEfectivos(combita, [todos, soloTunja]);
+      expect(ig, {'Acueducto': true});
+      final igTunja = ignoradosEfectivos(tunja, [todos, soloTunja]);
+      expect(igTunja, {'Nominas': true});
+    });
+
+    test('con todas las obligaciones globales la lista no cambia', () {
+      final out = aplicarAlcanceObligaciones([tunja, combita], [todos]);
+      expect(identical(out[0], tunja), isTrue);
+    });
+
+    test('el mapa persiste y vuelve igual', () {
+      final vuelta = FacObligacion.fromMap(soloTunja.id, soloTunja.toMap());
+      expect(vuelta.establecimientos, ['tunja']);
     });
   });
 }

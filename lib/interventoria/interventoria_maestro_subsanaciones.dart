@@ -493,6 +493,13 @@ class _InterventoriaMaestroSubsanacionesState
         sobrescribir: decision.sobrescribir,
         actualizadoPor: widget.userId,
       );
+      if (decision.incluirConfiguracion) {
+        await service.copiarConfiguracionInterventoria(
+          origenId: widget.empresaId,
+          destinos: decision.destinos,
+          actualizadoPor: widget.userId,
+        );
+      }
       if (!mounted) return;
       final nombres = {for (final e in empresas) e.id: e.nombre};
       final lineas = resultados.entries
@@ -526,10 +533,14 @@ class _DecisionCopia {
   final bool soloActaActual;
   final bool sobrescribir;
 
+  /// Llevar también programas, actas habilitadas y plazos del módulo.
+  final bool incluirConfiguracion;
+
   const _DecisionCopia({
     required this.destinos,
     required this.soloActaActual,
     required this.sobrescribir,
+    this.incluirConfiguracion = false,
   });
 }
 
@@ -554,6 +565,7 @@ class _DialogoCopiaReglasState extends State<_DialogoCopiaReglas> {
   final Set<String> _destinos = {};
   bool _soloActaActual = true;
   bool _sobrescribir = true;
+  bool _incluirConfiguracion = true;
 
   Map<String, dynamic> get _reglas =>
       _soloActaActual ? widget.reglasActa : widget.reglasTodas;
@@ -635,6 +647,18 @@ class _DialogoCopiaReglasState extends State<_DialogoCopiaReglas> {
                 ),
                 onChanged: (v) => setState(() => _sobrescribir = v),
               ),
+              SwitchListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                value: _incluirConfiguracion,
+                title: const Text('Copiar también la configuración del módulo'),
+                subtitle: const Text(
+                  'Programas de interventoría, tipos de acta habilitados y '
+                  'plazos de subsanación. Los roles (personas) no se copian.',
+                  style: gris,
+                ),
+                onChanged: (v) => setState(() => _incluirConfiguracion = v),
+              ),
               const SizedBox(height: 8),
               const Text(
                 'Empresas destino',
@@ -705,6 +729,7 @@ class _DialogoCopiaReglasState extends State<_DialogoCopiaReglas> {
                     destinos: _destinos.toList(),
                     soloActaActual: _soloActaActual,
                     sobrescribir: _sobrescribir,
+                    incluirConfiguracion: _incluirConfiguracion,
                   ),
                 ),
           child: Text(

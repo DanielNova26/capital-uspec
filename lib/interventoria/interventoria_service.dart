@@ -15,6 +15,7 @@ import '../utils/user_company.dart';
 import 'interventoria_actas_catalogo.dart';
 import 'interventoria_models.dart';
 import 'interventoria_numerales_catalogo.dart';
+import 'interventoria_programas.dart';
 
 export 'interventoria_numerales_catalogo.dart';
 
@@ -333,6 +334,64 @@ class InterventoriaService {
        _functions =
            functions ?? FirebaseFunctions.instanceFor(region: 'us-central1');
 
+  Stream<InterventoriaEmpresaConfig> streamConfiguracionEmpresa(
+    String empresaId,
+  ) => _db
+      .collection('TBL_INTERVENTORIA_CONFIG')
+      .doc(empresaId)
+      .snapshots()
+      .map((doc) => InterventoriaEmpresaConfig.fromMap(doc.data()));
+
+  Future<InterventoriaEmpresaConfig> cargarConfiguracionEmpresa(
+    String empresaId,
+  ) async {
+    final doc = await _db
+        .collection('TBL_INTERVENTORIA_CONFIG')
+        .doc(empresaId)
+        .get();
+    return InterventoriaEmpresaConfig.fromMap(doc.data());
+  }
+
+  Future<void> guardarConfiguracionEmpresa({
+    required String empresaId,
+    required Iterable<String> programas,
+    required Iterable<String> tiposActaHabilitados,
+    required String actualizadoPor,
+  }) async {
+    final eid = empresaId.trim();
+    if (eid.isEmpty) throw ArgumentError('empresaId es obligatorio');
+    final programasValidos = programas
+        .map((value) => value.trim().toUpperCase())
+        .where(kProgramasInterventoria.contains)
+        .toSet()
+        .toList();
+    final tiposValidos = tiposActaHabilitados
+        .map((value) => value.trim().toUpperCase())
+        .where(kTodosTiposActaInterventoria.contains)
+        .toSet()
+        .toList();
+    if (programasValidos.isEmpty) {
+      throw ArgumentError('Selecciona al menos un programa de interventoría.');
+    }
+    if (tiposValidos.isEmpty) {
+      throw ArgumentError('Habilita al menos un tipo de acta.');
+    }
+    final compatibles = tiposActaParaProgramas(programasValidos).toSet();
+    if (!tiposValidos.every(compatibles.contains)) {
+      throw ArgumentError(
+        'Hay tipos de acta que no corresponden a los programas seleccionados.',
+      );
+    }
+    await _db.collection('TBL_INTERVENTORIA_CONFIG').doc(eid).set({
+      'empresaId': eid,
+      'programasInterventoria': programasValidos,
+      'tiposActaHabilitados': tiposValidos,
+      'configuracionActasVersion': 1,
+      'configuracionActasActualizadaPor': actualizadoPor.trim(),
+      'configuracionActasUpdatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
   Future<void> solicitarEliminacion({
     required String empresaId,
     required String tipo,
@@ -433,6 +492,32 @@ class InterventoriaService {
       list.sort((a, b) => b.fechaVisita.compareTo(a.fechaVisita));
       return list;
     });
+  }
+
+  /// Actas de las empresas visibles en Gerencia, incluidas las que no
+  /// produjeron hallazgos.
+  Stream<List<InterventoriaVisita>> streamVisitasEmpresas(
+    List<String> empresaIds,
+  ) {
+    final ids = empresaIds
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet()
+        .take(10)
+        .toList();
+    if (ids.isEmpty) return Stream.value(const []);
+    if (ids.length == 1) return streamVisitas(ids.first);
+    return _db
+        .collection('TBL_INTERVENTORIA_VISITAS')
+        .where('empresaId', whereIn: ids)
+        .snapshots()
+        .map((snap) {
+          final list = snap.docs
+              .map((d) => InterventoriaVisita.fromMap(d.id, d.data()))
+              .toList();
+          list.sort((a, b) => b.fechaVisita.compareTo(a.fechaVisita));
+          return list;
+        });
   }
 
   /// Actas en Fase 1 completada — esperando revisión por Digitador/Gerente/Directivo.
@@ -2625,6 +2710,48 @@ class InterventoriaService {
       );
     }
     return resultados;
+  }
+
+  /// Copia la configuración del módulo (programas, actas habilitadas y
+  /// plazos de subsanación) de [origenId] a cada empresa de [destinos].
+  ///
+  /// Lo pidió Oscar el 20 sep 2026: "trasladar todo lo que hice de
+  /// interventoría a cada empresa". Las reglas del maestro ya se copiaban
+  /// (`copiarReglasSubsanacion`); esto lleva el resto. Roles y actas no se
+  /// copian: los roles son personas de cada empresa y las actas son datos.
+  Future<void> copiarConfiguracionInterventoria({
+    required String origenId,
+    required List<String> destinos,
+    required String actualizadoPor,
+  }) async {
+    final origen = await _db
+        .collection('TBL_INTERVENTORIA_CONFIG')
+        .doc(origenId)
+        .get();
+    final data = origen.data() ?? const <String, dynamic>{};
+    final patch = <String, dynamic>{
+      for (final k in const [
+        'programasInterventoria',
+        'tiposActaHabilitados',
+        'plazoSubsanacion',
+        'semaforo',
+        'ocr',
+      ])
+        if (data[k] != null) k: data[k],
+    };
+    if (patch.isEmpty) return;
+    for (final destino in destinos) {
+      if (destino.isEmpty || destino == origenId) continue;
+      await _db.collection('TBL_INTERVENTORIA_CONFIG').doc(destino).set({
+        'empresaId': destino,
+        ...patch,
+        'configuracionActasVersion': 1,
+        'configuracionActasActualizadaPor': actualizadoPor.trim(),
+        'configuracionActasUpdatedAt': FieldValue.serverTimestamp(),
+        'configuracionCopiadaDe': origenId,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
   }
 
   /// Días hábiles para subsanar, configurables por sección del acta en

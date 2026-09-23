@@ -84,11 +84,12 @@ class _VisitasUbicacionesTabState extends State<VisitasUbicacionesTab> {
                     centro: c,
                     subcentroId: s.id,
                     subcentroNombre: s.nombre,
-                    ubicacion: porId[VisitaUbicacion.docId(
-                      widget.empresaId,
-                      c.id,
-                      s.id,
-                    )],
+                    ubicacion:
+                        porId[VisitaUbicacion.docId(
+                          widget.empresaId,
+                          c.id,
+                          s.id,
+                        )],
                   ),
                 );
               }
@@ -238,11 +239,7 @@ class _FilaCard extends StatelessWidget {
   final _Fila fila;
   final VoidCallback onEditar;
   final VoidCallback? onQuitar;
-  const _FilaCard({
-    required this.fila,
-    required this.onEditar,
-    this.onQuitar,
-  });
+  const _FilaCard({required this.fila, required this.onEditar, this.onQuitar});
 
   @override
   Widget build(BuildContext context) {

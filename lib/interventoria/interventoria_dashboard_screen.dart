@@ -39,6 +39,7 @@ import '../widgets/user_avatar.dart';
 import '../core/subcentros_costo.dart';
 import 'interventoria_actas_catalogo.dart';
 import 'interventoria_models.dart';
+import 'interventoria_programas.dart';
 import 'interventoria_service.dart';
 import 'interventoria_tablero_asignacion.dart';
 import 'web_pdf_view.dart';
@@ -48,6 +49,16 @@ const Color _kWarning = Color(0xFFEAB308);
 const Color _kDanger = Color(0xFFDC2626);
 const Color _kOk = Color(0xFF16A34A);
 const String _kFont = 'Arial';
+
+/// Material 3 limita los modal bottom sheets de escritorio a unos 640 px.
+/// El registro de actas necesita espacio para mantener los datos principales
+/// en una fila, pero sin convertirse en una superficie de ancho completo.
+BoxConstraints? _registrarActaModalConstraints(BuildContext context) {
+  final viewportWidth = MediaQuery.sizeOf(context).width;
+  if (viewportWidth < 900) return null;
+  final modalWidth = viewportWidth >= 1008 ? 960.0 : viewportWidth - 48;
+  return BoxConstraints.tightFor(width: modalWidth);
+}
 
 /// Tab "Hallazgos" oculto temporalmente a pedido del cliente.
 /// Cambiar a `true` para volver a mostrarlo.
@@ -277,7 +288,8 @@ class _InterventoriaDashboardScreenState
           icon: Icons.stacked_line_chart_rounded,
         ),
     ];
-    if (widget.openDeleteRequests && !_initialTabApplied &&
+    if (widget.openDeleteRequests &&
+        !_initialTabApplied &&
         canApproveDeletion) {
       final index = tabs.indexWhere((tab) => tab.label == 'Solicitudes');
       if (index >= 0) {
@@ -643,6 +655,8 @@ class _InterventoriaDashboardScreenState
           visitaId: visita.id,
           centroCostoId: visita.centroCostoId,
           centroCostoNombre: visita.centroCostoNombre,
+          subcentroId: visita.subcentroId,
+          subcentroNombre: visita.subcentroNombre,
           tipoActa: visita.tipoActa,
           numeroHallazgo: '90.1',
           descripcion: 'Observaciones generales',
@@ -660,6 +674,8 @@ class _InterventoriaDashboardScreenState
           visitaId: visita.id,
           centroCostoId: visita.centroCostoId,
           centroCostoNombre: visita.centroCostoNombre,
+          subcentroId: visita.subcentroId,
+          subcentroNombre: visita.subcentroNombre,
           tipoActa: visita.tipoActa,
           numeroHallazgo: '90.2',
           descripcion: 'Conclusiones',
@@ -680,6 +696,7 @@ class _InterventoriaDashboardScreenState
       useSafeArea: true,
       isDismissible: false,
       enableDrag: false,
+      constraints: _registrarActaModalConstraints(context),
       builder: (_) => _RegistrarActaSheet(
         empresaId: widget.empresaId,
         userId: widget.userId,
@@ -826,10 +843,9 @@ class _SolicitudesEliminacionTab extends StatelessWidget {
         final allRequests = snapshot.data!;
         final focused = (focusRequestId ?? '').trim();
         final matching = allRequests.where((r) => r.id == focused).toList();
-        final requests = matching.isEmpty ? allRequests : [
-          ...matching,
-          ...allRequests.where((r) => r.id != focused),
-        ];
+        final requests = matching.isEmpty
+            ? allRequests
+            : [...matching, ...allRequests.where((r) => r.id != focused)];
         if (requests.isEmpty) {
           return const Center(
             child: Column(
@@ -4900,10 +4916,7 @@ class _VisitaCardState extends State<_VisitaCard> {
               const SizedBox(height: 4),
               Text(
                 explicacion,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF64748B),
-                ),
+                style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -5284,6 +5297,7 @@ class _VisitaCardState extends State<_VisitaCard> {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
+      constraints: _registrarActaModalConstraints(context),
       builder: (_) => _RegistrarActaSheet(
         empresaId: visita.empresaId,
         userId: widget.userId,
@@ -7111,6 +7125,8 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
   late DateTime _fecha;
   String? _tipoActa;
   String? _tiempoComida;
+  List<String> _tiposActaHabilitados = kTiposActaInterventoriaLegacy;
+  bool _configActasCargada = false;
   // Puntajes por sección
   /// Categorías del acta seleccionada. Cada acta tiene las suyas: la regular
   /// sus doce, infraestructura una sola, policía cinco.
@@ -7188,6 +7204,31 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
         : widget.centroFijoId;
     if (centroInicial != null && centroInicial.isNotEmpty) {
       _precargarCentro(centroInicial, subcentroId: existente?.subcentroId);
+    }
+    _cargarConfiguracionActas();
+  }
+
+  Future<void> _cargarConfiguracionActas() async {
+    try {
+      final config = await widget.service.cargarConfiguracionEmpresa(
+        widget.empresaId,
+      );
+      final habilitados = tiposActaHabilitadosParaEmpresa(config).toList();
+      final tipoHistorico = widget.visitaEditar?.tipoActa?.trim();
+      if (tipoHistorico != null &&
+          tipoHistorico.isNotEmpty &&
+          !habilitados.contains(tipoHistorico)) {
+        habilitados.add(tipoHistorico);
+      }
+      if (!mounted) return;
+      setState(() {
+        _tiposActaHabilitados = habilitados;
+        _configActasCargada = true;
+      });
+    } catch (_) {
+      // Compatibilidad: si la empresa todavía no tiene configuración o la
+      // lectura falla, se conservan los cuatro tipos históricos.
+      if (mounted) setState(() => _configActasCargada = true);
     }
   }
 
@@ -7299,7 +7340,9 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
                   final puedeGuardar =
                       !_saving &&
                       !_extracting &&
+                      _configActasCargada &&
                       _centro != null &&
+                      _tipoActa != null &&
                       !faltaActa &&
                       faltantes.isEmpty;
                   return SafeArea(
@@ -7316,6 +7359,10 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
                                 child: Text(
                                   _extracting
                                       ? 'Espera a que termine de procesarse el acta'
+                                      : !_configActasCargada
+                                      ? 'Consultando las actas habilitadas'
+                                      : _tipoActa == null
+                                      ? 'Selecciona el tipo de acta asignado'
                                       : faltaActa
                                       ? 'Adjunta el acta PDF obligatoria'
                                       : 'Faltan ${faltantes.length} sección(es) sin puntaje ni NE',
@@ -7482,82 +7529,111 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
           ),
         ],
         const SizedBox(height: 10),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            InkWell(
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final apilarCampos = !isWeb || constraints.maxWidth < 720;
+
+            final fechaField = InkWell(
               onTap: _pickFecha,
               borderRadius: BorderRadius.circular(8),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  border: Border.all(color: const Color(0xFFCBD5E1)),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.event_rounded,
-                      size: 16,
-                      color: Color(0xFF64748B),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      DateFormat('dd/MM/yyyy').format(_fecha),
-                      style: const TextStyle(fontSize: 13),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            SizedBox(
-              width: isWeb ? 180 : double.infinity,
-              child: DropdownButtonFormField<String>(
-                initialValue: _tipoActa,
+              child: InputDecorator(
                 decoration: const InputDecoration(
-                  labelText: 'Tipo de acta',
+                  labelText: 'Fecha de visita',
+                  prefixIcon: Icon(Icons.event_rounded, size: 18),
                   border: OutlineInputBorder(),
                   isDense: true,
                 ),
-                items: [
-                  const DropdownMenuItem(value: null, child: Text('Sin tipo')),
-                  ...kTiposActaInterventoria.map(
-                    (t) => DropdownMenuItem(
-                      value: t,
-                      child: Text(etiquetaTipoActa(t)),
+                child: Text(
+                  DateFormat('dd/MM/yyyy').format(_fecha),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ),
+            );
+
+            final tipoActaField = DropdownButtonFormField<String>(
+              initialValue: _tipoActa,
+              isExpanded: true,
+              decoration: InputDecoration(
+                labelText: 'Tipo de acta',
+                helperText: _configActasCargada
+                    ? '${_tiposActaHabilitados.length} plantilla(s) asignada(s) a esta empresa'
+                    : 'Consultando configuración de la empresa…',
+                helperMaxLines: 2,
+                border: const OutlineInputBorder(),
+                isDense: true,
+              ),
+              items: [
+                const DropdownMenuItem(
+                  value: null,
+                  child: Text(
+                    'Selecciona un tipo',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                ..._tiposActaHabilitados.map(
+                  (t) => DropdownMenuItem(
+                    value: t,
+                    child: Text(
+                      etiquetaTipoActa(t),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                ],
-                onChanged: _onTipoActaChanged,
-              ),
-            ),
-            SizedBox(
-              width: isWeb ? 180 : double.infinity,
-              child: DropdownButtonFormField<String>(
-                initialValue: _tiempoComida,
-                decoration: const InputDecoration(
-                  labelText: 'Tiempo de comida',
-                  border: OutlineInputBorder(),
-                  isDense: true,
                 ),
-                items: [
-                  const DropdownMenuItem(
-                    value: null,
-                    child: Text('Sin definir'),
-                  ),
-                  ...kTiemposComidaInterventoria.map(
-                    (t) => DropdownMenuItem(value: t, child: Text(t)),
-                  ),
-                ],
-                onChanged: (v) => setState(() => _tiempoComida = v),
+              ],
+              onChanged: _configActasCargada ? _onTipoActaChanged : null,
+            );
+
+            final tiempoComidaField = DropdownButtonFormField<String>(
+              initialValue: _tiempoComida,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Tiempo de comida',
+                border: OutlineInputBorder(),
+                isDense: true,
               ),
-            ),
-          ],
+              items: [
+                const DropdownMenuItem(value: null, child: Text('Sin definir')),
+                ...kTiemposComidaInterventoria.map(
+                  (t) => DropdownMenuItem(
+                    value: t,
+                    child: Text(
+                      t,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ],
+              onChanged: (v) => setState(() => _tiempoComida = v),
+            );
+
+            if (apilarCampos) {
+              return Column(
+                children: [
+                  SizedBox(width: double.infinity, child: fechaField),
+                  const SizedBox(height: 10),
+                  SizedBox(width: double.infinity, child: tipoActaField),
+                  const SizedBox(height: 10),
+                  SizedBox(width: double.infinity, child: tiempoComidaField),
+                ],
+              );
+            }
+
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(width: 180, child: fechaField),
+                const SizedBox(width: 12),
+                Expanded(flex: 6, child: tipoActaField),
+                const SizedBox(width: 12),
+                Expanded(flex: 5, child: tiempoComidaField),
+              ],
+            );
+          },
         ),
         const SizedBox(height: 10),
         _ActaGeneralCard(
@@ -8583,6 +8659,17 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
 
   Future<void> _save() async {
     if (_centro == null) return;
+    if (_tipoActa == null || !_tiposActaHabilitados.contains(_tipoActa)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Color(0xFFB91C1C),
+          content: Text(
+            'Selecciona un tipo de acta habilitado para esta empresa.',
+          ),
+        ),
+      );
+      return;
+    }
     // Ya no se exige subcentro en establecimientos divididos: el acta sin
     // subcentro es la del establecimiento como tal (18 sep 2026).
     if (_extracting) {

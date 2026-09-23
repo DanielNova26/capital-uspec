@@ -14,15 +14,21 @@
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:file_saver/file_saver.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:image_picker/image_picker.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:table_calendar/table_calendar.dart';
 
 import '../widgets/internal_module_layout.dart';
 import '../widgets/paged_list.dart';
 import '../widgets/user_avatar.dart';
 import 'visitas_firma.dart';
+import 'visitas_formato_excel.dart';
+import 'visitas_formato_sst.dart' show kFormatoSstAreaId;
 import 'visitas_informe_pdf.dart';
 import 'visitas_models.dart';
 import 'visitas_service.dart';
@@ -111,6 +117,18 @@ class _VisitasDashboardScreenState extends State<VisitasDashboardScreen>
     _tabs = [
       if (rol == kVisitasRolProfesional)
         _TabDef(
+          'Registro de visita',
+          Icons.where_to_vote_outlined,
+          (_) => _RegistroVisitaTab(
+            svc: _svc,
+            userId: widget.userId,
+            empresaId: widget.empresaId,
+            rol: rol,
+            nombreUsuario: widget.nombreUsuario,
+          ),
+        ),
+      if (rol == kVisitasRolProfesional)
+        _TabDef(
           'Mis visitas',
           Icons.assignment_turned_in_outlined,
           (_) => _MisVisitasTab(
@@ -131,6 +149,8 @@ class _VisitasDashboardScreenState extends State<VisitasDashboardScreen>
             empresaId: widget.empresaId,
             rol: rol,
             nombreUsuario: widget.nombreUsuario,
+            esDesarrollador:
+                widget.esDesarrollador || rol == kVisitasRolConsulta,
           ),
         ),
       if (visitasPuedeGestionarFormatos(rol))
@@ -141,20 +161,23 @@ class _VisitasDashboardScreenState extends State<VisitasDashboardScreen>
             svc: _svc,
             userId: widget.userId,
             empresaId: widget.empresaId,
+            esDesarrollador: widget.esDesarrollador,
           ),
         ),
       if (visitasPuedeVerConsolidado(rol))
         _TabDef(
           'Consolidado',
           Icons.stacked_bar_chart_outlined,
-          (_) => _ConsolidadoTab(svc: _svc, empresaId: widget.empresaId),
+          (_) => _ConsolidadoTab(
+            svc: _svc,
+            empresaId: widget.empresaId,
+            userId: widget.userId,
+            esDesarrollador:
+                widget.esDesarrollador || rol == kVisitasRolConsulta,
+          ),
         ),
-      if (visitasPuedeProgramar(rol))
-        _TabDef(
-          'Roles',
-          Icons.manage_accounts_outlined,
-          (_) => _RolesTab(svc: _svc, empresaId: widget.empresaId),
-        ),
+      // Los roles se asignan desde Admin > Roles y permisos (21 sep 2026);
+      // el módulo ya no trae pestaña propia.
       if (visitasPuedeGestionarUbicaciones(
         esDesarrollador: widget.esDesarrollador,
       ))
@@ -189,8 +212,8 @@ class _VisitasDashboardScreenState extends State<VisitasDashboardScreen>
           child: Padding(
             padding: EdgeInsets.all(24),
             child: Text(
-              'No tienes un rol en Visitas. Pídele al jefe inmediato que te '
-              'registre como profesional, jefe o consulta.',
+              'No tienes un rol en Visitas. Pídele a Administración que te '
+              'asigne el rol (jefe, profesional o consulta) en Roles y permisos.',
               textAlign: TextAlign.center,
               style: TextStyle(fontFamily: _kFont),
             ),
@@ -254,12 +277,14 @@ class _CronogramaTab extends StatefulWidget {
   final String empresaId;
   final String? rol;
   final String nombreUsuario;
+  final bool esDesarrollador;
   const _CronogramaTab({
     required this.svc,
     required this.userId,
     required this.empresaId,
     required this.rol,
     required this.nombreUsuario,
+    required this.esDesarrollador,
   });
 
   @override
@@ -267,7 +292,11 @@ class _CronogramaTab extends StatefulWidget {
 }
 
 class _CronogramaTabState extends State<_CronogramaTab> {
-  late DateTime _mes;
+  // Calendario de verdad (reunión 18 sep 2026 y pedido del 21 sep: "un
+  // calendario, no algo tan cuadriculado"): el jefe ve el mes con las
+  // visitas marcadas por día, toca un día y programa ahí mismo.
+  late DateTime _mesEnfocado;
+  DateTime? _diaElegido;
   String _estado = 'todas';
   late final Stream<List<VisitaProfesional>> _stream;
 
@@ -275,10 +304,27 @@ class _CronogramaTabState extends State<_CronogramaTab> {
   void initState() {
     super.initState();
     final now = DateTime.now();
-    _mes = DateTime(now.year, now.month);
+    _mesEnfocado = DateTime(now.year, now.month, now.day);
+    _diaElegido = _mesEnfocado;
     // Memoizada: recrear la stream en cada build es lo que dispara el
     // "INTERNAL ASSERTION FAILED" de Firestore en web.
-    _stream = widget.svc.streamVisitas(widget.empresaId);
+    _stream = widget.esDesarrollador
+        ? widget.svc.streamVisitas(widget.empresaId)
+        : widget.svc
+              .areaDeUsuario(widget.empresaId, widget.userId)
+              .asStream()
+              .asyncExpand(
+                (area) =>
+                    widget.svc.streamVisitas(widget.empresaId, areaId: area),
+              );
+  }
+
+  bool _mismoDia(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  Color _colorVisita(VisitaProfesional v, DateTime ahora) {
+    if (visitaVencida(v, ahora)) return const Color(0xFFDC2626);
+    return _colorEstado(v.estado);
   }
 
   @override
@@ -292,7 +338,11 @@ class _CronogramaTabState extends State<_CronogramaTab> {
               foregroundColor: Colors.white,
               onPressed: () => _programar(context),
               icon: const Icon(Icons.add),
-              label: const Text('Programar visita'),
+              label: Text(
+                _diaElegido == null
+                    ? 'Programar visita'
+                    : 'Programar el ${_dd(_diaElegido!)}',
+              ),
             )
           : null,
       body: StreamBuilder<List<VisitaProfesional>>(
@@ -304,69 +354,241 @@ class _CronogramaTabState extends State<_CronogramaTab> {
           if (!snap.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
-          final todas = snap.data!;
-          final visitas = todas
-              .where((v) => visitaEnMes(v, _mes.year, _mes.month))
+          final ahora = DateTime.now();
+          final todas = snap.data!
               .where((v) => _estado == 'todas' || v.estado == _estado)
               .toList();
-          final ahora = DateTime.now();
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 90),
-            children: [
-              _MesSelector(
-                mes: _mes,
-                onChanged: (m) => setState(() => _mes = m),
-                trailing: DropdownButton<String>(
-                  value: _estado,
-                  underline: const SizedBox.shrink(),
-                  items: [
-                    const DropdownMenuItem(
-                      value: 'todas',
-                      child: Text('Todas'),
-                    ),
-                    for (final e in kVisitaEstadosLabel.entries)
-                      DropdownMenuItem(value: e.key, child: Text(e.value)),
-                  ],
-                  onChanged: (v) => setState(() => _estado = v ?? 'todas'),
+          final porDia = <String, List<VisitaProfesional>>{};
+          for (final v in todas) {
+            final k = _dd(v.fechaProgramada);
+            porDia.putIfAbsent(k, () => []).add(v);
+          }
+          List<VisitaProfesional> delDia(DateTime d) =>
+              porDia[_dd(d)] ?? const [];
+          final delMes = todas
+              .where(
+                (v) => visitaEnMes(v, _mesEnfocado.year, _mesEnfocado.month),
+              )
+              .toList();
+          final seleccion = _diaElegido == null
+              ? const <VisitaProfesional>[]
+              : (delDia(_diaElegido!).toList()..sort(
+                  (a, b) => a.establecimiento.compareTo(b.establecimiento),
+                ));
+
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final ancho = constraints.maxWidth >= 1000;
+              final calendario = Card(
+                margin: EdgeInsets.zero,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '${delMes.length} visita${delMes.length == 1 ? '' : 's'} en el mes',
+                              style: const TextStyle(
+                                fontFamily: _kFont,
+                                fontSize: 12,
+                                color: Colors.black54,
+                              ),
+                            ),
+                          ),
+                          DropdownButton<String>(
+                            value: _estado,
+                            underline: const SizedBox.shrink(),
+                            style: const TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 13,
+                              color: Colors.black87,
+                            ),
+                            items: [
+                              const DropdownMenuItem(
+                                value: 'todas',
+                                child: Text('Todas'),
+                              ),
+                              for (final e in kVisitaEstadosLabel.entries)
+                                DropdownMenuItem(
+                                  value: e.key,
+                                  child: Text(e.value),
+                                ),
+                            ],
+                            onChanged: (v) =>
+                                setState(() => _estado = v ?? 'todas'),
+                          ),
+                        ],
+                      ),
+                      TableCalendar<VisitaProfesional>(
+                        locale: 'es_CO',
+                        firstDay: DateTime.utc(2024, 1, 1),
+                        lastDay: DateTime.utc(2032, 12, 31),
+                        focusedDay: _mesEnfocado,
+                        startingDayOfWeek: StartingDayOfWeek.monday,
+                        selectedDayPredicate: (d) =>
+                            _diaElegido != null && _mismoDia(d, _diaElegido!),
+                        eventLoader: delDia,
+                        onDaySelected: (sel, foc) => setState(() {
+                          _diaElegido = DateTime(sel.year, sel.month, sel.day);
+                          _mesEnfocado = foc;
+                        }),
+                        onPageChanged: (foc) => setState(() {
+                          _mesEnfocado = foc;
+                        }),
+                        headerStyle: const HeaderStyle(
+                          formatButtonVisible: false,
+                          titleCentered: true,
+                          titleTextStyle: TextStyle(
+                            fontFamily: _kFont,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 15,
+                          ),
+                        ),
+                        daysOfWeekStyle: const DaysOfWeekStyle(
+                          weekdayStyle: TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 11,
+                            color: Colors.black54,
+                          ),
+                          weekendStyle: TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 11,
+                            color: Colors.black54,
+                          ),
+                        ),
+                        calendarStyle: CalendarStyle(
+                          outsideDaysVisible: false,
+                          todayDecoration: BoxDecoration(
+                            color: kVisitasColor.withValues(alpha: 0.25),
+                            shape: BoxShape.circle,
+                          ),
+                          selectedDecoration: const BoxDecoration(
+                            color: kVisitasColor,
+                            shape: BoxShape.circle,
+                          ),
+                          markersMaxCount: 4,
+                          markerMargin: const EdgeInsets.symmetric(
+                            horizontal: 0.8,
+                          ),
+                        ),
+                        calendarBuilders: CalendarBuilders<VisitaProfesional>(
+                          // Un punto por visita, del color de su estado: se
+                          // ve de un vistazo qué días están cargados y si
+                          // hay vencidas (rojo).
+                          markerBuilder: (context, date, eventos) {
+                            if (eventos.isEmpty) return const SizedBox.shrink();
+                            return Positioned(
+                              bottom: 2,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  for (final v in eventos.take(4))
+                                    Container(
+                                      width: 6,
+                                      height: 6,
+                                      margin: const EdgeInsets.symmetric(
+                                        horizontal: 0.8,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: _colorVisita(v, ahora),
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                  if (eventos.length > 4)
+                                    const Text(
+                                      '+',
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              if (visitas.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(32),
-                  child: Center(
+              );
+
+              final detalle = Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 8, 4, 6),
                     child: Text(
-                      'No hay visitas en este mes.',
-                      style: TextStyle(
+                      _diaElegido == null
+                          ? 'Toca un día para ver sus visitas'
+                          : 'Visitas del ${_dd(_diaElegido!)} (${seleccion.length})',
+                      style: const TextStyle(
                         fontFamily: _kFont,
-                        color: Colors.black54,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
                   ),
-                )
-              else
-                PagedListSection<VisitaProfesional>(
-                  items: visitas,
-                  etiqueta: 'visitas',
-                  itemBuilder: (context, v, _) => _VisitaCard(
-                    visita: v,
-                    vencida: visitaVencida(v, ahora),
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => _VisitaDetalleScreen(
-                          svc: widget.svc,
-                          visitaId: v.id,
-                          empresaId: widget.empresaId,
-                          userId: widget.userId,
-                          rol: widget.rol,
-                          nombreUsuario: widget.nombreUsuario,
+                  if (_diaElegido != null && seleccion.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Text(
+                        puedeProgramar
+                            ? 'Nada programado ese día. Usa "Programar el '
+                                  '${_dd(_diaElegido!)}" para agendar una visita.'
+                            : 'Nada programado ese día.',
+                        style: const TextStyle(
+                          fontFamily: _kFont,
+                          color: Colors.black54,
+                        ),
+                      ),
+                    )
+                  else
+                    PagedListSection<VisitaProfesional>(
+                      items: seleccion,
+                      etiqueta: 'visitas',
+                      itemBuilder: (context, v, _) => _VisitaCard(
+                        visita: v,
+                        vencida: visitaVencida(v, ahora),
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => _VisitaDetalleScreen(
+                              svc: widget.svc,
+                              visitaId: v.id,
+                              empresaId: widget.empresaId,
+                              userId: widget.userId,
+                              rol: widget.rol,
+                              nombreUsuario: widget.nombreUsuario,
+                            ),
+                          ),
                         ),
                       ),
                     ),
+                ],
+              );
+
+              if (ancho) {
+                // Escritorio: calendario a la izquierda, el día a la derecha.
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 90),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(width: 460, child: calendario),
+                      const SizedBox(width: 16),
+                      Expanded(child: SingleChildScrollView(child: detalle)),
+                    ],
                   ),
-                ),
-            ],
+                );
+              }
+              return ListView(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 90),
+                children: [calendario, const SizedBox(height: 8), detalle],
+              );
+            },
           );
         },
       ),
@@ -381,7 +603,9 @@ class _CronogramaTabState extends State<_CronogramaTab> {
         empresaId: widget.empresaId,
         jefeId: widget.userId,
         jefeNombre: widget.nombreUsuario,
-        mesInicial: _mes,
+        esDesarrollador: widget.esDesarrollador,
+        // El día tocado en el calendario ya viene elegido en el diálogo.
+        mesInicial: _diaElegido ?? _mesEnfocado,
       ),
     );
     if (creada == true && context.mounted) {
@@ -464,7 +688,8 @@ class _VisitaCard extends StatelessWidget {
               style: const TextStyle(fontFamily: _kFont, fontSize: 12),
             ),
             Text(
-              '${v.areaNombre} · ${_dd(v.fechaProgramada)}',
+              '${v.areaNombre} · ${v.formatoNombre} · ${_dd(v.fechaProgramada)}'
+              '${v.esPrueba ? ' · PRUEBA' : ''}',
               style: const TextStyle(fontFamily: _kFont, fontSize: 12),
             ),
           ],
@@ -529,12 +754,14 @@ class _ProgramarVisitaDialog extends StatefulWidget {
   final String empresaId;
   final String jefeId;
   final String jefeNombre;
+  final bool esDesarrollador;
   final DateTime mesInicial;
   const _ProgramarVisitaDialog({
     required this.svc,
     required this.empresaId,
     required this.jefeId,
     required this.jefeNombre,
+    required this.esDesarrollador,
     required this.mesInicial,
   });
 
@@ -544,6 +771,7 @@ class _ProgramarVisitaDialog extends StatefulWidget {
 
 class _ProgramarVisitaDialogState extends State<_ProgramarVisitaDialog> {
   List<VisitaPersona> _personal = const [];
+  Set<String> _idsProfesionales = const <String>{};
   List<VisitaCentro> _centros = const [];
   List<VisitaFormato> _formatos = const [];
   VisitaPersona? _profesional;
@@ -553,42 +781,75 @@ class _ProgramarVisitaDialogState extends State<_ProgramarVisitaDialog> {
   late DateTime _fecha;
   bool _cargando = true;
   bool _guardando = false;
+  bool _esPrueba = false;
+  String _areaJefe = '';
 
   @override
   void initState() {
     super.initState();
+    // `mesInicial` trae el día tocado en el calendario; si es una fecha ya
+    // pasada se propone hoy, porque una visita no se programa hacia atrás.
     final hoy = DateTime.now();
-    _fecha =
-        widget.mesInicial.month == hoy.month &&
-            widget.mesInicial.year == hoy.year
-        ? DateTime(hoy.year, hoy.month, hoy.day)
-        : widget.mesInicial;
+    final hoyDia = DateTime(hoy.year, hoy.month, hoy.day);
+    final propuesto = DateTime(
+      widget.mesInicial.year,
+      widget.mesInicial.month,
+      widget.mesInicial.day,
+    );
+    _fecha = propuesto.isBefore(hoyDia) ? hoyDia : propuesto;
     _cargar();
   }
 
   Future<void> _cargar() async {
-    final personal = await widget.svc.personalDeEmpresa(widget.empresaId);
-    final centros = await widget.svc.streamCentros(widget.empresaId).first;
-    final formatos = await widget.svc.streamFormatos(widget.empresaId).first;
-    if (!mounted) return;
-    setState(() {
-      _personal = personal;
-      _centros = centros;
-      _formatos = formatos.where((f) => f.usable).toList();
-      _cargando = false;
-    });
+    try {
+      final personal = await widget.svc.personalDeEmpresa(widget.empresaId);
+      final roles = await widget.svc.streamRoles(widget.empresaId).first;
+      final areaPorRol = {for (final r in roles) r.userId: r.areaId};
+      final areaJefe = widget.esDesarrollador
+          ? ''
+          : await widget.svc.areaDeUsuario(widget.empresaId, widget.jefeId);
+      final profesionales = await widget.svc.idsProfesionales(widget.empresaId);
+      final centros = await widget.svc.streamCentros(widget.empresaId).first;
+      final formatos = await widget.svc
+          .streamFormatos(
+            widget.empresaId,
+            areaId: widget.esDesarrollador ? null : areaJefe,
+          )
+          .first;
+      if (!mounted) return;
+      setState(() {
+        _personal = [
+          for (final p in personal)
+            VisitaPersona(
+              id: p.id,
+              nombre: p.nombre,
+              areaId: areaPorRol[p.id] ?? p.areaId,
+              cargo: p.cargo,
+            ),
+        ];
+        _areaJefe = areaJefe;
+        _idsProfesionales = profesionales;
+        _centros = centros;
+        _formatos = formatos.where((f) => f.usable).toList();
+        _cargando = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _cargando = false);
+      _snack(context, 'No se pudieron cargar los datos: $e', error: true);
+    }
   }
 
-  /// Al escoger al profesional se propone el formato de su área. Se puede
-  /// cambiar: un profesional de calidad puede cubrir una visita de nutrición.
+  /// Al escoger al profesional se propone el formato de su área.
   void _proponerFormato(VisitaPersona p) {
-    if (_formato != null) return;
-    final area = p.areaId.toLowerCase();
-    final candidato = _formatos.where((f) {
+    final area = p.areaId.trim().toLowerCase();
+    final candidatos = _formatos.where((f) {
       final a = f.areaId.toLowerCase();
-      return area.contains(a) || a.contains(area) && area.isNotEmpty;
-    }).firstOrNull;
-    if (candidato != null) _formato = candidato;
+      return area.isNotEmpty && a == area && (_esPrueba || !f.esBorrador);
+    }).toList();
+    _formato =
+        candidatos.where((f) => f.predeterminado).firstOrNull ??
+        candidatos.firstOrNull;
   }
 
   Future<void> _guardar() async {
@@ -596,6 +857,19 @@ class _ProgramarVisitaDialogState extends State<_ProgramarVisitaDialog> {
       _snack(
         context,
         'Faltan profesional, establecimiento o formato.',
+        error: true,
+      );
+      return;
+    }
+    if (!widget.esDesarrollador && _areaJefe != _formato!.areaId) {
+      _snack(context, 'Solo puedes asignar formatos de tu área.', error: true);
+      return;
+    }
+    if (_profesional!.areaId != _formato!.areaId &&
+        !(_esPrueba && _profesional!.id == widget.jefeId)) {
+      _snack(
+        context,
+        'El profesional debe pertenecer al área del formato.',
         error: true,
       );
       return;
@@ -610,6 +884,8 @@ class _ProgramarVisitaDialogState extends State<_ProgramarVisitaDialog> {
           empresaId: widget.empresaId,
           formatoId: _formato!.id,
           formatoNombre: _formato!.nombre,
+          formatoAsignado: _formato,
+          esPrueba: _esPrueba,
           areaId: _formato!.areaId,
           areaNombre: _formato!.areaNombre,
           centroId: _centro!.id,
@@ -651,7 +927,36 @@ class _ProgramarVisitaDialogState extends State<_ProgramarVisitaDialog> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Visita de prueba'),
+                      subtitle: const Text(
+                        'Se identifica como ensayo y la jefatura podrá eliminarla después.',
+                      ),
+                      value: _esPrueba,
+                      onChanged: (value) => setState(() {
+                        _esPrueba = value;
+                        if (!value &&
+                            _profesional?.id == widget.jefeId &&
+                            !_idsProfesionales.contains(widget.jefeId)) {
+                          _profesional = null;
+                        }
+                        if (!value && _formato?.esBorrador == true)
+                          _formato = null;
+                      }),
+                    ),
+                    if (!widget.esDesarrollador && _areaJefe.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 10),
+                        child: Text(
+                          'Tu perfil no tiene área. Asígnala en Admin > Usuarios antes de programar visitas.',
+                          style: TextStyle(color: Color(0xFFB45309)),
+                        ),
+                      ),
                     DropdownButtonFormField<VisitaPersona>(
+                      key: ValueKey(
+                        'profesional-$_esPrueba-${_profesional?.id}',
+                      ),
                       initialValue: _profesional,
                       isExpanded: true,
                       decoration: const InputDecoration(
@@ -659,21 +964,32 @@ class _ProgramarVisitaDialogState extends State<_ProgramarVisitaDialog> {
                       ),
                       items: [
                         for (final p in _personal)
-                          DropdownMenuItem(
-                            value: p,
-                            child: Text(
-                              p.cargo.isEmpty
-                                  ? p.nombre
-                                  : '${p.nombre} · ${p.cargo}',
-                              overflow: TextOverflow.ellipsis,
+                          if ((widget.esDesarrollador ||
+                                  p.areaId == _areaJefe) &&
+                              (_idsProfesionales.contains(p.id) ||
+                                  (_esPrueba && p.id == widget.jefeId)))
+                            DropdownMenuItem(
+                              value: p,
+                              child: Text(
+                                p.cargo.isEmpty
+                                    ? p.nombre
+                                    : '${p.nombre} · ${p.cargo}',
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                          ),
                       ],
                       onChanged: (p) => setState(() {
                         _profesional = p;
                         if (p != null) _proponerFormato(p);
                       }),
                     ),
+                    if (_idsProfesionales.isEmpty && !_esPrueba)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 6),
+                        child: Text(
+                          'Asigna primero el rol Profesional en Admin > Roles y permisos.',
+                        ),
+                      ),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<VisitaCentro>(
                       initialValue: _centro,
@@ -715,6 +1031,7 @@ class _ProgramarVisitaDialogState extends State<_ProgramarVisitaDialog> {
                     ],
                     const SizedBox(height: 10),
                     DropdownButtonFormField<VisitaFormato>(
+                      key: ValueKey('formato-$_esPrueba-${_formato?.id}'),
                       initialValue: _formato,
                       isExpanded: true,
                       decoration: const InputDecoration(
@@ -722,16 +1039,34 @@ class _ProgramarVisitaDialogState extends State<_ProgramarVisitaDialog> {
                       ),
                       items: [
                         for (final f in _formatos)
-                          DropdownMenuItem(
-                            value: f,
-                            child: Text(
-                              '${f.areaNombre} · ${f.nombre}${f.esBorrador ? ' (borrador)' : ''}',
-                              overflow: TextOverflow.ellipsis,
+                          if ((widget.esDesarrollador ||
+                                  f.areaId == _areaJefe) &&
+                              (_profesional == null ||
+                                  f.areaId == _profesional!.areaId ||
+                                  (_esPrueba &&
+                                      _profesional!.id == widget.jefeId)) &&
+                              (_esPrueba || !f.esBorrador))
+                            DropdownMenuItem(
+                              value: f,
+                              child: Text(
+                                '${f.areaNombre} · ${f.nombre}${f.predeterminado ? ' ★' : ''}${f.esBorrador ? ' (borrador)' : ''}',
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                          ),
                       ],
                       onChanged: (f) => setState(() => _formato = f),
                     ),
+                    if (_formato != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          '${_formato!.areaNombre} · ${_formato!.items.length} preguntas'
+                          '${_formato!.tablas.isEmpty ? '' : ' · ${_formato!.tablas.length} tablas'}'
+                          ' · versión ${_formato!.version}'
+                          '${_formato!.esBorrador ? ' · SOLO PRUEBA' : ''}',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
                     if (_formatos.isEmpty)
                       const Padding(
                         padding: EdgeInsets.only(top: 6),
@@ -917,6 +1252,336 @@ class _MisVisitasTabState extends State<_MisVisitasTab> {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// Registro de visita (profesional): "¿dónde estoy y qué me toca aquí?"
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// Reunión del 18 sep 2026. Al llegar al establecimiento el profesional toca
+// "Estoy en el establecimiento": la app toma el GPS, busca en el maestro de
+// ubicaciones dentro de qué radio está y "jala" la visita que tiene
+// programada ahí. Si llegó a un sitio sin visita programada no puede iniciar
+// nada: lo corrige el jefe inmediato desde el cronograma.
+
+class _RegistroVisitaTab extends StatefulWidget {
+  final VisitasService svc;
+  final String userId;
+  final String empresaId;
+  final String? rol;
+  final String nombreUsuario;
+  const _RegistroVisitaTab({
+    required this.svc,
+    required this.userId,
+    required this.empresaId,
+    required this.rol,
+    required this.nombreUsuario,
+  });
+
+  @override
+  State<_RegistroVisitaTab> createState() => _RegistroVisitaTabState();
+}
+
+class _RegistroVisitaTabState extends State<_RegistroVisitaTab> {
+  bool _buscando = false;
+  RegistroVisitaResultado? _resultado;
+  String? _error;
+  DateTime? _consultadoEn;
+
+  Future<void> _detectar() async {
+    setState(() {
+      _buscando = true;
+      _error = null;
+    });
+    try {
+      final pos = await widget.svc.posicionActual();
+      if (pos == null) {
+        setState(() {
+          _error =
+              'No se pudo obtener la ubicación del dispositivo. Activa el GPS '
+              'y dale permiso a la aplicación.';
+        });
+        return;
+      }
+      final ubicaciones = await widget.svc
+          .streamUbicaciones(widget.empresaId)
+          .first;
+      final visitas = await widget.svc
+          .streamVisitas(widget.empresaId, profesionalId: widget.userId)
+          .first;
+      if (!mounted) return;
+      setState(() {
+        _resultado = resolverRegistroVisita(
+          lat: pos.latitude,
+          lng: pos.longitude,
+          precisionMetros: pos.accuracy,
+          ubicaciones: ubicaciones,
+          visitasDelProfesional: visitas,
+          ahora: DateTime.now(),
+        );
+        _consultadoEn = DateTime.now();
+      });
+    } catch (e) {
+      if (mounted) setState(() => _error = 'No se pudo consultar: $e');
+    } finally {
+      if (mounted) setState(() => _buscando = false);
+    }
+  }
+
+  void _abrir(VisitaProfesional v) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _EjecutarVisitaScreen(
+          svc: widget.svc,
+          visitaId: v.id,
+          empresaId: widget.empresaId,
+          userId: widget.userId,
+          nombreUsuario: widget.nombreUsuario,
+        ),
+      ),
+    ).then((_) {
+      // Al volver se vuelve a consultar: la visita pudo iniciarse o cerrarse.
+      if (mounted && _resultado != null) _detectar();
+    });
+  }
+
+  String _nombre(VisitaUbicacion u) => u.subcentroNombre.isEmpty
+      ? u.centroNombre
+      : '${u.centroNombre} — ${u.subcentroNombre}';
+
+  @override
+  Widget build(BuildContext context) {
+    final r = _resultado;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Registro de visita',
+                  style: TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Cuando llegues al establecimiento, toca el botón. La app '
+                  'verifica con el GPS dónde estás y te muestra la visita que '
+                  'tienes programada en ese sitio.',
+                  style: TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 13,
+                    color: Colors.black54,
+                    height: 1.35,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _buscando ? null : _detectar,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: kVisitasColor,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    icon: _buscando
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.my_location_rounded),
+                    label: Text(
+                      _buscando
+                          ? 'Ubicándote…'
+                          : (r == null
+                                ? 'Estoy en el establecimiento'
+                                : 'Volver a ubicarme'),
+                      style: const TextStyle(
+                        fontFamily: _kFont,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+                if (_consultadoEn != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      'Consultado a las '
+                      '${_consultadoEn!.hour.toString().padLeft(2, '0')}:'
+                      '${_consultadoEn!.minute.toString().padLeft(2, '0')}',
+                      style: const TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 11,
+                        color: Colors.black45,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        if (_error != null)
+          Card(
+            color: const Color(0xFFFEF2F2),
+            child: ListTile(
+              leading: const Icon(
+                Icons.location_off_outlined,
+                color: Color(0xFFDC2626),
+              ),
+              title: Text(
+                _error!,
+                style: const TextStyle(fontFamily: _kFont, fontSize: 13),
+              ),
+            ),
+          ),
+        if (r != null) ...[
+          const SizedBox(height: 8),
+          if (!r.enUnEstablecimiento)
+            Card(
+              color: const Color(0xFFFFF7ED),
+              child: ListTile(
+                leading: const Icon(
+                  Icons.wrong_location_outlined,
+                  color: Color(0xFFB45309),
+                ),
+                title: const Text(
+                  'No estás dentro de ningún establecimiento registrado',
+                  style: TextStyle(
+                    fontFamily: _kFont,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                  ),
+                ),
+                subtitle: Text(
+                  r.masCercana == null
+                      ? 'La empresa no tiene ubicaciones cargadas en el maestro.'
+                      : 'El más cercano es ${_nombre(r.masCercana!)}, a '
+                            '${r.distanciaMasCercana!.round()} m '
+                            '(radio ${r.masCercana!.radioMetros.round()} m). '
+                            'Acércate y vuelve a ubicarte.',
+                  style: const TextStyle(fontFamily: _kFont, fontSize: 12),
+                ),
+              ),
+            )
+          else ...[
+            Card(
+              color: const Color(0xFFF0FDF4),
+              child: ListTile(
+                leading: const Icon(
+                  Icons.where_to_vote_outlined,
+                  color: Color(0xFF15803D),
+                ),
+                title: Text(
+                  'Estás en ${_nombre(r.ubicacionActual!)}',
+                  style: const TextStyle(
+                    fontFamily: _kFont,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                  ),
+                ),
+                subtitle: Text(
+                  r.listas.isEmpty
+                      ? 'No tienes una visita programada aquí para hoy.'
+                      : 'Tienes ${r.listas.length} visita'
+                            '${r.listas.length == 1 ? '' : 's'} para hacer aquí.',
+                  style: const TextStyle(fontFamily: _kFont, fontSize: 12),
+                ),
+              ),
+            ),
+            if (r.listas.isEmpty)
+              Card(
+                color: const Color(0xFFFEF2F2),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Sin visita programada en este sitio',
+                        style: TextStyle(
+                          fontFamily: _kFont,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFFB91C1C),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        r.paraDespues.isEmpty
+                            ? 'La visita se registra solo si está en el '
+                                  'cronograma. Pídele a tu jefe inmediato que la '
+                                  'programe o la reprograme para hoy.'
+                            : 'Aquí tienes visita programada para el '
+                                  '${_dd(r.paraDespues.first.visita.fechaProgramada)}. '
+                                  'Solo se inicia ese día o después; si debe ser '
+                                  'hoy, pídele a tu jefe inmediato que la '
+                                  'reprograme.',
+                        style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 12,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            for (final item in r.listas)
+              Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  onTap: () => _abrir(item.visita),
+                  leading: Icon(
+                    item.visita.estado == kVisitaEnCurso
+                        ? Icons.play_circle_outline
+                        : Icons.assignment_turned_in_outlined,
+                    color: kVisitasColor,
+                  ),
+                  title: Text(
+                    item.visita.formatoNombre.isEmpty
+                        ? item.visita.areaNombre
+                        : item.visita.formatoNombre,
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  subtitle: Text(
+                    '${item.visita.areaNombre} · programada para el '
+                    '${_dd(item.visita.fechaProgramada)} · a '
+                    '${item.distancia!.round()} m del punto de referencia',
+                    style: const TextStyle(fontFamily: _kFont, fontSize: 12),
+                  ),
+                  trailing: FilledButton(
+                    onPressed: () => _abrir(item.visita),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: kVisitasColor,
+                    ),
+                    child: Text(
+                      item.visita.estado == kVisitaEnCurso
+                          ? 'Continuar'
+                          : 'Iniciar',
+                      style: const TextStyle(fontFamily: _kFont),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ],
+      ],
+    );
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // Ejecutar la visita (profesional, en el establecimiento)
 // ═════════════════════════════════════════════════════════════════════════════
 
@@ -975,7 +1640,7 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
 
   Future<void> _asegurarFormato(VisitaProfesional v) async {
     if (_formato != null) return;
-    final f = await widget.svc.getFormato(v.formatoId);
+    final f = v.formatoAsignado ?? await widget.svc.getFormato(v.formatoId);
     if (mounted) setState(() => _formato = f);
   }
 
@@ -1113,6 +1778,40 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
 
   Future<void> _firmar(VisitaProfesional v, String quien) async {
     final esProfesional = quien == 'profesional';
+    if ((esProfesional && v.firmaProfesional != null) ||
+        (!esProfesional && v.firmaEstablecimiento != null))
+      return;
+    final f = _formato;
+    if (f == null) return;
+    final candidato = VisitaProfesional.fromMap(v.id, {
+      ...v.toMap(),
+      'responsableEstablecimiento': _responsable.toMap(),
+    });
+    final faltantes = validarCierreVisita(f, candidato, exigirFirmas: false);
+    if (faltantes.isNotEmpty) {
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Completa el formato antes de firmar'),
+          content: SizedBox(
+            width: 420,
+            child: ListView(
+              shrinkWrap: true,
+              children: [for (final e in faltantes) Text('• $e')],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Entendido'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    final yaHayFirma =
+        v.firmaProfesional != null || v.firmaEstablecimiento != null;
     Uint8List? guardada;
     if (esProfesional) {
       setState(() => _ocupado = true);
@@ -1131,7 +1830,8 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
       nombreInicial: esProfesional ? widget.nombreUsuario : _respNombre.text,
       cargoInicial: esProfesional ? _cargoProf.text : _respCargo.text,
       firmaGuardada: guardada,
-      nombreEditable: !esProfesional,
+      nombreEditable: !esProfesional && !yaHayFirma,
+      cargoEditable: !yaHayFirma,
     );
     if (cap == null) return;
     setState(() => _ocupado = true);
@@ -1142,7 +1842,18 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
         _respNombre.text = cap.nombre;
         _respCargo.text = cap.cargo;
       }
-      await _guardarEncabezado(v);
+      if (!yaHayFirma) {
+        await widget.svc.guardarEncabezado(
+          v.id,
+          responsable: _responsable,
+          ciudad: _ciudad.text.trim(),
+          cargoProfesional: _cargoProf.text.trim(),
+        );
+        await widget.svc.guardarObservacionGeneral(
+          v.id,
+          _obsGeneral.text.trim(),
+        );
+      }
       await widget.svc.firmar(
         empresaId: widget.empresaId,
         visitaId: v.id,
@@ -1153,7 +1864,8 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
         modo: cap.modo,
       );
     } catch (e) {
-      if (mounted) _snack(context, 'No se pudo guardar la firma: $e', error: true);
+      if (mounted)
+        _snack(context, 'No se pudo guardar la firma: $e', error: true);
     } finally {
       if (mounted) setState(() => _ocupado = false);
     }
@@ -1203,7 +1915,7 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
         title: const Text('Cerrar visita'),
         content: Text(
           'Cumplimiento: ${resumen.porcentaje ?? '—'}%\n'
-          '$nHallazgos hallazgo(s) se convertirán en tareas.\n\n'
+          '${v.esPrueba ? 'Es una prueba: no se crearán tareas reales.' : '$nHallazgos hallazgo(s) se convertirán en tareas.'}\n\n'
           'Después de cerrar no se puede editar.',
           style: const TextStyle(fontFamily: _kFont),
         ),
@@ -1223,7 +1935,6 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
     if (ok != true) return;
     setState(() => _ocupado = true);
     try {
-      await widget.svc.guardarObservacionGeneral(v.id, _obsGeneral.text.trim());
       final tareas = await widget.svc.cerrar(
         formato: f,
         visita: VisitaProfesional.fromMap(v.id, {
@@ -1382,7 +2093,21 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          _estadoReferencia(),
+          if (v.esPrueba)
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF3C7),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Text(
+                'VISITA DE PRUEBA · Puedes completar el formato y ensayar ambas firmas desde web. No exige GPS ni genera tareas reales.',
+                style: TextStyle(fontFamily: _kFont, fontSize: 12),
+              ),
+            )
+          else
+            _estadoReferencia(),
           const Text(
             'Antes de iniciar',
             style: TextStyle(
@@ -1392,15 +2117,21 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          _campo(_respNombre, 'Responsable del establecimiento', obligatorio: true),
+          _campo(
+            _respNombre,
+            'Responsable del establecimiento',
+            obligatorio: true,
+          ),
           _campo(_respCargo, 'Cargo del responsable'),
           _campo(_ciudad, 'Ciudad'),
           _campo(_cargoProf, 'Tu cargo (responsable de inspección)'),
           const SizedBox(height: 8),
-          const Text(
-            'Al iniciar, el sistema toma la hora y la ubicación del dispositivo y '
-            'comprueba que estés dentro del radio del establecimiento. Sin GPS o '
-            'fuera del radio, no se inicia.',
+          Text(
+            v.esPrueba
+                ? 'Al iniciar se registra la hora. Completa el formato antes de firmar; al finalizar podrás eliminar esta prueba desde el perfil Jefe.'
+                : 'Al iniciar, el sistema toma la hora y la ubicación del dispositivo y '
+                      'comprueba que estés dentro del radio del establecimiento. Sin GPS o '
+                      'fuera del radio, no se inicia.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontFamily: _kFont,
@@ -1413,12 +2144,9 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
           FilledButton.icon(
             style: FilledButton.styleFrom(
               backgroundColor: kVisitasColor,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 24,
-                vertical: 16,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
             ),
-            onPressed: _ocupado || _referencia == null
+            onPressed: _ocupado || (!v.esPrueba && _referencia == null)
                 ? null
                 : () => _iniciar(v),
             icon: const Icon(Icons.play_arrow_rounded),
@@ -1483,6 +2211,8 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
 
   Widget _pantallaFormato(VisitaProfesional v, VisitaFormato f) {
     final resumen = resumenDeVisita(f, v.respuestas);
+    final contenidoFirmado =
+        v.firmaProfesional != null || v.firmaEstablecimiento != null;
     final partes = f.partes.isEmpty
         ? const [VisitaFormatoParte(codigo: '', nombre: '')]
         : f.partes;
@@ -1521,63 +2251,86 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
             children: [
-              for (final p in partes) ...[
-                if (p.codigo.isNotEmpty)
-                  Container(
-                    margin: const EdgeInsets.only(top: 12, bottom: 4),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: kVisitasColor,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      '${p.codigo} · ${p.nombre}',
-                      style: const TextStyle(
-                        fontFamily: _kFont,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 13,
-                      ),
-                    ),
+              if (contenidoFirmado)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    'El contenido quedó bloqueado al guardar la primera firma.',
+                    style: TextStyle(fontWeight: FontWeight.w700),
                   ),
-                ..._bloqueParte(v, f, p.codigo),
-              ],
-              const SizedBox(height: 16),
-              const Text(
-                'Encabezado del acta',
-                style: TextStyle(
-                  fontFamily: _kFont,
-                  fontWeight: FontWeight.w800,
                 ),
-              ),
-              const SizedBox(height: 8),
-              _campo(
-                _respNombre,
-                'Responsable del establecimiento',
-                obligatorio: true,
-                onSalir: () => _guardarEncabezado(v),
-              ),
-              _campo(
-                _respCargo,
-                'Cargo del responsable',
-                onSalir: () => _guardarEncabezado(v),
-              ),
-              _campo(_ciudad, 'Ciudad', onSalir: () => _guardarEncabezado(v)),
-              _campo(
-                _cargoProf,
-                'Tu cargo (responsable de inspección)',
-                onSalir: () => _guardarEncabezado(v),
-              ),
-              const SizedBox(height: 4),
-              TextField(
-                controller: _obsGeneral,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Observación general de la visita',
-                  border: OutlineInputBorder(),
+              IgnorePointer(
+                ignoring: contenidoFirmado,
+                child: Opacity(
+                  opacity: contenidoFirmado ? .7 : 1,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final p in partes) ...[
+                        if (p.codigo.isNotEmpty)
+                          Container(
+                            margin: const EdgeInsets.only(top: 12, bottom: 4),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: kVisitasColor,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '${p.codigo} · ${p.nombre}',
+                              style: const TextStyle(
+                                fontFamily: _kFont,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ..._bloqueParte(v, f, p.codigo),
+                      ],
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Encabezado del acta',
+                        style: TextStyle(
+                          fontFamily: _kFont,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _campo(
+                        _respNombre,
+                        'Responsable del establecimiento',
+                        obligatorio: true,
+                        onSalir: () => _guardarEncabezado(v),
+                      ),
+                      _campo(
+                        _respCargo,
+                        'Cargo del responsable',
+                        onSalir: () => _guardarEncabezado(v),
+                      ),
+                      _campo(
+                        _ciudad,
+                        'Ciudad',
+                        onSalir: () => _guardarEncabezado(v),
+                      ),
+                      _campo(
+                        _cargoProf,
+                        'Tu cargo (responsable de inspección)',
+                        onSalir: () => _guardarEncabezado(v),
+                      ),
+                      const SizedBox(height: 4),
+                      TextField(
+                        controller: _obsGeneral,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                          labelText: 'Observación general de la visita',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
@@ -1602,12 +2355,14 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
               FirmaTile(
                 titulo: 'Responsable de inspección',
                 firma: v.firmaProfesional,
-                onFirmar: _ocupado ? null : () => _firmar(v, 'profesional'),
+                onFirmar: _ocupado || v.firmaProfesional != null
+                    ? null
+                    : () => _firmar(v, 'profesional'),
               ),
               FirmaTile(
                 titulo: 'Responsable del establecimiento',
                 firma: v.firmaEstablecimiento,
-                onFirmar: _ocupado
+                onFirmar: _ocupado || v.firmaEstablecimiento != null
                     ? null
                     : () => _firmar(v, 'establecimiento'),
               ),
@@ -1653,9 +2408,7 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
       );
       final filas = [
         for (final f in v.filasDe(t.id))
-          f.id == fila.id
-              ? f.copyWith(evidencias: [...f.evidencias, ev])
-              : f,
+          f.id == fila.id ? f.copyWith(evidencias: [...f.evidencias, ev]) : f,
       ];
       await widget.svc.guardarFilas(v.id, t.id, filas);
     } catch (e) {
@@ -1755,7 +2508,9 @@ class _ItemCardState extends State<_ItemCard> {
     _focus.addListener(() {
       if (!_focus.hasFocus &&
           _obs.text.trim() != widget.respuesta.observacion) {
-        widget.onCambio(widget.respuesta.copyWith(observacion: _obs.text.trim()));
+        widget.onCambio(
+          widget.respuesta.copyWith(observacion: _obs.text.trim()),
+        );
       }
     });
     _focusCantidad.addListener(() {
@@ -2048,7 +2803,10 @@ class _TablaSection extends StatelessWidget {
           Card(
             margin: const EdgeInsets.only(bottom: 8),
             child: ListTile(
-              leading: const Icon(Icons.fire_extinguisher, color: Colors.black38),
+              leading: const Icon(
+                Icons.fire_extinguisher,
+                color: Colors.black38,
+              ),
               title: Text(
                 'Sin ${tabla.etiquetaFila.toLowerCase()}es registrados',
                 style: const TextStyle(fontFamily: _kFont, fontSize: 13),
@@ -2066,8 +2824,10 @@ class _TablaSection extends StatelessWidget {
             indice: i + 1,
             fila: filas[i],
             onEditar: () => _editar(context, filas[i]),
-            onEliminar: () =>
-                onGuardar([for (final f in filas) if (f.id != filas[i].id) f]),
+            onEliminar: () => onGuardar([
+              for (final f in filas)
+                if (f.id != filas[i].id) f,
+            ]),
             onFoto: () => onFoto(filas[i]),
           ),
       ],
@@ -2284,8 +3044,7 @@ class _FilaDialogState extends State<_FilaDialog> {
     Navigator.pop(
       context,
       VisitaFilaTabla(
-        id: widget.fila?.id ??
-            'f_${DateTime.now().millisecondsSinceEpoch}',
+        id: widget.fila?.id ?? 'f_${DateTime.now().millisecondsSinceEpoch}',
         campos: {for (final e in _textos.entries) e.key: e.value.text.trim()},
         estados: Map.of(_estados),
         observacion: _obs.text.trim(),
@@ -2570,7 +3329,7 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
 
   Future<void> _asegurarFormato(VisitaProfesional v) async {
     if (_formato != null) return;
-    final f = await widget.svc.getFormato(v.formatoId);
+    final f = v.formatoAsignado ?? await widget.svc.getFormato(v.formatoId);
     if (mounted) setState(() => _formato = f);
   }
 
@@ -2649,6 +3408,44 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
     if (mounted) _snack(context, 'Visita cancelada.');
   }
 
+  Future<void> _eliminarPrueba(VisitaProfesional v) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Eliminar visita de prueba'),
+        content: const Text(
+          'Se eliminarán esta visita, sus firmas, fotos y tareas generadas. '
+          'Esta acción no se puede deshacer.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Conservar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar prueba'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _ocupado = true);
+    try {
+      await widget.svc.eliminarPrueba(
+        empresaId: widget.empresaId,
+        visitaId: v.id,
+      );
+      if (!mounted) return;
+      _snack(context, 'Visita de prueba eliminada.');
+      Navigator.pop(context);
+    } catch (e) {
+      if (mounted) _snack(context, 'No se pudo eliminar: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _ocupado = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<VisitaProfesional?>(
@@ -2701,6 +3498,12 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
                   onPressed: () => _cancelar(v),
                   icon: const Icon(Icons.event_busy_outlined),
                 ),
+              if (v.esPrueba && visitasPuedeProgramar(widget.rol))
+                IconButton(
+                  tooltip: 'Eliminar visita de prueba',
+                  onPressed: _ocupado ? null : () => _eliminarPrueba(v),
+                  icon: const Icon(Icons.delete_outline),
+                ),
             ],
           ),
           body: ListView(
@@ -2712,6 +3515,10 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
                     kVisitaEstadosLabel[v.estado] ?? v.estado,
                     _colorEstado(v.estado),
                   ),
+                  if (v.esPrueba) ...[
+                    const SizedBox(width: 8),
+                    const _Chip('PRUEBA', Color(0xFFB45309)),
+                  ],
                   const SizedBox(width: 8),
                   if (v.cumplimiento != null)
                     Text(
@@ -2775,7 +3582,8 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
               _dato('Cierre', _marcaTexto(v.fin)),
               if (v.tareasCreadas.isNotEmpty)
                 _dato('Tareas creadas', '${v.tareasCreadas.length}'),
-              if (v.firmaProfesional != null || v.firmaEstablecimiento != null) ...[
+              if (v.firmaProfesional != null ||
+                  v.firmaEstablecimiento != null) ...[
                 const Divider(height: 24),
                 FirmaTile(
                   titulo: 'Responsable de inspección',
@@ -3070,10 +3878,12 @@ class _FormatosTab extends StatefulWidget {
   final VisitasService svc;
   final String userId;
   final String empresaId;
+  final bool esDesarrollador;
   const _FormatosTab({
     required this.svc,
     required this.userId,
     required this.empresaId,
+    required this.esDesarrollador,
   });
 
   @override
@@ -3082,11 +3892,61 @@ class _FormatosTab extends StatefulWidget {
 
 class _FormatosTabState extends State<_FormatosTab> {
   late final Stream<List<VisitaFormato>> _stream;
+  String _areaFiltro = '';
+  String _areaJefe = '';
+  Map<String, String> _areasCatalogo = const {};
+  List<VisitaPersona> _personal = const [];
+  List<VisitaRolDoc> _roles = const [];
+  bool _eliminando = false;
 
   @override
   void initState() {
     super.initState();
-    _stream = widget.svc.streamFormatos(widget.empresaId);
+    _stream = widget.esDesarrollador
+        ? widget.svc.streamFormatos(widget.empresaId)
+        : widget.svc
+              .areaDeUsuario(widget.empresaId, widget.userId)
+              .asStream()
+              .asyncExpand(
+                (area) =>
+                    widget.svc.streamFormatos(widget.empresaId, areaId: area),
+              );
+    _cargarAreas();
+  }
+
+  Future<void> _cargarAreas() async {
+    final areas = await widget.svc.areasDeEmpresa(widget.empresaId);
+    final areaJefe = widget.esDesarrollador
+        ? ''
+        : await widget.svc.areaDeUsuario(widget.empresaId, widget.userId);
+    final formatos = await widget.svc
+        .streamFormatos(
+          widget.empresaId,
+          areaId: widget.esDesarrollador ? null : areaJefe,
+        )
+        .first;
+    final personal = await widget.svc.personalDeEmpresa(widget.empresaId);
+    final roles = await widget.svc.streamRoles(widget.empresaId).first;
+    final areaPorRol = {for (final r in roles) r.userId: r.areaId};
+    if (mounted)
+      setState(() {
+        _areasCatalogo = {
+          ...areas,
+          for (final f in formatos)
+            if (!areas.containsKey(f.areaId)) f.areaId: f.areaNombre,
+        };
+        _areaJefe = areaJefe;
+        _personal = [
+          for (final p in personal)
+            VisitaPersona(
+              id: p.id,
+              nombre: p.nombre,
+              areaId: areaPorRol[p.id] ?? p.areaId,
+              cargo: p.cargo,
+            ),
+        ];
+        _roles = roles;
+      });
   }
 
   Future<void> _sembrar() async {
@@ -3154,9 +4014,231 @@ class _FormatosTabState extends State<_FormatosTab> {
         svc: widget.svc,
         formato: f,
         userId: widget.userId,
+        areas: {
+          ..._areasCatalogo,
+          if (f.areaId.isNotEmpty) f.areaId: f.areaNombre,
+        },
+        areaFija: widget.esDesarrollador ? '' : _areaJefe,
       ),
     ),
   );
+
+  Future<void> _descargarPlantilla() async {
+    try {
+      final datos = await rootBundle.load(
+        'assets/visitas_plantilla_formato.xlsx',
+      );
+      await FileSaver.instance.saveFile(
+        name: 'plantilla_formato_visitas',
+        bytes: datos.buffer.asUint8List(),
+        fileExtension: 'xlsx',
+        mimeType: MimeType.microsoftExcel,
+      );
+    } catch (e) {
+      if (mounted)
+        _snack(context, 'No se pudo descargar la plantilla: $e', error: true);
+    }
+  }
+
+  Future<void> _importarExcel() async {
+    final areas = widget.esDesarrollador
+        ? _areasCatalogo
+        : {
+            if (_areaJefe.isNotEmpty)
+              _areaJefe: _areasCatalogo[_areaJefe] ?? _areaJefe,
+          };
+    if (areas.isEmpty) {
+      _snack(
+        context,
+        'Configura el área del perfil en Admin > Usuarios.',
+        error: true,
+      );
+      return;
+    }
+    final nombre = TextEditingController();
+    var area = areas.keys.first;
+    final confirmado = await showDialog<bool>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setLocal) => AlertDialog(
+          title: const Text('Crear formato desde Excel'),
+          content: SizedBox(
+            width: 430,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String>(
+                  initialValue: area,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Área'),
+                  items: [
+                    for (final e in areas.entries)
+                      DropdownMenuItem(value: e.key, child: Text(e.value)),
+                  ],
+                  onChanged: (v) => setLocal(() => area = v ?? area),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: nombre,
+                  decoration: const InputDecoration(
+                    labelText: 'Nombre del formato',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'El Excel se importará como borrador. Revísalo y márcalo Vigente antes de asignarlo en visitas reales.',
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Elegir Excel'),
+            ),
+          ],
+        ),
+      ),
+    );
+    final nombreFormato = nombre.text.trim();
+    nombre.dispose();
+    if (confirmado != true || !mounted) return;
+    if (nombreFormato.isEmpty) {
+      _snack(context, 'Escribe el nombre del formato.', error: true);
+      return;
+    }
+    try {
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['xlsx'],
+        withData: true,
+      );
+      if (picked == null) return;
+      if (picked.files.single.size > 5 * 1024 * 1024) {
+        throw const FormatException(
+          'El archivo supera 5 MB. Divide el formato en un Excel más pequeño.',
+        );
+      }
+      final bytes = picked.files.single.bytes;
+      if (bytes == null)
+        throw const FormatException('No se pudo leer el Excel.');
+      final f = importarFormatoVisitasExcel(
+        bytes,
+        empresaId: widget.empresaId,
+        areaId: area,
+        areaNombre: areas[area]!,
+        nombre: nombreFormato,
+      );
+      if (!mounted) return;
+      final guardar = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Revisar importación'),
+          content: Text(
+            '${f.items.length} preguntas de ${f.areaNombre}. Se guardará como borrador.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Crear borrador'),
+            ),
+          ],
+        ),
+      );
+      if (guardar != true) return;
+      await widget.svc.guardarFormato(f, actorId: widget.userId);
+      if (mounted)
+        _snack(context, 'Formato importado. Revísalo antes de activarlo.');
+    } catch (e) {
+      if (mounted) _snack(context, 'No se pudo importar: $e', error: true);
+    }
+  }
+
+  Future<void> _eliminar(VisitaFormato f) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Eliminar formato'),
+        content: Text(
+          '¿Eliminar "${f.nombre}"? Solo se puede borrar si ninguna visita '
+          'lo ha usado. Si ya se usó, cámbialo a Retirado en el editor.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Conservar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar formato'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _eliminando = true);
+    try {
+      await widget.svc.eliminarFormato(
+        empresaId: widget.empresaId,
+        formatoId: f.id,
+      );
+      if (mounted) _snack(context, 'Formato eliminado.');
+    } catch (e) {
+      if (mounted) _snack(context, 'No se pudo eliminar: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _eliminando = false);
+    }
+  }
+
+  Widget _resumenArea(
+    String areaId,
+    String nombre,
+    List<VisitaFormato> formatos,
+  ) {
+    final roles = {for (final r in _roles) r.userId: r.rol};
+    final equipo = _personal.where((p) => p.areaId == areaId).toList();
+    final jefes = equipo.where((p) => roles[p.id] == kVisitasRolJefe).toList();
+    final profesionales = equipo
+        .where((p) => roles[p.id] == kVisitasRolProfesional)
+        .toList();
+    final predeterminado = formatos
+        .where((f) => f.areaId == areaId && f.predeterminado && f.usable)
+        .firstOrNull;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              nombre,
+              style: const TextStyle(
+                fontFamily: _kFont,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              'Jefatura: ${jefes.isEmpty ? 'sin asignar' : jefes.map((p) => p.nombre).join(', ')}',
+            ),
+            Text(
+              'Profesionales: ${profesionales.isEmpty ? 'sin asignar' : profesionales.map((p) => p.nombre).join(', ')}',
+            ),
+            Text('Predeterminado: ${predeterminado?.nombre ?? 'sin definir'}'),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -3165,14 +4247,16 @@ class _FormatosTabState extends State<_FormatosTab> {
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: kVisitasColor,
         foregroundColor: Colors.white,
-        onPressed: () => _editar(
-          VisitaFormato(
-            empresaId: widget.empresaId,
-            areaId: '',
-            areaNombre: '',
-            nombre: '',
-          ),
-        ),
+        onPressed: !widget.esDesarrollador && _areaJefe.isEmpty
+            ? null
+            : () => _editar(
+                VisitaFormato(
+                  empresaId: widget.empresaId,
+                  areaId: _areaJefe,
+                  areaNombre: _areasCatalogo[_areaJefe] ?? '',
+                  nombre: '',
+                ),
+              ),
         icon: const Icon(Icons.add),
         label: const Text('Nuevo formato'),
       ),
@@ -3182,6 +4266,12 @@ class _FormatosTabState extends State<_FormatosTab> {
           if (!snap.hasData)
             return const Center(child: CircularProgressIndicator());
           final formatos = snap.data!;
+          final areas = {for (final f in formatos) f.areaNombre}.toList()
+            ..sort();
+          final filtro = areas.contains(_areaFiltro) ? _areaFiltro : '';
+          final visibles = filtro.isEmpty
+              ? formatos
+              : formatos.where((f) => f.areaNombre == filtro).toList();
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 90),
             children: [
@@ -3192,9 +4282,9 @@ class _FormatosTabState extends State<_FormatosTab> {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Text(
-                  'Los formatos definitivos los entregan los directores de cada área. '
-                  'El de SST (F-UT-SST-01/02/03) ya llegó y se carga con el botón de abajo; '
-                  'para las demás áreas puedes sembrar borradores de ejemplo.',
+                  'Cada área tiene su jefatura, profesionales y formato predeterminado. '
+                  'Configura las áreas del personal en Admin > Usuarios y los roles en Admin > Roles y permisos. '
+                  'Puedes crear preguntas aquí o importar la plantilla Excel; revisa el borrador antes de marcarlo Vigente.',
                   style: TextStyle(
                     fontFamily: _kFont,
                     fontSize: 12,
@@ -3203,15 +4293,52 @@ class _FormatosTabState extends State<_FormatosTab> {
                 ),
               ),
               const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: OutlinedButton.icon(
-                  onPressed: _cargarSst,
-                  icon: const Icon(Icons.health_and_safety_outlined),
-                  label: const Text('Cargar formato SST oficial'),
+              LayoutBuilder(
+                builder: (context, size) => Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    for (final area in _areasCatalogo.entries)
+                      if ((widget.esDesarrollador || area.key == _areaJefe) &&
+                          (filtro.isEmpty || area.value == filtro))
+                        SizedBox(
+                          width: size.maxWidth >= 900
+                              ? (size.maxWidth - 16) / 3
+                              : size.maxWidth,
+                          child: _resumenArea(area.key, area.value, formatos),
+                        ),
+                  ],
                 ),
               ),
-              if (formatos.isEmpty)
+              if (!widget.esDesarrollador && _areaJefe.isEmpty)
+                const Text('Tu perfil no tiene área en Admin > Usuarios.'),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (widget.esDesarrollador ||
+                        _areaJefe == kFormatoSstAreaId)
+                      OutlinedButton.icon(
+                        onPressed: _cargarSst,
+                        icon: const Icon(Icons.health_and_safety_outlined),
+                        label: const Text('Cargar formato SST oficial'),
+                      ),
+                    OutlinedButton.icon(
+                      onPressed: _descargarPlantilla,
+                      icon: const Icon(Icons.download_outlined),
+                      label: const Text('Plantilla Excel'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _importarExcel,
+                      icon: const Icon(Icons.upload_file_outlined),
+                      label: const Text('Crear desde Excel'),
+                    ),
+                  ],
+                ),
+              ),
+              if (formatos.isEmpty && widget.esDesarrollador)
                 Padding(
                   padding: const EdgeInsets.all(16),
                   child: Center(
@@ -3223,8 +4350,28 @@ class _FormatosTabState extends State<_FormatosTab> {
                   ),
                 ),
               const SizedBox(height: 8),
+              if (areas.length > 1)
+                DropdownButtonFormField<String>(
+                  key: ValueKey(filtro),
+                  initialValue: filtro,
+                  decoration: const InputDecoration(
+                    labelText: 'Filtrar formatos por área',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    const DropdownMenuItem(
+                      value: '',
+                      child: Text('Todas las áreas'),
+                    ),
+                    for (final area in areas)
+                      DropdownMenuItem(value: area, child: Text(area)),
+                  ],
+                  onChanged: (value) =>
+                      setState(() => _areaFiltro = value ?? ''),
+                ),
+              if (areas.length > 1) const SizedBox(height: 8),
               PagedListSection<VisitaFormato>(
-                items: formatos,
+                items: visibles,
                 etiqueta: 'formatos',
                 itemBuilder: (context, f, _) => Card(
                   margin: const EdgeInsets.only(bottom: 8),
@@ -3235,7 +4382,7 @@ class _FormatosTabState extends State<_FormatosTab> {
                       color: kVisitasColor,
                     ),
                     title: Text(
-                      f.nombre,
+                      '${f.predeterminado ? '★ ' : ''}${f.nombre}',
                       style: const TextStyle(
                         fontFamily: _kFont,
                         fontWeight: FontWeight.w700,
@@ -3248,13 +4395,23 @@ class _FormatosTabState extends State<_FormatosTab> {
                       ' · v${f.version}',
                       style: const TextStyle(fontFamily: _kFont, fontSize: 12),
                     ),
-                    trailing: _Chip(
-                      f.estado,
-                      f.estado == kFormatoVigente
-                          ? const Color(0xFF16A34A)
-                          : f.estado == kFormatoRetirado
-                          ? const Color(0xFF9CA3AF)
-                          : const Color(0xFFF59E0B),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _Chip(
+                          f.estado,
+                          f.estado == kFormatoVigente
+                              ? const Color(0xFF16A34A)
+                              : f.estado == kFormatoRetirado
+                              ? const Color(0xFF9CA3AF)
+                              : const Color(0xFFF59E0B),
+                        ),
+                        IconButton(
+                          tooltip: 'Eliminar formato',
+                          onPressed: _eliminando ? null : () => _eliminar(f),
+                          icon: const Icon(Icons.delete_outline),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -3271,10 +4428,14 @@ class _FormatoEditorScreen extends StatefulWidget {
   final VisitasService svc;
   final VisitaFormato formato;
   final String userId;
+  final Map<String, String> areas;
+  final String areaFija;
   const _FormatoEditorScreen({
     required this.svc,
     required this.formato,
     required this.userId,
+    required this.areas,
+    required this.areaFija,
   });
 
   @override
@@ -3285,6 +4446,8 @@ class _FormatoEditorScreenState extends State<_FormatoEditorScreen> {
   late final TextEditingController _nombre;
   late final TextEditingController _areaNombre;
   late String _estado;
+  late String _areaId;
+  late bool _predeterminado;
   late List<_ItemEdit> _items;
   bool _guardando = false;
 
@@ -3294,6 +4457,10 @@ class _FormatoEditorScreenState extends State<_FormatoEditorScreen> {
     _nombre = TextEditingController(text: widget.formato.nombre);
     _areaNombre = TextEditingController(text: widget.formato.areaNombre);
     _estado = widget.formato.estado;
+    _areaId = widget.formato.areaId.isNotEmpty
+        ? widget.formato.areaId
+        : widget.areaFija;
+    _predeterminado = widget.formato.predeterminado;
     _items = [for (final it in widget.formato.itemsOrdenados) _ItemEdit.de(it)];
   }
 
@@ -3319,16 +4486,17 @@ class _FormatoEditorScreenState extends State<_FormatoEditorScreen> {
       .replaceAll(RegExp(r'[^a-z0-9]+'), '_');
 
   Future<void> _guardar() async {
-    final areaId = widget.formato.areaId.isNotEmpty
-        ? widget.formato.areaId
+    final areaId = _areaId.isNotEmpty
+        ? _areaId
         : _areaIdDesdeNombre(_areaNombre.text);
     final f = VisitaFormato(
       id: widget.formato.id,
       empresaId: widget.formato.empresaId,
       areaId: areaId,
-      areaNombre: _areaNombre.text.trim(),
+      areaNombre: widget.areas[areaId] ?? _areaNombre.text.trim(),
       nombre: _nombre.text.trim(),
       estado: _estado,
+      predeterminado: _estado != kFormatoRetirado && _predeterminado,
       // Cambiar ítems de un formato ya usado es una versión nueva; así el
       // informe de una visita vieja dice con qué versión se hizo.
       version: widget.formato.id.isEmpty ? 1 : widget.formato.version + 1,
@@ -3392,13 +4560,29 @@ class _FormatoEditorScreenState extends State<_FormatoEditorScreen> {
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              TextField(
-                controller: _areaNombre,
-                enabled: widget.formato.areaId.isEmpty,
-                decoration: const InputDecoration(
-                  labelText: 'Área (Calidad, HSE, Mantenimiento, Nutrición…)',
+              if (widget.formato.areaId.isEmpty && widget.areas.isNotEmpty)
+                DropdownButtonFormField<String>(
+                  initialValue: _areaId.isEmpty ? null : _areaId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Área del formato',
+                  ),
+                  items: [
+                    for (final e in widget.areas.entries)
+                      DropdownMenuItem(value: e.key, child: Text(e.value)),
+                  ],
+                  onChanged: widget.areaFija.isNotEmpty
+                      ? null
+                      : (value) => setState(() => _areaId = value ?? ''),
+                )
+              else
+                TextField(
+                  controller: _areaNombre,
+                  enabled: widget.formato.areaId.isEmpty,
+                  decoration: const InputDecoration(
+                    labelText: 'Área (Calidad, HSE, Mantenimiento, Nutrición…)',
+                  ),
                 ),
-              ),
               const SizedBox(height: 10),
               TextField(
                 controller: _nombre,
@@ -3426,6 +4610,17 @@ class _FormatoEditorScreenState extends State<_FormatoEditorScreen> {
                 ],
                 onChanged: (v) =>
                     setState(() => _estado = v ?? kFormatoBorrador),
+              ),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Formato predeterminado del área'),
+                subtitle: const Text(
+                  'Se propondrá al programar visitas de los profesionales de esta área.',
+                ),
+                value: _predeterminado && _estado != kFormatoRetirado,
+                onChanged: _estado == kFormatoRetirado
+                    ? null
+                    : (value) => setState(() => _predeterminado = value),
               ),
               const SizedBox(height: 16),
               Row(
@@ -3654,7 +4849,14 @@ class _ItemEdit {
 class _ConsolidadoTab extends StatefulWidget {
   final VisitasService svc;
   final String empresaId;
-  const _ConsolidadoTab({required this.svc, required this.empresaId});
+  final String userId;
+  final bool esDesarrollador;
+  const _ConsolidadoTab({
+    required this.svc,
+    required this.empresaId,
+    required this.userId,
+    required this.esDesarrollador,
+  });
 
   @override
   State<_ConsolidadoTab> createState() => _ConsolidadoTabState();
@@ -3672,8 +4874,25 @@ class _ConsolidadoTabState extends State<_ConsolidadoTab> {
     super.initState();
     final now = DateTime.now();
     _mes = DateTime(now.year, now.month);
-    _visitas = widget.svc.streamVisitas(widget.empresaId);
-    _formatos = widget.svc.streamFormatos(widget.empresaId);
+    // Consulta conserva la vista general; la jefatura ve su área.
+    _visitas = widget.esDesarrollador
+        ? widget.svc.streamVisitas(widget.empresaId)
+        : widget.svc
+              .areaDeUsuario(widget.empresaId, widget.userId)
+              .asStream()
+              .asyncExpand(
+                (area) =>
+                    widget.svc.streamVisitas(widget.empresaId, areaId: area),
+              );
+    _formatos = widget.esDesarrollador
+        ? widget.svc.streamFormatos(widget.empresaId)
+        : widget.svc
+              .areaDeUsuario(widget.empresaId, widget.userId)
+              .asStream()
+              .asyncExpand(
+                (area) =>
+                    widget.svc.streamFormatos(widget.empresaId, areaId: area),
+              );
   }
 
   @override
@@ -3952,148 +5171,4 @@ class _Kpi extends StatelessWidget {
       ],
     ),
   );
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// Roles del módulo
-// ═════════════════════════════════════════════════════════════════════════════
-
-class _RolesTab extends StatefulWidget {
-  final VisitasService svc;
-  final String empresaId;
-  const _RolesTab({required this.svc, required this.empresaId});
-
-  @override
-  State<_RolesTab> createState() => _RolesTabState();
-}
-
-class _RolesTabState extends State<_RolesTab> {
-  late final Stream<List<VisitaRolDoc>> _stream;
-
-  @override
-  void initState() {
-    super.initState();
-    _stream = widget.svc.streamRoles(widget.empresaId);
-  }
-
-  Future<void> _agregar() async {
-    final personal = await widget.svc.personalDeEmpresa(widget.empresaId);
-    if (!mounted) return;
-    VisitaPersona? persona;
-    var rol = kVisitasRolProfesional;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setD) => AlertDialog(
-          title: const Text('Asignar rol'),
-          content: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                DropdownButtonFormField<VisitaPersona>(
-                  isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'Persona'),
-                  items: [
-                    for (final p in personal)
-                      DropdownMenuItem(
-                        value: p,
-                        child: Text(p.nombre, overflow: TextOverflow.ellipsis),
-                      ),
-                  ],
-                  onChanged: (p) => setD(() => persona = p),
-                ),
-                const SizedBox(height: 10),
-                DropdownButtonFormField<String>(
-                  initialValue: rol,
-                  decoration: const InputDecoration(labelText: 'Rol'),
-                  items: [
-                    for (final e in kVisitasRolesLabel.entries)
-                      DropdownMenuItem(value: e.key, child: Text(e.value)),
-                  ],
-                  onChanged: (v) =>
-                      setD(() => rol = v ?? kVisitasRolProfesional),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: persona == null
-                  ? null
-                  : () => Navigator.pop(ctx, true),
-              child: const Text('Guardar'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (ok != true || persona == null) return;
-    await widget.svc.guardarRol(
-      empresaId: widget.empresaId,
-      userId: persona!.id,
-      nombre: persona!.nombre,
-      rol: rol,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: kVisitasColor,
-        foregroundColor: Colors.white,
-        onPressed: _agregar,
-        icon: const Icon(Icons.person_add_alt_1_outlined),
-        label: const Text('Asignar rol'),
-      ),
-      body: StreamBuilder<List<VisitaRolDoc>>(
-        stream: _stream,
-        builder: (context, snap) {
-          if (!snap.hasData)
-            return const Center(child: CircularProgressIndicator());
-          final roles = snap.data!;
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 90),
-            children: [
-              const Text(
-                'Jefe inmediato programa y ve todo; Profesional ejecuta sus visitas; Consulta solo mira. '
-                'El acceso al módulo lo da Administración; aquí solo se define el rol dentro de Visitas.',
-                style: TextStyle(
-                  fontFamily: _kFont,
-                  fontSize: 12,
-                  color: Colors.black54,
-                ),
-              ),
-              const SizedBox(height: 8),
-              PagedListSection<VisitaRolDoc>(
-                items: roles,
-                etiqueta: 'roles',
-                itemBuilder: (context, r, _) => Card(
-                  margin: const EdgeInsets.only(bottom: 6),
-                  child: ListTile(
-                    leading: UserAvatar(userId: r.userId, nameHint: r.nombre),
-                    title: UserNameText(r.userId, fallbackName: r.nombre),
-                    subtitle: Text(
-                      kVisitasRolesLabel[r.rol] ?? r.rol,
-                      style: const TextStyle(fontFamily: _kFont, fontSize: 12),
-                    ),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.delete_outline),
-                      onPressed: () => widget.svc.eliminarRol(r.id),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
 }

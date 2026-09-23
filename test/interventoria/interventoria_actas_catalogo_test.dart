@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:todo/interventoria/interventoria_actas_catalogo.dart';
+import 'package:todo/interventoria/interventoria_programas.dart';
 
 void main() {
   group('acta de Infraestructura', () {
@@ -35,6 +36,57 @@ void main() {
         'Recepción del producto terminado',
         'Distribución del producto terminado',
       ]);
+    });
+  });
+
+  group('actas de Alcaldía Mayor de Bogotá', () {
+    test('Planta conserva las 8 secciones y 63 aspectos del formato', () {
+      expect(kSeccionesActaAlcaldiaPlanta.map((seccion) => seccion.numero), [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+      ]);
+      expect(
+        kSeccionesActaAlcaldiaPlanta.map((seccion) => seccion.aspectos.length),
+        [6, 12, 5, 7, 14, 9, 8, 2],
+      );
+      expect(
+        kSeccionesActaAlcaldiaPlanta.fold<int>(
+          0,
+          (total, seccion) => total + seccion.aspectos.length,
+        ),
+        63,
+      );
+    });
+
+    test('Estaciones/CDT conserva las 7 secciones y 36 aspectos', () {
+      expect(
+        kSeccionesActaAlcaldiaEstacionPolicia.map((seccion) => seccion.numero),
+        [1, 2, 3, 4, 5, 6, 7],
+      );
+      expect(
+        kSeccionesActaAlcaldiaEstacionPolicia.map(
+          (seccion) => seccion.aspectos.length,
+        ),
+        [1, 8, 3, 3, 12, 4, 5],
+      );
+      expect(
+        kSeccionesActaAlcaldiaEstacionPolicia.fold<int>(
+          0,
+          (total, seccion) => total + seccion.aspectos.length,
+        ),
+        36,
+      );
+    });
+
+    test('no confunde Planta con Infraestructura ni los dos formatos EP', () {
+      expect(kActaAlcaldiaPlanta, isNot(kActaInfraestructura));
+      expect(kActaAlcaldiaEstacionPolicia, isNot(kActaEstacionPolicia));
     });
   });
 
@@ -117,5 +169,37 @@ void main() {
     expect(tieneCatalogoPropio(kActaSeguimiento), isFalse);
     expect(tieneCatalogoPropio(kActaInfraestructura), isTrue);
     expect(tieneCatalogoPropio(kActaEstacionPolicia), isTrue);
+    expect(tieneCatalogoPropio(kActaAlcaldiaPlanta), isTrue);
+    expect(tieneCatalogoPropio(kActaAlcaldiaEstacionPolicia), isTrue);
+  });
+
+  group('programas de interventoría por empresa', () {
+    test('una empresa sin configurar conserva solo las actas históricas', () {
+      expect(
+        tiposActaHabilitadosParaEmpresa(const InterventoriaEmpresaConfig()),
+        kTiposActaInterventoriaLegacy,
+      );
+    });
+
+    test('Alcaldía habilita Planta y Estaciones/CDT', () {
+      final tipos = tiposActaHabilitadosParaEmpresa(
+        const InterventoriaEmpresaConfig(
+          programas: [kProgramaInterventoriaAlcaldiaBogota],
+        ),
+      );
+      expect(tipos, [kActaAlcaldiaPlanta, kActaAlcaldiaEstacionPolicia]);
+    });
+
+    test('una empresa mixta recibe la unión ordenada sin duplicados', () {
+      final tipos = tiposActaHabilitadosParaEmpresa(
+        const InterventoriaEmpresaConfig(
+          programas: [
+            kProgramaInterventoriaPec,
+            kProgramaInterventoriaAlcaldiaBogota,
+          ],
+        ),
+      );
+      expect(tipos, kTodosTiposActaInterventoria);
+    });
   });
 }

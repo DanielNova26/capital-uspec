@@ -111,9 +111,15 @@ class SessionAuditService {
       'lastLoginSource': source,
       'lastLoginPlatform': platform,
       'lastLoginIsWeb': kIsWeb,
-      'empresasDetalle.$cleanEmpresaId.lastLoginAt': now,
-      'empresasDetalle.$cleanEmpresaId.lastLoginSource': source,
-      'empresasDetalle.$cleanEmpresaId.lastLoginPlatform': platform,
+      // set(merge) no interpreta los puntos: el bloque va anidado para que
+      // el merge profundo toque solo estas tres claves de la empresa.
+      'empresasDetalle': {
+        cleanEmpresaId: {
+          'lastLoginAt': now,
+          'lastLoginSource': source,
+          'lastLoginPlatform': platform,
+        },
+      },
     }, SetOptions(merge: true));
   }
 

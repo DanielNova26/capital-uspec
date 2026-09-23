@@ -177,13 +177,63 @@ async function notifyActaReplacement(
   );
 }
 
+/**
+ * Vinculación laboral vigente en la empresa (mismo criterio que
+ * `pp_notifications.ts`): Talento Humano retira por empresa en
+ * `empresasDetalle.{empresaId}.estadoLaboral`; el `estado` global solo
+ * controla el inicio de sesión.
+ * @param {FirebaseFirestore.DocumentData} data Datos del usuario.
+ * @param {string} empresaId Empresa en la que se comprueba la vinculación.
+ * @return {boolean} Si el usuario sigue activo en esa empresa.
+ */
+export function userIsActiveInEmpresa(
+  data: FirebaseFirestore.DocumentData,
+  empresaId: string
+): boolean {
+  if (data.activo === false) return false;
+  const detalle = data.empresasDetalle;
+  const scoped = detalle && typeof detalle === "object" && !Array.isArray(detalle) ?
+    (detalle as Record<string, any>)[empresaId] :
+    null;
+  if (scoped && typeof scoped === "object") {
+    if (scoped.activo === false) return false;
+    for (const key of ["estadoLaboral", "estado"]) {
+      const value = (scoped[key] ?? "").toString().trim().toLowerCase();
+      if (!value) continue;
+      return value !== "inactivo";
+    }
+  }
+  const global = (data.estado ?? "").toString().trim().toLowerCase();
+  return !global || global === "activo";
+}
+
+/**
+ * Quién recibe el aviso de una solicitud: solo los roles que pueden
+ * aprobarla y que siguen vinculados a la empresa. Un rol asignado a alguien
+ * ya retirado seguía recibiendo notificaciones (reunión 18 sep 2026: "debería
+ * llegarle solo a las personas que pueden eliminar el acta").
+ * @param {string} empresaId Empresa de la solicitud.
+ * @return {Promise<string[]>} Identificadores de los aprobadores activos.
+ */
 async function approverIds(empresaId: string): Promise<string[]> {
   const roles = await admin.firestore().collection(ROLES)
     .where("empresaId", "==", empresaId).get();
-  return [...new Set(roles.docs
+  const candidatos = [...new Set(roles.docs
     .filter((doc) => canApproveInterventoriaDeletion(clean(doc.data().rol)))
     .map((doc) => clean(doc.data().userId || doc.data().cedula))
     .filter(Boolean))];
+  const activos: string[] = [];
+  for (const id of candidatos) {
+    try {
+      const user = await admin.firestore().collection("TBL_USUARIOS").doc(id).get();
+      if (!user.exists || userIsActiveInEmpresa(user.data() || {}, empresaId)) {
+        activos.push(id);
+      }
+    } catch {
+      activos.push(id);
+    }
+  }
+  return activos;
 }
 
 function attachmentUrls(data: FirebaseFirestore.DocumentData): string[] {

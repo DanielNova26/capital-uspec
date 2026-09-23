@@ -212,9 +212,13 @@ class NotificationsService {
     final title = n?.title ?? data['title'] ?? 'Nueva tarea';
     final body = n?.body ?? data['body'] ?? 'Tienes una notificación';
     final type = (data['type'] ?? '').toString().trim();
-    final rawPayload = (data['deepLink'] ?? data['taskId'] ??
-        (_isInterventoriaDeleteRequest(type) ? data['sourceEntityId'] : null))
-        ?.toString();
+    final rawPayload =
+        (data['deepLink'] ??
+                data['taskId'] ??
+                (_isInterventoriaDeleteRequest(type)
+                    ? data['sourceEntityId']
+                    : null))
+            ?.toString();
     final empresaId = (data['empresaId'] ?? '').toString().trim();
     final combinedPayload = jsonEncode({
       'type': type,
@@ -244,7 +248,8 @@ class NotificationsService {
     final data = m.data;
     if (kDebugMode) print('[FCM TAP] data=$data');
     final type = (data['type'] ?? '').toString().trim();
-    final rawPayload = data['deepLink']?.toString() ??
+    final rawPayload =
+        data['deepLink']?.toString() ??
         data['taskId']?.toString() ??
         (_isInterventoriaDeleteRequest(type)
             ? data['sourceEntityId']?.toString()
@@ -336,10 +341,8 @@ class NotificationsService {
       }
       navigator.push(
         MaterialPageRoute(
-          builder: (_) => InterventoriaDashboardScreen(
-            userId: cedula,
-            empresaId: eid,
-          ),
+          builder: (_) =>
+              InterventoriaDashboardScreen(userId: cedula, empresaId: eid),
         ),
       );
       return;
@@ -350,7 +353,9 @@ class NotificationsService {
       if (eid.isEmpty) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
           const SnackBar(
-            content: Text('No se encontró la empresa para abrir Interventoría.'),
+            content: Text(
+              'No se encontró la empresa para abrir Interventoría.',
+            ),
           ),
         );
         return;
@@ -643,10 +648,13 @@ class NotificationsService {
               .doc(cedula)
               .set({
                 'fcmTokens': FieldValue.arrayUnion([token]),
-                'fcmDevices.$token': {
-                  'platform': platform,
-                  'deviceName': deviceName,
-                  'updatedAt': FieldValue.serverTimestamp(),
+                // set(merge) no interpreta los puntos: el mapa va anidado.
+                'fcmDevices': {
+                  token: {
+                    'platform': platform,
+                    'deviceName': deviceName,
+                    'updatedAt': FieldValue.serverTimestamp(),
+                  },
                 },
               }, SetOptions(merge: true));
           if (kDebugMode) {

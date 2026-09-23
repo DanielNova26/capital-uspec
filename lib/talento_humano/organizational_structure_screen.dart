@@ -398,7 +398,9 @@ class _OrganizationalStructureScreenState
     final byCargo = (cargoKey.isEmpty && code.isEmpty)
         ? const <Map<String, String>>[]
         : all.where(matchesCargo).where(matchesTerm).toList();
-    final result = byCargo.isNotEmpty ? byCargo : all.where(matchesTerm).toList();
+    final result = byCargo.isNotEmpty
+        ? byCargo
+        : all.where(matchesTerm).toList();
     result.sort((a, b) => a['nombre']!.compareTo(b['nombre']!));
     return result;
   }
@@ -1073,13 +1075,13 @@ class _OrganizationalStructureScreenState
 
     // ── Calcular actualizaciones ────────────────────────────────────────────
     final updates =
-        <DocumentReference<Map<String, dynamic>>, Map<String, dynamic>>{};
+        <DocumentReference<Map<String, dynamic>>, Map<Object, Object?>>{};
     // Refs que deben hacerse con set() en lugar de update()
     final newRefs = <DocumentReference<Map<String, dynamic>>>{};
 
     void queueUpdate(
       DocumentReference<Map<String, dynamic>> ref,
-      Map<String, dynamic> patch,
+      Map<Object, Object?> patch,
     ) {
       if (patch.isEmpty) return;
       if (updates.containsKey(ref)) {
@@ -1187,13 +1189,32 @@ class _OrganizationalStructureScreenState
         continue;
       }
 
-      final patch = <String, dynamic>{};
+      final patch = <Object, Object?>{};
       final empresas = (raw['empresas'] as List<dynamic>? ?? const [])
           .map((e) => e.toString().trim())
           .where((e) => e.isNotEmpty)
           .toSet();
       if (!empresas.contains(widget.empresaId)) {
         patch['empresas'] = FieldValue.arrayUnion([widget.empresaId]);
+      }
+
+      // Reparación: una versión anterior de PersonnelStatusService escribía
+      // el retiro con set(merge) y claves con punto, que Firestore guarda
+      // como campos literales ('empresasDetalle.X.estado') sin tocar el
+      // bloque anidado. Ese estado es el más reciente que decidió Talento
+      // Humano: se pasa al bloque real y se borra el campo literal.
+      for (final k in const [
+        'estado',
+        'estadoActualizadoAt',
+        'estadoActualizadoPor',
+        'motivoEstado',
+      ]) {
+        final literal = 'empresasDetalle.${widget.empresaId}.$k';
+        if (!raw.containsKey(literal)) continue;
+        final v = raw[literal];
+        effective[k] = v;
+        patch[FieldPath(<String>[literal])] = FieldValue.delete();
+        patch[literal] = v;
       }
       if ((raw['cedula'] ?? '').toString().trim().isEmpty) {
         patch['cedula'] = docId;
@@ -1417,7 +1438,7 @@ class _OrganizationalStructureScreenState
       for (final e in chunk) {
         if (newRefs.contains(e.key)) {
           // Doc nuevo: usar set para crearlo
-          batch.set(e.key, e.value);
+          batch.set(e.key, e.value.cast<String, dynamic>());
         } else {
           // Doc existente: usar update para no borrar campos no tocados
           batch.update(e.key, e.value);

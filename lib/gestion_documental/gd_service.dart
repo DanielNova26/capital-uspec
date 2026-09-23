@@ -69,6 +69,23 @@ const Map<GdEstado, Set<GdEstado>> _kTransicionesValidas = {
 // Servicio
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Lo que dejó [GdService.copiarBibliotecaAEmpresa].
+class GdResultadoCopia {
+  final int copiados;
+
+  /// Códigos que el destino ya tenía: no se tocaron.
+  final int saltados;
+
+  /// Copiados pero apuntando al archivo del origen (no se pudo duplicar).
+  final int sinArchivo;
+
+  const GdResultadoCopia({
+    required this.copiados,
+    required this.saltados,
+    required this.sinArchivo,
+  });
+}
+
 class GdService {
   static const String _colDocumentos = 'TBL_DOCUMENTOS';
   static const String _colVersiones = 'TBL_DOCUMENTOS_VERSIONES';
@@ -1233,6 +1250,174 @@ class GdService {
 
     debugPrint(
       '[GdService] Documento eliminado: docId=$docId actorId=$actorId',
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // COPIAR LA BIBLIOTECA A OTRA EMPRESA
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Lleva los documentos de [origenId] a [destinoId] (pedido de Oscar,
+  /// 20 sep 2026: "un botón que me permita trasladar toda la documentación
+  /// de una UT a otra").
+  ///
+  /// Qué se copia: el documento maestro y su versión vigente (o, si no hay
+  /// vigente, la última), como v1 en el destino y con el mismo estado. El
+  /// archivo se duplica en Storage bajo la ruta de la empresa destino para
+  /// que borrar en el origen no rompa la copia; si no se puede leer el
+  /// archivo (por ejemplo, un enlace viejo sin `pathPdf`), la versión queda
+  /// apuntando a la misma URL y se cuenta en `sinArchivo`.
+  ///
+  /// Qué NO se copia: el historial de flujo ni las versiones anteriores
+  /// (son la trazabilidad de la otra empresa) y los códigos que ya existen
+  /// en el destino (se saltan, para no duplicar). Es incremental: se puede
+  /// volver a ejecutar y solo lleva lo que falta.
+  ///
+  /// [onProgreso] avisa cuántos van de cuántos para pintar una barra.
+  Future<GdResultadoCopia> copiarBibliotecaAEmpresa({
+    required String origenId,
+    required String destinoId,
+    required String actorId,
+    required String rolDocumental,
+    void Function(int hechos, int total)? onProgreso,
+  }) async {
+    _validarRol('eliminar_documento', rolDocumental);
+    if (origenId.trim().isEmpty || destinoId.trim().isEmpty) {
+      throw const GdException('Indica la empresa origen y la destino.');
+    }
+    if (origenId == destinoId) {
+      throw const GdException('La empresa destino debe ser distinta.');
+    }
+
+    final origenSnap = await _docCol
+        .where('empresaId', isEqualTo: origenId)
+        .get();
+    final destinoSnap = await _docCol
+        .where('empresaId', isEqualTo: destinoId)
+        .get();
+    final codigosDestino = {
+      for (final d in destinoSnap.docs)
+        (d.data()['codigo'] ?? '').toString().trim().toUpperCase(),
+    };
+
+    var copiados = 0;
+    var saltados = 0;
+    var sinArchivo = 0;
+    final total = origenSnap.docs.length;
+    onProgreso?.call(0, total);
+
+    for (final doc in origenSnap.docs) {
+      final data = doc.data();
+      final codigo = (data['codigo'] ?? '').toString().trim();
+      if (codigo.isEmpty || codigosDestino.contains(codigo.toUpperCase())) {
+        saltados++;
+        onProgreso?.call(copiados + saltados, total);
+        continue;
+      }
+
+      // Versión a llevar: la vigente; si no hay, la de número más alto.
+      final versiones = await _verCol.where('docId', isEqualTo: doc.id).get();
+      QueryDocumentSnapshot<Map<String, dynamic>>? elegida;
+      for (final v in versiones.docs) {
+        if (v.data()['esVigente'] == true) {
+          elegida = v;
+          break;
+        }
+      }
+      if (elegida == null) {
+        for (final v in versiones.docs) {
+          final n = (v.data()['numero'] as num?)?.toInt() ?? 0;
+          final actual = (elegida?.data()['numero'] as num?)?.toInt() ?? -1;
+          if (n > actual) elegida = v;
+        }
+      }
+      final verData = elegida?.data() ?? const <String, dynamic>{};
+
+      final nuevoDocRef = _docCol.doc();
+      final nuevaVerRef = _verCol.doc();
+
+      // Archivo: se duplica en Storage; si no se puede, se reutiliza la URL.
+      var urlOrigen = (verData['urlPdf'] ?? '').toString().trim();
+      String? pathPdf;
+      final nombreArchivo = (verData['nombreArchivo'] ?? '').toString().trim();
+      final pathOrigen = (verData['pathPdf'] ?? '').toString().trim();
+      if (pathOrigen.isNotEmpty) {
+        try {
+          final bytes = await _storage
+              .ref(pathOrigen)
+              .getData(50 * 1024 * 1024);
+          if (bytes != null && bytes.isNotEmpty) {
+            final r = await _subirArchivoBytes(
+              empresaId: destinoId,
+              docId: nuevoDocRef.id,
+              numero: 1,
+              bytes: bytes,
+              nombre: nombreArchivo.isEmpty ? 'documento.pdf' : nombreArchivo,
+            );
+            urlOrigen = r.$1;
+            pathPdf = r.$2;
+          }
+        } catch (e) {
+          debugPrint('[GdService] copia: no se pudo duplicar $pathOrigen: $e');
+        }
+      }
+      if (elegida != null && pathPdf == null) sinArchivo++;
+      final String? urlPdf = urlOrigen.isEmpty ? null : urlOrigen;
+
+      final now = FieldValue.serverTimestamp();
+      final estado = (data['estado'] ?? GdEstado.vigente.valor).toString();
+      final batch = _db.batch();
+      batch.set(nuevoDocRef, {
+        ...data,
+        'empresaId': destinoId,
+        'versionActual': 'v1',
+        'estado': estado,
+        'versionVigenteId': elegida == null ? null : nuevaVerRef.id,
+        'creadoPor': actorId,
+        'copiadoDe': {
+          'empresaId': origenId,
+          'docId': doc.id,
+          'versionId': elegida?.id,
+          'por': actorId,
+        },
+        'createdAt': now,
+        'updatedAt': now,
+      });
+      if (elegida != null) {
+        batch.set(nuevaVerRef, {
+          ...verData,
+          'docId': nuevoDocRef.id,
+          'empresaId': destinoId,
+          'numero': 1,
+          'etiqueta': 'v1',
+          'urlPdf': urlPdf,
+          'pathPdf': pathPdf ?? (pathOrigen.isEmpty ? null : pathOrigen),
+          'subidoPor': actorId,
+          'subidoEn': now,
+          'createdAt': now,
+          'updatedAt': now,
+        });
+        batch.set(_flujoCol.doc(), {
+          'docId': nuevoDocRef.id,
+          'versionId': nuevaVerRef.id,
+          'empresaId': destinoId,
+          'accion': 'copiado',
+          'desde': estado,
+          'hacia': estado,
+          'realizadoPor': actorId,
+          'realizadoEn': now,
+          'observacion': 'Copiado desde la biblioteca de $origenId',
+        });
+      }
+      await batch.commit();
+      codigosDestino.add(codigo.toUpperCase());
+      copiados++;
+      onProgreso?.call(copiados + saltados, total);
+    }
+    return GdResultadoCopia(
+      copiados: copiados,
+      saltados: saltados,
+      sinArchivo: sinArchivo,
     );
   }
 

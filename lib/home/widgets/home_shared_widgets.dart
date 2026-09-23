@@ -279,3 +279,79 @@ class QuickActionChip extends StatelessWidget {
     );
   }
 }
+
+/// Franja del mapa de procesos en el inicio: título, subtítulo y las
+/// tarjetas de esa franja. Es solo presentación (ver `ProcesoMapa` en
+/// `core/app_catalog.dart`); cuando la persona no tiene módulos en la franja
+/// se deja la columna con un aviso corto para que las tres conserven su lugar.
+class FranjaProceso extends StatelessWidget {
+  final String titulo;
+  final String descripcion;
+  final Widget child;
+  final bool vacia;
+
+  const FranjaProceso({
+    super.key,
+    required this.titulo,
+    required this.descripcion,
+    required this.child,
+    this.vacia = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: scheme.primary.withValues(alpha: 0.07),
+            borderRadius: BorderRadius.circular(10),
+            border: Border(left: BorderSide(color: scheme.primary, width: 3)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                titulo.toUpperCase(),
+                style: TextStyle(
+                  fontFamily: kArial,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.8,
+                  color: scheme.primary,
+                ),
+              ),
+              Text(
+                descripcion,
+                style: TextStyle(
+                  fontFamily: kArial,
+                  fontSize: 11,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (vacia)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Text(
+              'Sin módulos asignados en esta franja.',
+              style: TextStyle(
+                fontFamily: kArial,
+                fontSize: 12,
+                fontStyle: FontStyle.italic,
+                color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
+              ),
+            ),
+          )
+        else
+          child,
+      ],
+    );
+  }
+}

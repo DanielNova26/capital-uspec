@@ -25,6 +25,10 @@ class _FacturacionObligacionesScreenState
   bool _preparing = true;
   String? _error;
 
+  /// centroId → nombre, para mostrar a quién aplica cada obligación.
+  Map<String, String> _nombresEst = const {};
+  List<FacEstablecimiento> _establecimientos = const [];
+
   @override
   void initState() {
     super.initState();
@@ -34,10 +38,107 @@ class _FacturacionObligacionesScreenState
   Future<void> _prepare() async {
     try {
       await widget.service.ensureDefaultObligaciones(widget.empresaId);
+      final ests = await widget.service
+          .streamEstablecimientos(widget.empresaId)
+          .first;
+      _establecimientos = ests;
+      _nombresEst = {for (final e in ests) e.centroId: e.nombre};
     } catch (error) {
       _error = error.toString();
     }
     if (mounted) setState(() => _preparing = false);
+  }
+
+  /// A qué establecimientos aplica la obligación: todos o una selección.
+  Future<void> _editarAlcance(FacObligacion item) async {
+    final seleccion = item.establecimientos.toSet();
+    var todos = item.aplicaATodos;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: Text('¿A quién aplica "${item.nombre}"?'),
+          content: SizedBox(
+            width: 480,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: todos,
+                  title: const Text('A todos los establecimientos'),
+                  subtitle: const Text(
+                    'Apagado: solo a los que marques abajo. Para los demás la '
+                    'obligación queda como "no aplica".',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  onChanged: (v) => setLocal(() => todos = v),
+                ),
+                if (!todos)
+                  Flexible(
+                    child: _establecimientos.isEmpty
+                        ? const Padding(
+                            padding: EdgeInsets.all(12),
+                            child: Text(
+                              'No hay establecimientos habilitados para '
+                              'Facturación.',
+                            ),
+                          )
+                        : ListView(
+                            shrinkWrap: true,
+                            children: [
+                              for (final e in _establecimientos)
+                                CheckboxListTile(
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  value: seleccion.contains(e.centroId),
+                                  title: Text(e.nombre),
+                                  onChanged: (v) => setLocal(() {
+                                    if (v == true) {
+                                      seleccion.add(e.centroId);
+                                    } else {
+                                      seleccion.remove(e.centroId);
+                                    }
+                                  }),
+                                ),
+                            ],
+                          ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: !todos && seleccion.isEmpty
+                  ? null
+                  : () => Navigator.pop(ctx, true),
+              child: const Text('Guardar'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await widget.service.setObligacionEstablecimientos(
+        item,
+        todos ? const [] : seleccion.toList(),
+      );
+      if (mounted) {
+        _message(
+          todos
+              ? 'La obligación aplica a todos los establecimientos.'
+              : 'La obligación aplica a ${seleccion.length} establecimiento'
+                    '${seleccion.length == 1 ? '' : 's'}.',
+        );
+      }
+    } catch (error) {
+      if (mounted) _message(error.toString(), error: true);
+    }
   }
 
   @override
@@ -144,7 +245,9 @@ class _FacturacionObligacionesScreenState
                           item: item,
                           index: index,
                           total: obligaciones.length,
+                          nombresEstablecimientos: _nombresEst,
                           onToggle: (value) => _toggle(item, value),
+                          onAlcance: () => _editarAlcance(item),
                           onUp: index == 0
                               ? null
                               : () => widget.service.moverObligacion(
@@ -257,7 +360,9 @@ class _ObligacionCard extends StatelessWidget {
   final FacObligacion item;
   final int index;
   final int total;
+  final Map<String, String> nombresEstablecimientos;
   final ValueChanged<bool> onToggle;
+  final VoidCallback onAlcance;
   final VoidCallback? onUp;
   final VoidCallback? onDown;
 
@@ -265,10 +370,23 @@ class _ObligacionCard extends StatelessWidget {
     required this.item,
     required this.index,
     required this.total,
+    required this.nombresEstablecimientos,
     required this.onToggle,
+    required this.onAlcance,
     this.onUp,
     this.onDown,
   });
+
+  String get _alcance {
+    if (item.aplicaATodos) return 'Aplica a todos los establecimientos';
+    final nombres = item.establecimientos
+        .map((id) => nombresEstablecimientos[id] ?? id)
+        .toList();
+    final visibles = nombres.take(3).join(', ');
+    final resto = nombres.length - 3;
+    return 'Aplica a ${nombres.length}: $visibles'
+        '${resto > 0 ? ' y $resto más' : ''}';
+  }
 
   @override
   Widget build(BuildContext context) => Card(
@@ -324,8 +442,27 @@ class _ObligacionCard extends StatelessWidget {
                         : Colors.orange.shade800,
                   ),
                 ),
+                const SizedBox(height: 2),
+                InkWell(
+                  onTap: onAlcance,
+                  child: Text(
+                    '$_alcance · cambiar',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: item.aplicaATodos
+                          ? const Color(0xFF475569)
+                          : _primary,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                ),
               ],
             ),
+          ),
+          IconButton(
+            tooltip: 'Establecimientos a los que aplica',
+            onPressed: onAlcance,
+            icon: const Icon(Icons.store_mall_directory_outlined),
           ),
           IconButton(
             tooltip: 'Subir posición',

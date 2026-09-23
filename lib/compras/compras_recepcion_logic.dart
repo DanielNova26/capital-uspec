@@ -46,9 +46,11 @@ String? validarCorreccionesRecepcion({
 
 EstadoRecepcionCompras estadoRecepcionCompras(RecepcionDoc recepcion) {
   var tienePendientes = false;
+  var tieneDocumentos = false;
   for (final producto in recepcion.productos) {
     for (final doc in producto.documentos.values) {
       if (!doc.tieneDoc) continue;
+      tieneDocumentos = true;
       if (doc.rechazado) return EstadoRecepcionCompras.rechazada;
       if (doc.pendienteRevisionCalidad ||
           doc.estadoCalidad == 'consulta_calidad' ||
@@ -57,6 +59,11 @@ EstadoRecepcionCompras estadoRecepcionCompras(RecepcionDoc recepcion) {
       }
     }
   }
+  // Una recepción sin ningún soporte no está finalizada: se guardó así porque
+  // la ficha no puede frenar la recepción física, pero Bodega todavía tiene
+  // que completarla. Tratarla como histórico la dejaba "Finalizada" y
+  // bloqueada sin que Calidad hubiera revisado nada.
+  if (!tieneDocumentos) return EstadoRecepcionCompras.pendiente;
   return tienePendientes
       ? EstadoRecepcionCompras.pendiente
       : EstadoRecepcionCompras.historico;

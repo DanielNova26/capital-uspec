@@ -73,7 +73,7 @@ Future<bool> abrirVisitasDesdeNotificacion(
 
 void _avisar(BuildContext context, String message) {
   if (!context.mounted) return;
-  ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-    SnackBar(content: Text(message)),
-  );
+  ScaffoldMessenger.maybeOf(
+    context,
+  )?.showSnackBar(SnackBar(content: Text(message)));
 }

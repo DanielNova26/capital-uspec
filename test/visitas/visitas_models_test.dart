@@ -31,6 +31,7 @@ void main() {
     String sub = '',
     int? cumplimiento,
     String formatoId = 'f1',
+    bool esPrueba = false,
   }) => VisitaProfesional(
     id: 'v',
     empresaId: 'capital',
@@ -51,6 +52,7 @@ void main() {
     inicio: iniciada ? VisitaMarca(at: Timestamp.now()) : null,
     respuestas: respuestas,
     cumplimiento: cumplimiento,
+    esPrueba: esPrueba,
     // Desde el 17 sep 2026 el cierre exige responsable del sitio y las dos
     // firmas; estos tests son de ítems, así que vienen puestas.
     responsableEstablecimiento: const VisitaResponsable(nombre: 'Ana'),
@@ -68,6 +70,25 @@ void main() {
   final noCumpleCompleto = noCumpleConObs.copyWith(
     evidencias: const [VisitaEvidencia(url: 'u', path: 'p', nombre: 'n')],
   );
+
+  test('la visita conserva el formato asignado y su marca de prueba', () {
+    final original = visita();
+    final guardada = VisitaProfesional.fromMap(original.id, {
+      ...original.toMap(),
+      'formatoAsignado': formato.toMap(),
+      'esPrueba': true,
+    });
+    expect(guardada.esPrueba, isTrue);
+    expect(guardada.formatoAsignado?.items.first.texto, 'Personal con carné');
+    expect(guardada.formatoAsignado?.version, formato.version);
+  });
+
+  test('el formato conserva la selección predeterminada del área', () {
+    final f = formato.copyWith(predeterminado: true);
+    final restaurado = VisitaFormato.fromMap('f1', f.toMap());
+    expect(restaurado.predeterminado, isTrue);
+    expect(restaurado.areaId, 'calidad');
+  });
 
   group('resumen y porcentaje', () {
     test('no aplica no suma ni resta', () {
@@ -101,7 +122,10 @@ void main() {
     test('no se cierra sin iniciar', () {
       final errores = validarCierreVisita(
         formato,
-        visita(iniciada: false, respuestas: {'a': cumple, 'b': cumple, 'c': cumple}),
+        visita(
+          iniciada: false,
+          respuestas: {'a': cumple, 'b': cumple, 'c': cumple},
+        ),
       );
       expect(errores.single, contains('no se ha iniciado'));
     });
@@ -193,7 +217,10 @@ void main() {
 
     test('una en curso o terminada no se vuelve a iniciar', () {
       expect(
-        visitaSePuedeIniciar(visita(estado: kVisitaEnCurso), DateTime(2026, 9, 10)),
+        visitaSePuedeIniciar(
+          visita(estado: kVisitaEnCurso),
+          DateTime(2026, 9, 10),
+        ),
         isFalse,
       );
     });
@@ -209,11 +236,19 @@ void main() {
     test('solo el profesional asignado ejecuta, ni el jefe', () {
       final v = visita(estado: kVisitaProgramada);
       expect(
-        visitasPuedeEjecutar(rol: kVisitasRolProfesional, visita: v, userId: '111'),
+        visitasPuedeEjecutar(
+          rol: kVisitasRolProfesional,
+          visita: v,
+          userId: '111',
+        ),
         isTrue,
       );
       expect(
-        visitasPuedeEjecutar(rol: kVisitasRolProfesional, visita: v, userId: '999'),
+        visitasPuedeEjecutar(
+          rol: kVisitasRolProfesional,
+          visita: v,
+          userId: '999',
+        ),
         isFalse,
       );
       expect(
@@ -268,6 +303,23 @@ void main() {
   });
 
   group('consolidado mensual', () {
+    test('excluye las visitas de prueba de métricas y hallazgos', () {
+      final c = consolidarMes([
+        visita(estado: kVisitaTerminada, cumplimiento: 80),
+        visita(
+          estado: kVisitaTerminada,
+          cumplimiento: 0,
+          respuestas: {'a': noCumpleConObs},
+          esPrueba: true,
+        ),
+        visita(estado: kVisitaProgramada, esPrueba: true),
+      ]);
+      expect(c.visitasTerminadas, 1);
+      expect(c.visitasProgramadas, 0);
+      expect(c.promedioGeneral, 80);
+      expect(c.hallazgos, 0);
+    });
+
     test('solo las terminadas promedian; las demás se cuentan aparte', () {
       final c = consolidarMes([
         visita(estado: kVisitaTerminada, cumplimiento: 80, centro: 'tunja'),
@@ -291,8 +343,18 @@ void main() {
 
     test('un subcentro es su propia fila', () {
       final c = consolidarMes([
-        visita(estado: kVisitaTerminada, cumplimiento: 90, centro: 'combita', sub: 'Alta'),
-        visita(estado: kVisitaTerminada, cumplimiento: 50, centro: 'combita', sub: 'Media'),
+        visita(
+          estado: kVisitaTerminada,
+          cumplimiento: 90,
+          centro: 'combita',
+          sub: 'Alta',
+        ),
+        visita(
+          estado: kVisitaTerminada,
+          cumplimiento: 50,
+          centro: 'combita',
+          sub: 'Media',
+        ),
       ]);
       expect(c.porEstablecimiento, hasLength(2));
       expect(c.porEstablecimiento.first.nombre, 'combita Media');
@@ -320,25 +382,25 @@ void main() {
       expect(c.itemsCriticos.first.incumplimientos, 2);
     });
 
-    test('si el formato ya no existe, el ítem sale con su id y no se pierde', () {
-      final c = consolidarMes([
-        visita(
-          estado: kVisitaTerminada,
-          cumplimiento: 0,
-          respuestas: {'zz': noCumpleConObs},
-          formatoId: 'borrado',
-        ),
-      ]);
-      expect(c.itemsCriticos.single.texto, 'zz');
-    });
+    test(
+      'si el formato ya no existe, el ítem sale con su id y no se pierde',
+      () {
+        final c = consolidarMes([
+          visita(
+            estado: kVisitaTerminada,
+            cumplimiento: 0,
+            respuestas: {'zz': noCumpleConObs},
+            formatoId: 'borrado',
+          ),
+        ]);
+        expect(c.itemsCriticos.single.texto, 'zz');
+      },
+    );
   });
 
   group('serialización', () {
     test('ida y vuelta conserva respuestas, marcas y evidencias', () {
-      final v = visita(
-        respuestas: {'b': noCumpleCompleto},
-        cumplimiento: 50,
-      );
+      final v = visita(respuestas: {'b': noCumpleCompleto}, cumplimiento: 50);
       final leida = VisitaProfesional.fromMap('v', v.toMap());
       expect(leida.respuestas['b']?.resultado, kItemNoCumple);
       expect(leida.respuestas['b']?.evidencias.single.url, 'u');

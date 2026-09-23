@@ -43,6 +43,7 @@ Future<FirmaCapturada?> pedirFirma(
   required String cargoInicial,
   Uint8List? firmaGuardada,
   bool nombreEditable = true,
+  bool cargoEditable = true,
 }) => showDialog<FirmaCapturada>(
   context: context,
   barrierDismissible: false,
@@ -52,6 +53,7 @@ Future<FirmaCapturada?> pedirFirma(
     cargoInicial: cargoInicial,
     firmaGuardada: firmaGuardada,
     nombreEditable: nombreEditable,
+    cargoEditable: cargoEditable,
   ),
 );
 
@@ -61,12 +63,14 @@ class _FirmaDialog extends StatefulWidget {
   final String cargoInicial;
   final Uint8List? firmaGuardada;
   final bool nombreEditable;
+  final bool cargoEditable;
   const _FirmaDialog({
     required this.titulo,
     required this.nombreInicial,
     required this.cargoInicial,
     required this.firmaGuardada,
     required this.nombreEditable,
+    required this.cargoEditable,
   });
 
   @override
@@ -138,7 +142,9 @@ class _FirmaDialogState extends State<_FirmaDialog> {
   }
 
   void _aviso(String m) {
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(m)));
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(SnackBar(content: Text(m)));
   }
 
   @override
@@ -165,6 +171,7 @@ class _FirmaDialogState extends State<_FirmaDialog> {
               const SizedBox(height: 8),
               TextField(
                 controller: _cargo,
+                enabled: widget.cargoEditable,
                 textCapitalization: TextCapitalization.sentences,
                 decoration: const InputDecoration(
                   labelText: 'Cargo',
@@ -385,7 +392,10 @@ class _ReprogramarDialogState extends State<_ReprogramarDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Reprogramar visita', style: TextStyle(fontFamily: _kFont)),
+    title: const Text(
+      'Reprogramar visita',
+      style: TextStyle(fontFamily: _kFont),
+    ),
     content: SizedBox(
       width: 380,
       child: Column(

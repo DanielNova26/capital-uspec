@@ -165,7 +165,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
           return SafeArea(
             child: Column(
               children: [
-                _buildSummary(all, desktop),
+                _buildSummary(all.where(_enCorte).toList(), desktop),
                 _buildToolbar(all, visible.length, desktop),
                 Expanded(
                   child: visible.isEmpty
@@ -195,14 +195,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     final query = _searchController.text.trim().toLowerCase();
     final filtered = rows.where((row) {
       if (_estado != null && row.estado != _estado) return false;
-      if (_proveedor != null && row.proveedor != _proveedor) return false;
-      if (_producto != null && row.producto != _producto) return false;
-      if (_grupo != null && row.grupo != _grupo) return false;
-      if (_consumoDesde != null &&
-          (row.consumoDesde == null ||
-              !DateUtils.isSameDay(row.consumoDesde, _consumoDesde))) {
-        return false;
-      }
+      if (!_enCorte(row)) return false;
       if (_soloPendientes && row.pendencias.isEmpty) return false;
       if (_soloAtrasadas) {
         final date = row.fechaProgramada;
@@ -210,17 +203,6 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
         if (date == null ||
             !DateUtils.dateOnly(date).isBefore(today) ||
             row.estado.finalizado) {
-          return false;
-        }
-      }
-      if (_fechaDesde != null || _fechaHasta != null) {
-        final date = row.fechaProgramada;
-        if (date == null) return false;
-        final deliveryDate = DateUtils.dateOnly(date);
-        if (_fechaDesde != null && deliveryDate.isBefore(_fechaDesde!)) {
-          return false;
-        }
-        if (_fechaHasta != null && deliveryDate.isAfter(_fechaHasta!)) {
           return false;
         }
       }
@@ -243,6 +225,32 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
       return left.compareTo(right);
     });
     return filtered;
+  }
+
+  /// Corte de los indicadores: periodo elegido (consumo principal + rango de
+  /// entrega) más proveedor, producto y grupo. Estado, pendientes, atrasadas
+  /// y búsqueda no entran: son lo que el indicador mide, no el universo.
+  bool _enCorte(AbastecimientoDoc row) {
+    if (_proveedor != null && row.proveedor != _proveedor) return false;
+    if (_producto != null && row.producto != _producto) return false;
+    if (_grupo != null && row.grupo != _grupo) return false;
+    if (_consumoDesde != null &&
+        (row.consumoDesde == null ||
+            !DateUtils.isSameDay(row.consumoDesde, _consumoDesde))) {
+      return false;
+    }
+    if (_fechaDesde != null || _fechaHasta != null) {
+      final date = row.fechaProgramada;
+      if (date == null) return false;
+      final deliveryDate = DateUtils.dateOnly(date);
+      if (_fechaDesde != null && deliveryDate.isBefore(_fechaDesde!)) {
+        return false;
+      }
+      if (_fechaHasta != null && deliveryDate.isAfter(_fechaHasta!)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   AbastecimientoDoc? _resolveSelected(List<AbastecimientoDoc> rows) {
@@ -320,9 +328,9 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     );
   }
 
+  // El indicador filtra dentro del periodo elegido; no lo borra, o el número
+  // que se tocó dejaría de cuadrar con la lista que aparece.
   void _applyMetricFilter(String label) => setState(() {
-    _fechaDesde = null;
-    _fechaHasta = null;
     _soloPendientes = false;
     _soloAtrasadas = false;
     switch (label) {

@@ -74,6 +74,13 @@ void main() {
       );
     });
 
+    test('una recepción sin ningún soporte sigue pendiente de completar', () {
+      expect(
+        estadoRecepcionCompras(recepcionCon(const DocAdjunto())),
+        EstadoRecepcionCompras.pendiente,
+      );
+    });
+
     test('ubica en histórico cuando los documentos están aprobados', () {
       expect(
         estadoRecepcionCompras(

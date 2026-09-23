@@ -18,6 +18,8 @@ import '../compras/compras_req_seed.dart';
 import '../compras/compras_service.dart';
 import '../compras/compras_models.dart';
 import '../interventoria/interventoria_models.dart';
+import '../interventoria/interventoria_actas_catalogo.dart';
+import '../interventoria/interventoria_programas.dart';
 import '../interventoria/interventoria_service.dart';
 import '../facturacion/facturacion_models.dart';
 import '../rutas/rutas_models.dart';
@@ -191,6 +193,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   Map<String, String> _comprasRoleByUser = {};
   Map<String, String> _interventoriaRoleByUser = {};
   Map<String, String> _rutasRoleByUser = {};
+  Map<String, String> _visitasRoleByUser = {};
   Map<String, String> _correoRoleByUser = {};
 
   // Catálogos
@@ -366,6 +369,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       _loadModuleRoleMap('TBL_INTERVENTORIA_ROLES', selected),
       _loadModuleRoleMap('TBL_RUTAS_ROLES', selected),
       _loadModuleRoleMap('TBL_CORREO_ROLES', selected),
+      _loadModuleRoleMap(kVisitasRolesCol, selected),
       _repo.loadCentros(selected),
       _repo.loadAreas(selected),
       _repo.loadCargos(selected),
@@ -380,10 +384,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     final interventoriaRoleByUser = results[4] as Map<String, String>;
     final rutasRoleByUser = results[5] as Map<String, String>;
     final correoRoleByUser = results[6] as Map<String, String>;
-    final centros = results[7] as List<CentroCostoItem>;
-    final areas = results[8] as List<AreaItem>;
-    final cargos = results[9] as List<CargoItem>;
-    final bodegas = results[10] as List<BodegaItem>;
+    final visitasRoleByUser = results[7] as Map<String, String>;
+    final centros = results[8] as List<CentroCostoItem>;
+    final areas = results[9] as List<AreaItem>;
+    final cargos = results[10] as List<CargoItem>;
+    final bodegas = results[11] as List<BodegaItem>;
 
     // Si el usuario cambió de empresa mientras cargaban las consultas, no
     // permitimos que la respuesta anterior vuelva a dejar Servir sobre Capital
@@ -402,6 +407,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       _interventoriaRoleByUser = interventoriaRoleByUser;
       _rutasRoleByUser = rutasRoleByUser;
       _correoRoleByUser = correoRoleByUser;
+      _visitasRoleByUser = visitasRoleByUser;
 
       _centros = centros;
       _areas = areas;
@@ -442,6 +448,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         _loadModuleRoleMap('TBL_INTERVENTORIA_ROLES', empresaId),
         _loadModuleRoleMap('TBL_RUTAS_ROLES', empresaId),
         _loadModuleRoleMap('TBL_CORREO_ROLES', empresaId),
+        _loadModuleRoleMap(kVisitasRolesCol, empresaId),
       ]);
       if (!mounted ||
           _empresaId != empresaId ||
@@ -456,6 +463,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         _interventoriaRoleByUser = results[2] as Map<String, String>;
         _rutasRoleByUser = results[3] as Map<String, String>;
         _correoRoleByUser = results[4] as Map<String, String>;
+        _visitasRoleByUser = results[5] as Map<String, String>;
         _userApps = {
           for (final user in users)
             user.id: extractUserApps(user.data(), empresaId: empresaId).toSet(),
@@ -4912,12 +4920,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       color: Color(0xFF15803D),
       roles: kRutasRolLabels,
     ),
+    // Roles de Visitas desde aquí y no desde el módulo (pedido del 21 sep
+    // 2026: "los roles deberían ir en el admin dashboard").
     const _AccessMatrixModule(
       key: 'visitas',
       label: 'Visitas',
       appId: kVisitasAppId,
       icon: Icons.fact_check_rounded,
       color: Color(0xFF7C3AED),
+      roles: kVisitasRolesLabel,
     ),
   ];
 
@@ -4954,7 +4965,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       case 'tokens_dian':
         return 'Personal autorizado';
       case 'visitas':
-        return 'Acceso; rol interno en Visitas';
+        return 'Asigna primero el área en Usuarios. El jefe programa y administra formatos solo de esa área; sus profesionales reciben ese formato.';
       case 'admin':
         return 'Acceso al panel administrativo';
       default:
@@ -5046,6 +5057,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             return 'Combina la administración de rutas con la revisión de Calidad.';
           case kRutasRolDesarrollador:
             return 'Perfil de prueba con acceso a todos los flujos de Rutas.';
+        }
+      case 'visitas':
+        switch (roleKey) {
+          case kVisitasRolJefe:
+            return 'Arma el cronograma, administra los formatos y ve el consolidado de su área.';
+          case kVisitasRolProfesional:
+            return 'Ejecuta las visitas de su área que le programaron.';
+          case kVisitasRolConsulta:
+            return 'Ve el cronograma y el consolidado sin modificar nada.';
         }
     }
     return 'Define las acciones que la persona puede realizar en este módulo.';
@@ -5331,6 +5351,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             _interventoriaRoleByUser[cedula];
       case 'rutas':
         return _rutasRoleByUser[userDoc.id] ?? _rutasRoleByUser[cedula];
+      case 'visitas':
+        return _visitasRoleByUser[userDoc.id] ?? _visitasRoleByUser[cedula];
       case 'correo':
         final explicit =
             _correoRoleByUser[userDoc.id] ?? _correoRoleByUser[cedula];
@@ -5594,6 +5616,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     if (empresaId.isEmpty) return;
     final cleanRole = (role ?? '').trim();
     final hasRole = cleanRole.isNotEmpty;
+    String visitasAreaId = '';
+    if (module.key == 'visitas' && hasRole) {
+      final data = userDoc.data();
+      final scoped = getUserCompanyDetail(data, empresaId);
+      visitasAreaId = _safe(scoped?['areaId']).isNotEmpty
+          ? _safe(scoped?['areaId'])
+          : _safe(data['areaId']);
+      if (visitasAreaId.isEmpty &&
+          !isDeveloperUser(data, empresaId: empresaId)) {
+        throw StateError(
+          'Asigna primero el área de ${_userName(data, userDoc.id)} en Admin > Usuarios.',
+        );
+      }
+    }
     if (hasRole) {
       await _repo.grantUserApps(
         userId: userDoc.id,
@@ -5624,6 +5660,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         'createdAt': Timestamp.now(),
         'updatedAt': FieldValue.serverTimestamp(),
       };
+      if (module.key == 'visitas' && hasRole) {
+        payload['areaId'] = visitasAreaId;
+      }
 
       switch (module.key) {
         case 'compras':
@@ -5645,6 +5684,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         case 'rutas':
           final ref = FirebaseFirestore.instance
               .collection('TBL_RUTAS_ROLES')
+              .doc('${empresaId}_${userDoc.id}');
+          hasRole
+              ? await ref.set(payload, SetOptions(merge: true))
+              : await ref.delete();
+          break;
+        case 'visitas':
+          // Mismo docId que usa VisitasService.guardarRol y que exigen las
+          // reglas: `{empresaId}_{userId}`.
+          final ref = FirebaseFirestore.instance
+              .collection(kVisitasRolesCol)
               .doc('${empresaId}_${userDoc.id}');
           hasRole
               ? await ref.set(payload, SetOptions(merge: true))
@@ -6269,8 +6318,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           (
             modulo: 'Visitas',
             visible: 'visitasdashboard',
-            permisos: 'TBL_VISITAS_ROLES (pestaña Roles del módulo)',
-            donde: 'Matriz central / Visitas > Roles',
+            permisos: 'TBL_VISITAS_ROLES',
+            donde: 'Matriz central',
           ),
           (
             modulo: 'Compras',
@@ -8886,20 +8935,37 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               ),
             ),
             const SizedBox(width: 12),
-            ElevatedButton.icon(
-              onPressed: () => _dialogEmpresaPerfil(empresa),
-              icon: const Icon(Icons.edit_outlined, size: 18),
-              label: const Text(
-                'Editar',
-                style: TextStyle(
-                  fontFamily: kArial,
-                  fontWeight: FontWeight.w900,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: () => _dialogEmpresaPerfil(empresa),
+                  icon: const Icon(Icons.edit_outlined, size: 18),
+                  label: const Text(
+                    'Editar',
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kAdminPrimary,
+                    foregroundColor: Colors.white,
+                  ),
                 ),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: kAdminPrimary,
-                foregroundColor: Colors.white,
-              ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: () => _dialogConfiguracionInterventoria(empresa),
+                  icon: const Icon(Icons.fact_check_outlined, size: 18),
+                  label: const Text(
+                    'Interventoría',
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -8971,6 +9037,181 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _dialogConfiguracionInterventoria(EmpresaItem empresa) async {
+    final service = InterventoriaService();
+    InterventoriaEmpresaConfig config;
+    try {
+      config = await service.cargarConfiguracionEmpresa(empresa.empresaId);
+    } catch (e) {
+      if (mounted) _snack('No se pudo cargar la configuración: $e');
+      return;
+    }
+    if (!mounted) return;
+
+    final programas = config.programas.toSet();
+    var tipos = config.tiposActaHabilitados.toSet();
+    if (tipos.isEmpty && programas.isNotEmpty) {
+      tipos = tiposActaParaProgramas(programas).toSet();
+    }
+    var saving = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (ctx, setLocal) {
+          final compatibles = tiposActaParaProgramas(programas);
+          return AlertDialog(
+            title: Text(
+              'Interventoría · ${empresa.nombre}',
+              style: const TextStyle(
+                fontFamily: kArial,
+                fontWeight: FontWeight.w900,
+                color: kAdminPrimary,
+              ),
+            ),
+            content: SizedBox(
+              width: 680,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Programas o entidades contratantes',
+                      style: TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'La empresa sigue siendo una sola. Esta selección limita '
+                      'las actas que se pueden registrar sin duplicar usuarios '
+                      'ni separar artificialmente Planta y Estaciones.',
+                      style: TextStyle(
+                        fontFamily: kArial,
+                        fontSize: 12,
+                        color: kAdminMuted,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final programa in kProgramasInterventoria)
+                          FilterChip(
+                            selected: programas.contains(programa),
+                            avatar: Icon(
+                              programa == kProgramaInterventoriaPec
+                                  ? Icons.account_balance_outlined
+                                  : Icons.location_city_outlined,
+                              size: 17,
+                            ),
+                            label: Text(
+                              kProgramaInterventoriaLabels[programa] ??
+                                  programa,
+                            ),
+                            onSelected: saving
+                                ? null
+                                : (selected) => setLocal(() {
+                                    if (selected) {
+                                      programas.add(programa);
+                                    } else {
+                                      programas.remove(programa);
+                                    }
+                                    tipos = tiposActaParaProgramas(
+                                      programas,
+                                    ).toSet();
+                                  }),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    const Text(
+                      'Actas habilitadas',
+                      style: TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    if (compatibles.isEmpty)
+                      const Text(
+                        'Selecciona al menos un programa para asignar sus actas.',
+                        style: TextStyle(
+                          fontFamily: kArial,
+                          color: kAdminMuted,
+                        ),
+                      )
+                    else
+                      ...compatibles.map(
+                        (tipo) => CheckboxListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          value: tipos.contains(tipo),
+                          title: Text(etiquetaTipoActa(tipo)),
+                          subtitle: Text(
+                            tipo.startsWith('ALCALDIA_')
+                                ? 'Alcaldía Mayor de Bogotá · CDT'
+                                : 'PEC / USPEC',
+                          ),
+                          onChanged: saving
+                              ? null
+                              : (selected) => setLocal(() {
+                                  if (selected == true) {
+                                    tipos.add(tipo);
+                                  } else {
+                                    tipos.remove(tipo);
+                                  }
+                                }),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: saving ? null : () => Navigator.pop(ctx),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton.icon(
+                onPressed: saving || programas.isEmpty || tipos.isEmpty
+                    ? null
+                    : () async {
+                        setLocal(() => saving = true);
+                        try {
+                          await service.guardarConfiguracionEmpresa(
+                            empresaId: empresa.empresaId,
+                            programas: programas,
+                            tiposActaHabilitados: tipos,
+                            actualizadoPor: widget.userId,
+                          );
+                          if (!ctx.mounted) return;
+                          Navigator.pop(ctx);
+                          _snack('Configuración de interventoría guardada.');
+                        } catch (e) {
+                          if (ctx.mounted) setLocal(() => saving = false);
+                          _snack('No se pudo guardar: $e');
+                        }
+                      },
+                icon: saving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.save_outlined),
+                label: const Text('Guardar'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -9387,7 +9628,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       Builder(
                         builder: (_) {
                           final p =
-                              hexColor(colorPrimario) ?? const Color(0xFF1F3A5F);
+                              hexColor(colorPrimario) ??
+                              const Color(0xFF1F3A5F);
                           final s =
                               hexColor(colorSecundario) ??
                               const Color(0xFFE8EEF5);

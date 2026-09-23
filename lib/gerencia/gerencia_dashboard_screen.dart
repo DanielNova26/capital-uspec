@@ -1618,7 +1618,9 @@ class _StatusPieChartState extends State<_StatusPieChart> {
                           fontSize: 12,
                         ),
                       ),
-                      backgroundColor: _statusColor(e.key).withValues(alpha: 0.15),
+                      backgroundColor: _statusColor(
+                        e.key,
+                      ).withValues(alpha: 0.15),
                       side: BorderSide(
                         color: _statusColor(e.key).withValues(alpha: 0.6),
                       ),

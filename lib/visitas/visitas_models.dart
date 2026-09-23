@@ -70,17 +70,20 @@ bool visitasPuedeGestionarFormatos(String? rol) => rol == kVisitasRolJefe;
 bool visitasPuedeVerConsolidado(String? rol) =>
     rol == kVisitasRolJefe || rol == kVisitasRolConsulta;
 
-/// Reprogramar: el jefe cualquier visita programada; el profesional solo la
-/// suya. Es lo que se pidió el 17 sep 2026: que jefes y quienes visitan
-/// puedan mover el calendario. Una visita ya iniciada no se mueve.
+/// Reprogramar: solo el jefe, y solo una visita todavía programada.
+///
+/// El 17 sep 2026 se había dejado que el profesional moviera la suya; el
+/// 18 sep Oscar lo cerró: el cronograma lo arma y lo corrige únicamente la
+/// dirección, "porque si usted le dice a la gente cómo quiera hacerlo, ellos
+/// van a acomodarse" y es el director quien garantiza que se cumple la
+/// norma. Una visita ya iniciada no se mueve.
 bool visitasPuedeReprogramar({
   required String? rol,
   required VisitaProfesional visita,
   required String userId,
 }) {
   if (visita.estado != kVisitaProgramada) return false;
-  if (rol == kVisitasRolJefe) return true;
-  return rol == kVisitasRolProfesional && visita.profesionalId == userId;
+  return rol == kVisitasRolJefe;
 }
 
 /// El maestro de ubicaciones es solo de Desarrollo. No es un rol del
@@ -356,6 +359,7 @@ class VisitaFormato {
   final String nombre;
   final int version;
   final String estado;
+  final bool predeterminado;
   final List<VisitaFormatoItem> items;
 
   /// Hojas del formato. Vacío = formato de una sola hoja sin código.
@@ -372,6 +376,7 @@ class VisitaFormato {
     required this.nombre,
     this.version = 1,
     this.estado = kFormatoBorrador,
+    this.predeterminado = false,
     this.items = const [],
     this.partes = const [],
     this.tablas = const [],
@@ -401,6 +406,7 @@ class VisitaFormato {
     'nombre': nombre,
     'version': version,
     'estado': estado,
+    'predeterminado': predeterminado,
     'items': items.map((i) => i.toMap()).toList(),
     'partes': partes.map((p) => p.toMap()).toList(),
     'tablas': tablas.map((t) => t.toMap()).toList(),
@@ -415,6 +421,7 @@ class VisitaFormato {
         nombre: (d['nombre'] ?? '').toString(),
         version: (d['version'] as num?)?.toInt() ?? 1,
         estado: (d['estado'] ?? kFormatoBorrador).toString(),
+        predeterminado: d['predeterminado'] == true,
         items: [
           for (final raw in (d['items'] as List? ?? const []))
             if (raw is Map)
@@ -435,6 +442,7 @@ class VisitaFormato {
   VisitaFormato copyWith({
     String? nombre,
     String? estado,
+    bool? predeterminado,
     List<VisitaFormatoItem>? items,
     int? version,
     List<VisitaFormatoParte>? partes,
@@ -447,6 +455,7 @@ class VisitaFormato {
     nombre: nombre ?? this.nombre,
     version: version ?? this.version,
     estado: estado ?? this.estado,
+    predeterminado: predeterminado ?? this.predeterminado,
     items: items ?? this.items,
     partes: partes ?? this.partes,
     tablas: tablas ?? this.tablas,
@@ -643,7 +652,10 @@ class VisitaFilaTabla {
 }
 
 Map<String, String> _strMap(Object? raw) => raw is Map
-    ? {for (final e in raw.entries) e.key.toString(): (e.value ?? '').toString()}
+    ? {
+        for (final e in raw.entries)
+          e.key.toString(): (e.value ?? '').toString(),
+      }
     : const {};
 
 /// Firma estampada en la visita. `modo` dice si fue la firma guardada del
@@ -951,6 +963,140 @@ VerificacionUbicacion verificarUbicacionInicio({
   return VerificacionUbicacion(permitido: true, distancia: d);
 }
 
+// ── Registro de visita: "¿dónde estoy y qué me toca aquí?" ─────────────────
+//
+// Reunión del 18 sep 2026: al profesional le sale una sección propia donde,
+// al llegar, la app "jala" la visita que tiene programada en ese sitio. Si
+// llegó a un establecimiento sin visita programada, no lo deja iniciar
+// nada: tiene que corregirlo el jefe inmediato.
+
+/// La visita del profesional junto con la referencia del maestro que le
+/// aplica y a qué distancia está de ella.
+class VisitaEnSitio {
+  final VisitaProfesional visita;
+  final VisitaUbicacion? referencia;
+  final double? distancia;
+
+  /// Dentro del radio, descontando la precisión del GPS (misma tolerancia
+  /// que [verificarUbicacionInicio]).
+  final bool enElSitio;
+
+  const VisitaEnSitio({
+    required this.visita,
+    required this.referencia,
+    required this.distancia,
+    required this.enElSitio,
+  });
+}
+
+class RegistroVisitaResultado {
+  /// Visitas del profesional en el sitio donde está, listas para iniciar o
+  /// continuar (programadas con fecha cumplida, o en curso).
+  final List<VisitaEnSitio> listas;
+
+  /// Visitas en este sitio pero programadas para más adelante.
+  final List<VisitaEnSitio> paraDespues;
+
+  /// Referencia del maestro dentro de cuyo radio está el profesional, si hay.
+  final VisitaUbicacion? ubicacionActual;
+
+  /// La referencia más cercana cuando no está dentro de ninguna.
+  final VisitaUbicacion? masCercana;
+  final double? distanciaMasCercana;
+
+  const RegistroVisitaResultado({
+    required this.listas,
+    required this.paraDespues,
+    required this.ubicacionActual,
+    required this.masCercana,
+    required this.distanciaMasCercana,
+  });
+
+  bool get enUnEstablecimiento => ubicacionActual != null;
+}
+
+/// Referencia que aplica a una visita: la del subcentro si tiene la suya,
+/// si no la del centro. Mismo criterio que `VisitasService.ubicacionPara`,
+/// pero sobre una lista ya cargada.
+VisitaUbicacion? referenciaDeVisita(
+  VisitaProfesional v,
+  List<VisitaUbicacion> ubicaciones,
+) {
+  if (v.subcentroId.isNotEmpty) {
+    for (final u in ubicaciones) {
+      if (u.centroId == v.centroId && u.subcentroId == v.subcentroId) return u;
+    }
+  }
+  for (final u in ubicaciones) {
+    if (u.centroId == v.centroId && u.subcentroId.isEmpty) return u;
+  }
+  return null;
+}
+
+/// Cruza la posición del profesional con sus visitas pendientes. Pura, para
+/// probarla sin GPS ni Firestore.
+RegistroVisitaResultado resolverRegistroVisita({
+  required double lat,
+  required double lng,
+  double? precisionMetros,
+  required List<VisitaUbicacion> ubicaciones,
+  required List<VisitaProfesional> visitasDelProfesional,
+  required DateTime ahora,
+}) {
+  final tolerancia = (precisionMetros ?? 0).clamp(0, 100).toDouble();
+  bool dentro(VisitaUbicacion u, double d) => d - tolerancia <= u.radioMetros;
+
+  VisitaUbicacion? actual;
+  VisitaUbicacion? cercana;
+  double? dActual;
+  double? dCercana;
+  for (final u in ubicaciones) {
+    final d = distanciaMetros(lat, lng, u.lat, u.lng);
+    if (dentro(u, d) && (dActual == null || d < dActual)) {
+      actual = u;
+      dActual = d;
+    }
+    if (dCercana == null || d < dCercana) {
+      cercana = u;
+      dCercana = d;
+    }
+  }
+
+  final listas = <VisitaEnSitio>[];
+  final despues = <VisitaEnSitio>[];
+  for (final v in visitasDelProfesional) {
+    if (v.estado != kVisitaProgramada && v.estado != kVisitaEnCurso) continue;
+    final ref = referenciaDeVisita(v, ubicaciones);
+    if (ref == null) continue;
+    final d = distanciaMetros(lat, lng, ref.lat, ref.lng);
+    if (!dentro(ref, d)) continue;
+    final item = VisitaEnSitio(
+      visita: v,
+      referencia: ref,
+      distancia: d,
+      enElSitio: true,
+    );
+    if (v.estado == kVisitaEnCurso || visitaSePuedeIniciar(v, ahora)) {
+      listas.add(item);
+    } else {
+      despues.add(item);
+    }
+  }
+  listas.sort(
+    (a, b) => a.visita.fechaProgramada.compareTo(b.visita.fechaProgramada),
+  );
+  despues.sort(
+    (a, b) => a.visita.fechaProgramada.compareTo(b.visita.fechaProgramada),
+  );
+  return RegistroVisitaResultado(
+    listas: listas,
+    paraDespues: despues,
+    ubicacionActual: actual,
+    masCercana: actual == null ? cercana : null,
+    distanciaMasCercana: actual == null ? dCercana : null,
+  );
+}
+
 // ── La visita ───────────────────────────────────────────────────────────────
 
 class VisitaProfesional {
@@ -958,6 +1104,12 @@ class VisitaProfesional {
   final String empresaId;
   final String formatoId;
   final String formatoNombre;
+
+  /// Copia del formato asignado: una edición posterior no altera el acta.
+  final VisitaFormato? formatoAsignado;
+
+  /// Identifica recorridos de ensayo que Administración puede eliminar.
+  final bool esPrueba;
   final String areaId;
   final String areaNombre;
   final String centroId;
@@ -997,6 +1149,8 @@ class VisitaProfesional {
     required this.empresaId,
     required this.formatoId,
     required this.formatoNombre,
+    this.formatoAsignado,
+    this.esPrueba = false,
     required this.areaId,
     required this.areaNombre,
     required this.centroId,
@@ -1035,6 +1189,8 @@ class VisitaProfesional {
     'empresaId': empresaId,
     'formatoId': formatoId,
     'formatoNombre': formatoNombre,
+    if (formatoAsignado != null) 'formatoAsignado': formatoAsignado!.toMap(),
+    'esPrueba': esPrueba,
     'areaId': areaId,
     'areaNombre': areaNombre,
     'centroId': centroId,
@@ -1087,15 +1243,21 @@ class VisitaProfesional {
         ];
       }
     }
-    VisitaFirma? firma(Object? raw) => raw is Map
-        ? VisitaFirma.fromMap(Map<String, dynamic>.from(raw))
-        : null;
+    VisitaFirma? firma(Object? raw) =>
+        raw is Map ? VisitaFirma.fromMap(Map<String, dynamic>.from(raw)) : null;
     final fp = d['fechaProgramada'];
     return VisitaProfesional(
       id: id,
       empresaId: (d['empresaId'] ?? '').toString(),
       formatoId: (d['formatoId'] ?? '').toString(),
       formatoNombre: (d['formatoNombre'] ?? '').toString(),
+      formatoAsignado: d['formatoAsignado'] is Map
+          ? VisitaFormato.fromMap(
+              (d['formatoId'] ?? '').toString(),
+              Map<String, dynamic>.from(d['formatoAsignado'] as Map),
+            )
+          : null,
+      esPrueba: d['esPrueba'] == true,
       areaId: (d['areaId'] ?? '').toString(),
       areaNombre: (d['areaNombre'] ?? '').toString(),
       centroId: (d['centroId'] ?? '').toString(),
@@ -1245,9 +1407,7 @@ List<String> validarCierreVisita(
         }
       }
       if (f.tieneHallazgo && f.observacion.trim().isEmpty) {
-        errores.add(
-          '${t.etiquetaFila} ${i + 1} tiene novedad y no dice cuál.',
-        );
+        errores.add('${t.etiquetaFila} ${i + 1} tiene novedad y no dice cuál.');
       }
     }
   }
@@ -1463,9 +1623,10 @@ ConsolidadoMensual consolidarMes(
   Iterable<VisitaProfesional> visitas, {
   Map<String, VisitaFormato> formatos = const {},
 }) {
-  final terminadas = visitas.where((v) => v.estado == kVisitaTerminada);
-  final programadas = visitas.where((v) => v.estado == kVisitaProgramada);
-  final canceladas = visitas.where((v) => v.estado == kVisitaCancelada);
+  final reales = visitas.where((v) => !v.esPrueba);
+  final terminadas = reales.where((v) => v.estado == kVisitaTerminada);
+  final programadas = reales.where((v) => v.estado == kVisitaProgramada);
+  final canceladas = reales.where((v) => v.estado == kVisitaCancelada);
 
   final porEst = <String, List<VisitaProfesional>>{};
   for (final v in terminadas) {

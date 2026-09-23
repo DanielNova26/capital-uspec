@@ -33,14 +33,18 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../core/area_directory.dart';
+import '../core/subcentros_costo.dart';
 import '../core/user_directory.dart';
 import '../interventoria/interventoria_hallazgo_panel.dart';
 import '../interventoria/interventoria_models.dart';
 import '../interventoria/interventoria_service.dart';
 import '../theme/app_typography.dart';
+import '../utils/excel_download.dart';
+import '../visitas/visitas_informe_pdf.dart' show entregarPdf;
 import '../widgets/memo_stream_builder.dart';
 import '../widgets/paged_list.dart';
 import '../widgets/user_avatar.dart';
+import 'gerencia_hallazgos_export.dart';
 
 const _kInk = Color(0xFF0F172A);
 const _kMuted = Color(0xFF64748B);
@@ -48,6 +52,11 @@ const _kBorde = Color(0xFFE2E8F0);
 const _kActivo = Color(0xFFDC2626);
 const _kPendiente = Color(0xFFB45309);
 const _kSubsanado = Color(0xFF16A34A);
+
+/// Alto de la gráfica y del detalle cuando van lado a lado. Se fijó el mismo
+/// para las dos tarjetas porque, con la lista libre, el detalle bajaba mucho
+/// más que la gráfica y se veía desparejo (Oscar, 18 sep 2026).
+const double _kAltoTarjetas = 640;
 
 /// Dimensiones por las que se puede agrupar la gráfica.
 enum _Agrupacion {
@@ -120,6 +129,13 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
   String _responsableFiltro = 'todos';
   _Agrupacion _agrupar = _Agrupacion.establecimiento;
   String? _grupoSeleccionado;
+
+  /// Sección del acta (1..11) elegida dentro del detalle; null = todas.
+  int? _seccionSeleccionada;
+  int _paginaGrafica = 0;
+  int _paginaDetalle = 0;
+  int _paginaSemanas = 0;
+  bool _exportando = false;
 
   /// Personal asignable por empresa, con el área puenteada por cargo: es lo
   /// que necesitan los resolvedores de administrador y director. Se carga
@@ -357,17 +373,31 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
       String? sub;
       switch (_agrupar) {
         case _Agrupacion.establecimiento:
-          clave = '${h.centroCostoId}|${h.subcentroId}';
-          etiqueta = h.establecimiento.trim().isEmpty
-              ? 'Sin establecimiento'
-              : h.establecimiento;
+          // Cada subcentro es una fila propia y con su nombre como título:
+          // Gerencia pidió (18 sep 2026) que la estación no se lea como si
+          // fuera la planta. La clave normaliza el subcentro porque quedó
+          // guardado de varias formas ("alta", "Cómbita Alta").
+          final subNombre = subcentroSinCentro(
+            h.centroCostoNombre,
+            h.subcentroNombre,
+          );
+          clave =
+              '${h.centroCostoId}|'
+              '${claveSubcentro(h.centroCostoNombre, h.subcentroId, h.subcentroNombre)}';
+          if (subNombre.isNotEmpty) {
+            etiqueta = subNombre;
+            final centro = h.centroCostoNombre.trim();
+            if (centro.isNotEmpty) sub = 'Subcentro de $centro';
+          } else {
+            etiqueta = h.establecimiento.trim().isEmpty
+                ? 'Sin establecimiento'
+                : h.establecimiento;
+          }
         case _Agrupacion.area:
           etiqueta = _etiquetaArea(h);
           clave = areaClave(etiqueta);
         case _Agrupacion.numeral:
-          final n = h.numeralActa.trim().isNotEmpty
-              ? h.numeralActa.trim()
-              : h.numeroHallazgo.trim();
+          final n = h.numeralParaMatriz;
           clave = n.isEmpty ? '?' : n;
           etiqueta = n.isEmpty ? 'Sin numeral' : 'Numeral $n';
         case _Agrupacion.acta:
@@ -393,14 +423,14 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
           etiqueta = admin == null
               ? 'Sin administrador resuelto'
               : _nombreUsuario(admin.id, fallback: admin.nombre);
-          sub = admin == null ? null : admin.cargo;
+          sub = admin?.cargo;
         case _Agrupacion.director:
           final dir = _directorDe(h);
           clave = dir == null ? '?' : dir.id;
           etiqueta = dir == null
               ? 'Sin director resuelto'
               : _nombreUsuario(dir.id, fallback: dir.nombre);
-          sub = dir == null ? null : '${dir.cargo} · ${_etiquetaArea(h)}';
+          if (dir != null) sub = '${dir.cargo} · ${_etiquetaArea(h)}';
       }
       grupos
           .putIfAbsent(clave, () => _Grupo(clave, etiqueta, subEtiqueta: sub))
@@ -452,6 +482,8 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
             const SizedBox(height: 16),
             _buildResumen(filtrados),
             const SizedBox(height: 16),
+            _buildVisitasPorSemana(),
+            const SizedBox(height: 16),
             if (todos.isEmpty)
               _vacio('Aún no hay hallazgos de interventoría registrados.')
             else if (filtrados.isEmpty)
@@ -460,9 +492,21 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(flex: 5, child: _buildGrafica(grupos)),
+                  Expanded(
+                    flex: 5,
+                    child: SizedBox(
+                      height: _kAltoTarjetas,
+                      child: _buildGrafica(grupos, altoFijo: true),
+                    ),
+                  ),
                   const SizedBox(width: 16),
-                  Expanded(flex: 6, child: _buildDetalle(seleccionado)),
+                  Expanded(
+                    flex: 6,
+                    child: SizedBox(
+                      height: _kAltoTarjetas,
+                      child: _buildDetalle(seleccionado, altoFijo: true),
+                    ),
+                  ),
                 ],
               )
             else ...[
@@ -512,6 +556,195 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
       ),
     ),
   );
+
+  Widget
+  _buildVisitasPorSemana() => MemoStreamBuilder<List<InterventoriaVisita>>(
+    memoKey: 'visitas-${widget.empresaIds.join(',')}',
+    create: () => _svc.streamVisitasEmpresas(widget.empresaIds),
+    builder: (context, snap) {
+      if (snap.hasError) {
+        return const Card(
+          child: Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('No se pudo cargar el conteo de visitas.'),
+          ),
+        );
+      }
+      if (!snap.hasData) return const LinearProgressIndicator();
+      final visitas = snap.data!.where((v) {
+        final dia = v.fechaVisita.toDate();
+        if (_desde != null &&
+            dia.isBefore(DateTime(_desde!.year, _desde!.month, _desde!.day))) {
+          return false;
+        }
+        if (_hasta != null &&
+            dia.isAfter(
+              DateTime(_hasta!.year, _hasta!.month, _hasta!.day, 23, 59, 59),
+            )) {
+          return false;
+        }
+        return true;
+      }).toList();
+      final semanas = contarVisitasPorSemana(visitas);
+      const porPagina = 8;
+      final pagina = _paginaSemanas.clamp(
+        0,
+        pageCountOf(semanas.length, pageSize: porPagina) - 1,
+      );
+      final visibles = pageOf(semanas, pagina, pageSize: porPagina);
+      final total = semanas.fold<int>(0, (s, e) => s + e.actas);
+      final maximo = visibles.fold<int>(1, (m, e) => e.actas > m ? e.actas : m);
+      final fmt = DateFormat('dd/MM');
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Visitas realizadas · $total actas',
+                style: const TextStyle(
+                  fontFamily: kArial,
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Row(
+                children: [
+                  const Spacer(),
+                  _botonExportar(
+                    icono: Icons.table_view_rounded,
+                    tooltip: 'Exportar visitas y resumen semanal a Excel',
+                    onPressed: () => _exportarVisitas(visitas, pdf: false),
+                  ),
+                  _botonExportar(
+                    icono: Icons.picture_as_pdf_rounded,
+                    tooltip: 'Exportar visitas y resumen semanal a PDF',
+                    onPressed: () => _exportarVisitas(visitas, pdf: true),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 3),
+              const Text(
+                'Conteo por fecha del acta; incluye visitas sin hallazgos.',
+                style: TextStyle(
+                  fontFamily: kArial,
+                  fontSize: 11,
+                  color: _kMuted,
+                ),
+              ),
+              if (semanas.length > porPagina)
+                PagerBar(
+                  total: semanas.length,
+                  page: pagina,
+                  pageSize: porPagina,
+                  etiqueta: 'semanas',
+                  onPageChanged: (p) => setState(() => _paginaSemanas = p),
+                ),
+              if (visibles.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.only(top: 12),
+                  child: Text('No hay actas en el período seleccionado.'),
+                )
+              else
+                SizedBox(
+                  height: 128,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      for (final semana in visibles)
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                Text(
+                                  '${semana.actas}',
+                                  style: const TextStyle(
+                                    fontFamily: kArial,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Container(
+                                  height: 78 * semana.actas / maximo,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF2563A6),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  fmt.format(semana.lunes),
+                                  style: const TextStyle(
+                                    fontFamily: kArial,
+                                    fontSize: 10,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+
+  Future<void> _exportarVisitas(
+    List<InterventoriaVisita> visitas, {
+    required bool pdf,
+  }) async {
+    if (_exportando) return;
+    setState(() => _exportando = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final periodo = _descripcionPeriodo();
+      final nombre = nombreArchivoHallazgosGerencia(
+        'visitas_interventoria',
+      ).replaceFirst('hallazgos_', '');
+      if (pdf) {
+        await entregarPdf(
+          await generarPdfVisitasGerencia(visitas, periodo),
+          nombre,
+        );
+      } else {
+        await descargarExcelCompras(
+          nombreArchivo: nombre,
+          bytes: generarExcelVisitasGerencia(visitas, periodo),
+        );
+      }
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              '${visitas.length} actas exportadas (${pdf ? 'PDF' : 'Excel'}).',
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(content: Text('No se pudo exportar las visitas: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exportando = false);
+    }
+  }
+
+  String _descripcionPeriodo() {
+    final fmt = DateFormat('dd/MM/yyyy');
+    if (_desde == null && _hasta == null) return 'Todo el histórico';
+    return 'Del ${_desde == null ? 'inicio' : fmt.format(_desde!)} al '
+        '${_hasta == null ? 'hoy' : fmt.format(_hasta!)}';
+  }
 
   Widget _buildFiltros(
     BuildContext context,
@@ -696,6 +929,9 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
                       // Las claves cambian con la dimensión: lo elegido ya
                       // no significa nada.
                       _grupoSeleccionado = null;
+                      _seccionSeleccionada = null;
+                      _paginaGrafica = 0;
+                      _paginaDetalle = 0;
                     }),
                   ),
                 ),
@@ -712,7 +948,11 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
     final pendientes = filtrados.where((h) => h.isPendienteAprobacion).length;
     final subsanados = filtrados.where((h) => h.isSubsanado).length;
     final establecimientos = filtrados
-        .map((h) => '${h.centroCostoId}|${h.subcentroId}')
+        .map(
+          (h) =>
+              '${h.centroCostoId}|'
+              '${claveSubcentro(h.centroCostoNombre, h.subcentroId, h.subcentroNombre)}',
+        )
         .toSet()
         .length;
 
@@ -782,14 +1022,141 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
     );
   }
 
-  Widget _buildGrafica(List<_Grupo> grupos) {
+  // ── Exportación ───────────────────────────────────────────────────────────
+
+  /// Filtros vigentes en palabras, para la cabecera del archivo.
+  String _descripcionFiltros() {
+    final fmt = DateFormat('dd/MM/yyyy');
+    final partes = <String>[];
+    if (_periodoRapidoDias != null) {
+      partes.add('Últimos $_periodoRapidoDias días');
+    } else if (_desde != null || _hasta != null) {
+      partes.add(
+        'Del ${_desde == null ? 'inicio' : fmt.format(_desde!)} '
+        'al ${_hasta == null ? 'hoy' : fmt.format(_hasta!)}',
+      );
+    } else {
+      partes.add('Todo el histórico');
+    }
+    if (_estado != 'todos') {
+      partes.add(
+        'Estado: ${switch (_estado) {
+          'activo' => 'activos',
+          'pendiente' => 'por aprobar',
+          'subsanado' => 'subsanados',
+          _ => _estado,
+        }}',
+      );
+    }
+    if (_areaFiltro != 'todas') partes.add('Área: $_areaFiltro');
+    if (_responsableFiltro != 'todos') {
+      partes.add(
+        'Responsable: ${_nombreUsuario(_responsableFiltro, fallback: _responsableFiltro)}',
+      );
+    }
+    if (_texto.trim().isNotEmpty) partes.add('Búsqueda: "${_texto.trim()}"');
+    return partes.join(' · ');
+  }
+
+  /// Descarga lo que se está viendo: todo lo filtrado, un grupo, o una
+  /// sección dentro del grupo. Nunca más que eso.
+  Future<void> _exportar(
+    List<InterventoriaHallazgo> hallazgos,
+    AlcanceExportacion alcance, {
+    required bool pdf,
+  }) async {
+    if (_exportando) return;
+    setState(() => _exportando = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final nombre = nombreArchivoHallazgosGerencia(alcance.titulo);
+      if (pdf) {
+        final bytes = await generarPdfHallazgosGerencia(
+          hallazgos,
+          alcance,
+          nombreArea: _etiquetaArea,
+        );
+        await entregarPdf(bytes, nombre);
+      } else {
+        final bytes = generarExcelHallazgosGerencia(
+          hallazgos,
+          alcance,
+          nombreArea: _etiquetaArea,
+        );
+        await descargarExcelCompras(nombreArchivo: nombre, bytes: bytes);
+      }
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          backgroundColor: _kSubsanado,
+          content: Text(
+            '${hallazgos.length} hallazgo${hallazgos.length == 1 ? '' : 's'} '
+            'exportado${hallazgos.length == 1 ? '' : 's'} (${pdf ? 'PDF' : 'Excel'}).',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          backgroundColor: _kActivo,
+          content: Text('No se pudo exportar: $error'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _exportando = false);
+    }
+  }
+
+  Widget _botonExportar({
+    required IconData icono,
+    required String tooltip,
+    required VoidCallback onPressed,
+  }) => IconButton(
+    tooltip: tooltip,
+    visualDensity: VisualDensity.compact,
+    onPressed: _exportando ? null : onPressed,
+    icon: Icon(icono, size: 20, color: _kInk),
+  );
+
+  // ── Gráfica y detalle ─────────────────────────────────────────────────────
+
+  Widget _buildGrafica(List<_Grupo> grupos, {bool altoFijo = false}) {
     final maximo = grupos.isEmpty ? 1 : grupos.first.total;
+    final todosLosFiltrados = [for (final g in grupos) ...g.hallazgos];
+    final maxPagina = pageCountOf(grupos.length) - 1;
+    final pagina = _paginaGrafica.clamp(0, maxPagina < 0 ? 0 : maxPagina);
+    final visibles = pageOf(grupos, pagina);
+
+    final barras = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < visibles.length; i++) ...[
+          if (i > 0) const SizedBox(height: 8),
+          _Barra(
+            grupo: visibles[i],
+            maximo: maximo,
+            seleccionada: visibles[i].clave == _grupoSeleccionado,
+            onTap: () => setState(() {
+              _grupoSeleccionado = visibles[i].clave == _grupoSeleccionado
+                  ? null
+                  : visibles[i].clave;
+              _seccionSeleccionada = null;
+              _paginaDetalle = 0;
+            }),
+          ),
+        ],
+      ],
+    );
+
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: altoFijo ? MainAxisSize.max : MainAxisSize.min,
           children: [
             Row(
               children: [
@@ -809,6 +1176,31 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
                 const _Leyenda(color: _kPendiente, texto: 'Por aprobar'),
                 const SizedBox(width: 8),
                 const _Leyenda(color: _kSubsanado, texto: 'Subsanados'),
+                const SizedBox(width: 4),
+                _botonExportar(
+                  icono: Icons.table_view_rounded,
+                  tooltip: 'Exportar a Excel todo lo filtrado',
+                  onPressed: () => _exportar(
+                    todosLosFiltrados,
+                    AlcanceExportacion(
+                      titulo: 'Todos los hallazgos filtrados',
+                      filtros: _descripcionFiltros(),
+                    ),
+                    pdf: false,
+                  ),
+                ),
+                _botonExportar(
+                  icono: Icons.picture_as_pdf_rounded,
+                  tooltip: 'Exportar a PDF todo lo filtrado',
+                  onPressed: () => _exportar(
+                    todosLosFiltrados,
+                    AlcanceExportacion(
+                      titulo: 'Todos los hallazgos filtrados',
+                      filtros: _descripcionFiltros(),
+                    ),
+                    pdf: true,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 4),
@@ -823,39 +1215,85 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
                 color: _kMuted,
               ),
             ),
-            const SizedBox(height: 12),
-            // Barras horizontales, de a 20 por página como todo listado.
-            PagedListSection<_Grupo>(
-              items: grupos,
-              etiqueta: 'grupos',
-              separator: const SizedBox(height: 8),
-              itemBuilder: (context, g, _) => _Barra(
-                grupo: g,
-                maximo: maximo,
-                seleccionada: g.clave == _grupoSeleccionado,
-                onTap: () => setState(() {
-                  _grupoSeleccionado = g.clave == _grupoSeleccionado
-                      ? null
-                      : g.clave;
-                }),
-              ),
-            ),
+            // La barra de páginas va ARRIBA: en la tarjeta de alto fijo la
+            // de abajo quedaba escondida hasta desplazar.
+            if (grupos.length > kPageSize)
+              PagerBar(
+                total: grupos.length,
+                page: pagina,
+                etiqueta: 'grupos',
+                onPageChanged: (p) => setState(() => _paginaGrafica = p),
+              )
+            else
+              const SizedBox(height: 8),
+            if (altoFijo)
+              Expanded(child: SingleChildScrollView(child: barras))
+            else
+              barras,
           ],
         ),
       ),
     );
   }
 
-  Widget _buildDetalle(_Grupo grupo) {
+  Widget _buildDetalle(_Grupo grupo, {bool altoFijo = false}) {
     final fmt = DateFormat('dd/MM/yyyy');
-    final hallazgos = grupo.hallazgos.toList()
-      ..sort((a, b) => b.fechaHallazgo.compareTo(a.fechaHallazgo));
+    final secciones = conteoPorSeccion(grupo.hallazgos);
+    // Si la sección elegida ya no existe en el grupo (cambió el filtro), se
+    // vuelve a "todas" en vez de mostrar una lista vacía.
+    final seccion = secciones.any((e) => e.key == _seccionSeleccionada)
+        ? _seccionSeleccionada
+        : null;
+    final hallazgos =
+        grupo.hallazgos
+            .where((h) => seccion == null || seccionDelHallazgo(h) == seccion)
+            .toList()
+          ..sort(compararPorNumeral);
+    final maxPagina = pageCountOf(hallazgos.length) - 1;
+    final pagina = _paginaDetalle.clamp(0, maxPagina < 0 ? 0 : maxPagina);
+    final visibles = pageOf(hallazgos, pagina);
+
+    final alcance = AlcanceExportacion(
+      titulo: seccion == null
+          ? '${_agrupar.etiqueta}: ${grupo.etiqueta}'
+          : '${_agrupar.etiqueta}: ${grupo.etiqueta} · ${etiquetaSeccion(seccion)}',
+      filtros: _descripcionFiltros(),
+    );
+
+    final lista = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < visibles.length; i++) ...[
+          if (i > 0) const Divider(height: 1),
+          _FilaHallazgo(
+            hallazgo: visibles[i],
+            area: _etiquetaArea(visibles[i]),
+            fecha: fmt.format(visibles[i].fechaHallazgo.toDate()),
+            administrador: _administradorDe(visibles[i]),
+            director: _directorDe(visibles[i]),
+            onTap: () => mostrarPanelHallazgo(
+              context,
+              hallazgo: visibles[i],
+              service: _svc,
+              userId: widget.userId,
+              empresaId: visibles[i].empresaId,
+              // Gerencia consulta; no gestiona desde aquí.
+              canWrite: false,
+              canReasignar: false,
+            ),
+          ),
+        ],
+      ],
+    );
+
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: altoFijo ? MainAxisSize.max : MainAxisSize.min,
           children: [
             Row(
               children: [
@@ -885,36 +1323,94 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
                     ],
                   ),
                 ),
+                _botonExportar(
+                  icono: Icons.table_view_rounded,
+                  tooltip: seccion == null
+                      ? 'Exportar a Excel este grupo'
+                      : 'Exportar a Excel esta sección',
+                  onPressed: () => _exportar(hallazgos, alcance, pdf: false),
+                ),
+                _botonExportar(
+                  icono: Icons.picture_as_pdf_rounded,
+                  tooltip: seccion == null
+                      ? 'Exportar a PDF este grupo'
+                      : 'Exportar a PDF esta sección',
+                  onPressed: () => _exportar(hallazgos, alcance, pdf: true),
+                ),
                 IconButton(
                   tooltip: 'Cerrar detalle',
                   icon: const Icon(Icons.close_rounded, size: 18),
-                  onPressed: () => setState(() => _grupoSeleccionado = null),
+                  onPressed: () => setState(() {
+                    _grupoSeleccionado = null;
+                    _seccionSeleccionada = null;
+                  }),
                 ),
               ],
             ),
             const SizedBox(height: 8),
-            PagedListSection<InterventoriaHallazgo>(
-              items: hallazgos,
-              etiqueta: 'hallazgos',
-              separator: const Divider(height: 1),
-              itemBuilder: (context, h, _) => _FilaHallazgo(
-                hallazgo: h,
-                area: _etiquetaArea(h),
-                fecha: fmt.format(h.fechaHallazgo.toDate()),
-                administrador: _administradorDe(h),
-                director: _directorDe(h),
-                onTap: () => mostrarPanelHallazgo(
-                  context,
-                  hallazgo: h,
-                  service: _svc,
-                  userId: widget.userId,
-                  empresaId: h.empresaId,
-                  // Gerencia consulta; no gestiona desde aquí.
-                  canWrite: false,
-                  canReasignar: false,
+            // Secciones del acta (1..11) con su conteo: es lo primero que
+            // Gerencia quiere ver de un establecimiento, "lo grueso", sin
+            // leer hallazgo por hallazgo. Un clic deja solo esa sección.
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                ChoiceChip(
+                  label: Text('Todas · ${grupo.total}'),
+                  selected: seccion == null,
+                  labelStyle: const TextStyle(fontFamily: kArial, fontSize: 12),
+                  onSelected: (_) => setState(() {
+                    _seccionSeleccionada = null;
+                    _paginaDetalle = 0;
+                  }),
+                ),
+                for (final e in secciones)
+                  Tooltip(
+                    message: etiquetaSeccion(e.key),
+                    child: ChoiceChip(
+                      label: Text(
+                        e.key == 0
+                            ? 'Sin numeral · ${e.value}'
+                            : '${e.key} · ${e.value}',
+                      ),
+                      selected: seccion == e.key,
+                      labelStyle: const TextStyle(
+                        fontFamily: kArial,
+                        fontSize: 12,
+                      ),
+                      onSelected: (_) => setState(() {
+                        _seccionSeleccionada = seccion == e.key ? null : e.key;
+                        _paginaDetalle = 0;
+                      }),
+                    ),
+                  ),
+              ],
+            ),
+            if (seccion != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                etiquetaSeccion(seccion),
+                style: const TextStyle(
+                  fontFamily: kArial,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: _kInk,
                 ),
               ),
-            ),
+            ],
+            if (hallazgos.length > kPageSize)
+              PagerBar(
+                total: hallazgos.length,
+                page: pagina,
+                etiqueta: 'hallazgos',
+                onPageChanged: (p) => setState(() => _paginaDetalle = p),
+              )
+            else
+              const SizedBox(height: 8),
+            if (altoFijo)
+              Expanded(child: SingleChildScrollView(child: lista))
+            else
+              lista,
           ],
         ),
       ),

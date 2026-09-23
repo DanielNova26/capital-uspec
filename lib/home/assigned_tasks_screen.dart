@@ -724,17 +724,18 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       if (recipients.isNotEmpty) {
         try {
           final fecha = DateTime.now();
-          final fechaTexto = '${fecha.day.toString().padLeft(2, '0')}/'
+          final fechaTexto =
+              '${fecha.day.toString().padLeft(2, '0')}/'
               '${fecha.month.toString().padLeft(2, '0')}/${fecha.year}';
-          final responsable = _str(
-            taskData,
-            ['asignado_nombre', 'assignedToName'],
-            def: widget.userId,
-          );
+          final responsable = _str(taskData, [
+            'asignado_nombre',
+            'assignedToName',
+          ], def: widget.userId);
           await TaskService().pushNotificationToMany(
             toUserIds: recipients.toList(),
             title: 'Solicitud de reasignación',
-            description: '$titulo · $actorName solicita reasignar a $toName'
+            description:
+                '$titulo · $actorName solicita reasignar a $toName'
                 ' · Fecha: $fechaTexto · Emisor: $actorName'
                 ' · Responsable: $responsable',
             taskId: doc.id,
@@ -984,271 +985,283 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
+      // Mismo arreglo que en Tareas creadas: en un celular el panel se salía
+      // de la pantalla y no se podía desplazar hasta las acciones finales.
       builder: (sheetContext) => SafeArea(
-        child: Wrap(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.92,
+          ),
+          child: SingleChildScrollView(
+            child: Wrap(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Expanded(
-                        child: Text(
-                          'ACCIONES DE TAREA',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 10,
-                            color: Colors.blueGrey,
-                            letterSpacing: 1.2,
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'ACCIONES DE TAREA',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 10,
+                                color: Colors.blueGrey,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
                           ),
+                          IconButton(
+                            tooltip: 'Cerrar',
+                            onPressed: () => Navigator.of(sheetContext).pop(),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _str(data, ['titulo', 'title']),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 20,
+                          fontFamily: kTaskArial,
                         ),
                       ),
-                      IconButton(
-                        tooltip: 'Cerrar',
-                        onPressed: () => Navigator.of(sheetContext).pop(),
-                        icon: const Icon(Icons.close_rounded),
+                      const SizedBox(height: 12),
+                      Text(
+                        descripcion,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Colors.black87,
+                          height: 1.35,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          _MetaChip(
+                            icon: Icons.event_outlined,
+                            label: 'Fecha: $fechaLimite',
+                          ),
+                          _MetaChip(
+                            icon: Icons.flag_outlined,
+                            label: 'Prioridad: $prioridad',
+                          ),
+                          _MetaChip(
+                            icon: Icons.person_outline,
+                            label: 'Asigna: ',
+                            userId: _str(data, [
+                              'creador_id',
+                              'creatorId',
+                              'createdBy',
+                            ]),
+                            userFallbackName: asigna,
+                          ),
+                        ],
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _str(data, ['titulo', 'title']),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 20,
-                      fontFamily: kTaskArial,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    descripcion,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Colors.black87,
-                      height: 1.35,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: [
-                      _MetaChip(
-                        icon: Icons.event_outlined,
-                        label: 'Fecha: $fechaLimite',
-                      ),
-                      _MetaChip(
-                        icon: Icons.flag_outlined,
-                        label: 'Prioridad: $prioridad',
-                      ),
-                      _MetaChip(
-                        icon: Icons.person_outline,
-                        label: 'Asigna: ',
-                        userId: _str(data, [
-                          'creador_id',
-                          'creatorId',
-                          'createdBy',
-                        ]),
-                        userFallbackName: asigna,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-            if (canComplete)
-              _ActionTile(
-                icon: finishPending
-                    ? Icons.hourglass_top
-                    : Icons.check_circle_rounded,
-                color: finishPending ? Colors.orange : Colors.green,
-                title: completionTitle,
-                subtitle: completionSubtitle,
-                onTap: finishPending
-                    ? null
-                    : () async {
-                        Navigator.pop(context);
-                        if (esCorrespondencia) {
-                          await Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => GdCorrespondenciaScreen(
-                                userId: widget.userId,
-                                empresaId: (data['empresaId'] ?? '').toString(),
-                                initialExpedienteId: correspondenciaId,
-                              ),
-                            ),
-                          );
-                          return;
-                        }
-                        if (esCorreccionCompras) {
-                          final opened = await abrirCorreccionComprasDesdeTarea(
-                            context,
-                            userId: widget.userId,
-                            taskId: taskId,
-                            tarea: data,
-                          );
-                          if (!opened && mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'No se pudo abrir el documento para corregir.',
-                                ),
-                              ),
-                            );
-                          }
-                          return;
-                        }
-                        if (esRequerimientoFacturacion) {
-                          final opened = await tryOpenFacturacionDocumentTask(
-                            context,
-                            userId: widget.userId,
-                            taskId: taskId,
-                            taskData: data,
-                          );
-                          if (!opened && mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'No se pudo abrir el documento solicitado.',
-                                ),
-                              ),
-                            );
-                          }
-                          return;
-                        }
-                        if (requiresAttachment) {
-                          await Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => CompleteTaskScreen(
-                                taskId: taskId,
-                                currentUserId: widget.userId,
-                                requestFinish: true,
-                                requestFinishByName: _currentUserName(),
-                              ),
-                            ),
-                          );
-                        } else {
-                          await _quickRequestFinish(doc);
-                        }
-                      },
-              ),
-            _ActionTile(
-              icon: Icons.markunread_mailbox_rounded,
-              color: Colors.indigo,
-              title: 'Reportar novedad',
-              subtitle: 'Comunica una novedad o inconveniente.',
-              onTap: () async {
-                Navigator.pop(context);
-                await Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => NotifyNovedadesScreen(
-                      taskId: taskId,
-                      currentUserId: widget.userId,
-                    ),
-                  ),
-                );
-              },
-            ),
-            _ActionTile(
-              icon: Icons.trending_up_rounded,
-              color: Colors.blue,
-              title: 'Reportar avance',
-              subtitle: 'Notifica progreso realizado hoy.',
-              onTap: () async {
-                Navigator.pop(context);
-                await Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => NotifyAvancesScreen(
-                      taskId: taskId,
-                      currentUserId: widget.userId,
-                    ),
-                  ),
-                );
-              },
-            ),
-            _ActionTile(
-              icon: hasPendingReassign
-                  ? Icons.hourglass_top_rounded
-                  : Icons.swap_horiz_rounded,
-              color: hasPendingReassign
-                  ? Colors.orange
-                  : esInterventoria
-                  ? Colors.teal
-                  : Colors.purple,
-              title: hasPendingReassign
-                  ? 'Reasignación en espera'
-                  : esInterventoria
-                  ? 'Reasignar a mi equipo'
-                  : 'Solicitar reasignación',
-              subtitle: hasPendingReassign
-                  ? 'Ya existe una solicitud de reasignación pendiente.'
-                  : esInterventoria
-                  ? 'Asigna esta tarea directamente a un miembro de tu equipo.'
-                  : 'Propón mover la tarea a otro responsable.',
-              onTap: hasPendingReassign
-                  ? null
-                  : () async {
-                      Navigator.pop(context);
-                      await _requestReassign(doc);
-                    },
-            ),
-            // Gap 3: enlace al hallazgo en Interventoría
-            if (esInterventoria) ...[
-              const Divider(),
-              _ActionTile(
-                icon: Icons.fact_check_rounded,
-                color: const Color(0xFF0F766E),
-                title: 'Ver hallazgo en Interventoría',
-                subtitle: 'Abre el módulo de interventoría directamente.',
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => InterventoriaDashboardScreen(
-                        userId: widget.userId,
-                        empresaId: (data['empresaId'] ?? '').toString(),
-                        rolInterventoria: null, // la pantalla lo carga sola
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ],
-            if (attachments.isNotEmpty) ...[
-              const Divider(),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 18, 24, 8),
-                child: Text(
-                  'ADJUNTOS Y EVIDENCIAS',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 10,
-                    color: Colors.blueGrey.shade700,
-                    letterSpacing: 1.2,
                   ),
                 ),
-              ),
-              ...attachments.map(
-                (a) => _AttachmentActionTile(
-                  attachment: a,
-                  onOpen: () async {
-                    final ok = await _openAttachment(a);
-                    if (!ok && mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('No se pudo abrir el adjunto.'),
+                const Divider(height: 1),
+                if (canComplete)
+                  _ActionTile(
+                    icon: finishPending
+                        ? Icons.hourglass_top
+                        : Icons.check_circle_rounded,
+                    color: finishPending ? Colors.orange : Colors.green,
+                    title: completionTitle,
+                    subtitle: completionSubtitle,
+                    onTap: finishPending
+                        ? null
+                        : () async {
+                            Navigator.pop(context);
+                            if (esCorrespondencia) {
+                              await Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => GdCorrespondenciaScreen(
+                                    userId: widget.userId,
+                                    empresaId: (data['empresaId'] ?? '')
+                                        .toString(),
+                                    initialExpedienteId: correspondenciaId,
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
+                            if (esCorreccionCompras) {
+                              final opened =
+                                  await abrirCorreccionComprasDesdeTarea(
+                                    context,
+                                    userId: widget.userId,
+                                    taskId: taskId,
+                                    tarea: data,
+                                  );
+                              if (!opened && mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'No se pudo abrir el documento para corregir.',
+                                    ),
+                                  ),
+                                );
+                              }
+                              return;
+                            }
+                            if (esRequerimientoFacturacion) {
+                              final opened =
+                                  await tryOpenFacturacionDocumentTask(
+                                    context,
+                                    userId: widget.userId,
+                                    taskId: taskId,
+                                    taskData: data,
+                                  );
+                              if (!opened && mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'No se pudo abrir el documento solicitado.',
+                                    ),
+                                  ),
+                                );
+                              }
+                              return;
+                            }
+                            if (requiresAttachment) {
+                              await Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => CompleteTaskScreen(
+                                    taskId: taskId,
+                                    currentUserId: widget.userId,
+                                    requestFinish: true,
+                                    requestFinishByName: _currentUserName(),
+                                  ),
+                                ),
+                              );
+                            } else {
+                              await _quickRequestFinish(doc);
+                            }
+                          },
+                  ),
+                _ActionTile(
+                  icon: Icons.markunread_mailbox_rounded,
+                  color: Colors.indigo,
+                  title: 'Reportar novedad',
+                  subtitle: 'Comunica una novedad o inconveniente.',
+                  onTap: () async {
+                    Navigator.pop(context);
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => NotifyNovedadesScreen(
+                          taskId: taskId,
+                          currentUserId: widget.userId,
                         ),
-                      );
-                    }
+                      ),
+                    );
                   },
                 ),
-              ),
-            ],
-            const SizedBox(height: 12),
-          ],
+                _ActionTile(
+                  icon: Icons.trending_up_rounded,
+                  color: Colors.blue,
+                  title: 'Reportar avance',
+                  subtitle: 'Notifica progreso realizado hoy.',
+                  onTap: () async {
+                    Navigator.pop(context);
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => NotifyAvancesScreen(
+                          taskId: taskId,
+                          currentUserId: widget.userId,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                _ActionTile(
+                  icon: hasPendingReassign
+                      ? Icons.hourglass_top_rounded
+                      : Icons.swap_horiz_rounded,
+                  color: hasPendingReassign
+                      ? Colors.orange
+                      : esInterventoria
+                      ? Colors.teal
+                      : Colors.purple,
+                  title: hasPendingReassign
+                      ? 'Reasignación en espera'
+                      : esInterventoria
+                      ? 'Reasignar a mi equipo'
+                      : 'Solicitar reasignación',
+                  subtitle: hasPendingReassign
+                      ? 'Ya existe una solicitud de reasignación pendiente.'
+                      : esInterventoria
+                      ? 'Asigna esta tarea directamente a un miembro de tu equipo.'
+                      : 'Propón mover la tarea a otro responsable.',
+                  onTap: hasPendingReassign
+                      ? null
+                      : () async {
+                          Navigator.pop(context);
+                          await _requestReassign(doc);
+                        },
+                ),
+                // Gap 3: enlace al hallazgo en Interventoría
+                if (esInterventoria) ...[
+                  const Divider(),
+                  _ActionTile(
+                    icon: Icons.fact_check_rounded,
+                    color: const Color(0xFF0F766E),
+                    title: 'Ver hallazgo en Interventoría',
+                    subtitle: 'Abre el módulo de interventoría directamente.',
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => InterventoriaDashboardScreen(
+                            userId: widget.userId,
+                            empresaId: (data['empresaId'] ?? '').toString(),
+                            rolInterventoria: null, // la pantalla lo carga sola
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+                if (attachments.isNotEmpty) ...[
+                  const Divider(),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 18, 24, 8),
+                    child: Text(
+                      'ADJUNTOS Y EVIDENCIAS',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 10,
+                        color: Colors.blueGrey.shade700,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                  ),
+                  ...attachments.map(
+                    (a) => _AttachmentActionTile(
+                      attachment: a,
+                      onOpen: () async {
+                        final ok = await _openAttachment(a);
+                        if (!ok && mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('No se pudo abrir el adjunto.'),
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
+              ],
+            ),
+          ),
         ),
       ),
     );

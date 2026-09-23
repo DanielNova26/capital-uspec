@@ -10,6 +10,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:todo/state/empresa_scope.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../widgets/app_store_links.dart';
+
 import '../home/widgets/home_shared_widgets.dart';
 import '../services/auth_prefs.dart';
 import '../services/secure_auth_service.dart';
@@ -641,7 +643,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 20),
+                // Solo en web: enlaces a las tiendas (reunión 18 sep 2026).
+                const AppStoreLinks(),
+                const SizedBox(height: 20),
                 Text(
                   'Derechos reservados',
                   style: TextStyle(

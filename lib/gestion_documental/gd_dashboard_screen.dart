@@ -154,6 +154,33 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                     ),
                   ),
                 ),
+              if (isWeb && canDelete && !_selectionMode)
+                OutlinedButton.icon(
+                  onPressed: () => _copiarBibliotecaAOtraEmpresa(
+                    rolDocumental!,
+                    userSnap.data?.data(),
+                  ),
+                  icon: const Icon(Icons.copy_all_rounded, size: 20),
+                  label: const Text(
+                    'COPIAR A OTRA EMPRESA',
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: GdPalette.primary,
+                    side: const BorderSide(color: GdPalette.border),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 22,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
               if (isWeb && canCreate)
                 ElevatedButton.icon(
                   onPressed: () => _showCreateDialog(rolDocumental!),
@@ -1309,6 +1336,156 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
         _selectedDocIds.removeAll(docs.map((d) => d.docId));
       }
     });
+  }
+
+  /// "Trasladar toda la documentación de una UT a otra" (Oscar, 20 sep
+  /// 2026). Copia la biblioteca de la empresa activa a otra del usuario; el
+  /// servicio salta los códigos que el destino ya tiene, así que se puede
+  /// repetir sin duplicar.
+  Future<void> _copiarBibliotecaAOtraEmpresa(
+    String rolDocumental,
+    Map<String, dynamic>? userData,
+  ) async {
+    final ids = extractUserEmpresaIds(
+      userData ?? const {},
+    ).where((id) => id != widget.empresaId).toList();
+    if (ids.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No tienes otra empresa a la que copiar.'),
+        ),
+      );
+      return;
+    }
+    final nombres = <String, String>{};
+    for (final id in ids) {
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('TBL_EMPRESAS')
+            .doc(id)
+            .get();
+        final n = (doc.data()?['nombre'] ?? '').toString().trim();
+        nombres[id] = n.isEmpty ? id : n;
+      } catch (_) {
+        nombres[id] = id;
+      }
+    }
+    if (!mounted) return;
+
+    String? destino = ids.first;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: const Text(
+            'Copiar la biblioteca a otra empresa',
+            style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Se lleva cada documento con su versión vigente y su archivo. '
+                'Los códigos que la otra empresa ya tiene no se tocan, así que '
+                'se puede repetir para completar. El historial y las versiones '
+                'anteriores se quedan aquí.',
+                style: TextStyle(fontFamily: kArial, fontSize: 13, height: 1.4),
+              ),
+              const SizedBox(height: 14),
+              DropdownButtonFormField<String>(
+                initialValue: destino,
+                decoration: const InputDecoration(
+                  labelText: 'Empresa destino',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  for (final id in ids)
+                    DropdownMenuItem(
+                      value: id,
+                      child: Text(
+                        nombres[id] ?? id,
+                        style: const TextStyle(fontFamily: kArial),
+                      ),
+                    ),
+                ],
+                onChanged: (v) => setLocal(() => destino = v),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton.icon(
+              onPressed: destino == null
+                  ? null
+                  : () => Navigator.pop(ctx, true),
+              icon: const Icon(Icons.copy_all_rounded, size: 18),
+              label: const Text('Copiar'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true || destino == null || !mounted) return;
+
+    final progreso = ValueNotifier<(int, int)>((0, 0));
+    // Diálogo de progreso: la copia puede tardar (descarga y vuelve a subir
+    // cada archivo) y sin esto parece que la app se quedó pegada.
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        content: ValueListenableBuilder<(int, int)>(
+          valueListenable: progreso,
+          builder: (_, p, _) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              LinearProgressIndicator(value: p.$2 == 0 ? null : p.$1 / p.$2),
+              const SizedBox(height: 12),
+              Text(
+                p.$2 == 0
+                    ? 'Preparando la copia…'
+                    : 'Copiando ${p.$1} de ${p.$2} documentos…',
+                style: const TextStyle(fontFamily: kArial),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    try {
+      final r = await _service.copiarBibliotecaAEmpresa(
+        origenId: widget.empresaId,
+        destinoId: destino!,
+        actorId: widget.userId,
+        rolDocumental: rolDocumental,
+        onProgreso: (h, t) => progreso.value = (h, t),
+      );
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 7),
+          content: Text(
+            'Copia a ${nombres[destino] ?? destino} terminada: '
+            '${r.copiados} documentos copiados'
+            '${r.saltados > 0 ? ', ${r.saltados} ya existían' : ''}'
+            '${r.sinArchivo > 0 ? ', ${r.sinArchivo} sin archivo propio (usan el del origen)' : ''}.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('No se pudo copiar: $e')));
+    } finally {
+      progreso.dispose();
+    }
   }
 
   Future<void> _confirmDeleteSelected(String rolDocumental) async {

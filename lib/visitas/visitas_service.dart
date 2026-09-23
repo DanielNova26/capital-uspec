@@ -8,6 +8,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -62,12 +63,14 @@ class VisitaRolDoc {
   final String userId;
   final String nombre;
   final String rol;
+  final String areaId;
   const VisitaRolDoc({
     this.id = '',
     required this.empresaId,
     required this.userId,
     required this.nombre,
     required this.rol,
+    this.areaId = '',
   });
   factory VisitaRolDoc.fromMap(String id, Map<String, dynamic> d) =>
       VisitaRolDoc(
@@ -76,6 +79,7 @@ class VisitaRolDoc {
         userId: (d['userId'] ?? d['cedula'] ?? '').toString(),
         nombre: (d['nombre'] ?? '').toString(),
         rol: (d['rol'] ?? '').toString(),
+        areaId: (d['areaId'] ?? '').toString(),
       );
 }
 
@@ -126,12 +130,14 @@ class VisitasService {
     required String userId,
     required String nombre,
     required String rol,
+    required String areaId,
   }) => _roles.doc('${empresaId}_$userId').set({
     'empresaId': empresaId,
     'userId': userId,
     'cedula': userId,
     'nombre': nombre,
     'rol': rol,
+    'areaId': areaId,
     'updatedAt': FieldValue.serverTimestamp(),
   }, SetOptions(merge: true));
 
@@ -186,6 +192,36 @@ class VisitasService {
       (a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()),
     );
     return out;
+  }
+
+  /// Solo personas con rol Profesional pueden recibir visitas reales.
+  Future<Set<String>> idsProfesionales(String empresaId) async {
+    final snap = await _roles.where('empresaId', isEqualTo: empresaId).get();
+    return {
+      for (final doc in snap.docs)
+        if (doc.data()['rol'] == kVisitasRolProfesional)
+          (doc.data()['userId'] ?? '').toString(),
+    };
+  }
+
+  /// Alcance autorizado en el rol de Visitas. Admin lo toma del área de la
+  /// persona al asignar el rol; mover el perfil no amplía permisos.
+  Future<String> areaDeUsuario(String empresaId, String userId) async {
+    final doc = await _roles.doc('${empresaId}_$userId').get();
+    return (doc.data()?['areaId'] ?? '').toString().trim();
+  }
+
+  Future<Map<String, String>> areasDeEmpresa(String empresaId) async {
+    final snap = await _db
+        .collection('TBL_AREAS')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+    return {
+      for (final doc in snap.docs)
+        if (doc.data()['enabled'] != false)
+          (doc.data()['areaId'] ?? doc.id).toString():
+              (doc.data()['nombre'] ?? doc.id).toString(),
+    };
   }
 
   /// Cargo del usuario en la empresa, para el encabezado del acta
@@ -248,19 +284,46 @@ class VisitasService {
 
   // ── Formatos ──────────────────────────────────────────────────────────
 
-  Stream<List<VisitaFormato>> streamFormatos(String empresaId) => _formatos
-      .where('empresaId', isEqualTo: empresaId)
-      .snapshots()
-      .map(
-        (s) =>
-            s.docs.map((d) => VisitaFormato.fromMap(d.id, d.data())).toList()
-              ..sort((a, b) => a.areaNombre.compareTo(b.areaNombre)),
-      );
+  Stream<List<VisitaFormato>> streamFormatos(
+    String empresaId, {
+    String? areaId,
+  }) {
+    Query<Map<String, dynamic>> query = _formatos.where(
+      'empresaId',
+      isEqualTo: empresaId,
+    );
+    if (areaId != null) query = query.where('areaId', isEqualTo: areaId);
+    return query.snapshots().map(
+      (s) =>
+          s.docs.map((d) => VisitaFormato.fromMap(d.id, d.data())).toList()
+            ..sort((a, b) => a.areaNombre.compareTo(b.areaNombre)),
+    );
+  }
 
   Future<VisitaFormato?> getFormato(String id) async {
     final d = await _formatos.doc(id).get();
     if (!d.exists) return null;
     return VisitaFormato.fromMap(d.id, d.data()!);
+  }
+
+  /// El servidor impide borrar formatos con visitas asociadas.
+  Future<void> eliminarFormato({
+    required String empresaId,
+    required String formatoId,
+  }) async {
+    await FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('visitasEliminarFormato')
+        .call({'empresaId': empresaId, 'formatoId': formatoId});
+  }
+
+  /// Solo elimina recorridos marcados como prueba al programarlos.
+  Future<void> eliminarPrueba({
+    required String empresaId,
+    required String visitaId,
+  }) async {
+    await FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('visitasEliminarPrueba')
+        .call({'empresaId': empresaId, 'visitaId': visitaId});
   }
 
   Future<String> guardarFormato(
@@ -270,12 +333,28 @@ class VisitasService {
     final errores = validarFormato(f);
     if (errores.isNotEmpty) throw StateError(errores.join('\n'));
     final ref = f.id.isEmpty ? _formatos.doc() : _formatos.doc(f.id);
-    await ref.set({
+    final payload = {
       ...f.toMap(),
       'actualizadoPor': actorId,
       'updatedAt': FieldValue.serverTimestamp(),
       if (f.id.isEmpty) 'createdAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    };
+    if (f.predeterminado && f.estado != kFormatoRetirado) {
+      final anteriores = await _formatos
+          .where('empresaId', isEqualTo: f.empresaId)
+          .where('areaId', isEqualTo: f.areaId)
+          .get();
+      final batch = _db.batch();
+      for (final previo in anteriores.docs) {
+        if (previo.id != ref.id && previo.data()['predeterminado'] == true) {
+          batch.update(previo.reference, {'predeterminado': false});
+        }
+      }
+      batch.set(ref, payload, SetOptions(merge: true));
+      await batch.commit();
+    } else {
+      await ref.set(payload, SetOptions(merge: true));
+    }
     return ref.id;
   }
 
@@ -294,7 +373,7 @@ class VisitasService {
     final semilla = formatosSemilla(empresaId);
     for (final f in semilla) {
       batch.set(_formatos.doc('${empresaId}_${f.areaId}'), {
-        ...f.toMap(),
+        ...f.copyWith(predeterminado: true).toMap(),
         'actualizadoPor': actorId,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -321,12 +400,23 @@ class VisitasService {
     final f = formatoSstOficial(empresaId);
     final ref = _formatos.doc(f.id);
     final existia = (await ref.get()).exists;
-    await ref.set({
+    final previos = await _formatos
+        .where('empresaId', isEqualTo: empresaId)
+        .where('areaId', isEqualTo: f.areaId)
+        .get();
+    final batch = _db.batch();
+    for (final anterior in previos.docs) {
+      if (anterior.id != ref.id && anterior.data()['predeterminado'] == true) {
+        batch.update(anterior.reference, {'predeterminado': false});
+      }
+    }
+    batch.set(ref, {
       ...f.toMap(),
       'actualizadoPor': actorId,
       'updatedAt': FieldValue.serverTimestamp(),
       if (!existia) 'createdAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+    await batch.commit();
     return existia;
   }
 
@@ -335,6 +425,7 @@ class VisitasService {
   Stream<List<VisitaProfesional>> streamVisitas(
     String empresaId, {
     String? profesionalId,
+    String? areaId,
   }) {
     Query<Map<String, dynamic>> q = _visitas.where(
       'empresaId',
@@ -343,6 +434,7 @@ class VisitasService {
     if (profesionalId != null) {
       q = q.where('profesionalId', isEqualTo: profesionalId);
     }
+    if (areaId != null) q = q.where('areaId', isEqualTo: areaId);
     return q.snapshots().map(
       (s) =>
           s.docs.map((d) => VisitaProfesional.fromMap(d.id, d.data())).toList()
@@ -356,26 +448,77 @@ class VisitasService {
       .map((d) => d.exists ? VisitaProfesional.fromMap(d.id, d.data()!) : null);
 
   Future<String> programar(VisitaProfesional v) async {
+    if (v.formatoAsignado == null || v.formatoAsignado!.id != v.formatoId) {
+      throw const VisitasException(
+        'Selecciona un formato válido para la visita.',
+      );
+    }
+    final formatoActual = await getFormato(v.formatoId);
+    if (formatoActual == null ||
+        !formatoActual.usable ||
+        formatoActual.empresaId != v.empresaId) {
+      throw const VisitasException('El formato ya no está disponible.');
+    }
+    if (!v.esPrueba && formatoActual.esBorrador) {
+      throw const VisitasException(
+        'Un borrador solo se puede usar en visitas de prueba.',
+      );
+    }
+    if (v.areaId != formatoActual.areaId) {
+      throw const VisitasException(
+        'El formato no corresponde al área de la visita.',
+      );
+    }
+    final areaJefe = await areaDeUsuario(v.empresaId, v.asignadoPorId);
+    if (areaJefe != v.areaId) {
+      // Desarrollo puede administrar varias áreas; Firestore decide esa excepción.
+      final actor = await _db
+          .collection('TBL_USUARIOS')
+          .doc(v.asignadoPorId)
+          .get();
+      if (!isDeveloperUser(actor.data() ?? {}, empresaId: v.empresaId)) {
+        throw const VisitasException(
+          'Solo la jefatura de esta área puede programar la visita.',
+        );
+      }
+    }
+    final profesionales = await idsProfesionales(v.empresaId);
+    if (!profesionales.contains(v.profesionalId) &&
+        !(v.esPrueba && v.profesionalId == v.asignadoPorId)) {
+      throw const VisitasException(
+        'La persona debe tener el rol Profesional en Visitas.',
+      );
+    }
+    final areaProfesional = await areaDeUsuario(v.empresaId, v.profesionalId);
+    if (areaProfesional != v.areaId &&
+        !(v.esPrueba && v.profesionalId == v.asignadoPorId)) {
+      throw const VisitasException(
+        'El profesional debe pertenecer al área del formato.',
+      );
+    }
     final ref = _visitas.doc();
     await ref.set({
       ...v.toMap(),
+      'formatoAsignado': formatoActual.toMap(),
       'estado': kVisitaProgramada,
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
-    await _tasks.pushNotification(
-      toUserId: v.profesionalId,
-      title: 'Visita programada',
-      description:
-          '${v.areaNombre} · ${v.establecimiento} el '
-          '${v.fechaProgramada.day.toString().padLeft(2, '0')}/'
-          '${v.fechaProgramada.month.toString().padLeft(2, '0')}',
-      type: 'visita_programada',
-      taskId: 'visita:${ref.id}',
-      fromId: v.asignadoPorId,
-      fromName: v.asignadoPorNombre,
-      empresaId: v.empresaId,
-    );
+    if (!v.esPrueba) {
+      await _tasks.pushNotification(
+        toUserId: v.profesionalId,
+        title: 'Visita programada',
+        description:
+            '${v.areaNombre} · ${v.establecimiento} el '
+            '${v.fechaProgramada.day.toString().padLeft(2, '0')}/'
+            '${v.fechaProgramada.month.toString().padLeft(2, '0')}',
+        type: 'visita_programada',
+        taskId: 'visita:${ref.id}',
+        fromId: v.asignadoPorId,
+        fromName: v.asignadoPorNombre,
+        empresaId: v.empresaId,
+      );
+    }
     return ref.id;
   }
 
@@ -415,7 +558,7 @@ class VisitasService {
     final destinatario = actorId == v.profesionalId
         ? v.asignadoPorId
         : v.profesionalId;
-    if (destinatario.isEmpty) return;
+    if (v.esPrueba || destinatario.isEmpty) return;
     await _tasks.pushNotification(
       toUserId: destinatario,
       title: 'Visita reprogramada',
@@ -484,19 +627,24 @@ class VisitasService {
     required String ciudad,
     required String cargoProfesional,
   }) async {
-    final ref = await ubicacionPara(
-      empresaId: v.empresaId,
-      centroId: v.centroId,
-      subcentroId: v.subcentroId,
-    );
-    final pos = await posicionActual();
-    final check = verificarUbicacionInicio(
-      referencia: ref,
-      lat: pos?.latitude,
-      lng: pos?.longitude,
-      precisionMetros: pos?.accuracy,
-    );
-    if (!check.permitido) throw VisitasException(check.motivo);
+    final ref = v.esPrueba
+        ? null
+        : await ubicacionPara(
+            empresaId: v.empresaId,
+            centroId: v.centroId,
+            subcentroId: v.subcentroId,
+          );
+    final pos = v.esPrueba ? null : await posicionActual();
+    if (!v.esPrueba) {
+      final check = verificarUbicacionInicio(
+        referencia: ref,
+        lat: pos?.latitude,
+        lng: pos?.longitude,
+        precisionMetros: pos?.accuracy,
+      );
+      if (!check.permitido) throw VisitasException(check.motivo);
+    }
+
     await _visitas.doc(v.id).update({
       'estado': kVisitaEnCurso,
       'inicio': _marca(pos, ref: ref).toMap(),
@@ -673,12 +821,14 @@ class VisitasService {
     final errores = validarCierreVisita(formato, visita);
     if (errores.isNotEmpty) throw VisitasException(errores.join('\n'));
 
-    final ref = await ubicacionPara(
-      empresaId: visita.empresaId,
-      centroId: visita.centroId,
-      subcentroId: visita.subcentroId,
-    );
-    final pos = await posicionActual();
+    final ref = visita.esPrueba
+        ? null
+        : await ubicacionPara(
+            empresaId: visita.empresaId,
+            centroId: visita.centroId,
+            subcentroId: visita.subcentroId,
+          );
+    final pos = visita.esPrueba ? null : await posicionActual();
     final ahora = DateTime.now();
     final resumen = resumenDeVisita(formato, visita.respuestas);
     final hallazgos = hallazgosDeVisita(
@@ -688,31 +838,33 @@ class VisitasService {
     );
 
     final tareas = <String>[];
-    for (final h in hallazgos) {
-      try {
-        final id = await _tasks.createTaskEs(
-          titulo: tituloTareaHallazgo(visita, h),
-          descripcion: descripcionTareaHallazgo(visita, h),
-          prioridad: 'alta',
-          asignadoUid: visita.asignadoPorId,
-          asignadoNombre: visita.asignadoPorNombre,
-          creadorUid: actorId,
-          creadorNombre: actorNombre,
-          centroId: visita.centroId,
-          areaId: visita.areaId,
-          empresaId: visita.empresaId,
-          fechaLimite: fechaLimiteHallazgo(ahora),
-          extra: {
-            'origen': 'visita',
-            'visitaId': visita.id,
-            'visitaItemId': h.clave,
-            'evidencias': h.evidencias.map((e) => e.url).toList(),
-          },
-        );
-        tareas.add(id);
-      } catch (_) {
-        // Una tarea que no se pudo crear no debe impedir cerrar la visita;
-        // el hallazgo sigue en la visita y en el informe.
+    if (!visita.esPrueba) {
+      for (final h in hallazgos) {
+        try {
+          final id = await _tasks.createTaskEs(
+            titulo: tituloTareaHallazgo(visita, h),
+            descripcion: descripcionTareaHallazgo(visita, h),
+            prioridad: 'alta',
+            asignadoUid: visita.asignadoPorId,
+            asignadoNombre: visita.asignadoPorNombre,
+            creadorUid: actorId,
+            creadorNombre: actorNombre,
+            centroId: visita.centroId,
+            areaId: visita.areaId,
+            empresaId: visita.empresaId,
+            fechaLimite: fechaLimiteHallazgo(ahora),
+            extra: {
+              'origen': 'visita',
+              'visitaId': visita.id,
+              'visitaItemId': h.clave,
+              'evidencias': h.evidencias.map((e) => e.url).toList(),
+            },
+          );
+          tareas.add(id);
+        } catch (_) {
+          // Una tarea que no se pudo crear no debe impedir cerrar la visita;
+          // el hallazgo sigue en la visita y en el informe.
+        }
       }
     }
 
@@ -725,7 +877,7 @@ class VisitasService {
       'updatedAt': FieldValue.serverTimestamp(),
     });
 
-    if (visita.asignadoPorId.isNotEmpty) {
+    if (!visita.esPrueba && visita.asignadoPorId.isNotEmpty) {
       await _tasks.pushNotification(
         toUserId: visita.asignadoPorId,
         title: 'Visita terminada · ${visita.establecimiento}',

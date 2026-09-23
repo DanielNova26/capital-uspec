@@ -114,3 +114,4 @@ flutter:
     - assets/seeds/catalogos_base.xlsx
     - assets/seeds/plantilla_personal_talento_humano.xlsx
     - assets/diagnosticos_template.xlsx
+    - assets/visitas_plantilla_formato.xlsx

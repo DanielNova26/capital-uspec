@@ -159,6 +159,15 @@ class FacObligacion {
   final bool enabled;
   final bool sistema;
 
+  /// Establecimientos (centroId) a los que aplica. Vacío = a todos.
+  ///
+  /// Pedido de Oscar (20 sep 2026): que en el maestro se pueda decir si una
+  /// obligación le pertenece a todos los establecimientos o solo a algunos.
+  /// Para los que quedan por fuera la obligación se comporta como "no
+  /// aplica" ([ignoradosEfectivos]), sin tocar lo que cada establecimiento
+  /// ya tenía marcado a mano.
+  final List<String> establecimientos;
+
   const FacObligacion({
     required this.id,
     required this.empresaId,
@@ -168,7 +177,13 @@ class FacObligacion {
     required this.orden,
     this.enabled = true,
     this.sistema = false,
+    this.establecimientos = const [],
   });
+
+  bool get aplicaATodos => establecimientos.isEmpty;
+
+  bool aplicaA(String centroId) =>
+      establecimientos.isEmpty || establecimientos.contains(centroId.trim());
 
   factory FacObligacion.fromMap(String docId, Map<String, dynamic> data) {
     final nombre = (data['nombre'] ?? '').toString().trim();
@@ -181,6 +196,11 @@ class FacObligacion {
       orden: (data['orden'] as num?)?.toInt() ?? 0,
       enabled: (data['enabled'] as bool?) ?? true,
       sistema: (data['sistema'] as bool?) ?? false,
+      establecimientos: [
+        for (final e
+            in (data['establecimientos'] as List<dynamic>? ?? const []))
+          if (e.toString().trim().isNotEmpty) e.toString().trim(),
+      ],
     );
   }
 
@@ -192,19 +212,25 @@ class FacObligacion {
     'orden': orden,
     'enabled': enabled,
     'sistema': sistema,
+    'establecimientos': establecimientos,
   };
 
-  FacObligacion copyWith({int? orden, bool? enabled, String? descripcion}) =>
-      FacObligacion(
-        id: id,
-        empresaId: empresaId,
-        codigo: codigo,
-        nombre: nombre,
-        descripcion: descripcion ?? this.descripcion,
-        orden: orden ?? this.orden,
-        enabled: enabled ?? this.enabled,
-        sistema: sistema,
-      );
+  FacObligacion copyWith({
+    int? orden,
+    bool? enabled,
+    String? descripcion,
+    List<String>? establecimientos,
+  }) => FacObligacion(
+    id: id,
+    empresaId: empresaId,
+    codigo: codigo,
+    nombre: nombre,
+    descripcion: descripcion ?? this.descripcion,
+    orden: orden ?? this.orden,
+    enabled: enabled ?? this.enabled,
+    sistema: sistema,
+    establecimientos: establecimientos ?? this.establecimientos,
+  );
 
   static List<FacObligacion> legacy(String empresaId) => [
     for (var index = 0; index < kFacDocumentos.length; index++)
@@ -390,6 +416,21 @@ class FacEstablecimiento {
   });
 
   DateTime? fechaLimiteDocumento(String doc) => deadlines[doc] ?? fechaLimite;
+
+  /// centroId de TBL_CENTROS_COSTOS: el id del doc FAC es `{empresaId}_{centroId}`.
+  String get centroId =>
+      id.startsWith('${empresaId}_') ? id.substring(empresaId.length + 1) : id;
+
+  FacEstablecimiento copyWith({Map<String, bool>? ignoredDocs}) =>
+      FacEstablecimiento(
+        id: id,
+        empresaId: empresaId,
+        nombre: nombre,
+        mes: mes,
+        fechaLimite: fechaLimite,
+        ignoredDocs: ignoredDocs ?? this.ignoredDocs,
+        deadlines: deadlines,
+      );
 
   factory FacEstablecimiento.fromMap(String docId, Map<String, dynamic> d) {
     final rawIgnored = d['ignoredDocs'] as Map<String, dynamic>? ?? {};
@@ -849,4 +890,31 @@ bool coincideObservacion(
     if (docObs.isNotEmpty && docObs != docBuscado) return false;
   }
   return true;
+}
+
+/// "No aplica" efectivo de un establecimiento: lo marcado a mano en el
+/// establecimiento más las obligaciones que, por alcance del maestro, no le
+/// pertenecen. Es lo que deben leer las pantallas para no exigir un
+/// documento que el maestro dice que ese establecimiento no debe.
+Map<String, bool> ignoradosEfectivos(
+  FacEstablecimiento establecimiento,
+  List<FacObligacion> obligaciones,
+) {
+  final out = Map<String, bool>.from(establecimiento.ignoredDocs);
+  for (final o in obligaciones) {
+    if (!o.aplicaA(establecimiento.centroId)) out[o.nombre] = true;
+  }
+  return out;
+}
+
+/// Aplica [ignoradosEfectivos] a una lista de establecimientos.
+List<FacEstablecimiento> aplicarAlcanceObligaciones(
+  List<FacEstablecimiento> establecimientos,
+  List<FacObligacion> obligaciones,
+) {
+  if (obligaciones.every((o) => o.aplicaATodos)) return establecimientos;
+  return [
+    for (final e in establecimientos)
+      e.copyWith(ignoredDocs: ignoradosEfectivos(e, obligaciones)),
+  ];
 }

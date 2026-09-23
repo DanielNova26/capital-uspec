@@ -212,6 +212,11 @@ class PagedListSection<T> extends StatefulWidget {
   /// Si el total no supera esto, no se muestra la barra de páginas.
   final bool ocultarBarraSiCabe;
 
+  /// Barra de páginas encima de la lista en vez de debajo. Para tarjetas de
+  /// alto fijo con scroll interno, donde la barra de abajo queda escondida
+  /// hasta desplazar (Gerencia, 18 sep 2026).
+  final bool barraArriba;
+
   const PagedListSection({
     super.key,
     required this.items,
@@ -220,6 +225,7 @@ class PagedListSection<T> extends StatefulWidget {
     this.etiqueta = 'registros',
     this.separator,
     this.ocultarBarraSiCabe = true,
+    this.barraArriba = false,
   });
 
   @override
@@ -246,23 +252,27 @@ class _PagedListSectionState<T> extends State<PagedListSection<T>> {
     final mostrarBarra =
         !widget.ocultarBarraSiCabe || widget.items.length > widget.pageSize;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (var i = 0; i < visibles.length; i++) ...[
-          widget.itemBuilder(context, visibles[i], desde + i),
-          if (widget.separator != null && i < visibles.length - 1)
-            widget.separator!,
-        ],
-        if (mostrarBarra)
-          PagerBar(
+    final barra = mostrarBarra
+        ? PagerBar(
             total: widget.items.length,
             page: _page,
             pageSize: widget.pageSize,
             etiqueta: widget.etiqueta,
             onPageChanged: (p) => setState(() => _page = p),
-          ),
+          )
+        : null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (barra != null && widget.barraArriba) barra,
+        for (var i = 0; i < visibles.length; i++) ...[
+          widget.itemBuilder(context, visibles[i], desde + i),
+          if (widget.separator != null && i < visibles.length - 1)
+            widget.separator!,
+        ],
+        if (barra != null && !widget.barraArriba) barra,
       ],
     );
   }

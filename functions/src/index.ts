@@ -109,6 +109,7 @@ export {
   interventoriaResolverEliminacion,
   interventoriaEliminarActa,
 } from "./interventoria_deletion";
+export {visitasEliminarFormato, visitasEliminarPrueba} from "./visitas_cleanup";
 export {
   rutasResumenEvidencia,
   rutasGenerarInforme,

@@ -1715,12 +1715,7 @@ const List<String> kDptosInterventoria = [
 /// INFRAESTRUCTURA y ESTACION_POLICIA son formularios propios: traen su
 /// catálogo de aspectos en `interventoria_actas_catalogo.dart` y no evalúan las
 /// categorías del acta regular.
-const List<String> kTiposActaInterventoria = [
-  kActaRegular,
-  kActaSeguimiento,
-  kActaInfraestructura,
-  kActaEstacionPolicia,
-];
+const List<String> kTiposActaInterventoria = [...kTodosTiposActaInterventoria];
 
 const List<String> kTiemposComidaInterventoria = [
   'DESAYUNO',

@@ -44,6 +44,36 @@ class ComprasService {
        _storage = storage ?? FirebaseStorage.instance,
        _tasks = TaskService(db: db, storage: storage);
 
+  /// `runTransaction` que deja ver el error real.
+  ///
+  /// En Flutter web el manejador de la transacción se convierte en una
+  /// promesa de JavaScript; si adentro se lanza un `StateError` (una
+  /// validación como "Debes corregir todos los documentos rechazados"), lo
+  /// que llega afuera es un envoltorio genérico: "Dart exception thrown from
+  /// converted Future. Use the properties 'error'…". Bodega lo vio el 21 sep
+  /// 2026 al enviar correcciones y no había forma de saber qué faltaba. Aquí
+  /// se guarda el error de adentro y se relanza tal cual afuera.
+  Future<T> _transaccion<T>(
+    Future<T> Function(Transaction tx) manejador,
+  ) async {
+    Object? fallo;
+    StackTrace? traza;
+    try {
+      return await _db.runTransaction<T>((tx) async {
+        try {
+          return await manejador(tx);
+        } catch (e, s) {
+          fallo = e;
+          traza = s;
+          rethrow;
+        }
+      });
+    } catch (e, s) {
+      if (fallo != null) Error.throwWithStackTrace(fallo!, traza ?? s);
+      rethrow;
+    }
+  }
+
   Future<int> obtenerDiasPlazoRechazados(String empresaId) async {
     try {
       final snap = await _db
@@ -619,7 +649,7 @@ class ComprasService {
     }
     final ref = _db.collection('TBL_COMPRAS_RECEPCIONES').doc(recepcionId);
     late RecepcionDoc original;
-    await _db.runTransaction((tx) async {
+    await _transaccion((tx) async {
       final snap = await tx.get(ref);
       if (!snap.exists || snap.data() == null) {
         throw StateError('No se encontró la recepción para completar.');
@@ -751,7 +781,7 @@ class ComprasService {
   }) async {
     final ref = _db.collection('TBL_COMPRAS_RECEPCIONES').doc(recepcionId);
     late RecepcionDoc actualizada;
-    await _db.runTransaction((tx) async {
+    await _transaccion((tx) async {
       final snap = await tx.get(ref);
       if (!snap.exists || snap.data() == null) {
         throw StateError('No se encontró la recepción para corregir.');
@@ -869,7 +899,7 @@ class ComprasService {
     required DocAdjunto doc,
   }) async {
     final ref = _db.collection('TBL_COMPRAS_RECEPCIONES').doc(recepcionId);
-    await _db.runTransaction((tx) async {
+    await _transaccion((tx) async {
       final snap = await tx.get(ref);
       if (!snap.exists || snap.data() == null) {
         throw StateError('No se encontró la recepción para actualizar.');
@@ -1280,7 +1310,7 @@ class ComprasService {
   Future<String> generarCodigoMarca(String empresaId) async {
     final configRef = _db.collection('TBL_COMPRAS_CONFIG').doc(empresaId);
     int seq = 1;
-    await _db.runTransaction((tx) async {
+    await _transaccion((tx) async {
       final snap = await tx.get(configRef);
       seq = ((snap.data()?['marcaSeq'] as int?) ?? 0) + 1;
       tx.set(configRef, {'marcaSeq': seq}, SetOptions(merge: true));
@@ -2542,7 +2572,7 @@ class ComprasService {
     String? urlDocumento,
   }) async {
     final ref = _db.collection(TaskService.tasksCol).doc(taskId);
-    await _db.runTransaction((tx) async {
+    await _transaccion((tx) async {
       final snap = await tx.get(ref);
       if (!snap.exists) {
         throw StateError('La tarea de corrección ya no existe.');

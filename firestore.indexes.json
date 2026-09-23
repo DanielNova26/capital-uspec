@@ -1,6 +1,22 @@
 {
   "indexes": [
     {
+      "collectionGroup": "TBL_VISITAS",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "empresaId", "order": "ASCENDING"},
+        {"fieldPath": "areaId", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "TBL_VISITAS_FORMATOS",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "empresaId", "order": "ASCENDING"},
+        {"fieldPath": "areaId", "order": "ASCENDING"}
+      ]
+    },
+    {
       "collectionGroup": "TBL_PP_FLUJO",
       "queryScope": "COLLECTION",
       "fields": [

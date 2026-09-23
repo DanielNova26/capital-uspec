@@ -27,6 +27,7 @@ exports.interventoriaEliminarActa = exports.interventoriaResolverEliminacion = e
 exports.requestAction = requestAction;
 exports.canApproveInterventoriaDeletion = canApproveInterventoriaDeletion;
 exports.deletedActaResponsibleId = deletedActaResponsibleId;
+exports.userIsActiveInEmpresa = userIsActiveInEmpresa;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 const crypto_1 = require("crypto");
@@ -143,13 +144,63 @@ async function notifyActaReplacement(userId, empresaId, actorName, label, visita
         return;
     await notifyUser(userId, empresaId, "Acta eliminada: carga la nueva versión", `${actorName} eliminó ${label}. Debes registrar nuevamente el acta${reason ? `. Motivo: ${reason}` : "."}`, visitaId, "interventoria_acta_eliminada", eventId);
 }
+/**
+ * Vinculación laboral vigente en la empresa (mismo criterio que
+ * `pp_notifications.ts`): Talento Humano retira por empresa en
+ * `empresasDetalle.{empresaId}.estadoLaboral`; el `estado` global solo
+ * controla el inicio de sesión.
+ * @param {FirebaseFirestore.DocumentData} data Datos del usuario.
+ * @param {string} empresaId Empresa en la que se comprueba la vinculación.
+ * @return {boolean} Si el usuario sigue activo en esa empresa.
+ */
+function userIsActiveInEmpresa(data, empresaId) {
+    if (data.activo === false)
+        return false;
+    const detalle = data.empresasDetalle;
+    const scoped = detalle && typeof detalle === "object" && !Array.isArray(detalle) ?
+        detalle[empresaId] :
+        null;
+    if (scoped && typeof scoped === "object") {
+        if (scoped.activo === false)
+            return false;
+        for (const key of ["estadoLaboral", "estado"]) {
+            const value = (scoped[key] ?? "").toString().trim().toLowerCase();
+            if (!value)
+                continue;
+            return value !== "inactivo";
+        }
+    }
+    const global = (data.estado ?? "").toString().trim().toLowerCase();
+    return !global || global === "activo";
+}
+/**
+ * Quién recibe el aviso de una solicitud: solo los roles que pueden
+ * aprobarla y que siguen vinculados a la empresa. Un rol asignado a alguien
+ * ya retirado seguía recibiendo notificaciones (reunión 18 sep 2026: "debería
+ * llegarle solo a las personas que pueden eliminar el acta").
+ * @param {string} empresaId Empresa de la solicitud.
+ * @return {Promise<string[]>} Identificadores de los aprobadores activos.
+ */
 async function approverIds(empresaId) {
     const roles = await admin.firestore().collection(ROLES)
         .where("empresaId", "==", empresaId).get();
-    return [...new Set(roles.docs
+    const candidatos = [...new Set(roles.docs
             .filter((doc) => canApproveInterventoriaDeletion(clean(doc.data().rol)))
             .map((doc) => clean(doc.data().userId || doc.data().cedula))
             .filter(Boolean))];
+    const activos = [];
+    for (const id of candidatos) {
+        try {
+            const user = await admin.firestore().collection("TBL_USUARIOS").doc(id).get();
+            if (!user.exists || userIsActiveInEmpresa(user.data() || {}, empresaId)) {
+                activos.push(id);
+            }
+        }
+        catch {
+            activos.push(id);
+        }
+    }
+    return activos;
 }
 function attachmentUrls(data) {
     const urls = new Set();

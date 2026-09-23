@@ -979,7 +979,7 @@ class ComprasDashboardScreen extends StatelessWidget {
         card(
           icon: Icons.local_shipping,
           titulo: 'Recepciones',
-          subtitulo: 'Registrar, corregir y consultar recepciones',
+          subtitulo: 'Completar, corregir y consultar recepciones',
           color: kComprasPrimary,
           onTap: () => Navigator.push(
             context,
@@ -989,6 +989,8 @@ class ComprasDashboardScreen extends StatelessWidget {
                 svc: svc,
                 userId: userId,
                 puedeEliminar: _esAdmin,
+                puedeEliminarPropiasPendientes:
+                    comprasRolPuedeEliminarPropiasPendientes(_rolNormalizado),
                 puedeEditarPendientes: comprasRolPuedeCompletarRecepcion(
                   _rolNormalizado,
                 ),
@@ -1039,6 +1041,10 @@ class ComprasDashboardScreen extends StatelessWidget {
               empresaId: empresaId,
               svc: svc,
               esAdmin: _esAdmin,
+              userId: userId,
+              puedeEliminarPropias: comprasRolPuedeEliminarPropiasPendientes(
+                _rolNormalizado,
+              ),
               // Solo Calidad (y Admin) pueden descargar/exportar. El resto de
               // roles consulta en modo solo-lectura.
               canExport: _esCalidad || _esAdmin,
@@ -9258,6 +9264,10 @@ class _RecepcionesScreen extends StatefulWidget {
   final ComprasService svc;
   final String userId;
   final bool puedeEliminar;
+
+  /// Bodega/Compras pueden borrar la recepción que ellos mismos registraron
+  /// mientras Calidad no haya revisado nada (estado pendiente).
+  final bool puedeEliminarPropiasPendientes;
   final bool puedeEditarPendientes;
 
   const _RecepcionesScreen({
@@ -9265,6 +9275,7 @@ class _RecepcionesScreen extends StatefulWidget {
     required this.svc,
     required this.userId,
     this.puedeEliminar = false,
+    this.puedeEliminarPropiasPendientes = false,
     this.puedeEditarPendientes = false,
   });
 
@@ -9706,7 +9717,10 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
                     ),
                   ),
                   const Spacer(),
-                  if (widget.puedeEliminar)
+                  if (widget.puedeEliminar ||
+                      (widget.puedeEliminarPropiasPendientes &&
+                          estado == EstadoRecepcionCompras.pendiente &&
+                          recepcion.creadoPor.trim() == widget.userId.trim()))
                     IconButton(
                       onPressed: () => _confirmarEliminar(recepcion),
                       icon: const Icon(
@@ -9720,8 +9734,8 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
                         minWidth: 32,
                         minHeight: 32,
                       ),
-                    )
-                  else ...[
+                    ),
+                  if (!widget.puedeEliminar) ...[
                     Icon(
                       estado == EstadoRecepcionCompras.rechazada
                           ? Icons.build_circle_outlined
@@ -9806,25 +9820,10 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
             ),
           ],
         ),
-        floatingActionButton: FloatingActionButton.extended(
-          backgroundColor: kComprasPrimary,
-          foregroundColor: Colors.white,
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => _NuevaRecepcionScreen(
-                empresaId: widget.empresaId,
-                svc: widget.svc,
-                userId: widget.userId,
-              ),
-            ),
-          ),
-          icon: const Icon(Icons.add),
-          label: const Text(
-            'Nueva Recepción',
-            style: TextStyle(fontFamily: _kFont),
-          ),
-        ),
+        // Sin "Nueva Recepción": desde la reunión del 18 sep 2026 toda
+        // recepción nace de una entrega programada en Abastecimiento. Esta
+        // pantalla queda para completar, corregir, eliminar y controlar
+        // cuánto lleva Calidad sin revisar.
       ),
     );
   }
@@ -10513,7 +10512,15 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: kComprasRed),
+          SnackBar(
+            content: Text(
+              e is StateError
+                  ? e.message
+                  : e.toString().replaceFirst('Bad state: ', ''),
+            ),
+            backgroundColor: kComprasRed,
+            duration: const Duration(seconds: 6),
+          ),
         );
       }
     } finally {
@@ -13571,11 +13578,17 @@ class _ConsultasScreen extends StatefulWidget {
   /// Si el usuario puede descargar/exportar (solo Calidad o Admin).
   final bool canExport;
 
+  /// Quien subió una ficha puede retirarla mientras Calidad no la apruebe.
+  final String userId;
+  final bool puedeEliminarPropias;
+
   const _ConsultasScreen({
     required this.empresaId,
     required this.svc,
     this.esAdmin = false,
     this.canExport = false,
+    this.userId = '',
+    this.puedeEliminarPropias = false,
   });
 
   @override
@@ -13707,6 +13720,8 @@ class _ConsultasScreenState extends State<_ConsultasScreen>
         svc: widget.svc,
         esAdmin: widget.esAdmin,
         canExport: widget.canExport,
+        userId: widget.userId,
+        puedeEliminarPropias: widget.puedeEliminarPropias,
       ),
     ];
   }
@@ -16821,11 +16836,15 @@ class _ConsultaFichasTab extends StatefulWidget {
   final ComprasService svc;
   final bool esAdmin;
   final bool canExport;
+  final String userId;
+  final bool puedeEliminarPropias;
   const _ConsultaFichasTab({
     required this.empresaId,
     required this.svc,
     this.esAdmin = false,
     this.canExport = false,
+    this.userId = '',
+    this.puedeEliminarPropias = false,
   });
   @override
   State<_ConsultaFichasTab> createState() => _ConsultaFichasTabState();
@@ -17239,7 +17258,12 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            if (widget.esAdmin)
+                            if (widget.esAdmin ||
+                                (widget.puedeEliminarPropias &&
+                                    fichaTecnicaEliminablePorAutor(
+                                      f,
+                                      widget.userId,
+                                    )))
                               IconButton(
                                 onPressed: () => _confirmarEliminarFicha(f),
                                 icon: const Icon(

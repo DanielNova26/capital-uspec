@@ -289,7 +289,7 @@ void main() {
   });
 
   group('reprogramar', () {
-    test('el jefe cualquiera programada; el profesional solo la suya', () {
+    test('solo el jefe reprograma; el profesional ni la suya (18 sep 2026)', () {
       final propia = visita(estado: kVisitaProgramada, iniciada: false);
       final ajena = visita(
         estado: kVisitaProgramada,
@@ -302,7 +302,8 @@ void main() {
       );
       expect(
         visitasPuedeReprogramar(rol: kVisitasRolProfesional, visita: propia, userId: '111'),
-        isTrue,
+        isFalse,
+        reason: 'el cronograma lo corrige únicamente la dirección',
       );
       expect(
         visitasPuedeReprogramar(rol: kVisitasRolProfesional, visita: ajena, userId: '111'),

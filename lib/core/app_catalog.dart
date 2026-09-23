@@ -39,6 +39,46 @@ extension AppCatalogGroupLabel on AppCatalogGroup {
   };
 }
 
+/// Franja del mapa de procesos en la que se presenta el módulo en el inicio.
+///
+/// Reunión del 18 sep 2026: Oscar pidió ordenar los módulos como un mapa de
+/// procesos en columnas, porque a medida que crecieron "se ven revueltos".
+/// El 21 sep mandó el cuadro definitivo: GERENCIAL (Gerencia), MISIONAL
+/// (Nutrición, Interventoría, Facturación, Rutas, Visitas), APOYO (Talento
+/// Humano, Correspondencia, Planillas, Compras, Correo, Tokens) y MAESTROS
+/// (Biblioteca documental). La clasificación es de presentación: no afecta
+/// permisos ni accesos. Si se cambia de franja un módulo, se cambia aquí y
+/// el inicio lo mueve solo.
+enum ProcesoMapa {
+  /// Dirección: lo que mide resultados y define el rumbo.
+  gerencial,
+
+  /// La razón de ser de la empresa: lo que se entrega al cliente.
+  misional,
+
+  /// Lo que sostiene a los demás procesos.
+  apoyo,
+
+  /// Referencia documental y configuración de la plataforma.
+  maestros,
+}
+
+extension ProcesoMapaLabel on ProcesoMapa {
+  String get label => switch (this) {
+    ProcesoMapa.gerencial => 'Gerencial',
+    ProcesoMapa.misional => 'Misional',
+    ProcesoMapa.apoyo => 'Apoyo',
+    ProcesoMapa.maestros => 'Maestros',
+  };
+
+  String get descripcion => switch (this) {
+    ProcesoMapa.gerencial => 'Dirección y resultados',
+    ProcesoMapa.misional => 'Operación y servicio',
+    ProcesoMapa.apoyo => 'Soporte administrativo',
+    ProcesoMapa.maestros => 'Documentos y configuración',
+  };
+}
+
 class AppCatalogEntry {
   /// ID canónico del módulo (el que se guarda en `apps`).
   final String appId;
@@ -50,6 +90,9 @@ class AppCatalogEntry {
   final String paraQueSirve;
 
   final AppCatalogGroup grupo;
+
+  /// Columna del mapa de procesos en el inicio. Ver [ProcesoMapa].
+  final ProcesoMapa proceso;
   final IconData icono;
   final Color color;
 
@@ -67,6 +110,7 @@ class AppCatalogEntry {
     required this.nombre,
     required this.paraQueSirve,
     required this.grupo,
+    required this.proceso,
     required this.icono,
     required this.color,
     this.soloAdmin = false,
@@ -83,6 +127,7 @@ const List<AppCatalogEntry> kAppCatalog = [
         'Recibir tareas de su jefe, reportar avances y novedades, y ver sus '
         'pendientes del día.',
     grupo: AppCatalogGroup.diaADia,
+    proceso: ProcesoMapa.apoyo,
     icono: Icons.task_alt_rounded,
     color: Color(0xFF2563EB),
   ),
@@ -93,6 +138,7 @@ const List<AppCatalogEntry> kAppCatalog = [
         'Solicitar productos, manejar proveedores y registrar la recepción de '
         'mercancía.',
     grupo: AppCatalogGroup.areasOperativas,
+    proceso: ProcesoMapa.apoyo,
     icono: Icons.shopping_bag_rounded,
     color: Color(0xFF2563EB),
     notaRolInterno: 'Admin define si entra como Compras, Bodega o Consultas.',
@@ -102,6 +148,7 @@ const List<AppCatalogEntry> kAppCatalog = [
     nombre: 'Nutrición',
     paraQueSirve: 'Minutas, citas y seguimiento nutricional.',
     grupo: AppCatalogGroup.areasOperativas,
+    proceso: ProcesoMapa.misional,
     icono: Icons.restaurant_menu_rounded,
     color: Color(0xFFEA580C),
   ),
@@ -112,6 +159,7 @@ const List<AppCatalogEntry> kAppCatalog = [
         'Programación de rutas, asignación de conductores y evidencia de las '
         'entregas.',
     grupo: AppCatalogGroup.areasOperativas,
+    proceso: ProcesoMapa.misional,
     icono: Icons.local_shipping_rounded,
     color: Color(0xFF15803D),
     notaRolInterno: 'Admin define si es conductor, coordinador o consulta.',
@@ -121,6 +169,7 @@ const List<AppCatalogEntry> kAppCatalog = [
     nombre: 'Interventoría',
     paraQueSirve: 'Visitas, hallazgos, evidencias y actas de interventoría.',
     grupo: AppCatalogGroup.areasOperativas,
+    proceso: ProcesoMapa.misional,
     icono: Icons.document_scanner_rounded,
     color: Color(0xFF0F766E),
     notaRolInterno: 'Admin define el rol dentro de Interventoría.',
@@ -132,6 +181,7 @@ const List<AppCatalogEntry> kAppCatalog = [
         'Visitas de profesionales a los establecimientos: cronograma, formato '
         'por área con evidencia y ubicación, e informe automático.',
     grupo: AppCatalogGroup.areasOperativas,
+    proceso: ProcesoMapa.misional,
     icono: Icons.fact_check_rounded,
     color: Color(0xFF7C3AED),
     notaRolInterno:
@@ -143,6 +193,7 @@ const List<AppCatalogEntry> kAppCatalog = [
     nombre: 'Facturación',
     paraQueSirve: 'Facturación por establecimiento y consolidados de cobro.',
     grupo: AppCatalogGroup.areasOperativas,
+    proceso: ProcesoMapa.misional,
     icono: Icons.receipt_long_rounded,
     color: Color(0xFF0369A1),
     notaRolInterno:
@@ -155,6 +206,7 @@ const List<AppCatalogEntry> kAppCatalog = [
         'Consultar buzones, clasificar mensajes y convertir correos en '
         'correspondencia.',
     grupo: AppCatalogGroup.gestion,
+    proceso: ProcesoMapa.apoyo,
     icono: Icons.mark_email_unread_rounded,
     color: Color(0xFF0F766E),
     notaRolInterno:
@@ -168,6 +220,7 @@ const List<AppCatalogEntry> kAppCatalog = [
         'Radicar la correspondencia que entra y sale, asignar responsables y '
         'controlar tiempos de respuesta.',
     grupo: AppCatalogGroup.gestion,
+    proceso: ProcesoMapa.apoyo,
     icono: Icons.markunread_mailbox_rounded,
     color: Color(0xFF0D9488),
     notaRolInterno:
@@ -180,6 +233,7 @@ const List<AppCatalogEntry> kAppCatalog = [
         'Publicar formatos aprobados, documentos contractuales y normas con '
         'control de versiones.',
     grupo: AppCatalogGroup.gestion,
+    proceso: ProcesoMapa.maestros,
     icono: Icons.local_library_rounded,
     color: Color(0xFF2563A6),
     notaRolInterno:
@@ -190,6 +244,7 @@ const List<AppCatalogEntry> kAppCatalog = [
     nombre: 'Planillas de Pago',
     paraQueSirve: 'Elaborar, revisar y firmar planillas de pago.',
     grupo: AppCatalogGroup.gestion,
+    proceso: ProcesoMapa.apoyo,
     icono: Icons.request_quote_rounded,
     color: Color(0xFFB45309),
     notaRolInterno: 'Admin define la etapa de firma que le corresponde.',
@@ -201,6 +256,7 @@ const List<AppCatalogEntry> kAppCatalog = [
         'Hojas de vida, estructura de la empresa, contrataciones y procesos '
         'del personal.',
     grupo: AppCatalogGroup.gestion,
+    proceso: ProcesoMapa.apoyo,
     icono: Icons.groups_rounded,
     color: Color(0xFF4F46E5),
   ),
@@ -209,6 +265,7 @@ const List<AppCatalogEntry> kAppCatalog = [
     nombre: 'Gerencia',
     paraQueSirve: 'Indicadores y seguimiento gerencial de la operación.',
     grupo: AppCatalogGroup.gestion,
+    proceso: ProcesoMapa.gerencial,
     icono: Icons.query_stats_rounded,
     color: Color(0xFF7C3AED),
   ),
@@ -218,6 +275,7 @@ const List<AppCatalogEntry> kAppCatalog = [
     paraQueSirve:
         'Consulta de tokens y correos de facturación electrónica de la DIAN.',
     grupo: AppCatalogGroup.administracion,
+    proceso: ProcesoMapa.apoyo,
     icono: Icons.vpn_key_rounded,
     color: Color(0xFF0E7490),
     soloAdmin: true,
@@ -228,6 +286,7 @@ const List<AppCatalogEntry> kAppCatalog = [
     paraQueSirve:
         'Configuración de la plataforma, empresas, usuarios y permisos.',
     grupo: AppCatalogGroup.administracion,
+    proceso: ProcesoMapa.maestros,
     icono: Icons.admin_panel_settings_rounded,
     color: Color(0xFF475569),
     soloAdmin: true,
@@ -275,3 +334,8 @@ AppCatalogEntry? appCatalogEntryFor(String? appId) {
 /// Catálogo que Talento Humano puede administrar (sin los módulos de Admin).
 List<AppCatalogEntry> appCatalogParaTalentoHumano() =>
     kAppCatalog.where((entry) => !entry.soloAdmin).toList();
+
+/// Franja del mapa de procesos de un módulo. Lo que no esté en el catálogo
+/// cae en apoyo para no desaparecer del inicio.
+ProcesoMapa procesoDeApp(String? appId) =>
+    appCatalogEntryFor(appId)?.proceso ?? ProcesoMapa.apoyo;

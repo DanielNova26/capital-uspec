@@ -1088,6 +1088,8 @@ class _RadicacionDialogState extends State<_RadicacionDialog> {
                       border: OutlineInputBorder(),
                     ),
                   ),
+                const SizedBox(height: 12),
+                _vistaPreviaTarea(),
               ],
             ),
           );
@@ -1118,6 +1120,92 @@ class _RadicacionDialogState extends State<_RadicacionDialog> {
       ),
     ],
   );
+
+  /// Cómo va a quedar la tarea antes de radicar (pedido del 20 sep 2026:
+  /// "cuando la tarea se genera desde correspondencia no permite
+  /// previsualizar cómo va a quedar"). El título y la descripción siguen el
+  /// mismo molde que arma el backend en `correoCrearExpediente`; el radicado
+  /// se numera al guardar, así que aquí sale con el año y las cifras en
+  /// blanco.
+  Widget _vistaPreviaTarea() {
+    final m = widget.message;
+    final anio = DateTime.now().year;
+    final cuenta = m.correoCuenta.isEmpty
+        ? 'el buzón de correo'
+        : m.correoCuenta;
+    final proveedor = m.proveedor.toLowerCase() == 'microsoft'
+        ? 'Microsoft 365'
+        : 'Gmail';
+    final fmt = DateFormat('dd/MM/yyyy');
+    TextStyle etiqueta() =>
+        const TextStyle(fontSize: 11, color: Color(0xFF64748B));
+    Widget fila(String k, String v) => Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(width: 92, child: Text(k, style: etiqueta())),
+          Expanded(child: Text(v, style: const TextStyle(fontSize: 12.5))),
+        ],
+      ),
+    );
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.visibility_outlined,
+                size: 16,
+                color: Color(0xFF475569),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'ASÍ QUEDARÁ LA TAREA',
+                style: etiqueta().copyWith(
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.6,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Responder GD-$anio-······: ${m.asunto}',
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'Correspondencia recibida de ${m.remitente} en $cuenta '
+            '($proveedor). Gestiona y responde desde Gestión de '
+            'Correspondencia.',
+            style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
+          ),
+          fila('Responsable', _responsable?.nombre ?? '— sin elegir —'),
+          fila(
+            'Prioridad',
+            _priority[0].toUpperCase() + _priority.substring(1),
+          ),
+          fila('Vence', fmt.format(_deadline)),
+          fila(
+            'Aprobación',
+            _requiresApproval
+                ? 'Sí · revisa ${_revisor?.nombre ?? '— sin elegir —'}'
+                : 'No requiere',
+          ),
+          fila('Estado inicial', 'En progreso'),
+        ],
+      ),
+    );
+  }
 
   Future<void> _pickDate() async {
     final value = await showDatePicker(
