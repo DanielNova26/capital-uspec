@@ -10,6 +10,11 @@
 // El Excel sirve para cualquier nivel (todo lo filtrado, un grupo, una
 // sección). El PDF se acordó solo para la vista de detalle, "para no enredar":
 // trae el resumen por sección y la lista, en el orden de la pantalla.
+//
+// 25 sep 2026: los PDF llevan el nombre y el logo de la empresa en el
+// encabezado de cada página, y los conteos van como "hallazgos (visitas)":
+// "12 (3)" son 12 hallazgos encontrados en 3 visitas. Se descartó "12.3" o
+// "1 · 5" porque se leen como un numeral del acta o un decimal.
 
 import 'dart:typed_data';
 
@@ -63,10 +68,143 @@ String establecimientoReporte(InterventoriaHallazgo h) {
   return '$centro / $sub';
 }
 
+/// Visita (acta) de la que salió un hallazgo. Los hallazgos manuales sin
+/// acta se identifican por establecimiento y fecha, que es como el histórico
+/// nombra las actas: no tienen consecutivo.
+String claveVisitaHallazgo(InterventoriaHallazgo h) {
+  final visita = h.visitaId.trim();
+  if (visita.isNotEmpty) return visita;
+  return '${h.centroCostoId}|'
+      '${DateFormat('yyyyMMdd').format(h.fechaHallazgo.toDate())}';
+}
+
+/// Cuántas visitas distintas produjeron estos hallazgos.
+int visitasDeHallazgos(Iterable<InterventoriaHallazgo> hallazgos) =>
+    hallazgos.map(claveVisitaHallazgo).toSet().length;
+
+/// "12 (3)": hallazgos y, entre paréntesis, las visitas en que salieron.
+String conteoConVisitas(int hallazgos, int visitas) => '$hallazgos ($visitas)';
+
+/// "12 hallazgos (3 visitas)", con singulares, para textos corridos.
+String textoHallazgosVisitas(int hallazgos, int visitas) =>
+    '$hallazgos ${hallazgos == 1 ? 'hallazgo' : 'hallazgos'} '
+    '($visitas ${visitas == 1 ? 'visita' : 'visitas'})';
+
+/// "3 (5)": una etiqueta con su conteo entre paréntesis. Se usa en los chips
+/// de sección, donde "3 · 5" se leía como el numeral 3.5.
+String etiquetaConConteo(String etiqueta, int conteo) => '$etiqueta ($conteo)';
+
+/// Una fila del resumen por área: hallazgos, visitas y cómo van.
+class ResumenArea {
+  final String area;
+  final int hallazgos;
+  final int visitas;
+  final int abiertos;
+  final int subsanados;
+
+  const ResumenArea({
+    required this.area,
+    required this.hallazgos,
+    required this.visitas,
+    this.abiertos = 0,
+    this.subsanados = 0,
+  });
+}
+
+/// Hallazgos por área, del área con más hallazgos a la de menos.
+/// [nombreArea] es el mismo resolvedor de la pantalla, para que el archivo y
+/// las barras cuenten igual.
+List<ResumenArea> resumenPorArea(
+  Iterable<InterventoriaHallazgo> hallazgos,
+  String Function(InterventoriaHallazgo) nombreArea,
+) {
+  final porArea = <String, List<InterventoriaHallazgo>>{};
+  final nombres = <String, String>{};
+  for (final h in hallazgos) {
+    final nombre = nombreArea(h).trim().isEmpty ? 'Sin área' : nombreArea(h);
+    final clave = nombre.toLowerCase();
+    nombres.putIfAbsent(clave, () => nombre);
+    porArea.putIfAbsent(clave, () => []).add(h);
+  }
+  final lista = [
+    for (final e in porArea.entries)
+      ResumenArea(
+        area: nombres[e.key]!,
+        hallazgos: e.value.length,
+        visitas: visitasDeHallazgos(e.value),
+        abiertos: e.value.where((h) => !h.isSubsanado).length,
+        subsanados: e.value.where((h) => h.isSubsanado).length,
+      ),
+  ];
+  lista.sort((a, b) {
+    final porTotal = b.hallazgos.compareTo(a.hallazgos);
+    return porTotal != 0
+        ? porTotal
+        : a.area.toLowerCase().compareTo(b.area.toLowerCase());
+  });
+  return lista;
+}
+
+/// Empresa para el encabezado de los PDF de Gerencia.
+class EmpresaPdf {
+  final String nombre;
+
+  /// PNG o JPG del logo (`TBL_EMPRESAS.logoUrl`); null = sin logo.
+  final Uint8List? logo;
+
+  const EmpresaPdf({this.nombre = '', this.logo});
+}
+
+/// Logo listo para el PDF, o null si no hay o viene en un formato que el
+/// PDF no sabe leer (un SVG, un archivo dañado): mejor sin logo que sin PDF.
+pw.ImageProvider? _logoPdf(Uint8List? bytes) {
+  if (bytes == null || bytes.isEmpty) return null;
+  try {
+    return pw.MemoryImage(bytes);
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Encabezado de cada página: logo y nombre de la empresa, y una raya.
+pw.Widget _encabezadoEmpresa(EmpresaPdf empresa, pw.ImageProvider? logo) {
+  final nombre = empresa.nombre.trim();
+  if (nombre.isEmpty && logo == null) return pw.SizedBox();
+  return pw.Container(
+    margin: const pw.EdgeInsets.only(bottom: 10),
+    padding: const pw.EdgeInsets.only(bottom: 6),
+    decoration: const pw.BoxDecoration(
+      border: pw.Border(
+        bottom: pw.BorderSide(color: PdfColors.grey400, width: .5),
+      ),
+    ),
+    child: pw.Row(
+      crossAxisAlignment: pw.CrossAxisAlignment.center,
+      children: [
+        if (logo != null) ...[
+          pw.SizedBox(
+            height: 38,
+            width: 96,
+            child: pw.Image(logo, fit: pw.BoxFit.contain),
+          ),
+          pw.SizedBox(width: 12),
+        ],
+        pw.Expanded(
+          child: pw.Text(
+            nombre,
+            style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 Uint8List generarExcelVisitasGerencia(
   List<InterventoriaVisita> visitas,
-  String periodo,
-) {
+  String periodo, {
+  List<ResumenArea> porArea = const [],
+}) {
   final excel = Excel.createExcel();
   final hoja = excel['Visitas'];
   for (final nombre in excel.tables.keys.toList()) {
@@ -91,6 +229,25 @@ Uint8List generarExcelVisitasGerencia(
       TextCellValue(v.tipoActa ?? ''),
     ]);
   }
+  if (porArea.isNotEmpty) {
+    final areas = excel['Por área'];
+    areas.appendRow([
+      TextCellValue('Área'),
+      TextCellValue('Hallazgos'),
+      TextCellValue('Visitas'),
+      TextCellValue('Abiertos'),
+      TextCellValue('Subsanados'),
+    ]);
+    for (final a in porArea) {
+      areas.appendRow([
+        TextCellValue(a.area),
+        IntCellValue(a.hallazgos),
+        IntCellValue(a.visitas),
+        IntCellValue(a.abiertos),
+        IntCellValue(a.subsanados),
+      ]);
+    }
+  }
   final resumen = excel['Por semana'];
   resumen.appendRow([TextCellValue('Semana desde'), TextCellValue('Actas')]);
   for (final s in contarVisitasPorSemana(visitas)) {
@@ -104,12 +261,15 @@ Uint8List generarExcelVisitasGerencia(
 
 Future<Uint8List> generarPdfVisitasGerencia(
   List<InterventoriaVisita> visitas,
-  String periodo,
-) async {
+  String periodo, {
+  EmpresaPdf empresa = const EmpresaPdf(),
+  List<ResumenArea> porArea = const [],
+}) async {
   final font = pw.Font.ttf(await rootBundle.load('assets/arial.ttf'));
   final doc = pw.Document(
     theme: pw.ThemeData.withFont(base: font, bold: font),
   );
+  final logo = _logoPdf(empresa.logo);
   final semanas = contarVisitasPorSemana(visitas);
   final fmt = DateFormat('dd/MM/yyyy');
   final ordenadas = visitas.toList()
@@ -117,6 +277,7 @@ Future<Uint8List> generarPdfVisitasGerencia(
   doc.addPage(
     pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
+      header: (_) => _encabezadoEmpresa(empresa, logo),
       footer: (ctx) => pw.Align(
         alignment: pw.Alignment.centerRight,
         child: pw.Text('Página ${ctx.pageNumber} de ${ctx.pagesCount}'),
@@ -127,6 +288,25 @@ Future<Uint8List> generarPdfVisitasGerencia(
           style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
         ),
         pw.Text('$periodo · ${visitas.length} actas'),
+        if (porArea.isNotEmpty) ...[
+          pw.SizedBox(height: 12),
+          pw.Text(
+            'Hallazgos por área · hallazgos (visitas)',
+            style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+          ),
+          pw.TableHelper.fromTextArray(
+            headers: ['Área', 'Hallazgos (visitas)', 'Abiertos', 'Subsanados'],
+            data: [
+              for (final a in porArea)
+                [
+                  a.area,
+                  conteoConVisitas(a.hallazgos, a.visitas),
+                  '${a.abiertos}',
+                  '${a.subsanados}',
+                ],
+            ],
+          ),
+        ],
         pw.SizedBox(height: 12),
         pw.Text(
           'Resumen por semana',
@@ -287,16 +467,21 @@ Uint8List generarExcelHallazgosGerencia(
 
 /// PDF de la vista de detalle: encabezado con alcance y filtros, resumen por
 /// sección y la tabla de hallazgos en apaisado.
+///
+/// [nombreResponsable] es el responsable como lo muestra Gerencia (el
+/// asignado o, si no hay, el que asigna la matriz); sin él, el guardado.
 Future<Uint8List> generarPdfHallazgosGerencia(
   List<InterventoriaHallazgo> hallazgos,
   AlcanceExportacion alcance, {
-  String empresaNombre = '',
+  EmpresaPdf empresa = const EmpresaPdf(),
   String Function(InterventoriaHallazgo)? nombreArea,
+  String Function(InterventoriaHallazgo)? nombreResponsable,
 }) async {
   final font = pw.Font.ttf(await rootBundle.load('assets/arial.ttf'));
   final doc = pw.Document(
     theme: pw.ThemeData.withFont(base: font, bold: font),
   );
+  final logo = _logoPdf(empresa.logo);
   final fmt = DateFormat('dd/MM/yyyy');
   final ordenados = hallazgos.toList()..sort(compararPorNumeral);
   final resumen = conteoPorSeccion(ordenados);
@@ -322,6 +507,7 @@ Future<Uint8List> generarPdfHallazgosGerencia(
     pw.MultiPage(
       pageFormat: PdfPageFormat.a4.landscape,
       margin: const pw.EdgeInsets.all(28),
+      header: (_) => _encabezadoEmpresa(empresa, logo),
       footer: (ctx) => pw.Align(
         alignment: pw.Alignment.centerRight,
         child: pw.Text(
@@ -338,8 +524,6 @@ Future<Uint8List> generarPdfHallazgosGerencia(
             color: azul,
           ),
         ),
-        if (empresaNombre.trim().isNotEmpty)
-          pw.Text(empresaNombre, style: const pw.TextStyle(fontSize: 9)),
         pw.SizedBox(height: 4),
         pw.Text(
           alcance.titulo,
@@ -348,7 +532,7 @@ Future<Uint8List> generarPdfHallazgosGerencia(
         pw.Text(
           'Filtros: ${alcance.filtros.isEmpty ? 'ninguno' : alcance.filtros}'
           '   ·   Generado: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}'
-          '   ·   ${ordenados.length} hallazgo${ordenados.length == 1 ? '' : 's'}',
+          '   ·   ${textoHallazgosVisitas(ordenados.length, visitasDeHallazgos(ordenados))}',
           style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
         ),
         pw.SizedBox(height: 10),
@@ -398,7 +582,7 @@ Future<Uint8List> generarPdfHallazgosGerencia(
         pw.Table(
           border: pw.TableBorder.all(color: gris, width: .5),
           columnWidths: {
-            0: const pw.FixedColumnWidth(34),
+            0: const pw.FixedColumnWidth(42),
             1: const pw.FlexColumnWidth(3),
             2: const pw.FlexColumnWidth(2),
             3: const pw.FlexColumnWidth(5),
@@ -437,10 +621,11 @@ Future<Uint8List> generarPdfHallazgosGerencia(
                         : '${h.descripcion.trim()}\n${h.observaciones.trim()}',
                   ),
                   celda(
-                    h.responsableNombre.trim().isEmpty
-                        ? 'Sin responsable'
-                        : '${h.responsableNombre.trim()}'
-                              '${h.cargoResponsable.trim().isEmpty ? '' : '\n${h.cargoResponsable.trim()}'}',
+                    nombreResponsable?.call(h) ??
+                        (h.responsableNombre.trim().isEmpty
+                            ? 'Sin responsable'
+                            : '${h.responsableNombre.trim()}'
+                                  '${h.cargoResponsable.trim().isEmpty ? '' : '\n${h.cargoResponsable.trim()}'}'),
                   ),
                   celda(estado(h)),
                   celda(fmt.format(h.fechaHallazgo.toDate())),

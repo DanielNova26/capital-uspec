@@ -28,6 +28,17 @@
 // Los datos vienen de `TBL_INTERVENTORIA_HALLAZGOS` (una o varias empresas,
 // según lo que Gerencia tenga elegido) y se filtran en memoria: es el mismo
 // volumen que ya carga la pestaña de Hallazgos del módulo.
+//
+// 25 sep 2026 (correcciones de Gerencia):
+// - El área de cada hallazgo es la de su responsable; si no está asignado,
+//   la del responsable que asigna la matriz (`gerencia_areas.dart`). Antes
+//   casi todo caía en "Sin área" y el filtro de área no traía nada.
+// - Las barras de visitas ya no van por semana sino por área, y todo conteo
+//   de hallazgos lleva al lado, entre paréntesis, las visitas: "12 (3)".
+// - Los chips de sección dicen "3 (5)" y no "3 · 5", que se leía como 3.5.
+// - Los PDF llevan el nombre y el logo de la empresa.
+
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -38,12 +49,14 @@ import '../core/user_directory.dart';
 import '../interventoria/interventoria_hallazgo_panel.dart';
 import '../interventoria/interventoria_models.dart';
 import '../interventoria/interventoria_service.dart';
+import '../services/company_branding_service.dart';
 import '../theme/app_typography.dart';
 import '../utils/excel_download.dart';
 import '../visitas/visitas_informe_pdf.dart' show entregarPdf;
 import '../widgets/memo_stream_builder.dart';
 import '../widgets/paged_list.dart';
 import '../widgets/user_avatar.dart';
+import 'gerencia_areas.dart';
 import 'gerencia_hallazgos_export.dart';
 
 const _kInk = Color(0xFF0F172A);
@@ -72,6 +85,22 @@ enum _Agrupacion {
   final String etiqueta;
 }
 
+/// Responsable que Gerencia muestra para un hallazgo: el asignado o, si no
+/// hay, el que asigna la matriz de numerales ([sugerido]).
+class _ResponsableEfectivo {
+  final String id;
+  final String nombre;
+  final String cargo;
+  final bool sugerido;
+
+  const _ResponsableEfectivo({
+    required this.id,
+    required this.nombre,
+    required this.cargo,
+    required this.sugerido,
+  });
+}
+
 /// Una barra de la gráfica: la etiqueta y los hallazgos que la componen.
 class _Grupo {
   final String clave;
@@ -84,6 +113,9 @@ class _Grupo {
   _Grupo(this.clave, this.etiqueta, {this.subEtiqueta}) : hallazgos = [];
 
   int get total => hallazgos.length;
+
+  /// Visitas (actas) distintas de las que salieron estos hallazgos.
+  int get visitas => visitasDeHallazgos(hallazgos);
   int get activos => hallazgos.where((h) => h.estado == 'activo').length;
   int get pendientes => hallazgos.where((h) => h.isPendienteAprobacion).length;
   int get subsanados => hallazgos.where((h) => h.isSubsanado).length;
@@ -101,6 +133,18 @@ class GerenciaInterventoriaTab extends StatefulWidget {
   /// Personal de esas empresas (doc de TBL_USUARIOS por cédula), ya cargado
   /// por Gerencia. De aquí sale el nombre del responsable sin otra lectura.
   final Map<String, Map<String, dynamic>> usuarios;
+
+  /// Área de una persona en una empresa, resuelta por Gerencia con la ficha y
+  /// el cargo (`areaDeUsuario`). Respaldo para quien no está en el personal
+  /// asignable (retirados, cargos que no reciben tareas).
+  final String Function(String personaId, String empresaId)? areaDeUsuario;
+
+  /// Nombre de cada empresa, para el encabezado de los PDF.
+  final Map<String, String> empresaNombres;
+
+  /// Empresa activa de la sesión: su logo va en el PDF cuando el informe
+  /// mezcla varias empresas.
+  final String empresaPrincipal;
   final bool isDesktop;
 
   const GerenciaInterventoriaTab({
@@ -110,6 +154,9 @@ class GerenciaInterventoriaTab extends StatefulWidget {
     required this.areas,
     required this.usuarios,
     required this.isDesktop,
+    this.areaDeUsuario,
+    this.empresaNombres = const {},
+    this.empresaPrincipal = '',
   });
 
   @override
@@ -125,8 +172,12 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
   DateTime? _hasta;
   int? _periodoRapidoDias;
   String _estado = 'todos';
+
+  /// Nombre normalizado del área elegida (`areaClave`) o 'todas'.
   String _areaFiltro = 'todas';
+  String _areaFiltroNombre = '';
   String _responsableFiltro = 'todos';
+  String _responsableFiltroNombre = '';
   _Agrupacion _agrupar = _Agrupacion.establecimiento;
   String? _grupoSeleccionado;
 
@@ -134,13 +185,18 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
   int? _seccionSeleccionada;
   int _paginaGrafica = 0;
   int _paginaDetalle = 0;
-  int _paginaSemanas = 0;
+  int _paginaAreas = 0;
   bool _exportando = false;
 
   /// Personal asignable por empresa, con el área puenteada por cargo: es lo
   /// que necesitan los resolvedores de administrador y director. Se carga
   /// una vez por conjunto de empresas.
   Map<String, List<InterventoriaUsuario>> _personal = const {};
+  Map<String, Map<String, InterventoriaUsuario>> _personalPorId = const {};
+
+  /// Reglas del maestro de subsanaciones por empresa: con ellas se sabe a
+  /// quién asigna la matriz un hallazgo que todavía no tiene responsable.
+  Map<String, Map<String, dynamic>> _reglas = const {};
   String _personalKey = '';
   bool _cargandoPersonal = false;
 
@@ -149,6 +205,8 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
   /// centro y por área hasta que cambie el personal.
   final _cacheAdmin = <String, InterventoriaPersona?>{};
   final _cacheDirector = <String, InterventoriaUsuario?>{};
+  final _cacheSugerido = <String, InterventoriaPersona?>{};
+  final _cacheArea = <String, AreaResuelta>{};
 
   @override
   void initState() {
@@ -159,28 +217,56 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
   @override
   void didUpdateWidget(covariant GerenciaInterventoriaTab old) {
     super.didUpdateWidget(old);
-    if (widget.empresaIds.join(',') != _personalKey) _cargarPersonal();
+    if (widget.empresaIds.join(',') != _personalKey) {
+      _cargarPersonal();
+    } else if (!identical(old.areas, widget.areas) ||
+        !identical(old.usuarios, widget.usuarios) ||
+        old.areaDeUsuario != widget.areaDeUsuario) {
+      _limpiarCaches();
+    }
+  }
+
+  void _limpiarCaches() {
+    _cacheAdmin.clear();
+    _cacheDirector.clear();
+    _cacheSugerido.clear();
+    _cacheArea.clear();
   }
 
   Future<void> _cargarPersonal() async {
     final key = widget.empresaIds.join(',');
     _personalKey = key;
     setState(() => _cargandoPersonal = true);
-    final resultado = <String, List<InterventoriaUsuario>>{};
-    for (final empresaId in widget.empresaIds.take(10)) {
-      try {
-        resultado[empresaId] = await _svc.listarUsuariosAsignables(empresaId);
-      } catch (_) {
-        // Sin personal de esa empresa se sigue: los hallazgos se muestran
-        // igual, solo sin administrador ni director resueltos.
-        resultado[empresaId] = const [];
-      }
-    }
+    final empresas = widget.empresaIds.take(10).toList();
+    final cargas = await Future.wait(
+      empresas.map((empresaId) async {
+        List<InterventoriaUsuario> personal;
+        Map<String, dynamic> reglas;
+        try {
+          personal = await _svc.listarUsuariosAsignables(empresaId);
+        } catch (_) {
+          // Sin personal de esa empresa se sigue: los hallazgos se muestran
+          // igual, solo sin administrador ni director resueltos.
+          personal = const [];
+        }
+        try {
+          reglas = await _svc.streamReglasSubsanacion(empresaId).first;
+        } catch (_) {
+          // Sin reglas guardadas la sugerencia usa la matriz incluida.
+          reglas = const {};
+        }
+        return (empresaId: empresaId, personal: personal, reglas: reglas);
+      }),
+    );
     if (!mounted || _personalKey != key) return;
     setState(() {
-      _personal = resultado;
-      _cacheAdmin.clear();
-      _cacheDirector.clear();
+      _personal = {for (final c in cargas) c.empresaId: c.personal};
+      _personalPorId = {
+        for (final c in cargas)
+          c.empresaId: {for (final u in c.personal) u.id: u},
+      };
+      _reglas = {for (final c in cargas) c.empresaId: c.reglas};
+      _limpiarCaches();
       _cargandoPersonal = false;
     });
   }
@@ -222,28 +308,106 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
 
   // ── Filtrado ─────────────────────────────────────────────────────────────
 
-  String _etiquetaArea(InterventoriaHallazgo h) {
-    // Primero el id del catálogo; si el hallazgo solo trae el nombre del
-    // departamento, ese. Nunca sale un id crudo: `nombreDe` lo reconstruye.
-    final ref = h.areaId.trim().isNotEmpty ? h.areaId : h.dptoEncargado;
-    return widget.areas.nombreDe(ref, empresaId: h.empresaId);
+  /// Área de una persona en una empresa: primero la del personal asignable
+  /// (ya trae el área puenteada por cargo), luego la que resuelve Gerencia con
+  /// la ficha completa.
+  String _areaDePersona(String empresaId, String personaId) {
+    final id = personaId.trim();
+    if (id.isEmpty) return '';
+    final area = _personalPorId[empresaId]?[id]?.areaId.trim() ?? '';
+    if (area.isNotEmpty) return area;
+    return widget.areaDeUsuario?.call(id, empresaId).trim() ?? '';
   }
 
+  /// Persona a la que la matriz de numerales asigna el hallazgo, con las
+  /// reglas guardadas de su empresa. Es la misma sugerencia del tablero de
+  /// Interventoría.
+  InterventoriaPersona? _sugeridoDe(InterventoriaHallazgo h) {
+    final personal = _personal[h.empresaId];
+    if (personal == null || personal.isEmpty) return null;
+    final key =
+        '${h.empresaId}|${h.tipoActa ?? ''}|${h.numeralParaMatriz}|'
+        '${h.centroCostoId}';
+    return _cacheSugerido.putIfAbsent(
+      key,
+      () => _svc.sugerirResponsable(
+        h,
+        personal,
+        reglas: _reglas[h.empresaId] ?? const {},
+      ),
+    );
+  }
+
+  /// Área del hallazgo según su responsable (ver `gerencia_areas.dart`).
+  AreaResuelta _areaResuelta(InterventoriaHallazgo h) {
+    final key =
+        '${h.id}|${h.responsableId}|${h.areaId}|${h.dptoEncargado}|'
+        '${h.numeralParaMatriz}|${h.centroCostoId}';
+    return _cacheArea.putIfAbsent(
+      key,
+      () => areaDeHallazgo(
+        h,
+        areaDePersona: (id) => _areaDePersona(h.empresaId, id),
+        responsableSugerido: () => _sugeridoDe(h)?.id ?? '',
+      ),
+    );
+  }
+
+  String _etiquetaArea(InterventoriaHallazgo h) {
+    // Nunca sale un id crudo: `nombreDe` busca en el catálogo y, si el área
+    // no está, reconstruye el nombre desde el id.
+    return widget.areas.nombreDe(_areaResuelta(h).ref, empresaId: h.empresaId);
+  }
+
+  /// El filtro guarda el nombre normalizado del área y compara contra el
+  /// nombre legible del hallazgo: da igual con qué variante del id quedó.
   bool _coincideArea(InterventoriaHallazgo h) {
     if (_areaFiltro == 'todas') return true;
-    return widget.areas.coincide(filtro: _areaFiltro, valor: h.areaId) ||
-        widget.areas.coincide(filtro: _areaFiltro, valor: h.dptoEncargado);
+    return areaClave(_etiquetaArea(h)) == _areaFiltro;
   }
 
   // ── Responsable, administrador y director ────────────────────────────────
 
+  /// El responsable asignado; si no hay, el que asigna la matriz.
+  _ResponsableEfectivo? _responsableDe(InterventoriaHallazgo h) {
+    final id = h.responsableId.trim();
+    final nombre = h.responsableNombre.trim();
+    if (id.isNotEmpty || nombre.isNotEmpty) {
+      return _ResponsableEfectivo(
+        id: id,
+        nombre: _nombreUsuario(id, fallback: nombre),
+        cargo: h.cargoResponsable.trim(),
+        sugerido: false,
+      );
+    }
+    final sugerido = _sugeridoDe(h);
+    if (sugerido == null) return null;
+    return _ResponsableEfectivo(
+      id: sugerido.id,
+      nombre: _nombreUsuario(sugerido.id, fallback: sugerido.nombre),
+      cargo: sugerido.cargo,
+      sugerido: true,
+    );
+  }
+
   /// Clave estable del responsable: la cédula; si el hallazgo solo trae el
   /// nombre (asignaciones viejas), el nombre normalizado.
   String _responsableClave(InterventoriaHallazgo h) {
-    final id = h.responsableId.trim();
-    if (id.isNotEmpty) return id;
-    final n = h.responsableNombre.trim();
-    return n.isEmpty ? '' : 'nombre:${areaClave(n)}';
+    final r = _responsableDe(h);
+    if (r == null) return '';
+    if (r.id.isNotEmpty) return r.id;
+    return r.nombre.isEmpty ? '' : 'nombre:${areaClave(r.nombre)}';
+  }
+
+  /// El responsable como va en el PDF: nombre, cargo y si es sugerido.
+  String _responsablePdf(InterventoriaHallazgo h) {
+    final r = _responsableDe(h);
+    if (r == null) return 'Sin responsable';
+    return [
+      r.nombre,
+      if (r.cargo.isNotEmpty) r.cargo,
+      if (r.sugerido) '(sugerido por la matriz)',
+    ].join('\n');
   }
 
   /// Nombre de una persona sin salir a Firestore: primero el doc que ya trae
@@ -285,7 +449,7 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
   /// cargo dentro de esa área. El área se compara por el catálogo, porque la
   /// misma área existe con varios ids.
   InterventoriaUsuario? _directorDe(InterventoriaHallazgo h) {
-    final ref = h.areaId.trim().isNotEmpty ? h.areaId : h.dptoEncargado;
+    final ref = _areaResuelta(h).ref;
     if (ref.trim().isEmpty) return null;
     final opcion = widget.areas.opciones
         .where((o) => o.contiene(ref))
@@ -310,10 +474,7 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
     for (final h in todos) {
       final clave = _responsableClave(h);
       if (clave.isEmpty) continue;
-      mapa.putIfAbsent(
-        clave,
-        () => _nombreUsuario(h.responsableId, fallback: h.responsableNombre),
-      );
+      mapa.putIfAbsent(clave, () => _responsableDe(h)!.nombre);
     }
     final lista = mapa.entries.toList()
       ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
@@ -330,7 +491,7 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
       h.dptoEncargado,
       _etiquetaArea(h),
       h.responsableNombre,
-      _nombreUsuario(h.responsableId, fallback: h.responsableNombre),
+      _responsableDe(h)?.nombre ?? '',
       _administradorDe(h)?.nombre ?? '',
       _directorDe(h)?.nombre ?? '',
       h.cargoResponsable,
@@ -364,14 +525,17 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
     }).toList();
   }
 
-  List<_Grupo> _agrupador(List<InterventoriaHallazgo> hallazgos) {
+  List<_Grupo> _agrupador(
+    List<InterventoriaHallazgo> hallazgos, {
+    _Agrupacion? por,
+  }) {
     final fmt = DateFormat('dd/MM/yyyy');
     final grupos = <String, _Grupo>{};
     for (final h in hallazgos) {
       final String clave;
       final String etiqueta;
       String? sub;
-      switch (_agrupar) {
+      switch (por ?? _agrupar) {
         case _Agrupacion.establecimiento:
           // Cada subcentro es una fila propia y con su nombre como título:
           // Gerencia pidió (18 sep 2026) que la estación no se lea como si
@@ -404,18 +568,15 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
           // Las actas no tienen consecutivo: se identifican por
           // establecimiento y fecha de la visita, que es como las nombra
           // el histórico del módulo.
-          clave = h.visitaId.isNotEmpty
-              ? h.visitaId
-              : '${h.centroCostoId}|${fmt.format(h.fechaHallazgo.toDate())}';
+          clave = claveVisitaHallazgo(h);
           etiqueta =
               '${h.establecimiento} · ${fmt.format(h.fechaHallazgo.toDate())}';
         case _Agrupacion.responsable:
           final c = _responsableClave(h);
+          final r = _responsableDe(h);
           clave = c.isEmpty ? '?' : c;
-          etiqueta = c.isEmpty
-              ? 'Sin responsable'
-              : _nombreUsuario(h.responsableId, fallback: h.responsableNombre);
-          final cargo = h.cargoResponsable.trim();
+          etiqueta = c.isEmpty || r == null ? 'Sin responsable' : r.nombre;
+          final cargo = r?.cargo ?? '';
           sub = cargo.isEmpty ? null : cargo;
         case _Agrupacion.administrador:
           final admin = _administradorDe(h);
@@ -467,6 +628,15 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
           );
         }
         final todos = snap.data ?? const <InterventoriaHallazgo>[];
+        final opcionesArea = opcionesFiltroArea(
+          widget.areas,
+          todos.map(_etiquetaArea),
+        );
+        if (_areaFiltro != 'todas' &&
+            !opcionesArea.any((a) => a.clave == _areaFiltro)) {
+          // El área elegida ya no existe en estos datos (otra empresa).
+          _areaFiltro = 'todas';
+        }
         final filtrados = _filtrar(todos);
         final grupos = _agrupador(filtrados);
         // Si el grupo elegido se fue por un cambio de filtro, se cierra el
@@ -478,11 +648,11 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
         final cuerpo = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildFiltros(context, _opcionesResponsable(todos)),
+            _buildFiltros(context, _opcionesResponsable(todos), opcionesArea),
             const SizedBox(height: 16),
             _buildResumen(filtrados),
             const SizedBox(height: 16),
-            _buildVisitasPorSemana(),
+            _buildAreasYVisitas(filtrados),
             const SizedBox(height: 16),
             if (todos.isEmpty)
               _vacio('Aún no hay hallazgos de interventoría registrados.')
@@ -557,147 +727,190 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
     ),
   );
 
-  Widget
-  _buildVisitasPorSemana() => MemoStreamBuilder<List<InterventoriaVisita>>(
-    memoKey: 'visitas-${widget.empresaIds.join(',')}',
-    create: () => _svc.streamVisitasEmpresas(widget.empresaIds),
-    builder: (context, snap) {
-      if (snap.hasError) {
-        return const Card(
+  /// Hallazgos por área con las visitas entre paréntesis. Reemplaza a las
+  /// barras por semana (25 sep 2026: "las barras no por fecha, sino por
+  /// área"). Sale de lo filtrado, así que responde a todos los filtros, y un
+  /// clic en un área la deja como filtro.
+  Widget _buildAreasYVisitas(List<InterventoriaHallazgo> filtrados) {
+    final grupos = _agrupador(filtrados, por: _Agrupacion.area);
+    final maximo = grupos.isEmpty ? 1 : grupos.first.total;
+    final maxPagina = pageCountOf(grupos.length) - 1;
+    final pagina = _paginaAreas.clamp(0, maxPagina < 0 ? 0 : maxPagina);
+    final visibles = pageOf(grupos, pagina);
+
+    return MemoStreamBuilder<List<InterventoriaVisita>>(
+      memoKey: 'visitas-${widget.empresaIds.join(',')}',
+      create: () => _svc.streamVisitasEmpresas(widget.empresaIds),
+      builder: (context, snap) {
+        final visitas = snap.hasData ? _visitasDelPeriodo(snap.data!) : null;
+        final String nota;
+        if (snap.hasError) {
+          nota = 'No se pudo cargar el conteo de visitas.';
+        } else if (visitas == null) {
+          nota = 'Contando visitas…';
+        } else {
+          nota =
+              'Visitas realizadas en el período: ${visitas.length} '
+              '${visitas.length == 1 ? 'acta' : 'actas'}, incluidas las que '
+              'no dejaron hallazgos. Entre paréntesis, las visitas en que '
+              'salieron los hallazgos de cada área. Clic en un área para '
+              'filtrar.';
+        }
+        return Card(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
           child: Padding(
-            padding: EdgeInsets.all(16),
-            child: Text('No se pudo cargar el conteo de visitas.'),
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Hallazgos por área · hallazgos (visitas)',
+                        style: TextStyle(
+                          fontFamily: kArial,
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: _kInk,
+                        ),
+                      ),
+                    ),
+                    if (visitas != null) ...[
+                      _botonExportar(
+                        icono: Icons.table_view_rounded,
+                        tooltip: 'Exportar visitas y resumen por área a Excel',
+                        onPressed: () =>
+                            _exportarVisitas(visitas, filtrados, pdf: false),
+                      ),
+                      _botonExportar(
+                        icono: Icons.picture_as_pdf_rounded,
+                        tooltip: 'Exportar visitas y resumen por área a PDF',
+                        onPressed: () =>
+                            _exportarVisitas(visitas, filtrados, pdf: true),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  nota,
+                  style: const TextStyle(
+                    fontFamily: kArial,
+                    fontSize: 11,
+                    color: _kMuted,
+                  ),
+                ),
+                if (grupos.length > kPageSize)
+                  PagerBar(
+                    total: grupos.length,
+                    page: pagina,
+                    etiqueta: 'áreas',
+                    onPageChanged: (p) => setState(() => _paginaAreas = p),
+                  )
+                else
+                  const SizedBox(height: 8),
+                if (grupos.isEmpty)
+                  const Text(
+                    'No hay hallazgos con los filtros aplicados.',
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontSize: 12,
+                      color: _kMuted,
+                    ),
+                  )
+                else
+                  for (var i = 0; i < visibles.length; i++) ...[
+                    if (i > 0) const SizedBox(height: 6),
+                    _Barra(
+                      grupo: visibles[i],
+                      maximo: maximo,
+                      seleccionada:
+                          _areaFiltro != 'todas' &&
+                          visibles[i].clave == _areaFiltro,
+                      onTap: () => _alternarAreaFiltro(
+                        visibles[i].clave,
+                        visibles[i].etiqueta,
+                      ),
+                    ),
+                  ],
+              ],
+            ),
           ),
         );
-      }
-      if (!snap.hasData) return const LinearProgressIndicator();
-      final visitas = snap.data!.where((v) {
-        final dia = v.fechaVisita.toDate();
-        if (_desde != null &&
-            dia.isBefore(DateTime(_desde!.year, _desde!.month, _desde!.day))) {
-          return false;
-        }
-        if (_hasta != null &&
-            dia.isAfter(
-              DateTime(_hasta!.year, _hasta!.month, _hasta!.day, 23, 59, 59),
-            )) {
-          return false;
-        }
-        return true;
-      }).toList();
-      final semanas = contarVisitasPorSemana(visitas);
-      const porPagina = 8;
-      final pagina = _paginaSemanas.clamp(
-        0,
-        pageCountOf(semanas.length, pageSize: porPagina) - 1,
+      },
+    );
+  }
+
+  /// Actas dentro del rango de fechas elegido (sin los demás filtros: una
+  /// visita sin hallazgos no tiene área ni responsable).
+  List<InterventoriaVisita> _visitasDelPeriodo(
+    List<InterventoriaVisita> todas,
+  ) => todas.where((v) {
+    final dia = v.fechaVisita.toDate();
+    if (_desde != null &&
+        dia.isBefore(DateTime(_desde!.year, _desde!.month, _desde!.day))) {
+      return false;
+    }
+    if (_hasta != null &&
+        dia.isAfter(
+          DateTime(_hasta!.year, _hasta!.month, _hasta!.day, 23, 59, 59),
+        )) {
+      return false;
+    }
+    return true;
+  }).toList();
+
+  /// Un clic en el área la deja como filtro; otro clic la quita.
+  void _alternarAreaFiltro(String clave, String nombre) {
+    setState(() {
+      _areaFiltro = _areaFiltro == clave ? 'todas' : clave;
+      _areaFiltroNombre = nombre;
+      _grupoSeleccionado = null;
+      _seccionSeleccionada = null;
+      _paginaGrafica = 0;
+      _paginaDetalle = 0;
+    });
+  }
+
+  /// Empresa del encabezado del PDF: la de lo exportado; si mezcla varias,
+  /// sus nombres y el logo de la empresa activa de la sesión. Sin logo propio
+  /// el PDF sale sin logo: el de la app no representa a la empresa.
+  Future<EmpresaPdf> _empresaPdf(Iterable<String> empresaIds) async {
+    final ids = empresaIds
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet();
+    if (ids.isEmpty) ids.addAll(widget.empresaIds);
+    if (ids.isEmpty) return const EmpresaPdf();
+    String nombre(String id) {
+      final n = widget.empresaNombres[id]?.trim() ?? '';
+      return n.isEmpty ? id : n;
+    }
+
+    final nombres = ids.map(nombre).toList()..sort();
+    final logoDe = ids.length == 1
+        ? ids.first
+        : (ids.contains(widget.empresaPrincipal)
+              ? widget.empresaPrincipal
+              : (ids.toList()..sort()).first);
+    Uint8List? logo;
+    try {
+      logo = await CompanyBrandingService().loadLogoBytes(
+        logoDe,
+        fallbackAsset: null,
       );
-      final visibles = pageOf(semanas, pagina, pageSize: porPagina);
-      final total = semanas.fold<int>(0, (s, e) => s + e.actas);
-      final maximo = visibles.fold<int>(1, (m, e) => e.actas > m ? e.actas : m);
-      final fmt = DateFormat('dd/MM');
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Visitas realizadas · $total actas',
-                style: const TextStyle(
-                  fontFamily: kArial,
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              Row(
-                children: [
-                  const Spacer(),
-                  _botonExportar(
-                    icono: Icons.table_view_rounded,
-                    tooltip: 'Exportar visitas y resumen semanal a Excel',
-                    onPressed: () => _exportarVisitas(visitas, pdf: false),
-                  ),
-                  _botonExportar(
-                    icono: Icons.picture_as_pdf_rounded,
-                    tooltip: 'Exportar visitas y resumen semanal a PDF',
-                    onPressed: () => _exportarVisitas(visitas, pdf: true),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 3),
-              const Text(
-                'Conteo por fecha del acta; incluye visitas sin hallazgos.',
-                style: TextStyle(
-                  fontFamily: kArial,
-                  fontSize: 11,
-                  color: _kMuted,
-                ),
-              ),
-              if (semanas.length > porPagina)
-                PagerBar(
-                  total: semanas.length,
-                  page: pagina,
-                  pageSize: porPagina,
-                  etiqueta: 'semanas',
-                  onPageChanged: (p) => setState(() => _paginaSemanas = p),
-                ),
-              if (visibles.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.only(top: 12),
-                  child: Text('No hay actas en el período seleccionado.'),
-                )
-              else
-                SizedBox(
-                  height: 128,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      for (final semana in visibles)
-                        Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.end,
-                              children: [
-                                Text(
-                                  '${semana.actas}',
-                                  style: const TextStyle(
-                                    fontFamily: kArial,
-                                    fontSize: 11,
-                                  ),
-                                ),
-                                const SizedBox(height: 3),
-                                Container(
-                                  height: 78 * semana.actas / maximo,
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF2563A6),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  fmt.format(semana.lunes),
-                                  style: const TextStyle(
-                                    fontFamily: kArial,
-                                    fontSize: 10,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-            ],
-          ),
-        ),
-      );
-    },
-  );
+    } catch (_) {
+      logo = null;
+    }
+    return EmpresaPdf(nombre: nombres.join(' · '), logo: logo);
+  }
 
   Future<void> _exportarVisitas(
-    List<InterventoriaVisita> visitas, {
+    List<InterventoriaVisita> visitas,
+    List<InterventoriaHallazgo> hallazgos, {
     required bool pdf,
   }) async {
     if (_exportando) return;
@@ -705,18 +918,28 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
     final messenger = ScaffoldMessenger.of(context);
     try {
       final periodo = _descripcionPeriodo();
+      final porArea = resumenPorArea(hallazgos, _etiquetaArea);
       final nombre = nombreArchivoHallazgosGerencia(
         'visitas_interventoria',
       ).replaceFirst('hallazgos_', '');
       if (pdf) {
         await entregarPdf(
-          await generarPdfVisitasGerencia(visitas, periodo),
+          await generarPdfVisitasGerencia(
+            visitas,
+            periodo,
+            empresa: await _empresaPdf(visitas.map((v) => v.empresaId)),
+            porArea: porArea,
+          ),
           nombre,
         );
       } else {
         await descargarExcelCompras(
           nombreArchivo: nombre,
-          bytes: generarExcelVisitasGerencia(visitas, periodo),
+          bytes: generarExcelVisitasGerencia(
+            visitas,
+            periodo,
+            porArea: porArea,
+          ),
         );
       }
       if (mounted) {
@@ -749,22 +972,27 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
   Widget _buildFiltros(
     BuildContext context,
     List<MapEntry<String, String>> responsables,
+    List<({String clave, String nombre})> areas,
   ) {
     final fmt = DateFormat('dd/MM/yy');
-    final areaItems = widget.areas
-        .comoMapa()
-        .entries
-        .map(
-          (e) => DropdownMenuItem(
-            value: e.key,
-            child: Text(
-              e.value,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontFamily: kArial, fontSize: 13),
-            ),
+    DropdownMenuItem<String> item(String valor, String texto) =>
+        DropdownMenuItem(
+          value: valor,
+          child: Text(
+            texto,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontFamily: kArial, fontSize: 13),
           ),
-        )
-        .toList();
+        );
+    final areaItems = [
+      item('todas', 'Todas las áreas'),
+      for (final a in areas) item(a.clave, a.nombre),
+    ];
+    // Un área elegida desde las barras que ya no está en los datos (cambió la
+    // empresa) no puede quedar como valor: el desplegable se rompería.
+    final areaValor = areas.any((a) => a.clave == _areaFiltro)
+        ? _areaFiltro
+        : 'todas';
 
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -846,7 +1074,10 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
                 SizedBox(
                   width: widget.isDesktop ? 260 : double.infinity,
                   child: DropdownButtonFormField<String>(
-                    initialValue: _areaFiltro,
+                    // La barra de áreas también cambia el filtro: la clave
+                    // reconstruye el campo para que muestre el valor vigente.
+                    key: ValueKey('area-$areaValor-${areas.length}'),
+                    initialValue: areaValor,
                     isExpanded: true,
                     decoration: const InputDecoration(
                       labelText: 'Área',
@@ -854,8 +1085,15 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
                       isDense: true,
                     ),
                     items: areaItems,
-                    onChanged: (v) =>
-                        setState(() => _areaFiltro = v ?? 'todas'),
+                    onChanged: (v) => setState(() {
+                      _areaFiltro = v ?? 'todas';
+                      _areaFiltroNombre =
+                          areas
+                              .where((a) => a.clave == _areaFiltro)
+                              .firstOrNull
+                              ?.nombre ??
+                          '';
+                    }),
                   ),
                 ),
                 SizedBox(
@@ -896,8 +1134,15 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
                         ),
                       ),
                     ],
-                    onChanged: (v) =>
-                        setState(() => _responsableFiltro = v ?? 'todos'),
+                    onChanged: (v) => setState(() {
+                      _responsableFiltro = v ?? 'todos';
+                      _responsableFiltroNombre =
+                          responsables
+                              .where((r) => r.key == _responsableFiltro)
+                              .firstOrNull
+                              ?.value ??
+                          '';
+                    }),
                   ),
                 ),
                 SizedBox(
@@ -962,8 +1207,11 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
 
     final tarjetas = [
       _Kpi(
-        titulo: 'Hallazgos',
-        valor: '${filtrados.length}',
+        titulo: 'Hallazgos (visitas)',
+        valor: conteoConVisitas(
+          filtrados.length,
+          visitasDeHallazgos(filtrados),
+        ),
         icono: Icons.report_problem_outlined,
         color: _kInk,
         activo: _estado == 'todos',
@@ -1042,17 +1290,16 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
       partes.add(
         'Estado: ${switch (_estado) {
           'activo' => 'activos',
-          'pendiente' => 'por aprobar',
+          'pendiente_aprobacion' => 'por aprobar',
           'subsanado' => 'subsanados',
           _ => _estado,
         }}',
       );
     }
-    if (_areaFiltro != 'todas') partes.add('Área: $_areaFiltro');
+    // Los filtros guardan claves; el archivo lleva los nombres.
+    if (_areaFiltro != 'todas') partes.add('Área: $_areaFiltroNombre');
     if (_responsableFiltro != 'todos') {
-      partes.add(
-        'Responsable: ${_nombreUsuario(_responsableFiltro, fallback: _responsableFiltro)}',
-      );
+      partes.add('Responsable: $_responsableFiltroNombre');
     }
     if (_texto.trim().isNotEmpty) partes.add('Búsqueda: "${_texto.trim()}"');
     return partes.join(' · ');
@@ -1074,7 +1321,9 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
         final bytes = await generarPdfHallazgosGerencia(
           hallazgos,
           alcance,
+          empresa: await _empresaPdf(hallazgos.map((h) => h.empresaId)),
           nombreArea: _etiquetaArea,
+          nombreResponsable: _responsablePdf,
         );
         await entregarPdf(bytes, nombre);
       } else {
@@ -1206,9 +1455,11 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
             const SizedBox(height: 4),
             Text(
               _cargandoPersonal
-                  ? 'Clic en una barra para ver el detalle · resolviendo '
-                        'administradores y directores…'
-                  : 'Clic en una barra para ver el detalle',
+                  ? 'Hallazgos (visitas) · clic en una barra para ver el '
+                        'detalle · resolviendo responsables, áreas y '
+                        'directores…'
+                  : 'Hallazgos (visitas) · clic en una barra para ver el '
+                        'detalle',
               style: const TextStyle(
                 fontFamily: kArial,
                 fontSize: 11,
@@ -1269,6 +1520,7 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
           _FilaHallazgo(
             hallazgo: visibles[i],
             area: _etiquetaArea(visibles[i]),
+            responsable: _responsableDe(visibles[i]),
             fecha: fmt.format(visibles[i].fechaHallazgo.toDate()),
             administrador: _administradorDe(visibles[i]),
             director: _directorDe(visibles[i]),
@@ -1302,8 +1554,8 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${grupo.etiqueta}  ·  ${grupo.total} '
-                        '${grupo.total == 1 ? 'hallazgo' : 'hallazgos'}',
+                        '${grupo.etiqueta}  ·  '
+                        '${textoHallazgosVisitas(grupo.total, grupo.visitas)}',
                         style: const TextStyle(
                           fontFamily: kArial,
                           fontWeight: FontWeight.bold,
@@ -1356,7 +1608,7 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
               runSpacing: 6,
               children: [
                 ChoiceChip(
-                  label: Text('Todas · ${grupo.total}'),
+                  label: Text(etiquetaConConteo('Todas', grupo.total)),
                   selected: seccion == null,
                   labelStyle: const TextStyle(fontFamily: kArial, fontSize: 12),
                   onSelected: (_) => setState(() {
@@ -1368,10 +1620,13 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
                   Tooltip(
                     message: etiquetaSeccion(e.key),
                     child: ChoiceChip(
+                      // "3 (5)": sección 3, cinco hallazgos. Con "3 · 5" se
+                      // leía el numeral 3.5.
                       label: Text(
-                        e.key == 0
-                            ? 'Sin numeral · ${e.value}'
-                            : '${e.key} · ${e.value}',
+                        etiquetaConConteo(
+                          e.key == 0 ? 'Sin numeral' : '${e.key}',
+                          e.value,
+                        ),
                       ),
                       selected: seccion == e.key,
                       labelStyle: const TextStyle(
@@ -1596,13 +1851,16 @@ class _Barra extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  '${grupo.total}',
-                  style: const TextStyle(
-                    fontFamily: kArial,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: _kInk,
+                Tooltip(
+                  message: textoHallazgosVisitas(grupo.total, grupo.visitas),
+                  child: Text(
+                    conteoConVisitas(grupo.total, grupo.visitas),
+                    style: const TextStyle(
+                      fontFamily: kArial,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: _kInk,
+                    ),
                   ),
                 ),
               ],
@@ -1666,6 +1924,9 @@ class _Barra extends StatelessWidget {
 class _FilaHallazgo extends StatelessWidget {
   final InterventoriaHallazgo hallazgo;
   final String area;
+
+  /// Asignado o, si no hay, el que asigna la matriz (se dice "sugerido").
+  final _ResponsableEfectivo? responsable;
   final String fecha;
   final InterventoriaPersona? administrador;
   final InterventoriaUsuario? director;
@@ -1674,6 +1935,7 @@ class _FilaHallazgo extends StatelessWidget {
   const _FilaHallazgo({
     required this.hallazgo,
     required this.area,
+    required this.responsable,
     required this.fecha,
     required this.administrador,
     required this.director,
@@ -1756,12 +2018,13 @@ class _FilaHallazgo extends StatelessWidget {
                           color: _color,
                         ),
                       ),
-                      if (h.responsableId.trim().isNotEmpty ||
-                          h.responsableNombre.trim().isNotEmpty)
+                      if (responsable != null)
                         UserNameText(
-                          h.responsableId,
-                          fallbackName: h.responsableNombre,
-                          prefix: 'Responsable: ',
+                          responsable!.id,
+                          fallbackName: responsable!.nombre,
+                          prefix: responsable!.sugerido
+                              ? 'Responsable sugerido por la matriz: '
+                              : 'Responsable: ',
                           style: const TextStyle(
                             fontFamily: kArial,
                             fontSize: 11,

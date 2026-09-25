@@ -13,6 +13,7 @@ import '../widgets/internal_module_layout.dart';
 import '../widgets/user_avatar.dart';
 import '../core/area_directory.dart';
 import '../widgets/paged_list.dart';
+import 'gerencia_areas.dart';
 import 'gerencia_interventoria_tab.dart';
 
 const String kTodasEmpresasValue = '__todas_empresas__';
@@ -175,7 +176,11 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
       if (id.trim().isEmpty) continue;
       try {
         final doc = await _db.collection('TBL_EMPRESAS').doc(id).get();
-        final nombre = (doc.data()?['nombre'] ?? '').toString().trim();
+        final data = doc.data() ?? const <String, dynamic>{};
+        var nombre = (data['nombre'] ?? '').toString().trim();
+        if (nombre.isEmpty || nombre == id) {
+          nombre = (data['razonSocial'] ?? '').toString().trim();
+        }
         if (nombre.isNotEmpty) {
           nombres[id] = nombre;
         }
@@ -239,6 +244,37 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
       }
     }
 
+    // El área de la mayoría del personal vive en su cargo (TBL_CARGOS), no en
+    // la ficha: sin este puente las tareas y hallazgos quedan "Sin área".
+    final cargosPorEmpresa =
+        <String, List<({String id, Map<String, dynamic> data})>>{};
+    try {
+      final chunks = empresas.isEmpty
+          ? [<String>[]]
+          : [
+              for (var i = 0; i < empresas.length; i += 10)
+                empresas.toList().sublist(
+                  i,
+                  i + 10 > empresas.length ? empresas.length : i + 10,
+                ),
+            ];
+      for (final chunk in chunks) {
+        Query<Map<String, dynamic>> q = _db.collection('TBL_CARGOS');
+        if (chunk.isNotEmpty) q = q.where('empresaId', whereIn: chunk);
+        final snap = await q.get();
+        for (final d in snap.docs) {
+          final empresa = (d.data()['empresaId'] ?? '').toString().trim();
+          cargosPorEmpresa.putIfAbsent(empresa, () => []).add((
+            id: d.id,
+            data: d.data(),
+          ));
+        }
+      }
+    } catch (_) {
+      // Sin cargos se sigue con el área de la ficha: peor que con ellos,
+      // mejor que sin tablero.
+    }
+
     final users = <String, Map<String, dynamic>>{};
     if (empresas.isEmpty) {
       final usersSnap = await _db.collection('TBL_USUARIOS').get();
@@ -269,6 +305,10 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
       areas: areas,
       empresaId: empresaPrincipal,
       empresas: empresas,
+      areasPorCargo: {
+        for (final e in cargosPorEmpresa.entries)
+          e.key: AreasPorCargo.desde(e.value),
+      },
     );
   }
 
@@ -371,12 +411,12 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
                           ? GerenciaInterventoriaTab(
                               userId: widget.userId,
                               empresaIds: empresasFiltro.take(10).toList(),
-                              areas: AreaCatalogo.desde(
-                                bootstrap.areas.entries.map(
-                                  (e) => (id: e.key, nombre: e.value),
-                                ),
-                              ),
+                              areas: bootstrap.catalogo,
                               usuarios: bootstrap.users,
+                              areaDeUsuario: bootstrap.areaDePersona,
+                              empresaNombres: _empresaNombres,
+                              empresaPrincipal:
+                                  _lastScopedEmpresaId ?? widget.empresaId,
                               isDesktop: isDesktop,
                             )
                           : isDesktop
@@ -736,7 +776,6 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
     return tasks.where((d) {
       final data = d.data();
       final estado = _resolvedEstado(data);
-      final areaId = (data['areaId'] ?? '').toString();
       final empresa = (data['empresaId'] ?? data['empresa_id'] ?? '')
           .toString();
 
@@ -755,40 +794,43 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
           statusMatch = estado == _statusFilter;
       }
 
-      final areaMatch = _areaFilter == 'todas' || areaId == _areaFilter;
+      // El filtro guarda el nombre normalizado del área: se compara contra el
+      // área de la tarea (la de su responsable), no contra un id.
+      final areaMatch =
+          _areaFilter == 'todas' ||
+          areaClave(bootstrap.etiquetaAreaTarea(data)) == _areaFilter;
       return statusMatch && areaMatch;
     }).toList();
+  }
+
+  /// Áreas que tienen tareas, por nombre y sin repetir. La clave es el nombre
+  /// normalizado: la misma área guardada con varios ids es una sola opción.
+  List<DropdownMenuItem<String>> _areaItems(
+    _Bootstrap bootstrap,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
+  ) {
+    final opciones = opcionesFiltroArea(
+      const AreaCatalogo.vacio(),
+      tasks.map((t) => bootstrap.etiquetaAreaTarea(t.data())),
+    );
+    return [
+      const DropdownMenuItem(value: 'todas', child: Text('Todas las áreas')),
+      for (final o in opciones)
+        DropdownMenuItem(
+          value: o.clave,
+          child: Text(o.nombre, overflow: TextOverflow.ellipsis),
+        ),
+    ];
   }
 
   Widget _buildAreaFilter(
     _Bootstrap bootstrap,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
   ) {
-    final areaIds = <String>{
-      for (final t in tasks)
-        if ((t.data()['areaId'] ?? '').toString().isNotEmpty)
-          (t.data()['areaId'] ?? '').toString(),
-    };
-
-    final areaItems = [
-      const DropdownMenuItem(value: 'todas', child: Text('Todas las áreas')),
-      ...areaIds
-          .map(
-            (id) => DropdownMenuItem(
-              value: id,
-              child: Text(
-                bootstrap.areas[id] ?? id,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          )
-          .toList()
-        ..sort(
-          (a, b) => (a.child as Text).data!.toLowerCase().compareTo(
-            (b.child as Text).data!.toLowerCase(),
-          ),
-        ),
-    ];
+    final areaItems = _areaItems(bootstrap, tasks);
+    final areaValor = areaItems.any((i) => i.value == _areaFilter)
+        ? _areaFilter
+        : 'todas';
 
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -807,7 +849,9 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
-              initialValue: _areaFilter,
+              key: ValueKey('area-$areaValor-${areaItems.length}'),
+              initialValue: areaValor,
+              isExpanded: true,
               decoration: const InputDecoration(
                 labelText: 'Filtrar por área',
                 border: OutlineInputBorder(),
@@ -1212,12 +1256,12 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
       final nombre = (usuario == null)
           ? (m['asignado_nombre']?.toString() ?? 'Sin asignar')
           : _nombreDeUsuario(usuario);
-      final areaId = (m['areaId'] ?? '').toString();
-      final areaName = bootstrap.areas[areaId] ?? 'Área no definida';
-
       out.putIfAbsent(
         uid,
-        () => _PersonScore(displayName: nombre, area: areaName),
+        () => _PersonScore(
+          displayName: nombre,
+          area: bootstrap.etiquetaAreaTarea(m),
+        ),
       );
       out[uid]!.register(m);
     }
@@ -1241,9 +1285,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
   ) {
     final out = <String, double>{};
     for (final d in tasks) {
-      final data = d.data();
-      final areaId = (data['areaId'] ?? '').toString();
-      final areaName = bootstrap.areas[areaId] ?? 'Área no definida';
+      final areaName = bootstrap.etiquetaAreaTarea(d.data());
       out[areaName] = (out[areaName] ?? 0) + 1;
     }
     return out;
@@ -1259,10 +1301,13 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
       final creatorId =
           (data['creador_id'] ?? data['creatorId'] ?? data['creador_uid'] ?? '')
               .toString();
-      final creator = bootstrap.users[creatorId];
-      final creatorAreaId = (creator?['areaId'] ?? creator?['area'] ?? '')
-          .toString();
-      final areaName = bootstrap.areas[creatorAreaId] ?? 'Área no definida';
+      final empresa = (data['empresaId'] ?? data['empresa_id'] ?? '')
+          .toString()
+          .trim();
+      final areaName = bootstrap.catalogo.nombreDe(
+        bootstrap.areaDePersona(creatorId, empresa),
+        empresaId: empresa,
+      );
       out[areaName] = (out[areaName] ?? 0) + 1;
     }
     return out;
@@ -1288,31 +1333,10 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
     _Bootstrap bootstrap,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
   ) {
-    final areaIds = <String>{
-      for (final t in tasks)
-        if ((t.data()['areaId'] ?? '').toString().isNotEmpty)
-          (t.data()['areaId'] ?? '').toString(),
-    };
-
-    final areaItems = [
-      const DropdownMenuItem(value: 'todas', child: Text('Todas las áreas')),
-      ...areaIds
-          .map(
-            (id) => DropdownMenuItem(
-              value: id,
-              child: Text(
-                bootstrap.areas[id] ?? id,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          )
-          .toList()
-        ..sort(
-          (a, b) => (a.child as Text).data!.toLowerCase().compareTo(
-            (b.child as Text).data!.toLowerCase(),
-          ),
-        ),
-    ];
+    final areaItems = _areaItems(bootstrap, tasks);
+    final areaValor = areaItems.any((i) => i.value == _areaFilter)
+        ? _areaFilter
+        : 'todas';
 
     final empresas = bootstrap.empresas.toList()..sort();
     final showTodas = empresas.length > 1;
@@ -1387,7 +1411,9 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
             SizedBox(
               width: 230,
               child: DropdownButtonFormField<String>(
-                initialValue: _areaFilter,
+                key: ValueKey('area-$areaValor-${areaItems.length}'),
+                initialValue: areaValor,
+                isExpanded: true,
                 items: areaItems,
                 decoration: inputDecoration.copyWith(labelText: 'Área'),
                 onChanged: (v) => setState(() => _areaFilter = v ?? 'todas'),
@@ -1830,13 +1856,44 @@ class _Bootstrap {
     required this.areas,
     required this.empresaId,
     required this.empresas,
-  });
+    this.areasPorCargo = const {},
+  }) : catalogo = AreaCatalogo.desde(
+         areas.entries.map((e) => (id: e.key, nombre: e.value)),
+       );
 
   final Map<String, dynamic> userDoc;
   final Map<String, Map<String, dynamic>> users;
   final Map<String, String> areas;
   final String empresaId;
   final Set<String> empresas;
+
+  /// Área de cada cargo, por empresa (`TBL_CARGOS`).
+  final Map<String, AreasPorCargo> areasPorCargo;
+
+  /// Catálogo de áreas de las empresas cargadas. Se arma una vez por carga:
+  /// la pestaña de Interventoría lo usa de clave para sus cachés.
+  final AreaCatalogo catalogo;
+
+  /// Área de una persona en una empresa: ficha de esa empresa y, si no la
+  /// trae, la de su cargo.
+  String areaDePersona(String uid, String empresaId) => areaDeUsuario(
+    users[uid.trim()],
+    empresaId,
+    cargos: areasPorCargo[empresaId.trim()] ?? const AreasPorCargo(),
+  );
+
+  /// Nombre legible del área de una tarea: la de su responsable y, si no se
+  /// conoce, la guardada en la tarea. Nunca un id crudo.
+  String etiquetaAreaTarea(Map<String, dynamic> tarea) {
+    final empresa = (tarea['empresaId'] ?? tarea['empresa_id'] ?? '')
+        .toString()
+        .trim();
+    final ref = areaDeTarea(
+      tarea,
+      areaDePersona: (uid) => areaDePersona(uid, empresa),
+    );
+    return catalogo.nombreDe(ref, empresaId: empresa);
+  }
 }
 
 // ── Web tab toggle (segmented control) ─────────────────────────────────────

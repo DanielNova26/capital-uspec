@@ -1,4 +1,3 @@
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
 
@@ -10,9 +9,12 @@ class CompanyBrandingService {
 
   static final Map<String, Uint8List?> _logoCache = {};
 
+  /// Logo de la empresa. Sin logo propio devuelve [fallbackAsset] (el de la
+  /// app); con `fallbackAsset: null` devuelve null, para los documentos que
+  /// llevan la marca de la empresa y no deben salir con la de la app.
   Future<Uint8List?> loadLogoBytes(
     String? empresaId, {
-    String fallbackAsset = 'assets/logo.png',
+    String? fallbackAsset = 'assets/logo.png',
   }) async {
     final eid = (empresaId ?? '').trim();
     if (eid.isNotEmpty && _logoCache.containsKey(eid)) {
@@ -35,6 +37,7 @@ class CompanyBrandingService {
     }
 
     if (bytes != null && bytes.isNotEmpty) return bytes;
+    if (fallbackAsset == null) return null;
 
     try {
       final fallback = await rootBundle.load(fallbackAsset);

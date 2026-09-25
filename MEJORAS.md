@@ -6292,3 +6292,60 @@ reportes del 20-21 sep (Talento Humano, Bodega y Gerencia).
 - Usuario ficticio "administrador de bodega" para pruebas: se crea desde
   Talento Humano / Admin.
 - Equipo nuevo, accesos al servidor y tokens de Servir: fuera de la app.
+
+## Gerencia: el área sale del responsable, barras por área y PDF con la empresa (25 sep 2026)
+
+Primer módulo de la ronda de correcciones "módulo por módulo".
+
+**El área no conectaba con los filtros.** Los hallazgos que se asignan a una
+persona por la matriz de numerales nunca guardan `areaId` ni `dptoEncargado`
+(solo los llena la asignación por área, que ya casi no se usa), y la tarea que
+nace de un hallazgo hereda ese `areaId` vacío. En Gerencia casi todo caía en
+"Sin área" y elegir un área en el filtro no traía nada. Ahora el área se
+resuelve en lectura (`lib/gerencia/gerencia_areas.dart`), en este orden:
+
+1. la del **responsable ya asignado** (ficha de la empresa y, si no la trae,
+   el área de su cargo en `TBL_CARGOS`);
+2. si esa no se conoce, la asignada a mano al hallazgo;
+3. si no está asignado, la del responsable que **asigna la matriz** (mismo
+   `sugerirResponsable` del tablero, con las reglas guardadas de la empresa).
+
+No se escribe nada en Firestore: Gerencia es de solo lectura y así el informe
+sigue a la persona si cambia de área o se reasigna el hallazgo. Un hallazgo sin
+asignar muestra "Responsable sugerido por la matriz: X", y el filtro y la
+agrupación por responsable lo cuentan con ese responsable. El director de área
+se resuelve con el área nueva.
+
+El filtro de área guarda el nombre normalizado (`areaClave`) y ofrece el
+catálogo más las áreas que aparecen en los datos: toda área que sale en una
+barra se puede elegir. El tablero de tareas de Gerencia usa la misma regla
+(área del asignado; si no, la de la tarea) y deja de mostrar ids crudos
+(`?? id`) y de filtrar con `areaId ==`.
+
+**Barras por área, no por fecha.** La tarjeta "Visitas realizadas" por semana
+pasa a "Hallazgos por área · hallazgos (visitas)": una barra por área, partida
+por estado, que responde a todos los filtros; un clic en el área la deja como
+filtro. La nota de la tarjeta conserva el total de actas del período (incluidas
+las que no dejaron hallazgos). El Excel de visitas suma la hoja "Por área" y el
+PDF la tabla por área.
+
+**"12 (3)".** Todo conteo de hallazgos lleva al lado, entre paréntesis, las
+visitas en que salieron (visitas distintas: `visitaId`, o sede + fecha en los
+manuales): KPI, barras de la gráfica, cabecera del detalle y PDF. Los chips de
+sección del detalle dicen "3 (5)" y no "3 · 5", que se leía como el numeral
+3.5. Los numerales del acta siguen como "3.5".
+
+**PDF con la empresa.** Los PDF de hallazgos y de visitas llevan en el
+encabezado de cada página el logo (`TBL_EMPRESAS.logoUrl`) y el nombre de la
+empresa (o los nombres, si el informe mezcla varias; el logo es el de la
+empresa activa). Sin logo propio sale sin logo: el de la app no representa a la
+empresa (`CompanyBrandingService.loadLogoBytes(fallbackAsset: null)`). Un logo
+en un formato que el PDF no lee (SVG) no impide generar el archivo.
+
+Pruebas: `test/gerencia/gerencia_areas_test.dart` y grupos nuevos en
+`test/gerencia/gerencia_hallazgos_export_test.dart`.
+
+**Pendiente**: escribir el área del responsable en el hallazgo al asignarlo
+(Interventoría) dejaría el dato guardado para otros módulos, pero cambia cómo el
+tablero y el panel distinguen "asignado por área"; se deja para cuando se
+revise Interventoría.
