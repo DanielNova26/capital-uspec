@@ -9,6 +9,7 @@ import 'package:todo/home/widgets/home_shared_widgets.dart';
 import 'package:todo/widgets/empty_state_widget.dart';
 import 'package:todo/widgets/skeleton_loader.dart';
 import '../core/guarded_module_page.dart';
+import '../core/task_origen.dart';
 import '../widgets/internal_module_layout.dart';
 import '../widgets/user_avatar.dart';
 import '../core/area_directory.dart';
@@ -1304,10 +1305,14 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
       final empresa = (data['empresaId'] ?? data['empresa_id'] ?? '')
           .toString()
           .trim();
-      final areaName = bootstrap.catalogo.nombreDe(
-        bootstrap.areaDePersona(creatorId, empresa),
-        empresaId: empresa,
-      );
+      // Lo que asignó la matriz de Interventoría no es del área de quien
+      // dio clic.
+      final areaName = esAsignacionAutomaticaDeModulo(data)
+          ? 'Interventoría (automática)'
+          : bootstrap.catalogo.nombreDe(
+              bootstrap.areaDePersona(creatorId, empresa),
+              empresaId: empresa,
+            );
       out[areaName] = (out[areaName] ?? 0) + 1;
     }
     return out;

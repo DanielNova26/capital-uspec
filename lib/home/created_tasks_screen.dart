@@ -15,6 +15,7 @@ import '../facturacion/facturacion_models.dart';
 import '../gestion_documental/correspondencia/gd_correspondencia_screen.dart';
 import '../services/task_service.dart';
 import '../core/area_directory.dart';
+import '../core/task_origen.dart';
 
 const String _kFont = 'Arial';
 
@@ -1811,7 +1812,14 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
           return const Scaffold(body: SkeletonList(items: 5));
         }
 
-        final allDocs = snap.data?.docs ?? [];
+        // "Tareas que asigné" es lo que la persona asignó. Lo que asignó la
+        // matriz de Interventoría cuando alguien dio clic no es suyo
+        // (25 sep 2026), aunque las tareas viejas lo tengan como creador.
+        final allDocs = widget.approvalMode
+            ? (snap.data?.docs ?? const [])
+            : (snap.data?.docs ?? const [])
+                  .where((d) => laAsignoEstaPersona(d.data(), widget.userId))
+                  .toList();
 
         // Auto-open highlight from notification
         if (widget.highlightTaskId != null && !_didAutoOpen) {

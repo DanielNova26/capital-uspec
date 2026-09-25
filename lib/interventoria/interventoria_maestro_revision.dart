@@ -66,6 +66,11 @@ class _InterventoriaMaestroRevisionState
   List<CentroCostoRef> _centros = const [];
   List<InterventoriaHallazgo> _sinTarea = const [];
 
+  /// Tareas de la matriz creadas antes del 25 sep 2026 a nombre de quien dio
+  /// clic (le salían en "Tareas que asigné").
+  int _tareasANombreDePersona = 0;
+  bool _pasandoAInterventoria = false;
+
   List<RevisionCargoMaestro> _cargos = const [];
   List<RevisionSede>? _sedes;
   PrevisionAsignacionPendiente? _prevision;
@@ -96,6 +101,7 @@ class _InterventoriaMaestroRevisionState
         svc.listarUsuariosAsignables(eid),
         svc.streamCentrosCosto(eid).first,
         svc.listarHallazgosSinTarea(eid),
+        svc.listarTareasAutomaticasANombreDePersona(eid),
       ]);
       if (!mounted) return;
       _catalogo = resultados[0] as List<String>;
@@ -103,6 +109,7 @@ class _InterventoriaMaestroRevisionState
       _asignables = resultados[2] as List<InterventoriaUsuario>;
       _centros = resultados[3] as List<CentroCostoRef>;
       _sinTarea = resultados[4] as List<InterventoriaHallazgo>;
+      _tareasANombreDePersona = (resultados[5] as List<String>).length;
       _recalcular();
       setState(() => _cargando = false);
     } catch (e) {
@@ -206,6 +213,12 @@ class _InterventoriaMaestroRevisionState
               ],
             ),
             const SizedBox(height: 14),
+            // Arriba de las tres vistas: es una corrección de una sola vez
+            // que no debe quedar escondida en una pestaña.
+            if (_avisoTareasANombreDePersona() case final aviso?) ...[
+              aviso,
+              const SizedBox(height: 14),
+            ],
             switch (_vista) {
               _Vista.cargos => _vistaCargos(movil),
               _Vista.sedes => _vistaSedes(),
@@ -598,6 +611,56 @@ class _InterventoriaMaestroRevisionState
   }
 
   // ── 3. Hallazgos sin tarea ───────────────────────────────────────────────
+
+  Widget? _avisoTareasANombreDePersona() {
+    final n = _tareasANombreDePersona;
+    if (n == 0 || !widget.canEdit) return null;
+    return _Aviso(
+      icon: Icons.person_search_outlined,
+      color: _kAviso,
+      texto:
+          '$n ${n == 1 ? 'tarea asignada' : 'tareas asignadas'} por el '
+          'maestro ${n == 1 ? 'figura' : 'figuran'} a nombre de quien dio '
+          'clic. Ya no salen en su "Tareas que asigné"; al pasarlas a '
+          'Interventoría el responsable también verá "Asigna: Interventoría".',
+      accion: TextButton(
+        onPressed: _pasandoAInterventoria ? null : _pasarAInterventoria,
+        child: Text(
+          _pasandoAInterventoria ? 'Pasando…' : 'Pasar a Interventoría',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pasarAInterventoria() async {
+    setState(() => _pasandoAInterventoria = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final n = await widget.service.pasarTareasAutomaticasAInterventoria(
+        widget.empresaId,
+      );
+      if (!mounted) return;
+      setState(() => _tareasANombreDePersona = 0);
+      messenger.showSnackBar(
+        SnackBar(
+          backgroundColor: _kOk,
+          content: Text(
+            '$n ${n == 1 ? 'tarea quedó' : 'tareas quedaron'} a nombre de '
+            'Interventoría.',
+          ),
+        ),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          backgroundColor: _kPeligro,
+          content: Text('No se pudieron pasar: $e'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _pasandoAInterventoria = false);
+    }
+  }
 
   Widget _vistaPendientes() {
     final p = _prevision;

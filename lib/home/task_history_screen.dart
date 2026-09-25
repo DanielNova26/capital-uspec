@@ -12,6 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../core/task_route_guard.dart';
 import '../core/area_directory.dart';
+import '../core/task_origen.dart';
 
 const Color kBrand = Color(0xFF1E3A8A);
 const String kArial = 'Arial';
@@ -226,6 +227,10 @@ class _HistoryTabState extends State<_HistoryTab> {
   ) {
     return docs.where((d) {
       final m = d.data();
+      // Pestaña de las que asigné: fuera lo que asignó Interventoría.
+      if (!widget.isAsignado && !laAsignoEstaPersona(m, widget.userId)) {
+        return false;
+      }
       final title = (m['titulo'] ?? '').toString().toLowerCase();
       final area = m['areaId'] ?? '';
       final date = (m['updatedAt'] as Timestamp?)?.toDate();

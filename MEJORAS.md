@@ -42,6 +42,15 @@ calendario hallazgos "por recibir" que reciben los aprobadores.
   creado ya no la pone en el calendario; en una tarea manual sin jefe el
   creador es el aprobador y la sigue viendo. Tocar una "por recibir" abre
   "Tareas por aprobar".
+- "Tareas que asigné": lo que asigna la matriz de Interventoría no es de
+  quien dio clic ("él solo le dio al botón"). Las tareas nuevas nacen con
+  creador `interventoria_automatica` ("Asigna: Interventoría") y quien dio
+  clic queda en `ejecutadoPorId`. Las viejas (`asignacionAutomatica: true`)
+  se excluyen de "Tareas que asigné" y de su historial
+  (`lib/core/task_origen.dart`), y Maestro › Revisión ofrece "Pasar a
+  Interventoría" para cambiarles el creador. Si alguien eligió a la persona
+  a mano en el tablero, la tarea sí es suya. En Gerencia, "por área de quien
+  asigna" las agrupa como "Interventoría (automática)".
 - Solicitudes de corrección ("devolver") y eliminación ("borrar") de actas:
   el aviso llega solo a Revisor (Kary) y a los desarrolladores activos.
   Quién puede resolverlas no cambia.

@@ -9,6 +9,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:intl/intl.dart';
 
 import '../core/festivos_colombia.dart';
+import '../core/task_origen.dart';
 import '../services/org_service.dart';
 import '../services/task_service.dart';
 import '../utils/user_company.dart';
@@ -1115,7 +1116,7 @@ class InterventoriaService {
         errores.add('${hallazgo.numeralParaMatriz}: $error');
       }
     }
-    final avisos = await enviarAvisosAsignacion(tareas, fromId: creadorId);
+    final avisos = await enviarAvisosAsignacion(tareas);
     return InterventoriaAutoAsignacionResultado(
       creadas: creadas,
       pendientes: pendientes,
@@ -1132,7 +1133,7 @@ class InterventoriaService {
   /// esto al final.
   Future<int> enviarAvisosAsignacion(
     List<InterventoriaTareaCreada> tareas, {
-    String fromId = '',
+    String fromId = kCreadorInterventoria,
   }) async {
     var enviados = 0;
     final taskSvc = TaskService();
@@ -1147,7 +1148,7 @@ class InterventoriaService {
           // responsable, Por aprobar al aprobador (TaskRouteGuard).
           type: 'task_assigned',
           fromId: fromId,
-          fromName: 'Interventoría',
+          fromName: kNombreCreadorInterventoria,
           empresaId: aviso.empresaId,
           idempotencyKey: aviso.claveIdempotencia,
           silenciosa: aviso.silenciosa,
@@ -2812,6 +2813,70 @@ class InterventoriaService {
     ].where(esHallazgoPendienteDeTarea).toList();
   }
 
+  /// Tareas que asignó la matriz pero figuran a nombre de una persona: las
+  /// que se crearon antes del 25 sep 2026 con quien dio clic como creador.
+  Future<List<String>> listarTareasAutomaticasANombreDePersona(
+    String empresaId,
+  ) async {
+    final snap = await _db
+        .collection('TBL_TAREAS')
+        .where('empresaId', isEqualTo: empresaId)
+        .where('sourceModule', isEqualTo: 'interventoria')
+        .get();
+    return [
+      for (final doc in snap.docs)
+        if (_esAutomaticaANombreDePersona(doc.data())) doc.id,
+    ];
+  }
+
+  static bool _esAutomaticaANombreDePersona(Map<String, dynamic> t) {
+    final creador = (t['creador_id'] ?? '').toString().trim();
+    if (creador.isEmpty || creador == kCreadorInterventoria) return false;
+    if (!esAsignacionAutomaticaDeModulo(t)) return false;
+    // Solo si otro la aprueba: si el creador fuera también el aprobador,
+    // quitarlo lo dejaría sin quién reciba la tarea.
+    final aprobador = (t['aprobador_uid'] ?? t['jefe_uid'] ?? '')
+        .toString()
+        .trim();
+    return aprobador.isNotEmpty && aprobador != creador;
+  }
+
+  /// Pasa esas tareas a nombre de Interventoría. Quien figuraba queda en
+  /// `ejecutadoPorId`. Devuelve cuántas cambió.
+  Future<int> pasarTareasAutomaticasAInterventoria(String empresaId) async {
+    final snap = await _db
+        .collection('TBL_TAREAS')
+        .where('empresaId', isEqualTo: empresaId)
+        .where('sourceModule', isEqualTo: 'interventoria')
+        .get();
+    var cambiadas = 0;
+    WriteBatch lote = _db.batch();
+    var enLote = 0;
+    for (final doc in snap.docs) {
+      final t = doc.data();
+      if (!_esAutomaticaANombreDePersona(t)) continue;
+      lote.update(doc.reference, {
+        'creador_id': kCreadorInterventoria,
+        'creatorId': kCreadorInterventoria,
+        'creador_nombre': kNombreCreadorInterventoria,
+        'creatorName': kNombreCreadorInterventoria,
+        if ((t['ejecutadoPorId'] ?? '').toString().trim().isEmpty)
+          'ejecutadoPorId': t['creador_id'],
+        if ((t['ejecutadoPorNombre'] ?? '').toString().trim().isEmpty)
+          'ejecutadoPorNombre': t['creador_nombre'] ?? '',
+      });
+      cambiadas++;
+      enLote++;
+      if (enLote == 400) {
+        await lote.commit();
+        lote = _db.batch();
+        enLote = 0;
+      }
+    }
+    if (enLote > 0) await lote.commit();
+    return cambiadas;
+  }
+
   /// Cambia un cargo por otro en todas las reglas del maestro que lo nombran
   /// (Maestro › Revisión). Devuelve cuántas reglas cambió.
   ///
@@ -3439,6 +3504,14 @@ class InterventoriaService {
     sb.writeln('Origen: Interventoría');
     final descripcion = sb.toString().trimRight();
 
+    // La tarea que sale de la matriz la asigna Interventoría, no quien dio
+    // clic: queda a nombre del módulo y fuera de "Tareas que asigné" de esa
+    // persona (25 sep 2026). Quien la eligió a mano sí la asignó.
+    final asignacionAutomatica =
+        responsableForzado == null &&
+        !preferirAreaManual &&
+        asignacion?.completa == true;
+
     // ── 5. Crear tarea vía TaskService en estado PENDIENTE ───────────────────
     //      Estado "pendiente" = tarea creada, esperando acción del responsable.
     //      El responsable la ve en su lista y puede: iniciarla, reasignarla o
@@ -3454,8 +3527,10 @@ class InterventoriaService {
       prioridad: 'alta',
       asignadoUid: destinatarioId,
       asignadoNombre: destinatarioNombre,
-      creadorUid: creadorId,
-      creadorNombre: creadorNombreReal,
+      creadorUid: asignacionAutomatica ? kCreadorInterventoria : creadorId,
+      creadorNombre: asignacionAutomatica
+          ? kNombreCreadorInterventoria
+          : creadorNombreReal,
       // El aprobador de la matriz queda como "jefe" → recibe notificación
       // cuando el responsable reasigne o finalice la tarea.
       jefeUid: jefeId,
@@ -3481,10 +3556,10 @@ class InterventoriaService {
         'numeralActa': hallazgo.numeralParaMatriz,
         'cargoResponsable': asignacion?.cargoResponsable ?? '',
         'cargoAprobador': asignacion?.cargoAprobador ?? '',
-        'asignacionAutomatica':
-            responsableForzado == null &&
-            !preferirAreaManual &&
-            asignacion?.completa == true,
+        'asignacionAutomatica': asignacionAutomatica,
+        // Quién dio clic (o completó el acta), para la trazabilidad.
+        'ejecutadoPorId': creadorId,
+        'ejecutadoPorNombre': creadorNombreReal,
         'aprobadorId': aprobador.id,
         // Marca que permite reasignación directa sin aprobación extra
         'permite_reasignacion_director': true,

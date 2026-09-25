@@ -826,10 +826,7 @@ class _InterventoriaTableroAsignacionState
           fallidos++;
         }
       }
-      await widget.service.enviarAvisosAsignacion(
-        creadas,
-        fromId: widget.userId,
-      );
+      await widget.service.enviarAvisosAsignacion(creadas);
     });
     if (!mounted) return;
     setState(() => _asignandoMasivo = false);
