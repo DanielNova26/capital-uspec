@@ -171,6 +171,9 @@ class TaskService {
     String? empresaId,
     Map<String, dynamic>? extraData,
     String? idempotencyKey,
+    // Sin sonido: canal `tasks_silent` en Android y `passive` en iOS
+    // (functions/src/notification_sound_policy.ts). Para lo informativo.
+    bool silenciosa = false,
   }) async {
     if (toUserId.trim().isEmpty) return;
 
@@ -193,6 +196,7 @@ class TaskService {
       if (normalizedKey.isNotEmpty) 'idempotencyKey': normalizedKey,
     };
     if (extraData != null) payload.addAll(extraData);
+    if (silenciosa) payload['silenciosa'] = true;
     final eid = empresaId?.trim() ?? '';
     if (eid.isNotEmpty) payload['empresaId'] = eid;
     if (normalizedKey.isEmpty) {

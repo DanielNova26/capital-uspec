@@ -208,32 +208,118 @@ export function userIsActiveInEmpresa(
 }
 
 /**
- * Quién recibe el aviso de una solicitud: solo los roles que pueden
- * aprobarla y que siguen vinculados a la empresa. Un rol asignado a alguien
- * ya retirado seguía recibiendo notificaciones (reunión 18 sep 2026: "debería
- * llegarle solo a las personas que pueden eliminar el acta").
- * @param {string} empresaId Empresa de la solicitud.
- * @return {Promise<string[]>} Identificadores de los aprobadores activos.
+ * Rol de Interventoría que recibe el AVISO de una solicitud de corrección
+ * ("devolver") o de eliminación ("borrar") de un acta: Revisor, que es Kary.
+ *
+ * Antes el aviso iba a todos los roles que pueden aprobarla (administración,
+ * revisor, gerencia, dirección). Instrucción del 25 sep 2026: "las
+ * notificaciones de devolver o borrar solo para Kary o para mí como
+ * desarrollador". Cambia quién recibe el aviso, no quién puede resolver:
+ * `canApproveInterventoriaDeletion` sigue igual y la solicitud sigue visible
+ * en el módulo para esos roles.
  */
-async function approverIds(empresaId: string): Promise<string[]> {
-  const roles = await admin.firestore().collection(ROLES)
-    .where("empresaId", "==", empresaId).get();
-  const candidatos = [...new Set(roles.docs
-    .filter((doc) => canApproveInterventoriaDeletion(clean(doc.data().rol)))
-    .map((doc) => clean(doc.data().userId || doc.data().cedula))
-    .filter(Boolean))];
-  const activos: string[] = [];
-  for (const id of candidatos) {
-    try {
-      const user = await admin.firestore().collection("TBL_USUARIOS").doc(id).get();
-      if (!user.exists || userIsActiveInEmpresa(user.data() || {}, empresaId)) {
-        activos.push(id);
-      }
-    } catch {
-      activos.push(id);
+const REQUEST_NOTICE_ROLES = new Set(["revisor_interventoria"]);
+
+/**
+ * ¿Este rol de Interventoría recibe el aviso de las solicitudes?
+ * @param {string} role Rol en `TBL_INTERVENTORIA_ROLES`.
+ * @return {boolean} true solo para Revisor.
+ */
+export function receivesInterventoriaRequestNotice(role: string): boolean {
+  return REQUEST_NOTICE_ROLES.has(normalizeRole(role));
+}
+
+const DEVELOPER_ROLES = new Set([
+  "desarrollador",
+  "developer",
+  "superadmin",
+  "administrador_sistema",
+]);
+
+/**
+ * Reconoce al desarrollador por cualquiera de las marcas con que se guarda:
+ * bandera booleana, rol de la raíz o rol dentro de la empresa (`roleKey`, o
+ * `roleId` terminado en `_desarrollador`, que es como lo crea Administración).
+ * @param {FirebaseFirestore.DocumentData} data Documento del usuario.
+ * @param {string} empresaId Empresa de la solicitud.
+ * @return {boolean} true si es desarrollador.
+ */
+export function isInterventoriaDeveloper(
+  data: FirebaseFirestore.DocumentData,
+  empresaId: string
+): boolean {
+  if (data.desarrollador === true || data.developer === true) return true;
+  const values: unknown[] = [
+    data.roleKey, data.roleId, data.role, data.rol, data.tipoUsuario,
+  ];
+  const detalle = data.empresasDetalle;
+  const scoped = detalle && typeof detalle === "object" && !Array.isArray(detalle) ?
+    (detalle as Record<string, any>)[empresaId] :
+    null;
+  if (scoped && typeof scoped === "object") {
+    values.push(scoped.roleKey, scoped.role_key, scoped.roleId, scoped.role, scoped.rol);
+  }
+  return values.map(normalizeRole).some((role) =>
+    DEVELOPER_ROLES.has(role) ||
+    role.endsWith("_desarrollador") ||
+    role.endsWith("_developer")
+  );
+}
+
+/**
+ * Destinatarios del aviso de una solicitud: Revisor (Kary) vinculado a la
+ * empresa y los desarrolladores activos. Un rol asignado a alguien ya retirado
+ * no recibe nada (reunión 18 sep 2026).
+ * @param {FirebaseFirestore.DocumentData[]} roles Roles de Interventoría de la
+ *   empresa.
+ * @param {{id: string, data: FirebaseFirestore.DocumentData}[]} users Usuarios.
+ * @param {string} empresaId Empresa de la solicitud.
+ * @return {string[]} Identificadores sin repetir.
+ */
+export function requestNoticeRecipients(
+  roles: FirebaseFirestore.DocumentData[],
+  users: {id: string; data: FirebaseFirestore.DocumentData}[],
+  empresaId: string
+): string[] {
+  const byId = new Map(users.map((user) => [user.id, user.data]));
+  const out = new Set<string>();
+  for (const role of roles) {
+    if (!receivesInterventoriaRequestNotice(clean(role.rol))) continue;
+    const id = clean(role.userId || role.cedula, 512);
+    if (!id) continue;
+    const user = byId.get(id);
+    // Sin documento de usuario se conserva el aviso, como antes.
+    if (!user || userIsActiveInEmpresa(user, empresaId)) out.add(id);
+  }
+  for (const user of users) {
+    if (isInterventoriaDeveloper(user.data, empresaId) &&
+        userIsActiveInEmpresa(user.data, empresaId)) {
+      out.add(user.id);
     }
   }
-  return activos;
+  return [...out];
+}
+
+/**
+ * Lee roles y usuarios y resuelve quién recibe el aviso de una solicitud.
+ * Los desarrolladores no tienen una marca consultable única, así que se leen
+ * los usuarios con solo los campos que hacen falta; las solicitudes son pocas.
+ * @param {string} empresaId Empresa de la solicitud.
+ * @return {Promise<string[]>} Identificadores de los destinatarios.
+ */
+async function requestNoticeRecipientIds(empresaId: string): Promise<string[]> {
+  const [roles, users] = await Promise.all([
+    admin.firestore().collection(ROLES).where("empresaId", "==", empresaId).get(),
+    admin.firestore().collection(USERS).select(
+      "desarrollador", "developer", "roleKey", "roleId", "role", "rol",
+      "tipoUsuario", "empresasDetalle", "activo", "estado"
+    ).get(),
+  ]);
+  return requestNoticeRecipients(
+    roles.docs.map((doc) => doc.data()),
+    users.docs.map((doc) => ({id: doc.id, data: doc.data()})),
+    empresaId
+  );
 }
 
 function attachmentUrls(data: FirebaseFirestore.DocumentData): string[] {
@@ -422,7 +508,7 @@ export const interventoriaSolicitarEliminacion = functions
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
-    const recipients = (await approverIds(actor.empresaId))
+    const recipients = (await requestNoticeRecipientIds(actor.empresaId))
       .filter((id) => id !== actor.id);
     await Promise.all(recipients.map((id) => notifyUser(
       id,

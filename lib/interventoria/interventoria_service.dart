@@ -13,9 +13,11 @@ import '../services/org_service.dart';
 import '../services/task_service.dart';
 import '../utils/user_company.dart';
 import 'interventoria_actas_catalogo.dart';
+import 'interventoria_avisos_asignacion.dart';
 import 'interventoria_models.dart';
 import 'interventoria_numerales_catalogo.dart';
 import 'interventoria_programas.dart';
+import 'interventoria_revision_maestro.dart';
 
 export 'interventoria_numerales_catalogo.dart';
 
@@ -100,10 +102,15 @@ class InterventoriaAutoAsignacionResultado {
   final int pendientes;
   final List<String> errores;
 
+  /// Personas avisadas: una notificación por responsable y una silenciosa por
+  /// aprobador, no una por tarea.
+  final int avisos;
+
   const InterventoriaAutoAsignacionResultado({
     this.creadas = 0,
     this.pendientes = 0,
     this.errores = const [],
+    this.avisos = 0,
   });
 }
 
@@ -1057,13 +1064,35 @@ class InterventoriaService {
         .where('visitaId', isEqualTo: visita.id)
         .where('fuente', isEqualTo: 'acta')
         .get();
+    return _asignarEnLote(
+      hallazgos: [
+        for (final doc in actuales.docs)
+          InterventoriaHallazgo.fromMap(doc.id, doc.data()),
+      ].where((h) => usedGrupoIds.contains(h.grupoId)),
+      creadorId: creadorId,
+      creadorNombre: creadorNombre,
+    );
+  }
+
+  /// Asigna varios hallazgos y avisa UNA vez por persona.
+  ///
+  /// Cada tarea nace con `notificarCreacion: false`, así `onTaskCreated` no
+  /// manda su aviso individual (con sonido al responsable y al aprobador). Al
+  /// terminar sale un resumen por responsable, con sonido, y uno por
+  /// aprobador, en silencio (ver `interventoria_avisos_asignacion.dart`).
+  /// Uno por uno para no competir por el mismo hallazgo; los usuarios y las
+  /// reglas se leen una vez para todo el lote.
+  Future<InterventoriaAutoAsignacionResultado> _asignarEnLote({
+    required Iterable<InterventoriaHallazgo> hallazgos,
+    required String creadorId,
+    String creadorNombre = '',
+  }) => enLote(() async {
     var creadas = 0;
     var pendientes = 0;
     final errores = <String>[];
-    for (final doc in actuales.docs) {
-      final hallazgo = InterventoriaHallazgo.fromMap(doc.id, doc.data());
-      if (!usedGrupoIds.contains(hallazgo.grupoId) ||
-          hallazgo.tareaId.trim().isNotEmpty ||
+    final tareas = <InterventoriaTareaCreada>[];
+    for (final hallazgo in hallazgos) {
+      if (hallazgo.tareaId.trim().isNotEmpty ||
           !debeAparecerEnTableroAsignacion(hallazgo)) {
         continue;
       }
@@ -1072,6 +1101,8 @@ class InterventoriaService {
           hallazgo: hallazgo,
           creadorId: creadorId,
           creadorNombre: creadorNombre,
+          notificarCreacion: false,
+          alCrear: tareas.add,
         );
         if (taskId == null || taskId.trim().isEmpty) {
           pendientes++;
@@ -1084,11 +1115,78 @@ class InterventoriaService {
         errores.add('${hallazgo.numeralParaMatriz}: $error');
       }
     }
+    final avisos = await enviarAvisosAsignacion(tareas, fromId: creadorId);
     return InterventoriaAutoAsignacionResultado(
       creadas: creadas,
       pendientes: pendientes,
       errores: errores,
+      avisos: avisos,
     );
+  });
+
+  /// Manda los avisos agrupados de un lote. Un aviso que falla no deshace la
+  /// asignación: la tarea ya quedó creada y visible en la bandeja.
+  ///
+  /// Para lotes armados en pantalla (tablero › "Asignar por el maestro"):
+  /// crear cada tarea con `notificarCreacion: false` y `alCrear`, y llamar
+  /// esto al final.
+  Future<int> enviarAvisosAsignacion(
+    List<InterventoriaTareaCreada> tareas, {
+    String fromId = '',
+  }) async {
+    var enviados = 0;
+    final taskSvc = TaskService();
+    for (final aviso in avisosDeAsignacion(tareas)) {
+      try {
+        await taskSvc.pushNotification(
+          toUserId: aviso.destinatarioId,
+          title: aviso.titulo,
+          description: aviso.descripcion,
+          taskId: aviso.taskId,
+          // `task_assigned` abre la bandeja según quién toca: Mis tareas al
+          // responsable, Por aprobar al aprobador (TaskRouteGuard).
+          type: 'task_assigned',
+          fromId: fromId,
+          fromName: 'Interventoría',
+          empresaId: aviso.empresaId,
+          idempotencyKey: aviso.claveIdempotencia,
+          silenciosa: aviso.silenciosa,
+          extraData: {
+            'module': 'interventoria',
+            'sourceModule': 'interventoria',
+            'agrupada': true,
+            'cantidad': aviso.cantidad,
+          },
+        );
+        enviados++;
+      } catch (_) {
+        // Sigue con los demás avisos.
+      }
+    }
+    return enviados;
+  }
+
+  /// Caché de lecturas durante un lote de asignaciones. Sin ella cada
+  /// hallazgo leía TBL_USUARIOS completa dos veces y las reglas del maestro
+  /// otra: generar el rezago de cientos de hallazgos eran cientos de lecturas
+  /// de la colección entera.
+  Map<String, Object>? _cacheLote;
+
+  /// Ejecuta [accion] leyendo usuarios, reglas y creadores una sola vez.
+  Future<T> enLote<T>(Future<T> Function() accion) async {
+    final anidado = _cacheLote != null;
+    _cacheLote ??= <String, Object>{};
+    try {
+      return await accion();
+    } finally {
+      if (!anidado) _cacheLote = null;
+    }
+  }
+
+  Future<T> _leerEnLote<T>(String clave, Future<T> Function() leer) {
+    final cache = _cacheLote;
+    if (cache == null) return leer();
+    return cache.putIfAbsent(clave, leer) as Future<T>;
   }
 
   /// Sincroniza el estado del hallazgo cuando la tarea vinculada cambia.
@@ -2358,7 +2456,20 @@ class InterventoriaService {
     String empresaId,
   ) => _usuariosDeEmpresa(empresaId);
 
+  /// Personal activo con cargo, reciba o no tareas. Es la lista contra la que
+  /// se resuelve el APROBADOR (ver [resolverAsignacionPorNumeral]).
+  Future<List<InterventoriaUsuario>> listarUsuariosActivos(String empresaId) =>
+      _usuariosDeEmpresa(empresaId, soloAsignables: false);
+
   Future<List<InterventoriaUsuario>> _usuariosDeEmpresa(
+    String empresaId, {
+    bool soloAsignables = true,
+  }) => _leerEnLote(
+    'usuarios|$empresaId|$soloAsignables',
+    () => _leerUsuariosDeEmpresa(empresaId, soloAsignables: soloAsignables),
+  );
+
+  Future<List<InterventoriaUsuario>> _leerUsuariosDeEmpresa(
     String empresaId, {
     bool soloAsignables = true,
   }) async {
@@ -2646,7 +2757,10 @@ class InterventoriaService {
             : <String, dynamic>{};
       });
 
-  Future<Map<String, dynamic>> _reglasSubsanacion(String empresaId) async {
+  Future<Map<String, dynamic>> _reglasSubsanacion(String empresaId) =>
+      _leerEnLote('reglas|$empresaId', () => _leerReglasSubsanacion(empresaId));
+
+  Future<Map<String, dynamic>> _leerReglasSubsanacion(String empresaId) async {
     final doc = await _db
         .collection('TBL_INTERVENTORIA_CONFIG')
         .doc(empresaId)
@@ -2658,6 +2772,11 @@ class InterventoriaService {
   /// Repara el rezago creado por versiones que solo sugerían al responsable
   /// en pantalla. Es idempotente: ignora hallazgos que ya tienen `tareaId` y
   /// cada hallazgo usa un id estable de tarea.
+  ///
+  /// Solo se ejecuta a pedido, desde Maestro › Revisión. Hasta el 25 sep 2026
+  /// corría sola cada vez que un revisor abría el módulo: creaba de golpe las
+  /// tareas de todas las sedes, cada una con su aviso, y dejaba como creador
+  /// a quien había abierto la pantalla.
   Future<InterventoriaAutoAsignacionResultado>
   asignarHallazgosPendientesAutomaticamente({
     required String empresaId,
@@ -2668,37 +2787,65 @@ class InterventoriaService {
         .collection('TBL_INTERVENTORIA_HALLAZGOS')
         .where('empresaId', isEqualTo: empresaId)
         .get();
-    var creadas = 0;
-    var pendientes = 0;
-    final errores = <String>[];
-    for (final doc in snapshot.docs) {
-      final hallazgo = InterventoriaHallazgo.fromMap(doc.id, doc.data());
-      if (hallazgo.tareaId.trim().isNotEmpty ||
-          !debeAparecerEnTableroAsignacion(hallazgo)) {
-        continue;
-      }
-      try {
-        final taskId = await crearTareaYNotificarHallazgo(
-          hallazgo: hallazgo,
-          creadorId: creadorId,
-          creadorNombre: creadorNombre,
-        );
-        if (taskId == null || taskId.trim().isEmpty) {
-          pendientes++;
-          errores.add('${hallazgo.numeralParaMatriz}: no se creó la tarea');
-        } else {
-          creadas++;
-        }
-      } catch (error) {
-        pendientes++;
-        errores.add('${hallazgo.numeralParaMatriz}: $error');
-      }
-    }
-    return InterventoriaAutoAsignacionResultado(
-      creadas: creadas,
-      pendientes: pendientes,
-      errores: errores,
+    return _asignarEnLote(
+      hallazgos: [
+        for (final doc in snapshot.docs)
+          InterventoriaHallazgo.fromMap(doc.id, doc.data()),
+      ],
+      creadorId: creadorId,
+      creadorNombre: creadorNombre,
     );
+  }
+
+  /// Hallazgos abiertos de la empresa que todavía no tienen tarea: lo que
+  /// "Generar asignaciones pendientes" va a intentar asignar.
+  Future<List<InterventoriaHallazgo>> listarHallazgosSinTarea(
+    String empresaId,
+  ) async {
+    final snapshot = await _db
+        .collection('TBL_INTERVENTORIA_HALLAZGOS')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+    return [
+      for (final doc in snapshot.docs)
+        InterventoriaHallazgo.fromMap(doc.id, doc.data()),
+    ].where(esHallazgoPendienteDeTarea).toList();
+  }
+
+  /// Cambia un cargo por otro en todas las reglas del maestro que lo nombran
+  /// (Maestro › Revisión). Devuelve cuántas reglas cambió.
+  ///
+  /// Sirve para el cargo mal escrito o que ya no existe en TBL_CARGOS: sin
+  /// esto había que abrir numeral por numeral. Las reglas de la regular que
+  /// seguían la matriz incluida quedan guardadas con el cargo corregido.
+  Future<int> reemplazarCargoEnReglas({
+    required String empresaId,
+    required String cargoActual,
+    required String cargoNuevo,
+    required String actualizadoPor,
+  }) async {
+    final ref = _db.collection('TBL_INTERVENTORIA_CONFIG').doc(empresaId);
+    return _db.runTransaction<int>((trx) async {
+      final snap = await trx.get(ref);
+      final actual = snap.data()?['reglasSubsanacion'];
+      final reglas = actual is Map
+          ? Map<String, dynamic>.from(actual)
+          : <String, dynamic>{};
+      final cambios = reglasConCargoReemplazado(
+        reglas: reglas,
+        cargoActual: cargoActual,
+        cargoNuevo: cargoNuevo,
+        actualizadoPor: actualizadoPor,
+        actualizadoEn: Timestamp.now(),
+      );
+      if (cambios.isEmpty) return 0;
+      reglas.addAll(cambios);
+      trx.set(ref, {
+        'reglasSubsanacion': reglas,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      return cambios.length;
+    });
   }
 
   /// Guarda la regla de un numeral.
@@ -3153,15 +3300,17 @@ class InterventoriaService {
     bool preferirAreaManual = false,
     InterventoriaPersona? responsableForzado,
     bool exigirResponsableEnCentro = false,
+    bool notificarCreacion = true,
+    void Function(InterventoriaTareaCreada creada)? alCrear,
   }) async {
     // ── 1. Resolver nombre real del creador ──────────────────────────────────
     String creadorNombreReal = creadorNombre;
     if (creadorId.isNotEmpty) {
       try {
-        final userDoc = await _db
-            .collection('TBL_USUARIOS')
-            .doc(creadorId)
-            .get();
+        final userDoc = await _leerEnLote(
+          'creador|$creadorId',
+          () => _db.collection('TBL_USUARIOS').doc(creadorId).get(),
+        );
         if (userDoc.exists) creadorNombreReal = _nombreUsuario(userDoc.data()!);
       } catch (_) {}
     }
@@ -3339,6 +3488,9 @@ class InterventoriaService {
         'aprobadorId': aprobador.id,
         // Marca que permite reasignación directa sin aprobación extra
         'permite_reasignacion_director': true,
+        // En lote el aviso es uno por persona al final (`_asignarEnLote`);
+        // onTaskCreated no manda el individual.
+        if (!notificarCreacion) 'notificarCreacion': false,
       },
     );
 
@@ -3374,8 +3526,21 @@ class InterventoriaService {
           });
     }
 
-    // onTaskCreated es la única fuente de notificaciones para evitar duplicados
-    // entre el cliente y Cloud Functions.
+    alCrear?.call(
+      InterventoriaTareaCreada(
+        taskId: taskId,
+        hallazgoId: hallazgo.id,
+        empresaId: hallazgo.empresaId,
+        centroCostoNombre: hallazgo.centroCostoNombre,
+        responsableId: destinatarioId,
+        responsableNombre: destinatarioNombre,
+        aprobadorId: aprobador.id,
+        aprobadorNombre: aprobador.nombre,
+      ),
+    );
+
+    // Una tarea suelta la avisa onTaskCreated (única fuente, para no duplicar
+    // entre el cliente y Cloud Functions). En lote avisa `_asignarEnLote`.
     return taskId;
   }
 }

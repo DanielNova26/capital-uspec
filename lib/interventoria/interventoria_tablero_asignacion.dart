@@ -7,6 +7,7 @@ import '../core/area_directory.dart';
 import '../widgets/paged_list.dart';
 import 'interventoria_models.dart';
 import 'interventoria_service.dart';
+import 'interventoria_avisos_asignacion.dart';
 
 /// Solo ofrece áreas existentes en el catálogo de la empresa activa. Los
 /// nombres legados sí se pueden resolver, pero nunca un id de otra empresa.
@@ -793,33 +794,43 @@ class _InterventoriaTableroAsignacionState
     setState(() => _asignandoMasivo = true);
     var ok = 0;
     var fallidos = 0;
+    // Un aviso por persona al final, no uno por tarea (25 sep 2026).
+    final creadas = <InterventoriaTareaCreada>[];
     // Uno por uno, no en paralelo: cada asignación puede persistir el
     // hallazgo primero (los que vienen de un acta todavía no son documento) y
     // dos asignaciones a la vez sobre el mismo hallazgo duplicarían la tarea.
-    for (final h in sugeridos) {
-      // Se vuelve a comprobar aqui, no solo al construir la lista: entre el
-      // filtro y el clic la lista de usuarios puede haber cambiado, y una
-      // asignacion fuera de sede no se puede colar por una carrera.
-      if (_responsableEnSede(h) == null) continue;
-      final clave = _claveOcupado(h);
-      if (_asignando.contains(clave)) continue;
-      try {
-        var hallazgo = h;
-        if (hallazgo.id.isEmpty) {
-          final id = await widget.service.guardarHallazgo(hallazgo);
-          hallazgo = hallazgo.copyWithId(id);
+    await widget.service.enLote(() async {
+      for (final h in sugeridos) {
+        // Se vuelve a comprobar aqui, no solo al construir la lista: entre el
+        // filtro y el clic la lista de usuarios puede haber cambiado, y una
+        // asignacion fuera de sede no se puede colar por una carrera.
+        if (_responsableEnSede(h) == null) continue;
+        final clave = _claveOcupado(h);
+        if (_asignando.contains(clave)) continue;
+        try {
+          var hallazgo = h;
+          if (hallazgo.id.isEmpty) {
+            final id = await widget.service.guardarHallazgo(hallazgo);
+            hallazgo = hallazgo.copyWithId(id);
+          }
+          await widget.service.crearTareaYNotificarHallazgo(
+            hallazgo: hallazgo,
+            creadorId: widget.userId,
+            creadorNombre: widget.userId,
+            exigirResponsableEnCentro: true,
+            notificarCreacion: false,
+            alCrear: creadas.add,
+          );
+          ok++;
+        } catch (_) {
+          fallidos++;
         }
-        await widget.service.crearTareaYNotificarHallazgo(
-          hallazgo: hallazgo,
-          creadorId: widget.userId,
-          creadorNombre: widget.userId,
-          exigirResponsableEnCentro: true,
-        );
-        ok++;
-      } catch (_) {
-        fallidos++;
       }
-    }
+      await widget.service.enviarAvisosAsignacion(
+        creadas,
+        fromId: widget.userId,
+      );
+    });
     if (!mounted) return;
     setState(() => _asignandoMasivo = false);
     ScaffoldMessenger.of(context).showSnackBar(

@@ -4,6 +4,26 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+/// Canal de los avisos informativos a quien aprueba (25 sep 2026): llegan a
+/// la bandeja sin sonido ni vibración. Lo que pide actuar (aprobar) sigue en
+/// `tasks_high`, con sonido. El backend elige el canal
+/// (`functions/src/notification_sound_policy.ts`).
+const AndroidNotificationChannel kCanalSilencioso = AndroidNotificationChannel(
+  'tasks_silent',
+  'Avisos informativos',
+  description: 'Seguimiento de tareas sin sonido (no requieren acción).',
+  importance: Importance.low,
+  playSound: false,
+  enableVibration: false,
+);
+
+/// ¿La notificación viene marcada como silenciosa?
+bool notificacionSilenciosa(Object? valor) {
+  if (valor == true) return true;
+  final t = (valor ?? '').toString().trim().toLowerCase();
+  return t == '1' || t == 'true';
+}
+
 class LocalNotificationService {
   LocalNotificationService._();
   static final instance = LocalNotificationService._();
@@ -42,16 +62,19 @@ class LocalNotificationService {
       playSound: true,
     );
 
-    await _plugin
+    final androidPlugin = _plugin
         .resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(channel);
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    await androidPlugin?.createNotificationChannel(channel);
+    await androidPlugin?.createNotificationChannel(kCanalSilencioso);
 
-    await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
+    await FirebaseMessaging.instance
+        .setForegroundNotificationPresentationOptions(
+          alert: true,
+          badge: true,
+          sound: true,
+        );
   }
 
   Future<void> show({

@@ -6,6 +6,65 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Notificaciones de Interventoría, calendario y Maestro › Revisión — 25 sep 2026 (Claude)
+
+Origen: con la asignación automática de Interventoría "empezaron a llegar las
+notificaciones a todo el mundo de una"; a Daniel y a Kary les salían en el
+calendario hallazgos "por recibir" que reciben los aprobadores.
+
+**Causas encontradas**
+- La reparación del rezago (`asignarHallazgosPendientesAutomaticamente`)
+  corría sola cada vez que un revisor abría el módulo: creaba de golpe las
+  tareas de todas las sedes y cada tarea mandaba dos avisos con sonido
+  (responsable y aprobador).
+- El creador de esas tareas era quien abría la pantalla, y el calendario
+  consultaba `creador_id`: todo lo creado salía como "POR RECIBIR".
+- Al aprobador (jefe de la tarea) le sonaba todo lo informativo: creada,
+  reasignada, cambio de estado.
+
+**Qué cambió**
+- Sonido (`functions/src/notification_sound_policy.ts`): al aprobador lo
+  informativo le llega en silencio (canal Android `tasks_silent`, iOS
+  `passive`); lo que le pide actuar (`solicitud_finalizacion`, "por
+  aprobar") sí suena. Al responsable todo le sigue sonando. La marca viaja en
+  la notificación (`silenciosa: true`); `TaskService.pushNotification` acepta
+  `silenciosa`.
+- Asignación en lote (completar acta, tablero › "Asignar por el maestro",
+  generar pendientes): las tareas nacen con `notificarCreacion: false`
+  (`onTaskCreated` no avisa) y al final sale UN aviso por persona: al
+  responsable con sonido y al aprobador en silencio
+  (`interventoria_avisos_asignacion.dart`). En el lote, usuarios y reglas se
+  leen una vez (`InterventoriaService.enLote`), no dos veces por hallazgo.
+- La reparación ya no corre al abrir el módulo: se genera a pedido desde
+  Maestro › Revisión › Hallazgos sin tarea, con vista previa.
+- Calendario (`lib/core/task_calendar.dart`): solo POR ENTREGAR (asignada a
+  mí) y POR RECIBIR (la apruebo: `aprobador_uid` o `jefe_uid`). Haberla
+  creado ya no la pone en el calendario; en una tarea manual sin jefe el
+  creador es el aprobador y la sigue viendo. Tocar una "por recibir" abre
+  "Tareas por aprobar".
+- Solicitudes de corrección ("devolver") y eliminación ("borrar") de actas:
+  el aviso llega solo a Revisor (Kary) y a los desarrolladores activos.
+  Quién puede resolverlas no cambia.
+- Maestro › Revisión (`interventoria_maestro_revision.dart`, lógica en
+  `interventoria_revision_maestro.dart`):
+  - Cargos del maestro: existe / nadie lo tiene / no existe / nadie recibe
+    tareas, con quiénes lo tienen y en qué numerales; "Reemplazar" cambia
+    un cargo por otro existente en todas las reglas.
+  - Por establecimiento: quién queda como responsable y aprobador en cada
+    sede, y cuándo la tarea sale a otra sede.
+  - Hallazgos sin tarea: cuántos se pueden asignar, qué cargo los detiene y
+    el botón "Generar asignaciones pendientes (N)".
+
+**Pendiente de despliegue**
+- `firebase deploy --only functions` ANTES de publicar la app: sin el
+  `onTaskCreated` nuevo, cada tarea del lote volvería a avisar sola además
+  del resumen.
+- Nueva versión de la app: crea el canal silencioso en Android. Mientras un
+  teléfono no actualice, Android entrega esos avisos por el canal por
+  defecto y pueden seguir sonando.
+
+---
+
 ## Inicio: botones de módulo más pequeños en web — 23 sep 2026 (Claude)
 
 - En el mapa de procesos por columnas (web, ancho ≥ 720) la tarjeta ya no

@@ -131,6 +131,7 @@ export {
 } from "./compras_abastecimiento_reports";
 import * as admin from "firebase-admin";
 
+import {avisoAlJefeEsSilencioso, construirMensajePush, esSilenciosa} from "./notification_sound_policy";
 console.log("[BUILD] functions v2025-10-09-#fix-notif-subcollection-jsdoc");
 
 admin.initializeApp();
@@ -406,25 +407,16 @@ async function getTokensFor(userId: string): Promise<string[]> {
 async function sendPushTo(
   tokens: string[],
   notif: { title: string; body: string },
-  data: Record<string, string>
+  data: Record<string, string>,
+  silenciosa = false
 ) {
   if (!tokens.length) {
     return {success: 0, failure: 0, retryTokens: [] as string[]};
   }
 
-  const msg: admin.messaging.MulticastMessage = {
-    tokens,
-    notification: notif,
-    data: { click_action: "FLUTTER_NOTIFICATION_CLICK", ...data },
-    android: { priority: "high", notification: { channelId: "tasks_high", sound: "default" } },
-    // Sin contentAvailable: en APNs, `content-available: 1` marca el push como
-    // actualizacion en segundo plano. Mezclarlo con una alerta hace que iOS lo
-    // procese a veces como push silencioso: la notificacion llega pero no suena.
-    // Apple ademas espera prioridad 5 para content-available, no 10, que es la
-    // que necesitamos aqui por ser una alerta al usuario.
-    // Android ignora este bloque, por eso alli el sonido nunca fallo.
-    apns: { headers: { "apns-priority": "10" }, payload: { aps: { sound: "default" } } },
-  };
+  // Con sonido o en silencio según la notificación (25 sep 2026): ver
+  // notification_sound_policy.ts.
+  const msg = construirMensajePush(tokens, notif, data, silenciosa);
 
   const resp = await fcm.sendEachForMulticast(msg);
 
@@ -610,7 +602,8 @@ async function processPushQueueItem(queueRef: admin.firestore.DocumentReference)
     const result = await sendPushTo(
       tokens,
       {title: claimed.title, body: claimed.body || claimed.title},
-      claimed.data
+      claimed.data,
+      esSilenciosa(claimed.data?.silenciosa)
     );
     if (result.retryTokens.length === 0) {
       await updatePushDeliveryState(queueRef, claimed, {
@@ -683,6 +676,7 @@ export const onNotificationCreated = functions
     const module = data.module ? String(data.module) : "";
     const sourceEntityId = data.sourceEntityId ? String(data.sourceEntityId) : "";
     const notifId = ctx.params.notifId as string;
+    const silenciosa = esSilenciosa(data.silenciosa);
 
     const queueRef = await enqueuePushDelivery(
       snap.ref,
@@ -690,7 +684,10 @@ export const onNotificationCreated = functions
       notifId,
       title,
       body || title,
-      {taskId, type, empresaId, module, sourceEntityId, notifId}
+      {
+        taskId, type, empresaId, module, sourceEntityId, notifId,
+        ...(silenciosa ? {silenciosa: "1"} : {}),
+      }
     );
     await processPushQueueItem(queueRef);
   });
@@ -720,6 +717,12 @@ export const onTaskCreated = functions
 
     console.log("[onTaskCreated] taskId:", taskId, "assignedId:", assignedId);
     if (!assignedId) return;
+    // Tareas creadas en lote (asignación de un acta, reparación del rezago):
+    // el módulo manda UN aviso por persona con el resumen, no uno por tarea.
+    if ((data as any).notificarCreacion === false) {
+      console.log("[onTaskCreated] aviso agrupado por el módulo:", taskId);
+      return;
+    }
 
     const title = getTaskTitle(data);
     const description = taskNotificationDescription(
@@ -744,7 +747,8 @@ export const onTaskCreated = functions
       console.error("[onTaskCreated] saveInAppNotification error:", e);
     }
 
-    // Solo el responsable y su jefe inmediato reciben la asignación.
+    // Solo el responsable y su jefe inmediato reciben la asignación. Al jefe
+    // (quien aprueba) le llega en silencio: todavía no tiene nada que hacer.
     const bossId = await resolveBossIdFor(assignedId, data);
     if (bossId && bossId !== assignedId) {
       try {
@@ -753,6 +757,7 @@ export const onTaskCreated = functions
           description,
           taskId,
           type: "task_assigned_report",
+          silenciosa: avisoAlJefeEsSilencioso("task_assigned_report"),
           ...notificationContext,
         }, `${ctx.eventId}:${bossId}:assigned_report`);
       } catch (e) {
@@ -818,6 +823,7 @@ export const onTaskUpdated = functions
             description,
             taskId,
             type: "task_reassigned_report",
+            silenciosa: avisoAlJefeEsSilencioso("task_reassigned_report"),
             ...notificationContext,
           }, `${ctx.eventId}:${bossId2}:reassigned_report`);
           notifiedIds.add(bossId2);
@@ -860,6 +866,10 @@ export const onTaskUpdated = functions
               description: notifBody,
               taskId,
               type: notifType,
+              // Al jefe solo le suena la solicitud de aprobar; los demás
+              // cambios de estado le llegan en silencio.
+              silenciosa: uid === bossId && uid !== newAssigned &&
+                avisoAlJefeEsSilencioso(notifType),
               ...notificationContext,
             }, `${ctx.eventId}:${uid}:${notifType}`);
           } catch (e) {

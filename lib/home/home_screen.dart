@@ -50,6 +50,7 @@ import 'task_history_screen.dart' hide kArial;
 import 'create_task_screen.dart' hide kArial;
 import '../core/access_guard.dart';
 import '../core/app_catalog.dart';
+import '../core/task_calendar.dart';
 import '../core/task_route_guard.dart';
 import '../facturacion/facturacion_navigation.dart';
 
@@ -129,7 +130,7 @@ class _HomeScreenState extends State<HomeScreen> {
   // no re-suscribir el StreamBuilder en cada reconstrucción.
   final Stream<QuerySnapshot<Map<String, dynamic>>> _sinTareasAsignadas =
       Stream<QuerySnapshot<Map<String, dynamic>>>.empty();
-  final Stream<QuerySnapshot<Map<String, dynamic>>> _sinTareasCreadas =
+  final Stream<QuerySnapshot<Map<String, dynamic>>> _sinTareasPorRecibir =
       Stream<QuerySnapshot<Map<String, dynamic>>>.empty();
 
   bool get _isWebShell => kIsWeb && MediaQuery.of(context).size.width >= 900;
@@ -1101,9 +1102,12 @@ class _HomeScreenState extends State<HomeScreen> {
               habilitado: showInterventoria,
             );
 
-            // Dos queries separadas porque Firestore no admite OR entre campos distintos.
-            // assignedSnap: tareas donde soy el destinatario.
-            // createdSnap:  tareas donde soy el creador/emisor.
+            // El calendario solo trae lo que a uno le toca (25 sep 2026):
+            // assignedSnap:  tareas asignadas a mí → POR ENTREGAR.
+            // receivingSnap: tareas que yo apruebo → POR RECIBIR.
+            // Antes la segunda consulta era `creador_id`: a quien completaba un
+            // acta de Interventoría le salían como "por recibir" todos los
+            // hallazgos, que en realidad recibe el aprobador de la matriz.
             return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: showTareas
                   ? FirebaseFirestore.instance
@@ -1116,19 +1120,26 @@ class _HomeScreenState extends State<HomeScreen> {
                   stream: showTareas
                       ? FirebaseFirestore.instance
                             .collection('TBL_TAREAS')
-                            .where('creador_id', isEqualTo: cedula)
+                            .where(
+                              Filter.or(
+                                Filter('aprobador_uid', isEqualTo: cedula),
+                                // Tareas anteriores al contrato v2.
+                                Filter('jefe_uid', isEqualTo: cedula),
+                              ),
+                            )
                             .snapshots()
-                      : _sinTareasCreadas,
-                  builder: (context, createdSnap) {
+                      : _sinTareasPorRecibir,
+                  builder: (context, receivingSnap) {
                     // Fusionar y deduplicar por doc.id
                     final seen = <String>{};
                     final tasks = <Map<String, dynamic>>[];
                     for (final doc in [
                       ...(assignedSnap.data?.docs ?? []),
-                      ...(createdSnap.data?.docs ?? []),
+                      ...(receivingSnap.data?.docs ?? []),
                     ]) {
                       if (!seen.add(doc.id)) continue;
                       final data = doc.data();
+                      if (papelTareaCalendario(data, cedula) == null) continue;
                       // Estricto por empresa, igual que "Mis tareas": con
                       // `allowLegacyWithoutEmpresa: true` las tareas sin
                       // empresaId salían en el calendario de TODAS las UT
@@ -1142,8 +1153,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       }
                     }
 
-                    // Actualizar mapa de eventos para marcadores del calendario.
-                    // Incluye tanto tareas asignadas a mí como las que yo emití.
+                    // Actualizar mapa de eventos para marcadores del calendario:
+                    // lo que entrego y lo que recibo.
                     // Prioridad: fecha_limite → dueDate → fecha_creacion.
                     _events.clear();
                     for (final t in tasks) {
@@ -2351,11 +2362,10 @@ class _HomeScreenState extends State<HomeScreen> {
         final esFinalizada =
             estado.contains('finalizado') || estado.contains('completada');
 
-        final isAsignadaAMi = t['asignado_uid'] == cedula;
-        // Se considera "recibida" si yo la creé o soy el jefe, y NO está asignada a mí
+        // "Recibida" = yo la apruebo y no está asignada a mí. Haberla creado
+        // ya no basta (ver `papelTareaCalendario`).
         final isRecibida =
-            (t['creador_id'] == cedula || t['jefe_uid'] == cedula) &&
-            !isAsignadaAMi;
+            papelTareaCalendario(t, cedula) == PapelTareaCalendario.porRecibir;
 
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
@@ -2464,13 +2474,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 return;
               }
               if (isRecibida) {
-                // Activa y soy creador/jefe: va a "Tareas que yo asigné"
+                // Activa y la apruebo yo: va a "Tareas por aprobar", que
+                // consulta por aprobador. "Tareas que asigné" consulta por
+                // creador y no mostraría una tarea de Interventoría que
+                // otro creó.
                 Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder: (_) => CreatedTasksScreen(
                       userId: cedula,
                       highlightTaskId: taskId,
+                      approvalMode: true,
                     ),
                   ),
                 );

@@ -6,6 +6,7 @@ import '../theme/app_scroll_behavior.dart' show BarraHorizontal;
 import '../widgets/internal_module_layout.dart';
 import '../widgets/paged_list.dart';
 import 'interventoria_actas_catalogo.dart';
+import 'interventoria_maestro_revision.dart';
 import 'interventoria_models.dart';
 import 'interventoria_service.dart';
 
@@ -52,6 +53,10 @@ class _InterventoriaMaestroSubsanacionesState
   int _seccion = 0;
   String _responsable = '';
   bool _soloIncompletas = false;
+
+  /// Pestaña interna: 0 = reglas (la biblioteca), 1 = revisión de cargos,
+  /// sedes y hallazgos sin tarea (25 sep 2026).
+  int _pestana = 0;
 
   List<InterventoriaMaestroSubsanacion> get _base => _basePorTipo.putIfAbsent(
     _tipoActa,
@@ -160,7 +165,31 @@ class _InterventoriaMaestroSubsanacionesState
       child: LayoutBuilder(
         builder: (context, constraints) {
           final esMovil = constraints.maxWidth < 900;
-          final contenido = <Widget>[
+          final service = widget.service;
+          final pestanas = service == null || widget.empresaId.isEmpty
+              ? null
+              : Align(
+                  alignment: Alignment.centerLeft,
+                  child: SegmentedButton<int>(
+                    segments: const [
+                      ButtonSegment(
+                        value: 0,
+                        icon: Icon(Icons.rule_folder_outlined, size: 18),
+                        label: Text('Reglas'),
+                      ),
+                      ButtonSegment(
+                        value: 1,
+                        icon: Icon(Icons.fact_check_outlined, size: 18),
+                        label: Text('Revisión'),
+                      ),
+                    ],
+                    selected: {_pestana},
+                    showSelectedIcon: false,
+                    onSelectionChanged: (s) =>
+                        setState(() => _pestana = s.first),
+                  ),
+                );
+          final cabecera = <Widget>[
             _CabeceraBiblioteca(
               total: _maestro.length,
               onCopiar: widget.canEdit && _reglas.isNotEmpty
@@ -168,6 +197,28 @@ class _InterventoriaMaestroSubsanacionesState
                   : null,
             ),
             const SizedBox(height: 14),
+            if (pestanas != null) ...[pestanas, const SizedBox(height: 14)],
+          ];
+          if (service != null && pestanas != null && _pestana == 1) {
+            return SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ...cabecera,
+                  InterventoriaMaestroRevision(
+                    service: service,
+                    empresaId: widget.empresaId,
+                    userId: widget.userId,
+                    canEdit: widget.canEdit,
+                    reglas: _reglas,
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
+            );
+          }
+          final contenido = <Widget>[
+            ...cabecera,
             _SelectorTipoActa(
               tipoActa: _tipoActa,
               anchoDisponible: constraints.maxWidth,

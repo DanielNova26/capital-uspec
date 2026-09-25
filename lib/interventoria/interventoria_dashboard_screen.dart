@@ -210,23 +210,14 @@ class _InterventoriaDashboardScreenState
         _centroFijoId = centroFijo;
         _rolLoaded = true;
       });
+      // El rezago de hallazgos sin tarea ya no se asigna solo al abrir el
+      // módulo (25 sep 2026): creaba de golpe las tareas de todas las sedes,
+      // cada una con su aviso, a nombre de quien abría la pantalla. Ahora se
+      // genera a pedido desde Maestro › Revisión, con vista previa y un aviso
+      // por persona.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         _abrirCorreccionObligatoriaSiCorresponde();
-        if (puedeRevisarActas(rol)) {
-          // Corrige también el rezago de las versiones que detectaban a la
-          // persona pero dejaban la tarea esperando un clic manual.
-          unawaited(
-            _svc
-                .asignarHallazgosPendientesAutomaticamente(
-                  empresaId: widget.empresaId,
-                  creadorId: widget.userId,
-                  creadorNombre: widget.userId,
-                )
-                .then<void>((_) {})
-                .catchError((_) {}),
-          );
-        }
       });
     }
   }

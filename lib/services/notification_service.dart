@@ -36,6 +36,8 @@ import '../home/notifications_screen.dart';
 import '../home/assigned_tasks_screen.dart';
 import '../home/created_tasks_screen.dart';
 import '../home/task_history_screen.dart';
+import 'local_notification_service.dart'
+    show kCanalSilencioso, notificacionSilenciosa;
 import '../core/task_route_guard.dart';
 import '../facturacion/facturacion_navigation.dart';
 import '../interventoria/interventoria_dashboard_screen.dart';
@@ -158,6 +160,9 @@ class NotificationsService {
             : null, // default
       );
       await android.createNotificationChannel(channel);
+      // Avisos informativos a quien aprueba (25 sep 2026): llegan a la
+      // bandeja sin sonido ni vibración. El backend los manda a este canal.
+      await android.createNotificationChannel(kCanalSilencioso);
     }
 
     // 3) Pedir permisos FCM + mostrar notificaciones en foreground (iOS)
@@ -225,20 +230,32 @@ class NotificationsService {
       'payload': rawPayload ?? '',
       'empresaId': empresaId,
     });
+    // El backend marca `silenciosa` en lo informativo para quien aprueba:
+    // con la app abierta tampoco suena.
+    final silenciosa = notificacionSilenciosa(data['silenciosa']);
 
     await _fln.show(
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
       title,
       body,
       NotificationDetails(
-        android: AndroidNotificationDetails(
-          'tasks_high',
-          'Tareas',
-          importance: Importance.max,
-          priority: Priority.high,
-          playSound: true,
-        ),
-        iOS: const DarwinNotificationDetails(presentSound: true),
+        android: silenciosa
+            ? AndroidNotificationDetails(
+                kCanalSilencioso.id,
+                kCanalSilencioso.name,
+                importance: Importance.low,
+                priority: Priority.low,
+                playSound: false,
+                enableVibration: false,
+              )
+            : const AndroidNotificationDetails(
+                'tasks_high',
+                'Tareas',
+                importance: Importance.max,
+                priority: Priority.high,
+                playSound: true,
+              ),
+        iOS: DarwinNotificationDetails(presentSound: !silenciosa),
       ),
       payload: combinedPayload,
     );
