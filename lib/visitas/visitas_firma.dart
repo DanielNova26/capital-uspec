@@ -4,8 +4,9 @@
 // responsable del establecimiento. Las dos se pueden dibujar en pantalla;
 // la del profesional además puede salir de la firma guardada en su perfil
 // (la misma que usan Gestión Documental y Planillas de Pago). El
-// responsable del establecimiento no es usuario de la app, así que la
-// suya siempre se dibuja ahí mismo, en la tablet, delante de él.
+// responsable del establecimiento firma en la tablet, delante del
+// profesional, o desde su propio módulo con el rol Firmante (25 sep 2026).
+// Cada firma guarda desde qué equipo y con qué cuenta se hizo.
 //
 // También vive aquí el diálogo de reprogramar: es corto y lo usan el jefe
 // (desde el detalle) y el profesional (desde la pantalla de inicio).
@@ -269,11 +270,17 @@ class FirmaTile extends StatelessWidget {
   final String titulo;
   final VisitaFirma? firma;
   final VoidCallback? onFirmar;
+
+  /// Línea extra: "Firmó desde su propio módulo", etc.
+  final String? detalle;
+  final String textoBoton;
   const FirmaTile({
     super.key,
     required this.titulo,
     required this.firma,
     this.onFirmar,
+    this.detalle,
+    this.textoBoton = 'Firmar',
   });
 
   @override
@@ -322,9 +329,21 @@ class FirmaTile extends StatelessWidget {
                   ),
                   if (f != null)
                     Text(
-                      f.modo == kFirmaModoGuardada
-                          ? 'Firma guardada del perfil'
-                          : 'Dibujada en el sitio',
+                      [
+                        f.modo == kFirmaModoGuardada
+                            ? 'Firma guardada del perfil'
+                            : 'Dibujada en pantalla',
+                        if (f.dispositivo.isNotEmpty) f.dispositivo,
+                      ].join(' · '),
+                      style: const TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 11,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  if (f != null && (detalle ?? '').isNotEmpty)
+                    Text(
+                      detalle!,
                       style: const TextStyle(
                         fontFamily: _kFont,
                         fontSize: 11,
@@ -337,7 +356,7 @@ class FirmaTile extends StatelessWidget {
             if (onFirmar != null)
               OutlinedButton(
                 onPressed: onFirmar,
-                child: Text(f == null ? 'Firmar' : 'Repetir'),
+                child: Text(f == null ? textoBoton : 'Repetir'),
               ),
           ],
         ),

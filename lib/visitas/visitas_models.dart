@@ -30,11 +30,18 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../core/area_directory.dart' show areaClave;
+
 const String kVisitasAppId = 'visitasdashboard';
 
 const String kVisitasCol = 'TBL_VISITAS';
 const String kVisitasFormatosCol = 'TBL_VISITAS_FORMATOS';
 const String kVisitasRolesCol = 'TBL_VISITAS_ROLES';
+
+/// Grupos de profesionales con sus establecimientos (25 sep 2026): el jefe
+/// arma grupos dentro de su área y a cada grupo le asigna los centros de
+/// costo que visita. Programar propone primero esos centros.
+const String kVisitasGruposCol = 'TBL_VISITAS_GRUPOS';
 
 /// Maestro de ubicaciones de los establecimientos (17 sep 2026).
 ///
@@ -51,22 +58,51 @@ const double kVisitasRadioDefectoMetros = 150;
 
 // ── Roles ───────────────────────────────────────────────────────────────────
 //
-// Tres, y no más, hasta que el módulo se use: quien programa (el jefe
-// inmediato), quien va (el profesional) y quien solo mira (gerencia, calidad).
-// El desarrollador entra como jefe.
+// Quien programa (el jefe inmediato o director del área), quien va (el
+// profesional), quien solo mira (gerencia, calidad) y, desde el 25 sep 2026,
+// quien recibe la visita y la firma desde su propio módulo (el
+// administrador del establecimiento). El desarrollador entra como jefe.
 
 const String kVisitasRolJefe = 'jefe';
 const String kVisitasRolProfesional = 'profesional';
 const String kVisitasRolConsulta = 'consulta';
 
+/// Administrador del establecimiento que recibe la visita. Firma el acta
+/// desde su módulo, con su cuenta y su dispositivo, en vez de firmar en la
+/// tablet del profesional: así la firma queda a su nombre y no a nombre de
+/// quien le prestó el equipo.
+const String kVisitasRolFirmante = 'firmante';
+
 const Map<String, String> kVisitasRolesLabel = {
-  kVisitasRolJefe: 'Jefe inmediato',
+  kVisitasRolJefe: 'Jefe inmediato (director)',
   kVisitasRolProfesional: 'Profesional',
   kVisitasRolConsulta: 'Consulta',
+  kVisitasRolFirmante: 'Firmante del establecimiento',
 };
+
+/// El rol limita lo que se ve y se programa por área; firmante y consulta
+/// no trabajan dentro de un área.
+bool visitasRolRequiereArea(String? rol) =>
+    rol == kVisitasRolJefe || rol == kVisitasRolProfesional;
 
 bool visitasPuedeProgramar(String? rol) => rol == kVisitasRolJefe;
 bool visitasPuedeGestionarFormatos(String? rol) => rol == kVisitasRolJefe;
+
+/// El maestro de equipo (roles, grupos y centros) es del jefe de área. Un
+/// jefe solo puede dar o quitar el rol Profesional dentro de su área; el
+/// director (jefe) lo nombra Desarrollo, igual que exigen las reglas.
+bool visitasPuedeGestionarEquipo(String? rol) => rol == kVisitasRolJefe;
+
+/// El firmante designado firma mientras la visita está en curso y la firma
+/// del establecimiento sigue vacía. Nadie más firma por él.
+bool visitasPuedeFirmarComoEstablecimiento({
+  required VisitaProfesional visita,
+  required String userId,
+}) =>
+    visita.estado == kVisitaEnCurso &&
+    visita.firmanteEstablecimientoId.isNotEmpty &&
+    visita.firmanteEstablecimientoId == userId &&
+    visita.firmaEstablecimiento == null;
 bool visitasPuedeVerConsolidado(String? rol) =>
     rol == kVisitasRolJefe || rol == kVisitasRolConsulta;
 
@@ -368,6 +404,11 @@ class VisitaFormato {
   /// Tablas de filas dinámicas. Vacío en la mayoría de formatos.
   final List<VisitaFormatoTabla> tablas;
 
+  /// Cargos a los que aplica dentro del área (25 sep 2026). Vacío = a todos
+  /// los del área. Ordena la lista de formatos y propone el correcto al
+  /// programar: el de la nutricionista no es el del auxiliar.
+  final List<String> cargos;
+
   const VisitaFormato({
     this.id = '',
     required this.empresaId,
@@ -380,6 +421,7 @@ class VisitaFormato {
     this.items = const [],
     this.partes = const [],
     this.tablas = const [],
+    this.cargos = const [],
   });
 
   bool get esBorrador => estado == kFormatoBorrador;
@@ -410,6 +452,7 @@ class VisitaFormato {
     'items': items.map((i) => i.toMap()).toList(),
     'partes': partes.map((p) => p.toMap()).toList(),
     'tablas': tablas.map((t) => t.toMap()).toList(),
+    'cargos': cargos,
   };
 
   factory VisitaFormato.fromMap(String id, Map<String, dynamic> d) =>
@@ -437,6 +480,10 @@ class VisitaFormato {
             if (raw is Map)
               VisitaFormatoTabla.fromMap(Map<String, dynamic>.from(raw)),
         ],
+        cargos: [
+          for (final c in (d['cargos'] as List? ?? const []))
+            if (c.toString().trim().isNotEmpty) c.toString().trim(),
+        ],
       );
 
   VisitaFormato copyWith({
@@ -447,6 +494,7 @@ class VisitaFormato {
     int? version,
     List<VisitaFormatoParte>? partes,
     List<VisitaFormatoTabla>? tablas,
+    List<String>? cargos,
   }) => VisitaFormato(
     id: id,
     empresaId: empresaId,
@@ -459,6 +507,7 @@ class VisitaFormato {
     items: items ?? this.items,
     partes: partes ?? this.partes,
     tablas: tablas ?? this.tablas,
+    cargos: cargos ?? this.cargos,
   );
 }
 
@@ -540,6 +589,14 @@ class VisitaRespuesta {
   /// escriben, en el informe va la observación.
   final String accion;
 
+  /// A quién va el plan de acción (25 sep 2026): el área y la persona que
+  /// recibe la tarea al cerrar. El establecimiento es el de la visita. Vacío
+  /// = la tarea sigue yendo al jefe que programó.
+  final String accionAreaId;
+  final String accionAreaNombre;
+  final String accionResponsableId;
+  final String accionResponsableNombre;
+
   const VisitaRespuesta({
     this.resultado = '',
     this.observacion = '',
@@ -547,6 +604,10 @@ class VisitaRespuesta {
     this.cantidad = '',
     this.vencimiento = '',
     this.accion = '',
+    this.accionAreaId = '',
+    this.accionAreaNombre = '',
+    this.accionResponsableId = '',
+    this.accionResponsableNombre = '',
   });
 
   bool get respondida => resultado.isNotEmpty;
@@ -558,6 +619,10 @@ class VisitaRespuesta {
     'cantidad': cantidad,
     'vencimiento': vencimiento,
     'accion': accion,
+    'accionAreaId': accionAreaId,
+    'accionAreaNombre': accionAreaNombre,
+    'accionResponsableId': accionResponsableId,
+    'accionResponsableNombre': accionResponsableNombre,
   };
 
   factory VisitaRespuesta.fromMap(Map<String, dynamic> d) => VisitaRespuesta(
@@ -570,6 +635,10 @@ class VisitaRespuesta {
     cantidad: (d['cantidad'] ?? '').toString(),
     vencimiento: (d['vencimiento'] ?? '').toString(),
     accion: (d['accion'] ?? '').toString(),
+    accionAreaId: (d['accionAreaId'] ?? '').toString(),
+    accionAreaNombre: (d['accionAreaNombre'] ?? '').toString(),
+    accionResponsableId: (d['accionResponsableId'] ?? '').toString(),
+    accionResponsableNombre: (d['accionResponsableNombre'] ?? '').toString(),
   );
 
   VisitaRespuesta copyWith({
@@ -579,6 +648,10 @@ class VisitaRespuesta {
     String? cantidad,
     String? vencimiento,
     String? accion,
+    String? accionAreaId,
+    String? accionAreaNombre,
+    String? accionResponsableId,
+    String? accionResponsableNombre,
   }) => VisitaRespuesta(
     resultado: resultado ?? this.resultado,
     observacion: observacion ?? this.observacion,
@@ -586,6 +659,11 @@ class VisitaRespuesta {
     cantidad: cantidad ?? this.cantidad,
     vencimiento: vencimiento ?? this.vencimiento,
     accion: accion ?? this.accion,
+    accionAreaId: accionAreaId ?? this.accionAreaId,
+    accionAreaNombre: accionAreaNombre ?? this.accionAreaNombre,
+    accionResponsableId: accionResponsableId ?? this.accionResponsableId,
+    accionResponsableNombre:
+        accionResponsableNombre ?? this.accionResponsableNombre,
   );
 }
 
@@ -671,6 +749,13 @@ class VisitaFirma {
   final Uint8List? blob;
   final Timestamp? at;
 
+  /// Desde qué equipo y con qué cuenta se firmó (25 sep 2026): "Android",
+  /// "Web · Windows"… y el id de la cuenta con sesión abierta. Si el
+  /// administrador firma en la tablet del profesional, la cuenta es la del
+  /// profesional y el informe lo dice.
+  final String dispositivo;
+  final String firmadoPorId;
+
   const VisitaFirma({
     required this.nombre,
     this.cargo = '',
@@ -679,6 +764,8 @@ class VisitaFirma {
     this.path = '',
     this.blob,
     this.at,
+    this.dispositivo = '',
+    this.firmadoPorId = '',
   });
 
   bool get tieneImagen =>
@@ -692,6 +779,8 @@ class VisitaFirma {
     'path': path,
     if (blob != null) 'blob': Blob(blob!),
     'at': at ?? Timestamp.now(),
+    'dispositivo': dispositivo,
+    'firmadoPorId': firmadoPorId,
   };
 
   factory VisitaFirma.fromMap(Map<String, dynamic> d) {
@@ -708,6 +797,8 @@ class VisitaFirma {
           ? rawBlob
           : null,
       at: d['at'] is Timestamp ? d['at'] as Timestamp : null,
+      dispositivo: (d['dispositivo'] ?? '').toString(),
+      firmadoPorId: (d['firmadoPorId'] ?? '').toString(),
     );
   }
 }
@@ -720,15 +811,29 @@ const String kFirmaModoDibujada = 'dibujada';
 class VisitaResponsable {
   final String nombre;
   final String cargo;
-  const VisitaResponsable({this.nombre = '', this.cargo = ''});
+
+  /// Cédula del responsable si se eligió de la lista del personal del
+  /// establecimiento; vacío si se escribió a mano (no es usuario de la app).
+  /// Con id, puede firmar el acta desde su propio módulo.
+  final String userId;
+  const VisitaResponsable({
+    this.nombre = '',
+    this.cargo = '',
+    this.userId = '',
+  });
 
   bool get completo => nombre.trim().isNotEmpty;
 
-  Map<String, dynamic> toMap() => {'nombre': nombre, 'cargo': cargo};
+  Map<String, dynamic> toMap() => {
+    'nombre': nombre,
+    'cargo': cargo,
+    'userId': userId,
+  };
   factory VisitaResponsable.fromMap(Map<String, dynamic> d) =>
       VisitaResponsable(
         nombre: (d['nombre'] ?? '').toString(),
         cargo: (d['cargo'] ?? '').toString(),
+        userId: (d['userId'] ?? '').toString(),
       );
 }
 
@@ -1142,6 +1247,11 @@ class VisitaProfesional {
 
   final VisitaFirma? firmaProfesional;
   final VisitaFirma? firmaEstablecimiento;
+
+  /// Usuario que firma por el establecimiento desde su módulo (rol
+  /// Firmante). Lo fija el profesional al pedirle la firma; con él puede
+  /// leer la visita y estampar solo su firma.
+  final String firmanteEstablecimientoId;
   final List<VisitaReprogramacion> reprogramaciones;
 
   const VisitaProfesional({
@@ -1175,6 +1285,7 @@ class VisitaProfesional {
     this.cargoProfesional = '',
     this.firmaProfesional,
     this.firmaEstablecimiento,
+    this.firmanteEstablecimientoId = '',
     this.reprogramaciones = const [],
   });
 
@@ -1218,6 +1329,7 @@ class VisitaProfesional {
     'cargoProfesional': cargoProfesional,
     'firmaProfesional': firmaProfesional?.toMap(),
     'firmaEstablecimiento': firmaEstablecimiento?.toMap(),
+    'firmanteEstablecimientoId': firmanteEstablecimientoId,
     'reprogramaciones': reprogramaciones.map((r) => r.toMap()).toList(),
   };
 
@@ -1294,6 +1406,8 @@ class VisitaProfesional {
       cargoProfesional: (d['cargoProfesional'] ?? '').toString(),
       firmaProfesional: firma(d['firmaProfesional']),
       firmaEstablecimiento: firma(d['firmaEstablecimiento']),
+      firmanteEstablecimientoId: (d['firmanteEstablecimientoId'] ?? '')
+          .toString(),
       reprogramaciones: [
         for (final r in (d['reprogramaciones'] as List? ?? const []))
           if (r is Map)
@@ -1436,12 +1550,23 @@ class VisitaHallazgo {
   final String accion;
   final List<VisitaEvidencia> evidencias;
 
+  /// Del plan de acción: a quién va la tarea y de qué área. Vacío = al jefe
+  /// que programó, como antes.
+  final String responsableId;
+  final String responsableNombre;
+  final String areaId;
+  final String areaNombre;
+
   const VisitaHallazgo({
     required this.clave,
     required this.elemento,
     required this.novedad,
     this.accion = '',
     this.evidencias = const [],
+    this.responsableId = '',
+    this.responsableNombre = '',
+    this.areaId = '',
+    this.areaNombre = '',
   });
 }
 
@@ -1461,6 +1586,10 @@ List<VisitaHallazgo> hallazgosDeVisita(
         novedad: r!.observacion,
         accion: r.accion,
         evidencias: r.evidencias,
+        responsableId: r.accionResponsableId,
+        responsableNombre: r.accionResponsableNombre,
+        areaId: r.accionAreaId,
+        areaNombre: r.accionAreaNombre,
       ),
     );
   }
@@ -1504,6 +1633,7 @@ String descripcionTareaHallazgo(VisitaProfesional v, VisitaHallazgo h) {
     ..writeln(h.elemento)
     ..writeln('Novedad encontrada: ${h.novedad}');
   if (h.accion.trim().isNotEmpty) b.writeln('Acción propuesta: ${h.accion}');
+  if (h.areaNombre.trim().isNotEmpty) b.writeln('Área: ${h.areaNombre}');
   if (h.evidencias.isNotEmpty) {
     b.writeln('Evidencias: ${h.evidencias.length}');
   }
@@ -1799,3 +1929,329 @@ List<VisitaFormato> formatosSemilla(String empresaId) {
     ),
   ];
 }
+
+// ── Grupos de profesionales (25 sep 2026) ───────────────────────────────────
+
+/// Un grupo de profesionales de un área con los establecimientos que le
+/// tocan. Es el maestro que pidió la dirección: asignar quién va a dónde una
+/// vez, y no escogerlo en cada visita.
+class VisitaGrupo {
+  final String id;
+  final String empresaId;
+  final String nombre;
+  final String areaId;
+  final String areaNombre;
+  final List<String> centroIds;
+  final List<String> profesionalIds;
+
+  const VisitaGrupo({
+    this.id = '',
+    required this.empresaId,
+    required this.nombre,
+    required this.areaId,
+    this.areaNombre = '',
+    this.centroIds = const [],
+    this.profesionalIds = const [],
+  });
+
+  Map<String, dynamic> toMap() => {
+    'empresaId': empresaId,
+    'nombre': nombre,
+    'areaId': areaId,
+    'areaNombre': areaNombre,
+    'centroIds': centroIds,
+    'profesionalIds': profesionalIds,
+  };
+
+  factory VisitaGrupo.fromMap(String id, Map<String, dynamic> d) => VisitaGrupo(
+    id: id,
+    empresaId: (d['empresaId'] ?? '').toString(),
+    nombre: (d['nombre'] ?? '').toString(),
+    areaId: (d['areaId'] ?? '').toString(),
+    areaNombre: (d['areaNombre'] ?? '').toString(),
+    centroIds: [
+      for (final c in (d['centroIds'] as List? ?? const [])) c.toString(),
+    ],
+    profesionalIds: [
+      for (final p in (d['profesionalIds'] as List? ?? const [])) p.toString(),
+    ],
+  );
+
+  VisitaGrupo copyWith({
+    String? nombre,
+    String? areaId,
+    String? areaNombre,
+    List<String>? centroIds,
+    List<String>? profesionalIds,
+  }) => VisitaGrupo(
+    id: id,
+    empresaId: empresaId,
+    nombre: nombre ?? this.nombre,
+    areaId: areaId ?? this.areaId,
+    areaNombre: areaNombre ?? this.areaNombre,
+    centroIds: centroIds ?? this.centroIds,
+    profesionalIds: profesionalIds ?? this.profesionalIds,
+  );
+}
+
+List<String> validarGrupo(VisitaGrupo g) => [
+  if (g.nombre.trim().isEmpty) 'El grupo necesita un nombre.',
+  if (g.areaId.trim().isEmpty) 'El grupo necesita un área.',
+];
+
+/// Grupos a los que pertenece un profesional.
+List<VisitaGrupo> gruposDe(String profesionalId, List<VisitaGrupo> grupos) => [
+  for (final g in grupos)
+    if (g.profesionalIds.contains(profesionalId)) g,
+];
+
+/// Establecimientos del profesional según sus grupos, sin repetir.
+Set<String> centrosDelProfesional(
+  String profesionalId,
+  List<VisitaGrupo> grupos,
+) => {for (final g in gruposDe(profesionalId, grupos)) ...g.centroIds};
+
+/// Los establecimientos del grupo del profesional primero (en el orden en
+/// que llegan) y luego el resto: programar ofrece arriba lo que le toca.
+List<T> ordenarPorGrupo<T>(
+  List<T> centros,
+  Set<String> delGrupo,
+  String Function(T) idDe,
+) => [
+  ...centros.where((c) => delGrupo.contains(idDe(c))),
+  ...centros.where((c) => !delGrupo.contains(idDe(c))),
+];
+
+// ── Formatos por área y cargo (25 sep 2026) ─────────────────────────────────
+
+/// Un formato sin cargos aplica a todo el área; con cargos, solo a esos.
+bool formatoAplicaACargo(VisitaFormato f, String cargo) {
+  if (f.cargos.isEmpty) return true;
+  final c = areaClave(cargo);
+  return c.isNotEmpty && f.cargos.any((x) => areaClave(x) == c);
+}
+
+/// Mismo área aunque una venga como id de catálogo y otra como nombre.
+bool mismaAreaVisitas(String a, String b) {
+  if (a.trim().isEmpty || b.trim().isEmpty) return false;
+  if (a == b) return true;
+  String nombre(String v) {
+    final t = v.trim();
+    final corte = RegExp(r'^[A-Za-z]+[_-]?\d+[_-]').matchAsPrefix(t);
+    return corte == null ? t : t.substring(corte.end);
+  }
+
+  return areaClave(nombre(a)) == areaClave(nombre(b));
+}
+
+/// Formato que se propone al programar: el del área del profesional que
+/// nombra su cargo; si ninguno lo nombra, el predeterminado del área; si
+/// no hay, el primero. Los borradores solo en visitas de prueba.
+VisitaFormato? formatoPropuesto(
+  List<VisitaFormato> formatos, {
+  required String areaId,
+  String cargo = '',
+  bool permitirBorrador = false,
+}) {
+  final candidatos = [
+    for (final f in formatos)
+      if (f.usable &&
+          (permitirBorrador || !f.esBorrador) &&
+          mismaAreaVisitas(f.areaId, areaId) &&
+          formatoAplicaACargo(f, cargo))
+        f,
+  ];
+  if (candidatos.isEmpty) return null;
+  final delCargo = candidatos.where(
+    (f) => f.cargos.isNotEmpty && formatoAplicaACargo(f, cargo),
+  );
+  return delCargo.where((f) => f.predeterminado).firstOrNull ??
+      delCargo.firstOrNull ??
+      candidatos.where((f) => f.predeterminado).firstOrNull ??
+      candidatos.first;
+}
+
+// ── Programar varias fechas (25 sep 2026) ───────────────────────────────────
+
+DateTime _soloDia(DateTime d) => DateTime(d.year, d.month, d.day);
+
+/// Agrega o quita un día de la selección del calendario.
+Set<DateTime> alternarDia(Set<DateTime> seleccion, DateTime dia) {
+  final d = _soloDia(dia);
+  final out = {for (final s in seleccion) _soloDia(s)};
+  if (!out.remove(d)) out.add(d);
+  return out;
+}
+
+/// Una fila de la programación en lote: un día y el establecimiento.
+class FilaProgramacion {
+  final DateTime fecha;
+  final String centroId;
+  final String subcentroId;
+
+  const FilaProgramacion({
+    required this.fecha,
+    this.centroId = '',
+    this.subcentroId = '',
+  });
+
+  FilaProgramacion copyWith({String? centroId, String? subcentroId}) =>
+      FilaProgramacion(
+        fecha: fecha,
+        centroId: centroId ?? this.centroId,
+        subcentroId: subcentroId ?? this.subcentroId,
+      );
+}
+
+/// Qué impide programar el lote. Vacío = se puede.
+List<String> validarProgramacion(
+  List<FilaProgramacion> filas, {
+  required DateTime hoy,
+}) {
+  final errores = <String>[];
+  if (filas.isEmpty) errores.add('Elige al menos un día en el calendario.');
+  final vistos = <String>{};
+  for (final f in filas) {
+    final dia =
+        '${f.fecha.day.toString().padLeft(2, '0')}/'
+        '${f.fecha.month.toString().padLeft(2, '0')}';
+    if (_soloDia(f.fecha).isBefore(_soloDia(hoy))) {
+      errores.add('$dia ya pasó: una visita no se programa hacia atrás.');
+    }
+    if (f.centroId.trim().isEmpty) {
+      errores.add('$dia no tiene establecimiento.');
+      continue;
+    }
+    final clave = '${_soloDia(f.fecha)}|${f.centroId}|${f.subcentroId}';
+    if (!vistos.add(clave)) {
+      errores.add('$dia tiene el mismo establecimiento dos veces.');
+    }
+  }
+  return errores;
+}
+
+// ── Ejecución por secciones (25 sep 2026) ───────────────────────────────────
+
+/// Una "página" del formato al ejecutarlo: una sección de preguntas o una
+/// tabla. Con 77 preguntas en una sola lista el profesional se perdía
+/// bajando; ahora avanza sección por sección y ve cuáles le faltan.
+class VisitaPaso {
+  final String parte;
+  final String parteNombre;
+  final String seccion;
+  final List<VisitaFormatoItem> items;
+  final VisitaFormatoTabla? tabla;
+
+  /// "2/3" cuando una sección larga se partió en varias páginas.
+  final String tramo;
+
+  const VisitaPaso({
+    this.parte = '',
+    this.parteNombre = '',
+    this.seccion = '',
+    this.items = const [],
+    this.tabla,
+    this.tramo = '',
+  });
+
+  String get titulo {
+    final base =
+        tabla?.nombre ??
+        (seccion.isNotEmpty
+            ? seccion
+            : (parteNombre.isNotEmpty ? parteNombre : 'Preguntas'));
+    return tramo.isEmpty ? base : '$base ($tramo)';
+  }
+}
+
+/// Pasos del formato: por parte, luego por sección en el orden del formato,
+/// y cada tabla como paso propio al final de su parte. Una sección de más de
+/// [maxItems] preguntas se parte en tramos: 20, el mismo tamaño de página
+/// del resto de la app.
+List<VisitaPaso> pasosDeFormato(VisitaFormato f, {int maxItems = 20}) {
+  final partes = f.partes.isEmpty
+      ? const [VisitaFormatoParte(codigo: '', nombre: '')]
+      : f.partes;
+  final pasos = <VisitaPaso>[];
+  for (final p in partes) {
+    final secciones = <String, List<VisitaFormatoItem>>{};
+    for (final it in f.itemsDeParte(p.codigo)) {
+      secciones.putIfAbsent(it.seccion, () => []).add(it);
+    }
+    for (final s in secciones.entries) {
+      final tramos = (s.value.length / maxItems).ceil();
+      for (var i = 0; i < tramos; i++) {
+        final desde = i * maxItems;
+        final hasta = desde + maxItems > s.value.length
+            ? s.value.length
+            : desde + maxItems;
+        pasos.add(
+          VisitaPaso(
+            parte: p.codigo,
+            parteNombre: p.nombre,
+            seccion: s.key,
+            items: s.value.sublist(desde, hasta),
+            tramo: tramos > 1 ? '${i + 1}/$tramos' : '',
+          ),
+        );
+      }
+    }
+    for (final t in f.tablasDeParte(p.codigo)) {
+      pasos.add(VisitaPaso(parte: p.codigo, parteNombre: p.nombre, tabla: t));
+    }
+  }
+  return pasos;
+}
+
+/// ¿A la pregunta le falta algo para poder cerrar? Mismo criterio de
+/// [validarCierreVisita]: responderla, y si no cumple, decir por qué y la
+/// foto donde se exige.
+bool itemPendiente(VisitaFormatoItem it, VisitaRespuesta? r) {
+  if (r == null || !r.respondida) return true;
+  if (!resultadosPermitidos(it.tipo).contains(r.resultado)) return true;
+  if (r.resultado == kItemNoCumple) {
+    if (r.observacion.trim().isEmpty) return true;
+    if (it.requiereEvidencia && r.evidencias.isEmpty) return true;
+  }
+  return false;
+}
+
+/// Lo que falta en una tabla: sin filas cuenta como un pendiente (se
+/// registra "No cuenta"), más cada fila incompleta.
+int pendientesDeTabla(VisitaFormatoTabla t, List<VisitaFilaTabla> filas) {
+  if (filas.isEmpty) return 1;
+  var n = 0;
+  for (final f in filas) {
+    final incompleta = t.camposEstado.any(
+      (c) => !kFilaEstadoLabel.containsKey(f.estados[c.id] ?? ''),
+    );
+    if (incompleta || (f.tieneHallazgo && f.observacion.trim().isEmpty)) n++;
+  }
+  return n;
+}
+
+int pendientesDePaso(VisitaPaso paso, VisitaProfesional v) {
+  if (paso.tabla != null) {
+    return pendientesDeTabla(paso.tabla!, v.filasDe(paso.tabla!.id));
+  }
+  return paso.items
+      .where((it) => itemPendiente(it, v.respuestas[it.id]))
+      .length;
+}
+
+/// A quién va la tarea de un hallazgo: al responsable del plan de acción si
+/// lo eligieron; si no, al jefe que programó la visita.
+({String id, String nombre, String areaId}) destinatarioHallazgo(
+  VisitaProfesional v,
+  VisitaHallazgo h,
+) => h.responsableId.trim().isNotEmpty
+    ? (
+        id: h.responsableId,
+        nombre: h.responsableNombre,
+        areaId: h.areaId.trim().isEmpty ? v.areaId : h.areaId,
+      )
+    : (
+        id: v.asignadoPorId,
+        nombre: v.asignadoPorNombre,
+        areaId: h.areaId.trim().isEmpty ? v.areaId : h.areaId,
+      );

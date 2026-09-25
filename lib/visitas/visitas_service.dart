@@ -10,9 +10,13 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:geolocator/geolocator.dart';
 
+import '../core/area_directory.dart' show areaClave, areasUnicas;
 import '../core/subcentros_costo.dart';
+import '../core/user_directory.dart';
 import '../gestion_documental/gd_service.dart';
 import '../services/task_service.dart';
 import '../utils/user_company.dart';
@@ -49,12 +53,57 @@ class VisitaPersona {
   final String nombre;
   final String areaId;
   final String cargo;
+
+  /// Centro de costo donde está adscrita (el establecimiento, para los
+  /// administradores que reciben la visita).
+  final String centroId;
+
+  /// Tiene el módulo Visitas entre sus accesos en esta empresa.
+  final bool tieneAcceso;
+
+  /// Rol en Visitas y el área con que quedó el rol; vacíos = sin rol.
+  final String rol;
+  final String rolAreaId;
+
   const VisitaPersona({
     required this.id,
     required this.nombre,
     this.areaId = '',
     this.cargo = '',
+    this.centroId = '',
+    this.tieneAcceso = false,
+    this.rol = '',
+    this.rolAreaId = '',
   });
+
+  /// El área con la que trabaja en Visitas: la del rol si lo tiene (es la
+  /// que usan las reglas), si no la de su ficha o su cargo.
+  String get areaVisitas => rolAreaId.isNotEmpty ? rolAreaId : areaId;
+
+  VisitaPersona copyWith({String? rol, String? rolAreaId, String? areaId}) =>
+      VisitaPersona(
+        id: id,
+        nombre: nombre,
+        areaId: areaId ?? this.areaId,
+        cargo: cargo,
+        centroId: centroId,
+        tieneAcceso: tieneAcceso,
+        rol: rol ?? this.rol,
+        rolAreaId: rolAreaId ?? this.rolAreaId,
+      );
+}
+
+/// Desde qué equipo se firma, en palabras: va en la firma y en el informe.
+String dispositivoVisitas() {
+  final so = switch (defaultTargetPlatform) {
+    TargetPlatform.android => 'Android',
+    TargetPlatform.iOS => 'iPhone / iPad',
+    TargetPlatform.windows => 'Windows',
+    TargetPlatform.macOS => 'macOS',
+    TargetPlatform.linux => 'Linux',
+    TargetPlatform.fuchsia => 'Fuchsia',
+  };
+  return kIsWeb ? 'Navegador web · $so' : 'App móvil · $so';
 }
 
 class VisitaRolDoc {
@@ -104,6 +153,8 @@ class VisitasService {
       _db.collection(kVisitasRolesCol);
   CollectionReference<Map<String, dynamic>> get _ubicaciones =>
       _db.collection(kVisitasUbicacionesCol);
+  CollectionReference<Map<String, dynamic>> get _grupos =>
+      _db.collection(kVisitasGruposCol);
 
   // ── Roles ─────────────────────────────────────────────────────────────
 
@@ -143,6 +194,62 @@ class VisitasService {
 
   Future<void> eliminarRol(String id) => _roles.doc(id).delete();
 
+  /// Quita el rol de una persona en la empresa (mismo docId de siempre).
+  Future<void> quitarRol({required String empresaId, required String userId}) =>
+      _roles.doc('${empresaId}_$userId').delete();
+
+  // ── Grupos (maestro de equipo) ────────────────────────────────────────
+
+  Stream<List<VisitaGrupo>> streamGrupos(String empresaId, {String? areaId}) {
+    Query<Map<String, dynamic>> q = _grupos.where(
+      'empresaId',
+      isEqualTo: empresaId,
+    );
+    if (areaId != null) q = q.where('areaId', isEqualTo: areaId);
+    return q.snapshots().map(
+      (s) => s.docs.map((d) => VisitaGrupo.fromMap(d.id, d.data())).toList()
+        ..sort(
+          (a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()),
+        ),
+    );
+  }
+
+  /// Guarda el grupo. Un profesional pertenece a un solo grupo de su área:
+  /// si ya estaba en otro, sale de ese en el mismo lote.
+  Future<String> guardarGrupo(
+    VisitaGrupo g, {
+    required String actorId,
+    List<VisitaGrupo> otros = const [],
+  }) async {
+    final errores = validarGrupo(g);
+    if (errores.isNotEmpty) throw VisitasException(errores.join('\n'));
+    final ref = g.id.isEmpty ? _grupos.doc() : _grupos.doc(g.id);
+    final batch = _db.batch();
+    for (final o in otros) {
+      if (o.id == ref.id || o.id.isEmpty || o.areaId != g.areaId) continue;
+      final quedan = o.profesionalIds
+          .where((p) => !g.profesionalIds.contains(p))
+          .toList();
+      if (quedan.length != o.profesionalIds.length) {
+        batch.update(_grupos.doc(o.id), {
+          'profesionalIds': quedan,
+          'actualizadoPor': actorId,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+    }
+    batch.set(ref, {
+      ...g.toMap(),
+      'actualizadoPor': actorId,
+      'updatedAt': FieldValue.serverTimestamp(),
+      if (g.id.isEmpty) 'createdAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    await batch.commit();
+    return ref.id;
+  }
+
+  Future<void> eliminarGrupo(String id) => _grupos.doc(id).delete();
+
   // ── Catálogos que el módulo consume ───────────────────────────────────
 
   Stream<List<VisitaCentro>> streamCentros(String empresaId) => _db
@@ -168,23 +275,57 @@ class VisitasService {
 
   /// Personal activo de la empresa. Es de quien el jefe escoge al
   /// profesional; su área sirve para proponerle el formato correcto.
+  ///
+  /// El área sale de la ficha y, si no la trae, del cargo (`TBL_CARGOS`):
+  /// la mayoría del personal tiene el área solo en el cargo, y sin ese
+  /// puente el equipo de un área salía vacío ("no me salen los
+  /// profesionales ni el director", 25 sep 2026).
   Future<List<VisitaPersona>> personalDeEmpresa(String empresaId) async {
     final snap = await _db.collection('TBL_USUARIOS').get();
+    final areaPorCargo = await _areaPorCargo(empresaId);
     final out = <VisitaPersona>[];
     for (final d in snap.docs) {
       final data = d.data();
       if (!userBelongsToEmpresa(data, empresaId)) continue;
       if (!isPersonaActivaEnEmpresa(data, empresaId)) continue;
       final scoped = getUserCompanyDetail(data, empresaId) ?? const {};
-      final nombre = (scoped['nombre'] ?? data['nombre'] ?? '')
-          .toString()
+      final unaEmpresa = extractUserEmpresaIds(data).length <= 1;
+      String campo(List<String> claves) {
+        for (final c in claves) {
+          final v = (scoped[c] ?? '').toString().trim();
+          if (v.isNotEmpty) return v;
+        }
+        // La raíz solo describe a la empresa si la cuenta es de una sola.
+        if (!unaEmpresa && data['empresaId']?.toString() != empresaId) {
+          return '';
+        }
+        for (final c in claves) {
+          final v = (data[c] ?? '').toString().trim();
+          if (v.isNotEmpty) return v;
+        }
+        return '';
+      }
+
+      final nombre = UserDirectory.instance
+          .fromUsuario(d.id, data)
+          .displayName
           .trim();
+      final cargo = campo(const ['cargo', 'cargoNombre']);
+      var area = campo(const ['areaId', 'area_id', 'area', 'areaNombre']);
+      if (area.isEmpty) {
+        area =
+            areaPorCargo[areaClave(cargo)] ??
+            areaPorCargo[areaClave(campo(const ['cargoId']))] ??
+            '';
+      }
       out.add(
         VisitaPersona(
           id: d.id,
           nombre: nombre.isEmpty ? d.id : nombre,
-          areaId: (scoped['areaId'] ?? data['areaId'] ?? '').toString(),
-          cargo: (scoped['cargo'] ?? data['cargo'] ?? '').toString(),
+          areaId: area,
+          cargo: cargo,
+          centroId: campo(const ['centroId', 'centro_id']),
+          tieneAcceso: userHasApp(data, kVisitasAppId, empresaId: empresaId),
         ),
       );
     }
@@ -192,6 +333,114 @@ class VisitasService {
       (a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()),
     );
     return out;
+  }
+
+  /// cargo normalizado (nombre o id) → área, de `TBL_CARGOS`.
+  Future<Map<String, String>> _areaPorCargo(String empresaId) async {
+    try {
+      final snap = await _db
+          .collection('TBL_CARGOS')
+          .where('empresaId', isEqualTo: empresaId)
+          .get();
+      final out = <String, String>{};
+      for (final doc in snap.docs) {
+        final d = doc.data();
+        final area = [d['areaId'], d['areaNombre'], d['area']]
+            .map((v) => (v ?? '').toString().trim())
+            .firstWhere((v) => v.isNotEmpty, orElse: () => '');
+        if (area.isEmpty) continue;
+        for (final ref in [doc.id, d['cargoId'], d['nombre']]) {
+          final k = areaClave((ref ?? '').toString());
+          if (k.isNotEmpty) out.putIfAbsent(k, () => area);
+        }
+      }
+      return out;
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  /// Área con que se guarda el rol de Visitas de una persona: la de su ficha
+  /// en la empresa y, si no la trae, la de su cargo; siempre llevada al id del
+  /// catálogo (`TBL_AREAS`), que es el que usan los formatos y el que comparan
+  /// las reglas. Vacío si no hay forma de saberla.
+  ///
+  /// Antes Administración solo miraba la ficha, y como la mayoría del
+  /// personal tiene el área únicamente en el cargo, no dejaba asignar el rol
+  /// ("Asigna primero el área…") y los profesionales nunca aparecían.
+  Future<String> areaParaRol(
+    String empresaId,
+    Map<String, dynamic> userData,
+  ) async {
+    final scoped = getUserCompanyDetail(userData, empresaId) ?? const {};
+    final raizVale =
+        extractUserEmpresaIds(userData).length <= 1 ||
+        userData['empresaId']?.toString() == empresaId;
+    String campo(List<String> claves) {
+      for (final fuente in [scoped, if (raizVale) userData]) {
+        for (final c in claves) {
+          final v = (fuente[c] ?? '').toString().trim();
+          if (v.isNotEmpty) return v;
+        }
+      }
+      return '';
+    }
+
+    var area = campo(const ['areaId', 'area_id', 'area', 'areaNombre']);
+    if (area.isEmpty) {
+      final porCargo = await _areaPorCargo(empresaId);
+      area =
+          porCargo[areaClave(campo(const ['cargo', 'cargoNombre']))] ??
+          porCargo[areaClave(campo(const ['cargoId']))] ??
+          '';
+    }
+    if (area.isEmpty) return '';
+    final catalogo = await areasDeEmpresa(empresaId);
+    if (catalogo.containsKey(area)) return area;
+    for (final e in catalogo.entries) {
+      if (mismaAreaVisitas(e.key, area) ||
+          areaClave(e.value) == areaClave(area)) {
+        return e.key;
+      }
+    }
+    return area;
+  }
+
+  /// Cargos de la empresa, para decir a qué cargos aplica un formato.
+  Future<List<String>> cargosDeEmpresa(String empresaId) async {
+    try {
+      final snap = await _db
+          .collection('TBL_CARGOS')
+          .where('empresaId', isEqualTo: empresaId)
+          .get();
+      final nombres = <String>{
+        for (final d in snap.docs)
+          if ((d.data()['nombre'] ?? '').toString().trim().isNotEmpty)
+            (d.data()['nombre'] ?? '').toString().trim(),
+      };
+      return nombres.toList()
+        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// El equipo de Visitas: quien tiene el módulo entre sus accesos o ya
+  /// tiene rol, con su rol y el área del rol. Es lo que muestra el maestro
+  /// de equipo; antes solo se veía a quien tenía rol, y a quien le daban el
+  /// acceso en Admin no aparecía en ninguna parte del módulo.
+  Future<List<VisitaPersona>> equipoVisitas(String empresaId) async {
+    final personal = await personalDeEmpresa(empresaId);
+    final roles = await streamRoles(empresaId).first;
+    final rolPorUsuario = {for (final r in roles) r.userId: r};
+    return [
+      for (final p in personal)
+        if (p.tieneAcceso || rolPorUsuario.containsKey(p.id))
+          p.copyWith(
+            rol: rolPorUsuario[p.id]?.rol ?? '',
+            rolAreaId: rolPorUsuario[p.id]?.areaId ?? '',
+          ),
+    ];
   }
 
   /// Solo personas con rol Profesional pueden recibir visitas reales.
@@ -211,17 +460,22 @@ class VisitasService {
     return (doc.data()?['areaId'] ?? '').toString().trim();
   }
 
+  /// Áreas de la empresa (id → nombre), sin repetidas y nunca con el id
+  /// crudo como nombre (`areasUnicas`).
   Future<Map<String, String>> areasDeEmpresa(String empresaId) async {
     final snap = await _db
         .collection('TBL_AREAS')
         .where('empresaId', isEqualTo: empresaId)
         .get();
-    return {
+    final opciones = areasUnicas([
       for (final doc in snap.docs)
         if (doc.data()['enabled'] != false)
-          (doc.data()['areaId'] ?? doc.id).toString():
-              (doc.data()['nombre'] ?? doc.id).toString(),
-    };
+          (
+            id: (doc.data()['areaId'] ?? doc.id).toString(),
+            nombre: doc.data()['nombre']?.toString(),
+          ),
+    ], empresaId: empresaId);
+    return {for (final o in opciones) o.id: o.nombre};
   }
 
   /// Cargo del usuario en la empresa, para el encabezado del acta
@@ -447,7 +701,68 @@ class VisitasService {
       .snapshots()
       .map((d) => d.exists ? VisitaProfesional.fromMap(d.id, d.data()!) : null);
 
-  Future<String> programar(VisitaProfesional v) async {
+  Future<String> programar(VisitaProfesional v) async =>
+      (await programarVarias([v])).single;
+
+  /// Programa varias visitas del mismo profesional y formato de una vez
+  /// (25 sep 2026: "seleccionar varias fechas y asignar los lugares más
+  /// rápido, no una por una"). Valida una sola vez, escribe en un lote y
+  /// manda un solo aviso con todas las fechas.
+  Future<List<String>> programarVarias(List<VisitaProfesional> visitas) async {
+    if (visitas.isEmpty) return const [];
+    final v = visitas.first;
+    final formatoActual = await _validarProgramacion(v);
+    final refs = <DocumentReference<Map<String, dynamic>>>[];
+    final batch = _db.batch();
+    for (final visita in visitas) {
+      if (visita.profesionalId != v.profesionalId ||
+          visita.formatoId != v.formatoId ||
+          visita.asignadoPorId != v.asignadoPorId ||
+          visita.esPrueba != v.esPrueba) {
+        throw const VisitasException(
+          'Un lote es de un solo profesional, formato y tipo de visita.',
+        );
+      }
+      final ref = _visitas.doc();
+      refs.add(ref);
+      batch.set(ref, {
+        ...visita.toMap(),
+        'formatoAsignado': formatoActual.toMap(),
+        'estado': kVisitaProgramada,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+    await batch.commit();
+    if (!v.esPrueba) {
+      String dia(DateTime d) =>
+          '${d.day.toString().padLeft(2, '0')}/'
+          '${d.month.toString().padLeft(2, '0')}';
+      final ordenadas = [...visitas]
+        ..sort((a, b) => a.fechaProgramada.compareTo(b.fechaProgramada));
+      final detalle = ordenadas
+          .take(6)
+          .map((x) => '${x.establecimiento} el ${dia(x.fechaProgramada)}')
+          .join(' · ');
+      await _tasks.pushNotification(
+        toUserId: v.profesionalId,
+        title: visitas.length == 1
+            ? 'Visita programada'
+            : '${visitas.length} visitas programadas',
+        description:
+            '${v.areaNombre} · $detalle'
+            '${visitas.length > 6 ? ' y ${visitas.length - 6} más' : ''}',
+        type: 'visita_programada',
+        taskId: 'visita:${refs.first.id}',
+        fromId: v.asignadoPorId,
+        fromName: v.asignadoPorNombre,
+        empresaId: v.empresaId,
+      );
+    }
+    return [for (final r in refs) r.id];
+  }
+
+  Future<VisitaFormato> _validarProgramacion(VisitaProfesional v) async {
     if (v.formatoAsignado == null || v.formatoAsignado!.id != v.formatoId) {
       throw const VisitasException(
         'Selecciona un formato válido para la visita.',
@@ -496,30 +811,7 @@ class VisitasService {
         'El profesional debe pertenecer al área del formato.',
       );
     }
-    final ref = _visitas.doc();
-    await ref.set({
-      ...v.toMap(),
-      'formatoAsignado': formatoActual.toMap(),
-      'estado': kVisitaProgramada,
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-    if (!v.esPrueba) {
-      await _tasks.pushNotification(
-        toUserId: v.profesionalId,
-        title: 'Visita programada',
-        description:
-            '${v.areaNombre} · ${v.establecimiento} el '
-            '${v.fechaProgramada.day.toString().padLeft(2, '0')}/'
-            '${v.fechaProgramada.month.toString().padLeft(2, '0')}',
-        type: 'visita_programada',
-        taskId: 'visita:${ref.id}',
-        fromId: v.asignadoPorId,
-        fromName: v.asignadoPorNombre,
-        empresaId: v.empresaId,
-      );
-    }
-    return ref.id;
+    return formatoActual;
   }
 
   Future<void> cancelar(String id, {required String motivo}) =>
@@ -680,6 +972,59 @@ class VisitasService {
 
   // ── Firmas ────────────────────────────────────────────────────────────
 
+  /// Visitas que esperan la firma de [userId] como responsable del
+  /// establecimiento (rol Firmante). Solo las que le pidieron a él.
+  Stream<List<VisitaProfesional>> streamPorFirmar(
+    String empresaId,
+    String userId,
+  ) => _visitas
+      .where('empresaId', isEqualTo: empresaId)
+      .where('firmanteEstablecimientoId', isEqualTo: userId)
+      .snapshots()
+      .map(
+        (s) =>
+            s.docs
+                .map((d) => VisitaProfesional.fromMap(d.id, d.data()))
+                .toList()
+              ..sort((a, b) => b.fechaProgramada.compareTo(a.fechaProgramada)),
+      );
+
+  /// El profesional le pasa la firma al administrador del establecimiento:
+  /// queda como firmante de la visita y le llega el aviso para firmar desde
+  /// su propio módulo, con su cuenta.
+  Future<void> solicitarFirmaEstablecimiento(
+    VisitaProfesional v, {
+    required VisitaResponsable responsable,
+    required String actorId,
+    required String actorNombre,
+  }) async {
+    if (responsable.userId.trim().isEmpty) {
+      throw const VisitasException(
+        'Elige de la lista a quien recibe la visita para enviarle la firma.',
+      );
+    }
+    if (v.firmaEstablecimiento != null) {
+      throw const VisitasException('El establecimiento ya firmó.');
+    }
+    await _visitas.doc(v.id).update({
+      'firmanteEstablecimientoId': responsable.userId,
+      'responsableEstablecimiento': responsable.toMap(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    await _tasks.pushNotification(
+      toUserId: responsable.userId,
+      title: 'Visita por firmar · ${v.establecimiento}',
+      description:
+          '$actorNombre terminó la visita de ${v.areaNombre}. Revísala y '
+          'fírmala desde Visitas > Por firmar.',
+      type: 'visita_por_firmar',
+      taskId: 'visita:${v.id}',
+      fromId: actorId,
+      fromName: actorNombre,
+      empresaId: v.empresaId,
+    );
+  }
+
   /// La firma guardada del profesional en su perfil (la misma de Gestión
   /// Documental y Planillas). Null si no tiene.
   Future<Uint8List?> firmaGuardadaDe({
@@ -710,6 +1055,7 @@ class VisitasService {
     required String nombre,
     required String cargo,
     required String modo,
+    String firmadoPorId = '',
   }) async {
     final path = 'visitas/$empresaId/$visitaId/firmas/$quien.png';
     final ref = _storage.ref(path);
@@ -744,6 +1090,8 @@ class VisitasService {
       path: url.isEmpty ? '' : path,
       blob: png,
       at: Timestamp.now(),
+      dispositivo: dispositivoVisitas(),
+      firmadoPorId: firmadoPorId,
     );
     await _visitas.doc(visitaId).update({
       quien == 'profesional' ? 'firmaProfesional' : 'firmaEstablecimiento':
@@ -752,6 +1100,25 @@ class VisitasService {
     });
     return firma;
   }
+
+  /// Aviso al profesional cuando el establecimiento firma desde su módulo:
+  /// ya puede cerrar la visita.
+  Future<void> avisarFirmaEstablecimiento(
+    VisitaProfesional v, {
+    required String actorId,
+    required String actorNombre,
+  }) => _tasks.pushNotification(
+    toUserId: v.profesionalId,
+    title: 'Firmaron la visita · ${v.establecimiento}',
+    description:
+        '$actorNombre firmó como responsable del establecimiento. Ya puedes '
+        'cerrar la visita.',
+    type: 'visita_firmada',
+    taskId: 'visita:${v.id}',
+    fromId: actorId,
+    fromName: actorNombre,
+    empresaId: v.empresaId,
+  );
 
   Future<void> guardarRespuesta(
     String visitaId,
@@ -809,9 +1176,8 @@ class VisitasService {
   /// Cierra la visita: valida, marca fin con ubicación, guarda el
   /// cumplimiento y convierte cada "No cumple" en una tarea.
   ///
-  /// La tarea se asigna al jefe que programó la visita. Es la maqueta: quién
-  /// responde por cada hallazgo en el establecimiento es la matriz por cargo
-  /// que ya tiene Interventoría, y conectarla es el paso siguiente, no este.
+  /// La tarea va al responsable que el profesional eligió en el plan de
+  /// acción (25 sep 2026), con su área; sin plan, al jefe que programó.
   Future<List<String>> cerrar({
     required VisitaFormato formato,
     required VisitaProfesional visita,
@@ -840,17 +1206,18 @@ class VisitasService {
     final tareas = <String>[];
     if (!visita.esPrueba) {
       for (final h in hallazgos) {
+        final destino = destinatarioHallazgo(visita, h);
         try {
           final id = await _tasks.createTaskEs(
             titulo: tituloTareaHallazgo(visita, h),
             descripcion: descripcionTareaHallazgo(visita, h),
             prioridad: 'alta',
-            asignadoUid: visita.asignadoPorId,
-            asignadoNombre: visita.asignadoPorNombre,
+            asignadoUid: destino.id,
+            asignadoNombre: destino.nombre,
             creadorUid: actorId,
             creadorNombre: actorNombre,
             centroId: visita.centroId,
-            areaId: visita.areaId,
+            areaId: destino.areaId,
             empresaId: visita.empresaId,
             fechaLimite: fechaLimiteHallazgo(ahora),
             extra: {

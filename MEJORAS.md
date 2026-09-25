@@ -6349,3 +6349,94 @@ Pruebas: `test/gerencia/gerencia_areas_test.dart` y grupos nuevos en
 (Interventoría) dejaría el dato guardado para otros módulos, pero cambia cómo el
 tablero y el panel distinguen "asignado por área"; se deja para cuando se
 revise Interventoría.
+
+## Visitas: equipo como maestro, varias fechas, ejecución por secciones y firma desde el módulo del establecimiento (25 sep 2026)
+
+Segundo módulo de la ronda de correcciones.
+
+**Cronograma.** La tarjeta del calendario quedó solo con el calendario y, debajo,
+el botón **Agregar visita** (se quitó el botón flotante). El conteo del mes y el
+filtro por estado van fuera de la tarjeta.
+
+**No salían los profesionales ni el director.** Tres causas: las tarjetas de área
+de Formatos solo contaban a quien ya tenía rol; comparaban el área al pie de la
+letra; y Administración no dejaba asignar el rol a quien tenía el área solo en
+el cargo ("Asigna primero el área…"), que es la mayoría. Arreglo:
+
+- Pestaña nueva **Equipo** (jefe y Desarrollo), maestro con dos partes:
+  - *Personal*: todos los que tienen el módulo Visitas en sus accesos o ya
+    tienen rol, con foto, cargo y área (de la ficha o del cargo, vía
+    `TBL_CARGOS`). Tarjeta por área con director, profesionales y cuántos
+    quedan sin grupo. Cada persona se edita: rol, área y grupo. El jefe da o
+    quita el rol Profesional en su área; director (jefe), consulta y firmante
+    los asigna Desarrollo o Administración, igual que exigen las reglas.
+  - *Grupos y establecimientos*: `TBL_VISITAS_GRUPOS` (nombre, área, centros de
+    costo, profesionales). Un profesional queda en un solo grupo de su área.
+- `VisitasService.areaParaRol`: el área del rol sale de la ficha o del cargo y
+  se lleva al id del catálogo (`TBL_AREAS`), que es el que usan los formatos y
+  comparan las reglas. Admin > Roles y permisos lo usa; firmante y consulta ya
+  no piden área.
+- `areasDeEmpresa` usa `areasUnicas`: nunca un id crudo como nombre.
+
+**Agregar varias visitas de una vez** (`visitas_programar.dart`). Se elige el
+profesional y el formato una sola vez, se marcan los días en el calendario y a
+cada día se le pone el establecimiento (con "mismo establecimiento para todos").
+Los establecimientos del grupo del profesional salen primero (★). En móvil el
+diálogo ocupa la pantalla. `programarVarias` valida una vez, escribe en un lote
+y manda un solo aviso con las fechas. Probado en el emulador un lote de 12
+visitas: no pasa el tope de lecturas de las reglas.
+
+**Formatos por área y cargo.** `VisitaFormato.cargos` (vacío = todo el área).
+La lista va agrupada por área con filtro por área y por cargo, 20 por página;
+el editor tiene "Cargos a los que aplica". Al programar se propone el formato
+que nombra el cargo del profesional, luego el predeterminado
+(`formatoPropuesto`).
+
+**Ejecución de la visita.**
+- Por secciones (`pasosDeFormato`): una página por sección del acta (máximo 20
+  preguntas; una sección más larga se parte) y cada tabla en su página, más la
+  página de cierre. Tira de secciones arriba: rojo con cuántas faltan, verde con
+  chulo si está completa. Anterior / Guardar avance / Siguiente abajo.
+- Bordes: pregunta o fila de tabla con algo pendiente (sin responder, "no
+  cumple" sin observación o sin la foto exigida) en **rojo**; completa en
+  **negro**. Los campos obligatorios igual.
+- **Guardar avance**: guarda el campo a medio escribir, el encabezado y la
+  observación general; también al salir de la pantalla. Las respuestas ya se
+  guardaban una a una. Se sigue después desde Mis visitas.
+- **Plan de acción** de un "no cumple": qué hacer, **área** y **responsable**
+  (buscador del personal, primero los del área); el establecimiento es el de la
+  visita. Al cerrar, la tarea va a ese responsable con esa área; sin plan, al
+  jefe que programó, como antes. El PDF lo pone en "Responsable".
+- El responsable del establecimiento se puede **elegir de la lista** del
+  personal (primero los del establecimiento).
+
+**Firma desde el módulo del establecimiento.** Rol nuevo **Firmante del
+establecimiento** (el administrador que recibe la visita). El profesional, con
+el formato completo, toca "Enviar para que firme desde su módulo": queda
+`firmanteEstablecimientoId` y le llega el aviso. El firmante tiene la pestaña
+**Por firmar**, revisa el resultado y los hallazgos y firma con su firma
+guardada o dibujándola; el profesional recibe aviso y cierra. Sigue existiendo
+"Firmar aquí" en el equipo del profesional. Cada firma guarda desde qué equipo
+se hizo (`dispositivo`) y con qué cuenta (`firmadoPorId`); la tarjeta y el PDF
+lo muestran ("Firmó desde su propio módulo" / "en el equipo del profesional").
+
+**Reglas (`firestore.rules`) — hay que desplegarlas**
+- `TBL_VISITAS`: el firmante designado lee su visita (y la lista filtrada por
+  él) y solo puede estampar `firmaEstablecimiento` con la visita en curso y sin
+  firma previa. El profesional puede poner `firmanteEstablecimientoId` y, con
+  el contenido ya firmado, cambiar a quién se le pide la firma mientras falte
+  la del establecimiento; el contenido sigue congelado.
+- `TBL_VISITAS_ROLES` acepta `firmante`; `participaEnVisitas` lo incluye.
+- `TBL_VISITAS_GRUPOS`: lee quien participa; escribe el jefe de su área (o
+  Desarrollo); el área de un grupo no cambia. Fuera del comodín general.
+- Pruebas: `functions/test/visitas_profesionales.rules.js` (7 casos, verdes en
+  el emulador; todas las de reglas 35/35).
+
+Pruebas Dart: `test/visitas/visitas_equipo_lote_test.dart`.
+
+**Pendiente / para decidir**
+- Un rol de profesional guardado con otra variante del área no lo puede
+  corregir el jefe (las reglas solo le dejan su área exacta): se corrige
+  volviendo a asignarlo en Admin > Roles y permisos.
+- El módulo no da el acceso a la app: si a alguien se le da rol sin tener
+  Visitas en sus accesos, el maestro lo avisa y se le da en Admin > Usuarios.

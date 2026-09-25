@@ -244,9 +244,15 @@ pw.Widget _firmas(
         ),
         if (f != null)
           pw.Text(
-            f.modo == kFirmaModoGuardada
-                ? 'Firma guardada del perfil · ${f.at == null ? '' : '${_dd(f.at!.toDate().toLocal())} ${_hhmm(f.at!.toDate().toLocal())}'}'
-                : 'Firmado en el sitio · ${f.at == null ? '' : '${_dd(f.at!.toDate().toLocal())} ${_hhmm(f.at!.toDate().toLocal())}'}',
+            [
+              f.modo == kFirmaModoGuardada
+                  ? 'Firma guardada del perfil'
+                  : 'Dibujada en pantalla',
+              if (f.at != null)
+                '${_dd(f.at!.toDate().toLocal())} ${_hhmm(f.at!.toDate().toLocal())}',
+              // Desde qué equipo se firmó (25 sep 2026).
+              if (f.dispositivo.isNotEmpty) f.dispositivo,
+            ].join(' · '),
             style: const pw.TextStyle(fontSize: 6, color: PdfColors.grey700),
           ),
       ],
@@ -606,7 +612,15 @@ List<pw.Widget> _hojaTabla(
                     : hallazgos[i].accion,
                 fs: 6.5,
               ),
-              _celda(v.responsableEstablecimiento.nombre, fs: 6.5),
+              // El responsable del plan de acción si lo eligieron; si no, el
+              // del establecimiento, como antes.
+              _celda(
+                hallazgos[i].responsableNombre.trim().isNotEmpty
+                    ? '${hallazgos[i].responsableNombre}'
+                          '${hallazgos[i].areaNombre.trim().isEmpty ? '' : ' (${hallazgos[i].areaNombre})'}'
+                    : v.responsableEstablecimiento.nombre,
+                fs: 6.5,
+              ),
               _celda(
                 _dd(fechaLimiteHallazgo(v.fin?.at.toDate() ?? ini)),
                 fs: 6.5,

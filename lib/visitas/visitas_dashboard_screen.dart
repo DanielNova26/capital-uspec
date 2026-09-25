@@ -30,7 +30,9 @@ import 'visitas_firma.dart';
 import 'visitas_formato_excel.dart';
 import 'visitas_formato_sst.dart' show kFormatoSstAreaId;
 import 'visitas_informe_pdf.dart';
+import 'visitas_equipo.dart';
 import 'visitas_models.dart';
+import 'visitas_programar.dart';
 import 'visitas_service.dart';
 import 'visitas_ubicaciones_screen.dart';
 
@@ -77,6 +79,139 @@ void _snack(BuildContext context, String msg, {bool error = false}) {
   );
 }
 
+/// Elige una persona del personal con buscador y páginas de 20. Los de
+/// [destacado] (los del establecimiento, los del área) salen primero.
+Future<VisitaPersona?> _elegirPersona(
+  BuildContext context, {
+  required String titulo,
+  required List<VisitaPersona> personal,
+  bool Function(VisitaPersona)? destacado,
+  String etiquetaDestacados = '',
+}) => showDialog<VisitaPersona>(
+  context: context,
+  builder: (_) => _ElegirPersonaDialog(
+    titulo: titulo,
+    personal: personal,
+    destacado: destacado,
+    etiquetaDestacados: etiquetaDestacados,
+  ),
+);
+
+class _ElegirPersonaDialog extends StatefulWidget {
+  final String titulo;
+  final List<VisitaPersona> personal;
+  final bool Function(VisitaPersona)? destacado;
+  final String etiquetaDestacados;
+  const _ElegirPersonaDialog({
+    required this.titulo,
+    required this.personal,
+    required this.destacado,
+    required this.etiquetaDestacados,
+  });
+
+  @override
+  State<_ElegirPersonaDialog> createState() => _ElegirPersonaDialogState();
+}
+
+class _ElegirPersonaDialogState extends State<_ElegirPersonaDialog> {
+  String _q = '';
+  int _pagina = 0;
+
+  String _clave(String t) => t
+      .toLowerCase()
+      .replaceAll(RegExp(r'[áà]'), 'a')
+      .replaceAll(RegExp(r'[éè]'), 'e')
+      .replaceAll(RegExp(r'[íì]'), 'i')
+      .replaceAll(RegExp(r'[óò]'), 'o')
+      .replaceAll(RegExp(r'[úù]'), 'u');
+
+  @override
+  Widget build(BuildContext context) {
+    final q = _clave(_q.trim());
+    final destacado = widget.destacado;
+    final filtrados = [
+      for (final p in widget.personal)
+        if (q.isEmpty || _clave('${p.nombre} ${p.cargo}').contains(q)) p,
+    ];
+    final lista = destacado == null
+        ? filtrados
+        : [
+            ...filtrados.where(destacado),
+            ...filtrados.where((p) => !destacado(p)),
+          ];
+    final maxPagina = pageCountOf(lista.length) - 1;
+    final pagina = _pagina.clamp(0, maxPagina < 0 ? 0 : maxPagina);
+    final visibles = pageOf(lista, pagina);
+    return AlertDialog(
+      title: Text(widget.titulo),
+      content: SizedBox(
+        width: 460,
+        height: 520,
+        child: Column(
+          children: [
+            TextField(
+              autofocus: true,
+              decoration: const InputDecoration(
+                isDense: true,
+                prefixIcon: Icon(Icons.search, size: 20),
+                hintText: 'Buscar por nombre o cargo',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (v) => setState(() {
+                _q = v;
+                _pagina = 0;
+              }),
+            ),
+            if (lista.length > kPageSize)
+              PagerBar(
+                total: lista.length,
+                page: pagina,
+                etiqueta: 'personas',
+                onPageChanged: (p) => setState(() => _pagina = p),
+              ),
+            const SizedBox(height: 6),
+            Expanded(
+              child: lista.isEmpty
+                  ? const Center(child: Text('Nadie coincide.'))
+                  : ListView(
+                      children: [
+                        for (final p in visibles)
+                          ListTile(
+                            dense: true,
+                            leading: UserAvatar(
+                              userId: p.id,
+                              nameHint: p.nombre,
+                              radius: 16,
+                            ),
+                            title: UserNameText(p.id, fallbackName: p.nombre),
+                            subtitle: Text(
+                              [
+                                if (p.cargo.isNotEmpty) p.cargo,
+                                if (destacado != null && destacado(p))
+                                  widget.etiquetaDestacados,
+                                if (!p.tieneAcceso)
+                                  'sin el módulo Visitas: no firma desde su módulo',
+                              ].where((t) => t.isNotEmpty).join(' · '),
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            onTap: () => Navigator.pop(context, p),
+                          ),
+                      ],
+                    ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+      ],
+    );
+  }
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // Pantalla principal
 // ═════════════════════════════════════════════════════════════════════════════
@@ -115,6 +250,19 @@ class _VisitasDashboardScreenState extends State<VisitasDashboardScreen>
     super.initState();
     final rol = widget.rol;
     _tabs = [
+      // El administrador del establecimiento firma desde su propio módulo
+      // (25 sep 2026), no en la tablet del profesional.
+      if (rol == kVisitasRolFirmante)
+        _TabDef(
+          'Por firmar',
+          Icons.draw_outlined,
+          (_) => _PorFirmarTab(
+            svc: _svc,
+            userId: widget.userId,
+            empresaId: widget.empresaId,
+            nombreUsuario: widget.nombreUsuario,
+          ),
+        ),
       if (rol == kVisitasRolProfesional)
         _TabDef(
           'Registro de visita',
@@ -161,6 +309,19 @@ class _VisitasDashboardScreenState extends State<VisitasDashboardScreen>
             svc: _svc,
             userId: widget.userId,
             empresaId: widget.empresaId,
+            esDesarrollador: widget.esDesarrollador,
+          ),
+        ),
+      // Maestro de equipo (25 sep 2026): personal con acceso, roles, grupos
+      // y los establecimientos de cada grupo.
+      if (visitasPuedeGestionarEquipo(rol))
+        _TabDef(
+          'Equipo',
+          Icons.groups_2_outlined,
+          (_) => VisitasEquipoTab(
+            svc: _svc,
+            empresaId: widget.empresaId,
+            userId: widget.userId,
             esDesarrollador: widget.esDesarrollador,
           ),
         ),
@@ -213,7 +374,8 @@ class _VisitasDashboardScreenState extends State<VisitasDashboardScreen>
             padding: EdgeInsets.all(24),
             child: Text(
               'No tienes un rol en Visitas. Pídele a Administración que te '
-              'asigne el rol (jefe, profesional o consulta) en Roles y permisos.',
+              'asigne el rol (jefe, profesional, consulta o firmante) en Roles '
+              'y permisos.',
               textAlign: TextAlign.center,
               style: TextStyle(fontFamily: _kFont),
             ),
@@ -332,19 +494,6 @@ class _CronogramaTabState extends State<_CronogramaTab> {
     final puedeProgramar = visitasPuedeProgramar(widget.rol);
     return Scaffold(
       backgroundColor: Colors.transparent,
-      floatingActionButton: puedeProgramar
-          ? FloatingActionButton.extended(
-              backgroundColor: kVisitasColor,
-              foregroundColor: Colors.white,
-              onPressed: () => _programar(context),
-              icon: const Icon(Icons.add),
-              label: Text(
-                _diaElegido == null
-                    ? 'Programar visita'
-                    : 'Programar el ${_dd(_diaElegido!)}',
-              ),
-            )
-          : null,
       body: StreamBuilder<List<VisitaProfesional>>(
         stream: _stream,
         builder: (context, snap) {
@@ -379,49 +528,53 @@ class _CronogramaTabState extends State<_CronogramaTab> {
           return LayoutBuilder(
             builder: (context, constraints) {
               final ancho = constraints.maxWidth >= 1000;
+              // Filtro y conteo van fuera de la tarjeta: la tarjeta es solo el
+              // calendario y el botón de agregar (pedido del 25 sep 2026).
+              final filtros = Padding(
+                padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${delMes.length} visita${delMes.length == 1 ? '' : 's'} en el mes',
+                        style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 12,
+                          color: Colors.black54,
+                        ),
+                      ),
+                    ),
+                    DropdownButton<String>(
+                      value: _estado,
+                      underline: const SizedBox.shrink(),
+                      style: const TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 13,
+                        color: Colors.black87,
+                      ),
+                      items: [
+                        const DropdownMenuItem(
+                          value: 'todas',
+                          child: Text('Todas'),
+                        ),
+                        for (final e in kVisitaEstadosLabel.entries)
+                          DropdownMenuItem(value: e.key, child: Text(e.value)),
+                      ],
+                      onChanged: (v) => setState(() => _estado = v ?? 'todas'),
+                    ),
+                  ],
+                ),
+              );
               final calendario = Card(
                 margin: EdgeInsets.zero,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+                  padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
                   child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Row(
-                        children: [
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              '${delMes.length} visita${delMes.length == 1 ? '' : 's'} en el mes',
-                              style: const TextStyle(
-                                fontFamily: _kFont,
-                                fontSize: 12,
-                                color: Colors.black54,
-                              ),
-                            ),
-                          ),
-                          DropdownButton<String>(
-                            value: _estado,
-                            underline: const SizedBox.shrink(),
-                            style: const TextStyle(
-                              fontFamily: _kFont,
-                              fontSize: 13,
-                              color: Colors.black87,
-                            ),
-                            items: [
-                              const DropdownMenuItem(
-                                value: 'todas',
-                                child: Text('Todas'),
-                              ),
-                              for (final e in kVisitaEstadosLabel.entries)
-                                DropdownMenuItem(
-                                  value: e.key,
-                                  child: Text(e.value),
-                                ),
-                            ],
-                            onChanged: (v) =>
-                                setState(() => _estado = v ?? 'todas'),
-                          ),
-                        ],
-                      ),
                       TableCalendar<VisitaProfesional>(
                         locale: 'es_CO',
                         firstDay: DateTime.utc(2024, 1, 1),
@@ -511,6 +664,27 @@ class _CronogramaTabState extends State<_CronogramaTab> {
                           },
                         ),
                       ),
+                      if (puedeProgramar) ...[
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: kVisitasColor,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                            onPressed: () => _programar(context),
+                            icon: const Icon(Icons.add),
+                            label: const Text(
+                              'Agregar visita',
+                              style: TextStyle(
+                                fontFamily: _kFont,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -536,8 +710,9 @@ class _CronogramaTabState extends State<_CronogramaTab> {
                       padding: const EdgeInsets.all(12),
                       child: Text(
                         puedeProgramar
-                            ? 'Nada programado ese día. Usa "Programar el '
-                                  '${_dd(_diaElegido!)}" para agendar una visita.'
+                            ? 'Nada programado ese día. Usa "Agregar visita" '
+                                  'debajo del calendario: puedes marcar varios '
+                                  'días de una vez.'
                             : 'Nada programado ese día.',
                         style: const TextStyle(
                           fontFamily: _kFont,
@@ -573,11 +748,19 @@ class _CronogramaTabState extends State<_CronogramaTab> {
               if (ancho) {
                 // Escritorio: calendario a la izquierda, el día a la derecha.
                 return Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 90),
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      SizedBox(width: 460, child: calendario),
+                      SizedBox(
+                        width: 460,
+                        child: SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [filtros, calendario],
+                          ),
+                        ),
+                      ),
                       const SizedBox(width: 16),
                       Expanded(child: SingleChildScrollView(child: detalle)),
                     ],
@@ -585,8 +768,13 @@ class _CronogramaTabState extends State<_CronogramaTab> {
                 );
               }
               return ListView(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 90),
-                children: [calendario, const SizedBox(height: 8), detalle],
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+                children: [
+                  filtros,
+                  calendario,
+                  const SizedBox(height: 8),
+                  detalle,
+                ],
               );
             },
           );
@@ -596,20 +784,23 @@ class _CronogramaTabState extends State<_CronogramaTab> {
   }
 
   Future<void> _programar(BuildContext context) async {
-    final creada = await showDialog<bool>(
-      context: context,
-      builder: (_) => _ProgramarVisitaDialog(
-        svc: widget.svc,
-        empresaId: widget.empresaId,
-        jefeId: widget.userId,
-        jefeNombre: widget.nombreUsuario,
-        esDesarrollador: widget.esDesarrollador,
-        // El día tocado en el calendario ya viene elegido en el diálogo.
-        mesInicial: _diaElegido ?? _mesEnfocado,
-      ),
+    final n = await programarVisitas(
+      context,
+      svc: widget.svc,
+      empresaId: widget.empresaId,
+      jefeId: widget.userId,
+      jefeNombre: widget.nombreUsuario,
+      esDesarrollador: widget.esDesarrollador,
+      // El día tocado en el calendario ya viene marcado en el diálogo.
+      diaInicial: _diaElegido ?? _mesEnfocado,
     );
-    if (creada == true && context.mounted) {
-      _snack(context, 'Visita programada. El profesional ya fue notificado.');
+    if (n > 0 && context.mounted) {
+      _snack(
+        context,
+        n == 1
+            ? 'Visita programada. El profesional ya fue notificado.'
+            : '$n visitas programadas. El profesional ya fue notificado.',
+      );
     }
   }
 }
@@ -745,380 +936,6 @@ class _Chip extends StatelessWidget {
       ),
     ),
   );
-}
-
-// ── Programar ────────────────────────────────────────────────────────────────
-
-class _ProgramarVisitaDialog extends StatefulWidget {
-  final VisitasService svc;
-  final String empresaId;
-  final String jefeId;
-  final String jefeNombre;
-  final bool esDesarrollador;
-  final DateTime mesInicial;
-  const _ProgramarVisitaDialog({
-    required this.svc,
-    required this.empresaId,
-    required this.jefeId,
-    required this.jefeNombre,
-    required this.esDesarrollador,
-    required this.mesInicial,
-  });
-
-  @override
-  State<_ProgramarVisitaDialog> createState() => _ProgramarVisitaDialogState();
-}
-
-class _ProgramarVisitaDialogState extends State<_ProgramarVisitaDialog> {
-  List<VisitaPersona> _personal = const [];
-  Set<String> _idsProfesionales = const <String>{};
-  List<VisitaCentro> _centros = const [];
-  List<VisitaFormato> _formatos = const [];
-  VisitaPersona? _profesional;
-  VisitaCentro? _centro;
-  String _subcentroId = '';
-  VisitaFormato? _formato;
-  late DateTime _fecha;
-  bool _cargando = true;
-  bool _guardando = false;
-  bool _esPrueba = false;
-  String _areaJefe = '';
-
-  @override
-  void initState() {
-    super.initState();
-    // `mesInicial` trae el día tocado en el calendario; si es una fecha ya
-    // pasada se propone hoy, porque una visita no se programa hacia atrás.
-    final hoy = DateTime.now();
-    final hoyDia = DateTime(hoy.year, hoy.month, hoy.day);
-    final propuesto = DateTime(
-      widget.mesInicial.year,
-      widget.mesInicial.month,
-      widget.mesInicial.day,
-    );
-    _fecha = propuesto.isBefore(hoyDia) ? hoyDia : propuesto;
-    _cargar();
-  }
-
-  Future<void> _cargar() async {
-    try {
-      final personal = await widget.svc.personalDeEmpresa(widget.empresaId);
-      final roles = await widget.svc.streamRoles(widget.empresaId).first;
-      final areaPorRol = {for (final r in roles) r.userId: r.areaId};
-      final areaJefe = widget.esDesarrollador
-          ? ''
-          : await widget.svc.areaDeUsuario(widget.empresaId, widget.jefeId);
-      final profesionales = await widget.svc.idsProfesionales(widget.empresaId);
-      final centros = await widget.svc.streamCentros(widget.empresaId).first;
-      final formatos = await widget.svc
-          .streamFormatos(
-            widget.empresaId,
-            areaId: widget.esDesarrollador ? null : areaJefe,
-          )
-          .first;
-      if (!mounted) return;
-      setState(() {
-        _personal = [
-          for (final p in personal)
-            VisitaPersona(
-              id: p.id,
-              nombre: p.nombre,
-              areaId: areaPorRol[p.id] ?? p.areaId,
-              cargo: p.cargo,
-            ),
-        ];
-        _areaJefe = areaJefe;
-        _idsProfesionales = profesionales;
-        _centros = centros;
-        _formatos = formatos.where((f) => f.usable).toList();
-        _cargando = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _cargando = false);
-      _snack(context, 'No se pudieron cargar los datos: $e', error: true);
-    }
-  }
-
-  /// Al escoger al profesional se propone el formato de su área.
-  void _proponerFormato(VisitaPersona p) {
-    final area = p.areaId.trim().toLowerCase();
-    final candidatos = _formatos.where((f) {
-      final a = f.areaId.toLowerCase();
-      return area.isNotEmpty && a == area && (_esPrueba || !f.esBorrador);
-    }).toList();
-    _formato =
-        candidatos.where((f) => f.predeterminado).firstOrNull ??
-        candidatos.firstOrNull;
-  }
-
-  Future<void> _guardar() async {
-    if (_profesional == null || _centro == null || _formato == null) {
-      _snack(
-        context,
-        'Faltan profesional, establecimiento o formato.',
-        error: true,
-      );
-      return;
-    }
-    if (!widget.esDesarrollador && _areaJefe != _formato!.areaId) {
-      _snack(context, 'Solo puedes asignar formatos de tu área.', error: true);
-      return;
-    }
-    if (_profesional!.areaId != _formato!.areaId &&
-        !(_esPrueba && _profesional!.id == widget.jefeId)) {
-      _snack(
-        context,
-        'El profesional debe pertenecer al área del formato.',
-        error: true,
-      );
-      return;
-    }
-    setState(() => _guardando = true);
-    final sub = _centro!.subcentros
-        .where((s) => s.id == _subcentroId)
-        .firstOrNull;
-    try {
-      await widget.svc.programar(
-        VisitaProfesional(
-          empresaId: widget.empresaId,
-          formatoId: _formato!.id,
-          formatoNombre: _formato!.nombre,
-          formatoAsignado: _formato,
-          esPrueba: _esPrueba,
-          areaId: _formato!.areaId,
-          areaNombre: _formato!.areaNombre,
-          centroId: _centro!.id,
-          centroNombre: _centro!.nombre,
-          subcentroId: sub?.id ?? '',
-          subcentroNombre: sub?.nombre ?? '',
-          profesionalId: _profesional!.id,
-          profesionalNombre: _profesional!.nombre,
-          asignadoPorId: widget.jefeId,
-          asignadoPorNombre: widget.jefeNombre,
-          fechaProgramada: _fecha,
-        ),
-      );
-      if (mounted) Navigator.pop(context, true);
-    } catch (e) {
-      if (mounted) {
-        setState(() => _guardando = false);
-        _snack(context, 'No se pudo programar: $e', error: true);
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text(
-        'Programar visita',
-        style: TextStyle(fontFamily: _kFont),
-      ),
-      content: SizedBox(
-        width: 460,
-        child: _cargando
-            ? const Padding(
-                padding: EdgeInsets.all(24),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            : SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Visita de prueba'),
-                      subtitle: const Text(
-                        'Se identifica como ensayo y la jefatura podrá eliminarla después.',
-                      ),
-                      value: _esPrueba,
-                      onChanged: (value) => setState(() {
-                        _esPrueba = value;
-                        if (!value &&
-                            _profesional?.id == widget.jefeId &&
-                            !_idsProfesionales.contains(widget.jefeId)) {
-                          _profesional = null;
-                        }
-                        if (!value && _formato?.esBorrador == true)
-                          _formato = null;
-                      }),
-                    ),
-                    if (!widget.esDesarrollador && _areaJefe.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.only(bottom: 10),
-                        child: Text(
-                          'Tu perfil no tiene área. Asígnala en Admin > Usuarios antes de programar visitas.',
-                          style: TextStyle(color: Color(0xFFB45309)),
-                        ),
-                      ),
-                    DropdownButtonFormField<VisitaPersona>(
-                      key: ValueKey(
-                        'profesional-$_esPrueba-${_profesional?.id}',
-                      ),
-                      initialValue: _profesional,
-                      isExpanded: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Profesional',
-                      ),
-                      items: [
-                        for (final p in _personal)
-                          if ((widget.esDesarrollador ||
-                                  p.areaId == _areaJefe) &&
-                              (_idsProfesionales.contains(p.id) ||
-                                  (_esPrueba && p.id == widget.jefeId)))
-                            DropdownMenuItem(
-                              value: p,
-                              child: Text(
-                                p.cargo.isEmpty
-                                    ? p.nombre
-                                    : '${p.nombre} · ${p.cargo}',
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                      ],
-                      onChanged: (p) => setState(() {
-                        _profesional = p;
-                        if (p != null) _proponerFormato(p);
-                      }),
-                    ),
-                    if (_idsProfesionales.isEmpty && !_esPrueba)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 6),
-                        child: Text(
-                          'Asigna primero el rol Profesional en Admin > Roles y permisos.',
-                        ),
-                      ),
-                    const SizedBox(height: 10),
-                    DropdownButtonFormField<VisitaCentro>(
-                      initialValue: _centro,
-                      isExpanded: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Establecimiento',
-                      ),
-                      items: [
-                        for (final c in _centros)
-                          DropdownMenuItem(value: c, child: Text(c.nombre)),
-                      ],
-                      onChanged: (c) => setState(() {
-                        _centro = c;
-                        _subcentroId = '';
-                      }),
-                    ),
-                    if ((_centro?.subcentrosActivos ?? const [])
-                        .isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      DropdownButtonFormField<String>(
-                        initialValue: _subcentroId,
-                        decoration: const InputDecoration(
-                          labelText: 'Subcentro',
-                        ),
-                        items: [
-                          const DropdownMenuItem(
-                            value: '',
-                            child: Text('Todo el establecimiento'),
-                          ),
-                          for (final s in _centro!.subcentrosActivos)
-                            DropdownMenuItem(
-                              value: s.id,
-                              child: Text(s.nombre),
-                            ),
-                        ],
-                        onChanged: (v) =>
-                            setState(() => _subcentroId = v ?? ''),
-                      ),
-                    ],
-                    const SizedBox(height: 10),
-                    DropdownButtonFormField<VisitaFormato>(
-                      key: ValueKey('formato-$_esPrueba-${_formato?.id}'),
-                      initialValue: _formato,
-                      isExpanded: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Formato (área)',
-                      ),
-                      items: [
-                        for (final f in _formatos)
-                          if ((widget.esDesarrollador ||
-                                  f.areaId == _areaJefe) &&
-                              (_profesional == null ||
-                                  f.areaId == _profesional!.areaId ||
-                                  (_esPrueba &&
-                                      _profesional!.id == widget.jefeId)) &&
-                              (_esPrueba || !f.esBorrador))
-                            DropdownMenuItem(
-                              value: f,
-                              child: Text(
-                                '${f.areaNombre} · ${f.nombre}${f.predeterminado ? ' ★' : ''}${f.esBorrador ? ' (borrador)' : ''}',
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                      ],
-                      onChanged: (f) => setState(() => _formato = f),
-                    ),
-                    if (_formato != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Text(
-                          '${_formato!.areaNombre} · ${_formato!.items.length} preguntas'
-                          '${_formato!.tablas.isEmpty ? '' : ' · ${_formato!.tablas.length} tablas'}'
-                          ' · versión ${_formato!.version}'
-                          '${_formato!.esBorrador ? ' · SOLO PRUEBA' : ''}',
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      ),
-                    if (_formatos.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 6),
-                        child: Text(
-                          'No hay formatos. Créalos o siembra los borradores en la pestaña Formatos.',
-                          style: TextStyle(
-                            fontFamily: _kFont,
-                            fontSize: 12,
-                            color: Color(0xFFB45309),
-                          ),
-                        ),
-                      ),
-                    const SizedBox(height: 10),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.event),
-                      title: Text(
-                        'Fecha: ${_dd(_fecha)}',
-                        style: const TextStyle(fontFamily: _kFont),
-                      ),
-                      trailing: const Icon(Icons.edit_calendar_outlined),
-                      onTap: () async {
-                        final d = await showDatePicker(
-                          context: context,
-                          initialDate: _fecha,
-                          firstDate: DateTime.now().subtract(
-                            const Duration(days: 1),
-                          ),
-                          lastDate: DateTime.now().add(
-                            const Duration(days: 365),
-                          ),
-                        );
-                        if (d != null) setState(() => _fecha = d);
-                      },
-                    ),
-                  ],
-                ),
-              ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _guardando ? null : () => Navigator.pop(context, false),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton(
-          style: FilledButton.styleFrom(backgroundColor: kVisitasColor),
-          onPressed: _guardando || _cargando ? null : _guardar,
-          child: Text(_guardando ? 'Guardando…' : 'Programar'),
-        ),
-      ],
-    );
-  }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1622,10 +1439,42 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
   VisitaUbicacion? _referencia;
   bool _referenciaBuscada = false;
 
+  /// Sección del formato en pantalla (25 sep 2026: por páginas, no una lista
+  /// interminable). La última es el cierre: encabezado, firmas y cerrar.
+  int _paso = 0;
+
+  /// Cédula del responsable del establecimiento cuando se eligió de la
+  /// lista; con ella puede firmar desde su propio módulo.
+  String _respUserId = '';
+  String _respNombreElegido = '';
+
+  /// Áreas y personal para el plan de acción y el responsable del sitio.
+  Map<String, String> _areasMapa = const {};
+  List<VisitaPersona> _personal = const [];
+  Future<void>? _catalogos;
+
   @override
   void initState() {
     super.initState();
     _stream = widget.svc.streamVisita(widget.visitaId);
+  }
+
+  /// Una sola lectura por pantalla; quien la pida mientras carga espera la
+  /// misma (el selector del responsable no abre vacío).
+  Future<void> _cargarCatalogos() => _catalogos ??= _leerCatalogos();
+
+  Future<void> _leerCatalogos() async {
+    try {
+      final areas = await widget.svc.areasDeEmpresa(widget.empresaId);
+      final personal = await widget.svc.personalDeEmpresa(widget.empresaId);
+      if (!mounted) return;
+      setState(() {
+        _areasMapa = areas;
+        _personal = personal;
+      });
+    } catch (_) {
+      // Sin catálogos el plan de acción queda solo con el texto.
+    }
   }
 
   @override
@@ -1676,6 +1525,8 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
     _encabezadoCargado = true;
     _respNombre.text = v.responsableEstablecimiento.nombre;
     _respCargo.text = v.responsableEstablecimiento.cargo;
+    _respUserId = v.responsableEstablecimiento.userId;
+    _respNombreElegido = _respUserId.isEmpty ? '' : _respNombre.text;
     if (v.ciudad.isNotEmpty) _ciudad.text = v.ciudad;
     if (v.cargoProfesional.isNotEmpty) _cargoProf.text = v.cargoProfesional;
   }
@@ -1683,7 +1534,150 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
   VisitaResponsable get _responsable => VisitaResponsable(
     nombre: _respNombre.text.trim(),
     cargo: _respCargo.text.trim(),
+    userId: _respUserId,
   );
+
+  /// Quien recibe la visita, de la lista del personal: primero los del
+  /// establecimiento. Elegido de la lista puede firmar desde su módulo.
+  Future<void> _elegirResponsable(VisitaProfesional v) async {
+    await _cargarCatalogos();
+    if (!mounted) return;
+    final p = await _elegirPersona(
+      context,
+      titulo: 'Responsable del establecimiento',
+      personal: _personal,
+      destacado: (x) => x.centroId.isNotEmpty && x.centroId == v.centroId,
+      etiquetaDestacados: 'De ${v.centroNombre}',
+    );
+    if (p == null || !mounted) return;
+    setState(() {
+      _respNombre.text = p.nombre;
+      if (p.cargo.isNotEmpty) _respCargo.text = p.cargo;
+      _respUserId = p.id;
+      _respNombreElegido = p.nombre;
+    });
+    await _guardarEncabezado(v);
+  }
+
+  /// Si se escribe a mano otro nombre, deja de ser la persona elegida.
+  void _alEscribirResponsable(String texto) {
+    if (_respUserId.isNotEmpty && texto.trim() != _respNombreElegido.trim()) {
+      setState(() => _respUserId = '');
+    } else {
+      setState(() {});
+    }
+  }
+
+  /// Guarda lo pendiente: el campo en edición, el encabezado y la
+  /// observación general. Las respuestas ya se guardan una a una; esto
+  /// asegura lo que estaba a medio escribir para salir y seguir después.
+  Future<void> _guardarAvance(
+    VisitaProfesional v, {
+    bool silencioso = false,
+  }) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    if (v.estado != kVisitaEnCurso) return;
+    final firmado =
+        v.firmaProfesional != null || v.firmaEstablecimiento != null;
+    // Se leen antes de esperar: al salir de la pantalla los controladores
+    // se liberan mientras esto todavía se está guardando.
+    final responsable = _responsable;
+    final ciudad = _ciudad.text.trim();
+    final cargo = _cargoProf.text.trim();
+    final observacion = _obsGeneral.text.trim();
+    try {
+      if (!firmado) {
+        await widget.svc.guardarEncabezado(
+          v.id,
+          responsable: responsable,
+          ciudad: ciudad,
+          cargoProfesional: cargo,
+        );
+        if (observacion != v.observacionGeneral.trim()) {
+          await widget.svc.guardarObservacionGeneral(v.id, observacion);
+        }
+      }
+      if (!silencioso && mounted) {
+        _snack(
+          context,
+          'Avance guardado. Puedes salir y continuar después desde Mis visitas.',
+        );
+      }
+    } catch (e) {
+      if (!silencioso && mounted) {
+        _snack(context, 'No se pudo guardar el avance: $e', error: true);
+      }
+    }
+  }
+
+  /// Le pasa la firma al responsable del establecimiento para que firme
+  /// desde su módulo, con su cuenta, en vez de hacerlo en este equipo.
+  Future<void> _enviarAFirmar(VisitaProfesional v) async {
+    final f = _formato;
+    if (f == null) return;
+    final candidato = VisitaProfesional.fromMap(v.id, {
+      ...v.toMap(),
+      'responsableEstablecimiento': _responsable.toMap(),
+    });
+    final faltantes = validarCierreVisita(f, candidato, exigirFirmas: false);
+    if (faltantes.isNotEmpty) {
+      await _mostrarFaltantes(
+        'Completa el formato antes de pedir la firma',
+        faltantes,
+      );
+      return;
+    }
+    setState(() => _ocupado = true);
+    try {
+      await _guardarAvance(v, silencioso: true);
+      await widget.svc.solicitarFirmaEstablecimiento(
+        v,
+        responsable: _responsable,
+        actorId: widget.userId,
+        actorNombre: widget.nombreUsuario,
+      );
+      if (mounted) {
+        _snack(
+          context,
+          'Se le pidió la firma a ${_responsable.nombre}. Cuando firme desde '
+          'su módulo, esta pantalla se actualiza sola.',
+        );
+      }
+    } on VisitasException catch (e) {
+      if (mounted) _snack(context, e.mensaje, error: true);
+    } catch (e) {
+      if (mounted) _snack(context, 'No se pudo enviar: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _ocupado = false);
+    }
+  }
+
+  Future<void> _mostrarFaltantes(String titulo, List<String> faltantes) =>
+      showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: Text(titulo),
+          content: SizedBox(
+            width: 420,
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                for (final e in faltantes)
+                  Text(
+                    '• $e',
+                    style: const TextStyle(fontFamily: _kFont, fontSize: 13),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Entendido'),
+            ),
+          ],
+        ),
+      );
 
   Future<void> _guardarEncabezado(VisitaProfesional v) async {
     if (v.estado != kVisitaEnCurso) return;
@@ -1862,6 +1856,7 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
         nombre: cap.nombre,
         cargo: cap.cargo,
         modo: cap.modo,
+        firmadoPorId: widget.userId,
       );
     } catch (e) {
       if (mounted)
@@ -1974,25 +1969,32 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
         _asegurarFormato(v);
         _asegurarReferencia(v);
         _cargarEncabezado(v);
+        _cargarCatalogos();
         if (!_obsGeneralCargada) {
           _obsGeneral.text = v.observacionGeneral;
           _obsGeneralCargada = true;
         }
         final f = _formato;
-        return Scaffold(
-          appBar: AppBar(
-            backgroundColor: kVisitasColor,
-            foregroundColor: Colors.white,
-            title: Text(
-              v.establecimiento,
-              style: const TextStyle(fontFamily: _kFont),
+        return PopScope(
+          // Al salir se guarda lo que estaba a medio escribir.
+          onPopInvokedWithResult: (didPop, _) {
+            if (didPop) _guardarAvance(v, silencioso: true);
+          },
+          child: Scaffold(
+            appBar: AppBar(
+              backgroundColor: kVisitasColor,
+              foregroundColor: Colors.white,
+              title: Text(
+                v.establecimiento,
+                style: const TextStyle(fontFamily: _kFont),
+              ),
             ),
+            body: f == null
+                ? const Center(child: CircularProgressIndicator())
+                : v.estado == kVisitaProgramada
+                ? _pantallaInicio(v, f)
+                : _pantallaFormato(v, f),
           ),
-          body: f == null
-              ? const Center(child: CircularProgressIndicator())
-              : v.estado == kVisitaProgramada
-              ? _pantallaInicio(v, f)
-              : _pantallaFormato(v, f),
         );
       },
     );
@@ -2003,23 +2005,60 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
     String label, {
     bool obligatorio = false,
     VoidCallback? onSalir,
-  }) => Padding(
-    padding: const EdgeInsets.only(bottom: 8),
-    child: Focus(
-      onFocusChange: (tiene) {
-        if (!tiene) onSalir?.call();
-      },
-      child: TextField(
-        controller: c,
-        textCapitalization: TextCapitalization.words,
-        decoration: InputDecoration(
-          labelText: obligatorio ? '$label *' : label,
-          isDense: true,
-          border: const OutlineInputBorder(),
+    ValueChanged<String>? onChanged,
+    Widget? sufijo,
+  }) {
+    // Obligatorio y vacío: marco rojo; lleno: negro.
+    final vacio = obligatorio && c.text.trim().isEmpty;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Focus(
+        onFocusChange: (tiene) {
+          if (!tiene) onSalir?.call();
+        },
+        child: TextField(
+          controller: c,
+          textCapitalization: TextCapitalization.words,
+          onChanged: onChanged ?? (obligatorio ? (_) => setState(() {}) : null),
+          decoration: InputDecoration(
+            labelText: obligatorio ? '$label *' : label,
+            isDense: true,
+            border: const OutlineInputBorder(),
+            enabledBorder: obligatorio
+                ? OutlineInputBorder(
+                    borderSide: BorderSide(
+                      color: vacio ? const Color(0xFFDC2626) : Colors.black87,
+                      width: vacio ? 1.6 : 1,
+                    ),
+                  )
+                : null,
+            suffixIcon: sufijo,
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
+
+  /// Campo del responsable del establecimiento con el botón para elegirlo
+  /// de la lista del personal.
+  Widget _campoResponsable(VisitaProfesional v, {VoidCallback? onSalir}) =>
+      _campo(
+        _respNombre,
+        'Responsable del establecimiento',
+        obligatorio: true,
+        onSalir: onSalir,
+        onChanged: _alEscribirResponsable,
+        sufijo: IconButton(
+          tooltip: 'Elegir del personal del establecimiento',
+          icon: Icon(
+            _respUserId.isEmpty
+                ? Icons.person_search_outlined
+                : Icons.verified_user_outlined,
+            color: _respUserId.isEmpty ? null : const Color(0xFF15803D),
+          ),
+          onPressed: () => _elegirResponsable(v),
+        ),
+      );
 
   Widget _estadoReferencia() {
     final ref = _referencia;
@@ -2117,11 +2156,7 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          _campo(
-            _respNombre,
-            'Responsable del establecimiento',
-            obligatorio: true,
-          ),
+          _campoResponsable(v),
           _campo(_respCargo, 'Cargo del responsable'),
           _campo(_ciudad, 'Ciudad'),
           _campo(_cargoProf, 'Tu cargo (responsable de inspección)'),
@@ -2163,49 +2198,354 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
     ),
   );
 
-  /// Ítems y tablas de una parte del formato, agrupados por sección.
-  List<Widget> _bloqueParte(
-    VisitaProfesional v,
-    VisitaFormato f,
-    String parte,
-  ) {
-    final secciones = <String, List<VisitaFormatoItem>>{};
-    for (final it in f.itemsDeParte(parte)) {
-      secciones.putIfAbsent(it.seccion, () => []).add(it);
-    }
-    return [
-      for (final s in secciones.entries) ...[
-        if (s.key.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(4, 12, 4, 4),
-            child: Text(
-              s.key.toUpperCase(),
-              style: const TextStyle(
-                fontFamily: _kFont,
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
-                color: kVisitasColor,
-                letterSpacing: .6,
-              ),
+  void _irAPaso(int i) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() => _paso = i);
+  }
+
+  /// Contenido de una sección: sus preguntas o su tabla.
+  Widget _pasoPreguntas(VisitaProfesional v, VisitaPaso paso) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      if (paso.parte.isNotEmpty)
+        Container(
+          margin: const EdgeInsets.only(bottom: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: kVisitasColor,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            '${paso.parte} · ${paso.parteNombre}',
+            style: const TextStyle(
+              fontFamily: _kFont,
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+              fontSize: 13,
             ),
           ),
-        for (final it in s.value)
+        ),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(4, 6, 4, 8),
+        child: Text(
+          paso.titulo.toUpperCase(),
+          style: const TextStyle(
+            fontFamily: _kFont,
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            color: kVisitasColor,
+            letterSpacing: .6,
+          ),
+        ),
+      ),
+      if (paso.tabla != null)
+        _TablaSection(
+          key: ValueKey('tabla_${paso.tabla!.id}'),
+          tabla: paso.tabla!,
+          filas: v.filasDe(paso.tabla!.id),
+          onGuardar: (filas) =>
+              widget.svc.guardarFilas(v.id, paso.tabla!.id, filas),
+          onFoto: (fila) => _tomarFotoFila(v, paso.tabla!, fila),
+        )
+      else
+        for (final it in paso.items)
           _ItemCard(
             key: ValueKey(it.id),
             item: it,
             respuesta: v.respuestas[it.id] ?? const VisitaRespuesta(),
             onCambio: (r) => widget.svc.guardarRespuesta(v.id, it.id, r),
             onFoto: () => _tomarFoto(v, it),
+            areas: _areasMapa,
+            personal: _personal,
+            establecimiento: v.establecimiento,
+          ),
+    ],
+  );
+
+  /// Tira de secciones: rojo con lo que falta, verde con chulo cuando está
+  /// completa. Un toque lleva a la sección.
+  Widget _navegador(
+    List<VisitaPaso> pasos,
+    List<int> pendientes,
+    int actual,
+    bool cierreListo,
+  ) {
+    Widget chip(int i, String texto, int falta) {
+      final sel = i == actual;
+      final color = falta > 0
+          ? const Color(0xFFDC2626)
+          : const Color(0xFF15803D);
+      return Padding(
+        padding: const EdgeInsets.only(right: 6),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(999),
+          onTap: () => _irAPaso(i),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: sel ? kVisitasColor : Colors.white,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: sel ? kVisitasColor : color,
+                width: 1.3,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (falta > 0)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: sel ? Colors.white : color,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '$falta',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: sel ? color : Colors.white,
+                      ),
+                    ),
+                  )
+                else
+                  Icon(
+                    Icons.check_circle,
+                    size: 15,
+                    color: sel ? Colors.white : color,
+                  ),
+                const SizedBox(width: 5),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 190),
+                  child: Text(
+                    texto,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: sel ? Colors.white : Colors.black87,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return SizedBox(
+      height: 46,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        children: [
+          for (var i = 0; i < pasos.length; i++)
+            chip(i, '${i + 1}. ${pasos[i].titulo}', pendientes[i]),
+          chip(pasos.length, 'Cierre y firmas', cierreListo ? 0 : 1),
+        ],
+      ),
+    );
+  }
+
+  /// Última página: encabezado, observación, qué falta, firmas y cerrar.
+  List<Widget> _pasoCierre(
+    VisitaProfesional v,
+    List<VisitaPaso> pasos,
+    List<int> pendientes,
+    bool contenidoFirmado,
+  ) {
+    final conFalta = [
+      for (var i = 0; i < pasos.length; i++)
+        if (pendientes[i] > 0) i,
+    ];
+    final firmaEst = v.firmaEstablecimiento;
+    final origenEst = firmaEst == null
+        ? null
+        : firmaEst.firmadoPorId.isEmpty
+        ? null
+        : firmaEst.firmadoPorId == v.firmanteEstablecimientoId &&
+              firmaEst.firmadoPorId != v.profesionalId
+        ? 'Firmó desde su propio módulo'
+        : firmaEst.firmadoPorId == v.profesionalId
+        ? 'Firmó en el equipo del profesional'
+        : null;
+    return [
+      if (conFalta.isNotEmpty)
+        Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFEF2F2),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFFDC2626)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Secciones con preguntas pendientes',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFFB91C1C),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final i in conFalta)
+                    ActionChip(
+                      label: Text(
+                        '${i + 1}. ${pasos[i].titulo} (${pendientes[i]})',
+                      ),
+                      onPressed: () => _irAPaso(i),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      if (contenidoFirmado)
+        const Padding(
+          padding: EdgeInsets.only(bottom: 8),
+          child: Text(
+            'El contenido quedó bloqueado al guardar la primera firma.',
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
+        ),
+      IgnorePointer(
+        ignoring: contenidoFirmado,
+        child: Opacity(
+          opacity: contenidoFirmado ? .7 : 1,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Encabezado del acta',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 8),
+              _campoResponsable(v, onSalir: () => _guardarEncabezado(v)),
+              _campo(
+                _respCargo,
+                'Cargo del responsable',
+                onSalir: () => _guardarEncabezado(v),
+              ),
+              _campo(_ciudad, 'Ciudad', onSalir: () => _guardarEncabezado(v)),
+              _campo(
+                _cargoProf,
+                'Tu cargo (responsable de inspección)',
+                onSalir: () => _guardarEncabezado(v),
+              ),
+              const SizedBox(height: 4),
+              Focus(
+                onFocusChange: (tiene) {
+                  if (!tiene) _guardarAvance(v, silencioso: true);
+                },
+                child: TextField(
+                  controller: _obsGeneral,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Observación general de la visita',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      const SizedBox(height: 16),
+      const Text(
+        'Firmas',
+        style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w800),
+      ),
+      const SizedBox(height: 4),
+      const Text(
+        'Las dos son obligatorias para cerrar. El responsable del '
+        'establecimiento puede firmar aquí o, mejor, desde su propio módulo: '
+        'así la firma queda con su cuenta y su equipo.',
+        style: TextStyle(
+          fontFamily: _kFont,
+          fontSize: 12,
+          color: Colors.black54,
+        ),
+      ),
+      const SizedBox(height: 8),
+      FirmaTile(
+        titulo: 'Responsable de inspección',
+        firma: v.firmaProfesional,
+        onFirmar: _ocupado || v.firmaProfesional != null
+            ? null
+            : () => _firmar(v, 'profesional'),
+      ),
+      FirmaTile(
+        titulo: 'Responsable del establecimiento',
+        firma: firmaEst,
+        detalle: origenEst,
+        textoBoton: 'Firmar aquí',
+        onFirmar: _ocupado || firmaEst != null
+            ? null
+            : () => _firmar(v, 'establecimiento'),
+      ),
+      if (firmaEst == null) ...[
+        if (v.firmanteEstablecimientoId.isNotEmpty)
+          Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: UserNameText(
+              v.firmanteEstablecimientoId,
+              fallbackName: v.responsableEstablecimiento.nombre,
+              prefix: 'Se le pidió la firma a ',
+              style: const TextStyle(fontFamily: _kFont, fontSize: 12),
+            ),
+          ),
+        OutlinedButton.icon(
+          onPressed: _ocupado || _respUserId.isEmpty
+              ? null
+              : () => _enviarAFirmar(v),
+          icon: const Icon(Icons.send_to_mobile_outlined),
+          label: Text(
+            v.firmanteEstablecimientoId.isEmpty
+                ? 'Enviar para que firme desde su módulo'
+                : 'Volver a enviar la solicitud de firma',
+          ),
+        ),
+        if (_respUserId.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(top: 4),
+            child: Text(
+              'Para enviarle la firma, elige al responsable de la lista del '
+              'personal (botón junto a su nombre).',
+              style: TextStyle(fontSize: 12, color: Colors.black54),
+            ),
           ),
       ],
-      for (final t in f.tablasDeParte(parte))
-        _TablaSection(
-          key: ValueKey('tabla_${t.id}'),
-          tabla: t,
-          filas: v.filasDe(t.id),
-          onGuardar: (filas) => widget.svc.guardarFilas(v.id, t.id, filas),
-          onFoto: (fila) => _tomarFotoFila(v, t, fila),
+      const SizedBox(height: 16),
+      FilledButton.icon(
+        style: FilledButton.styleFrom(
+          backgroundColor: kVisitasColor,
+          padding: const EdgeInsets.symmetric(vertical: 16),
         ),
+        onPressed: _ocupado ? null : () => _cerrar(v),
+        icon: const Icon(Icons.check_circle_outline),
+        label: Text(_ocupado ? 'Cerrando…' : 'Cerrar visita y generar informe'),
+      ),
     ];
   }
 
@@ -2213,9 +2553,13 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
     final resumen = resumenDeVisita(f, v.respuestas);
     final contenidoFirmado =
         v.firmaProfesional != null || v.firmaEstablecimiento != null;
-    final partes = f.partes.isEmpty
-        ? const [VisitaFormatoParte(codigo: '', nombre: '')]
-        : f.partes;
+    final pasos = pasosDeFormato(f);
+    final pendientes = [for (final p in pasos) pendientesDePaso(p, v)];
+    final totalPendientes = pendientes.fold<int>(0, (a, b) => a + b);
+    final cierreListo =
+        _respNombre.text.trim().isNotEmpty && v.firmada && totalPendientes == 0;
+    final paso = _paso.clamp(0, pasos.length);
+    final esCierre = paso == pasos.length;
     final ini = v.inicio;
     final ubic = ini == null
         ? ''
@@ -2238,147 +2582,85 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
                 ),
               ),
               Text(
-                '${resumen.total - resumen.sinResponder}/${resumen.total}',
-                style: const TextStyle(
+                totalPendientes == 0
+                    ? '${resumen.total}/${resumen.total} ✓'
+                    : '${resumen.total - resumen.sinResponder}/${resumen.total}'
+                          ' · faltan $totalPendientes',
+                style: TextStyle(
                   fontFamily: _kFont,
                   fontWeight: FontWeight.w800,
+                  color: totalPendientes == 0
+                      ? const Color(0xFF15803D)
+                      : const Color(0xFFB91C1C),
                 ),
               ),
             ],
           ),
         ),
+        _navegador(pasos, pendientes, paso, cierreListo),
+        const Divider(height: 1),
         Expanded(
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
-            children: [
-              if (contenidoFirmado)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 8),
-                  child: Text(
-                    'El contenido quedó bloqueado al guardar la primera firma.',
-                    style: TextStyle(fontWeight: FontWeight.w700),
+            // Clave por sección: al cambiar de página se arranca arriba.
+            key: ValueKey('paso-$paso'),
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
+            children: esCierre
+                ? _pasoCierre(v, pasos, pendientes, contenidoFirmado)
+                : [
+                    Text(
+                      'Sección ${paso + 1} de ${pasos.length}'
+                      '${pendientes[paso] == 0 ? ' · completa' : ' · faltan ${pendientes[paso]}'}',
+                      style: const TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 12,
+                        color: Colors.black54,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    IgnorePointer(
+                      ignoring: contenidoFirmado,
+                      child: Opacity(
+                        opacity: contenidoFirmado ? .7 : 1,
+                        child: _pasoPreguntas(v, pasos[paso]),
+                      ),
+                    ),
+                  ],
+          ),
+        ),
+        SafeArea(
+          top: false,
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(top: BorderSide(color: Colors.black12)),
+            ),
+            child: Row(
+              children: [
+                OutlinedButton.icon(
+                  onPressed: paso == 0 ? null : () => _irAPaso(paso - 1),
+                  icon: const Icon(Icons.chevron_left),
+                  label: const Text('Anterior'),
+                ),
+                Expanded(
+                  child: Center(
+                    child: TextButton.icon(
+                      onPressed: _ocupado ? null : () => _guardarAvance(v),
+                      icon: const Icon(Icons.save_outlined, size: 18),
+                      label: const Text('Guardar avance'),
+                    ),
                   ),
                 ),
-              IgnorePointer(
-                ignoring: contenidoFirmado,
-                child: Opacity(
-                  opacity: contenidoFirmado ? .7 : 1,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      for (final p in partes) ...[
-                        if (p.codigo.isNotEmpty)
-                          Container(
-                            margin: const EdgeInsets.only(top: 12, bottom: 4),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                            decoration: BoxDecoration(
-                              color: kVisitasColor,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              '${p.codigo} · ${p.nombre}',
-                              style: const TextStyle(
-                                fontFamily: _kFont,
-                                color: Colors.white,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                        ..._bloqueParte(v, f, p.codigo),
-                      ],
-                      const SizedBox(height: 16),
-                      const Text(
-                        'Encabezado del acta',
-                        style: TextStyle(
-                          fontFamily: _kFont,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      _campo(
-                        _respNombre,
-                        'Responsable del establecimiento',
-                        obligatorio: true,
-                        onSalir: () => _guardarEncabezado(v),
-                      ),
-                      _campo(
-                        _respCargo,
-                        'Cargo del responsable',
-                        onSalir: () => _guardarEncabezado(v),
-                      ),
-                      _campo(
-                        _ciudad,
-                        'Ciudad',
-                        onSalir: () => _guardarEncabezado(v),
-                      ),
-                      _campo(
-                        _cargoProf,
-                        'Tu cargo (responsable de inspección)',
-                        onSalir: () => _guardarEncabezado(v),
-                      ),
-                      const SizedBox(height: 4),
-                      TextField(
-                        controller: _obsGeneral,
-                        maxLines: 3,
-                        decoration: const InputDecoration(
-                          labelText: 'Observación general de la visita',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                    ],
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(backgroundColor: kVisitasColor),
+                  onPressed: esCierre ? null : () => _irAPaso(paso + 1),
+                  icon: const Icon(Icons.chevron_right),
+                  label: Text(
+                    paso == pasos.length - 1 ? 'Ir al cierre' : 'Siguiente',
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Firmas',
-                style: TextStyle(
-                  fontFamily: _kFont,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                'Las dos son obligatorias para cerrar. Se firman en el sitio, '
-                'al terminar el recorrido.',
-                style: TextStyle(
-                  fontFamily: _kFont,
-                  fontSize: 12,
-                  color: Colors.black54,
-                ),
-              ),
-              const SizedBox(height: 8),
-              FirmaTile(
-                titulo: 'Responsable de inspección',
-                firma: v.firmaProfesional,
-                onFirmar: _ocupado || v.firmaProfesional != null
-                    ? null
-                    : () => _firmar(v, 'profesional'),
-              ),
-              FirmaTile(
-                titulo: 'Responsable del establecimiento',
-                firma: v.firmaEstablecimiento,
-                onFirmar: _ocupado || v.firmaEstablecimiento != null
-                    ? null
-                    : () => _firmar(v, 'establecimiento'),
-              ),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: kVisitasColor,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-                onPressed: _ocupado ? null : () => _cerrar(v),
-                icon: const Icon(Icons.check_circle_outline),
-                label: Text(
-                  _ocupado ? 'Cerrando…' : 'Cerrar visita y generar informe',
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ],
@@ -2473,12 +2755,21 @@ class _ItemCard extends StatefulWidget {
   final VisitaRespuesta respuesta;
   final ValueChanged<VisitaRespuesta> onCambio;
   final VoidCallback onFoto;
+
+  /// Para el plan de acción: áreas de la empresa (id → nombre), el personal
+  /// a quien se le puede asignar y el establecimiento de la visita.
+  final Map<String, String> areas;
+  final List<VisitaPersona> personal;
+  final String establecimiento;
   const _ItemCard({
     super.key,
     required this.item,
     required this.respuesta,
     required this.onCambio,
     required this.onFoto,
+    this.areas = const {},
+    this.personal = const [],
+    this.establecimiento = '',
   });
 
   @override
@@ -2568,6 +2859,17 @@ class _ItemCardState extends State<_ItemCard> {
     super.dispose();
   }
 
+  /// La respuesta con lo que está escrito en los campos aunque todavía no
+  /// se haya guardado: al tocar un chip o elegir el responsable del plan, el
+  /// campo pierde el foco y se guarda; sin esto la segunda escritura llevaba
+  /// la respuesta vieja y pisaba el texto recién escrito.
+  VisitaRespuesta get _actual => widget.respuesta.copyWith(
+    observacion: _obs.text.trim(),
+    cantidad: _cantidad.text.trim(),
+    vencimiento: _vencimiento.text.trim(),
+    accion: _accion.text.trim(),
+  );
+
   Future<void> _dictar() async {
     final texto = await showDialog<String>(
       context: context,
@@ -2575,21 +2877,140 @@ class _ItemCardState extends State<_ItemCard> {
     );
     if (texto == null) return;
     _obs.text = texto;
-    widget.onCambio(widget.respuesta.copyWith(observacion: texto.trim()));
+    widget.onCambio(_actual.copyWith(observacion: texto.trim()));
   }
+
+  Future<void> _elegirResponsablePlan() async {
+    final area = widget.respuesta.accionAreaId;
+    final p = await _elegirPersona(
+      context,
+      titulo: 'Responsable del plan de acción',
+      personal: widget.personal,
+      destacado: area.isEmpty ? null : (x) => mismaAreaVisitas(x.areaId, area),
+      etiquetaDestacados: area.isEmpty
+          ? ''
+          : 'De ${widget.areas[area] ?? widget.respuesta.accionAreaNombre}',
+    );
+    if (p == null) return;
+    widget.onCambio(
+      _actual.copyWith(
+        accionResponsableId: p.id,
+        accionResponsableNombre: p.nombre,
+      ),
+    );
+  }
+
+  /// Plan de acción de un "No cumple" (25 sep 2026): qué se hace, de qué
+  /// área y quién lo hace. El establecimiento es el de la visita. Opcional:
+  /// si nadie queda asignado, la tarea va al jefe que programó.
+  Widget _planDeAccion(VisitaRespuesta r) => Container(
+    margin: const EdgeInsets.only(top: 6),
+    padding: const EdgeInsets.all(10),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF8FAFC),
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: Colors.black26),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text(
+          'Plan de acción (si se requiere)',
+          style: TextStyle(
+            fontFamily: _kFont,
+            fontWeight: FontWeight.w800,
+            fontSize: 12,
+          ),
+        ),
+        const SizedBox(height: 6),
+        TextField(
+          controller: _accion,
+          focusNode: _focusAccion,
+          decoration: const InputDecoration(
+            isDense: true,
+            hintText: 'Qué se debe hacer',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Establecimiento: ${widget.establecimiento}',
+          style: const TextStyle(fontSize: 12, color: Colors.black54),
+        ),
+        const SizedBox(height: 6),
+        DropdownButtonFormField<String>(
+          key: ValueKey('area-${r.accionAreaId}'),
+          initialValue: widget.areas.containsKey(r.accionAreaId)
+              ? r.accionAreaId
+              : null,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            isDense: true,
+            labelText: 'Área',
+            border: OutlineInputBorder(),
+          ),
+          items: [
+            for (final e in widget.areas.entries)
+              DropdownMenuItem(value: e.key, child: Text(e.value)),
+          ],
+          onChanged: (id) {
+            if (id == null) return;
+            final responsable = widget.personal
+                .where((p) => p.id == r.accionResponsableId)
+                .firstOrNull;
+            // Si el responsable elegido es de otra área, se suelta.
+            final sigue =
+                responsable != null && mismaAreaVisitas(responsable.areaId, id);
+            widget.onCambio(
+              _actual.copyWith(
+                accionAreaId: id,
+                accionAreaNombre: widget.areas[id] ?? '',
+                accionResponsableId: sigue ? null : '',
+                accionResponsableNombre: sigue ? null : '',
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 6),
+        OutlinedButton.icon(
+          onPressed: widget.personal.isEmpty ? null : _elegirResponsablePlan,
+          icon: r.accionResponsableId.isEmpty
+              ? const Icon(Icons.person_search_outlined, size: 18)
+              : UserAvatar(
+                  userId: r.accionResponsableId,
+                  nameHint: r.accionResponsableNombre,
+                  radius: 10,
+                ),
+          label: Align(
+            alignment: Alignment.centerLeft,
+            child: r.accionResponsableId.isEmpty
+                ? const Text('Responsable: elegir a quién se le asigna')
+                : UserNameText(
+                    r.accionResponsableId,
+                    fallbackName: r.accionResponsableNombre,
+                    prefix: 'Responsable: ',
+                  ),
+          ),
+        ),
+      ],
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
     final r = widget.respuesta;
     final it = widget.item;
     final noCumple = r.resultado == kItemNoCumple;
+    // Rojo mientras a la pregunta le falta algo; negro cuando está completa
+    // (25 sep 2026): con formatos largos así nadie se pierde.
+    final pendiente = itemPendiente(it, r);
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: noCumple ? const Color(0xFFDC2626) : Colors.transparent,
-          width: noCumple ? 1.2 : 0,
+          color: pendiente ? const Color(0xFFDC2626) : Colors.black87,
+          width: pendiente ? 1.6 : 1,
         ),
       ),
       child: Padding(
@@ -2627,7 +3048,7 @@ class _ItemCardState extends State<_ItemCard> {
                       _ => const Color(0xFFE5E7EB),
                     },
                     onSelected: (_) =>
-                        widget.onCambio(r.copyWith(resultado: res)),
+                        widget.onCambio(_actual.copyWith(resultado: res)),
                   ),
               ],
             ),
@@ -2673,6 +3094,14 @@ class _ItemCardState extends State<_ItemCard> {
                       ? 'Qué está mal (obligatorio)'
                       : 'Observación (opcional)',
                   border: const OutlineInputBorder(),
+                  enabledBorder: noCumple && r.observacion.trim().isEmpty
+                      ? const OutlineInputBorder(
+                          borderSide: BorderSide(
+                            color: Color(0xFFDC2626),
+                            width: 1.4,
+                          ),
+                        )
+                      : null,
                   suffixIcon: IconButton(
                     tooltip: 'Dictar',
                     icon: const Icon(Icons.mic_none),
@@ -2680,18 +3109,7 @@ class _ItemCardState extends State<_ItemCard> {
                   ),
                 ),
               ),
-              if (noCumple) ...[
-                const SizedBox(height: 6),
-                TextField(
-                  controller: _accion,
-                  focusNode: _focusAccion,
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    hintText: 'Plan de acción propuesto (opcional)',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
+              if (noCumple) _planDeAccion(r),
               const SizedBox(height: 6),
               Row(
                 children: [
@@ -2862,13 +3280,17 @@ class _FilaCard extends StatelessWidget {
         if ((fila.campos[c.id] ?? '').trim().isNotEmpty)
           '${c.label}: ${fila.campos[c.id]!.trim()}',
     ];
+    // Rojo mientras a la fila le falta algo (un estado, o decir cuál es la
+    // novedad); negro cuando está completa, igual que las preguntas.
+    final pendiente =
+        faltan > 0 || (hallazgo && fila.observacion.trim().isEmpty);
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: hallazgo ? const Color(0xFFDC2626) : Colors.transparent,
-          width: hallazgo ? 1.2 : 0,
+          color: pendiente ? const Color(0xFFDC2626) : Colors.black87,
+          width: pendiente ? 1.6 : 1,
         ),
       ),
       child: Padding(
@@ -3739,7 +4161,19 @@ class _ItemLectura extends StatelessWidget {
                   ),
                 if (respuesta.accion.isNotEmpty)
                   Text(
-                    'Acción: ${respuesta.accion}',
+                    'Acción: ${respuesta.accion}'
+                    '${respuesta.accionAreaNombre.isEmpty ? '' : ' · Área: ${respuesta.accionAreaNombre}'}',
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 12,
+                      color: Colors.black54,
+                    ),
+                  ),
+                if (respuesta.accionResponsableId.isNotEmpty)
+                  UserNameText(
+                    respuesta.accionResponsableId,
+                    fallbackName: respuesta.accionResponsableNombre,
+                    prefix: 'Responsable del plan: ',
                     style: const TextStyle(
                       fontFamily: _kFont,
                       fontSize: 12,
@@ -3893,10 +4327,10 @@ class _FormatosTab extends StatefulWidget {
 class _FormatosTabState extends State<_FormatosTab> {
   late final Stream<List<VisitaFormato>> _stream;
   String _areaFiltro = '';
+  String _cargoFiltro = '';
+  int _pagina = 0;
   String _areaJefe = '';
   Map<String, String> _areasCatalogo = const {};
-  List<VisitaPersona> _personal = const [];
-  List<VisitaRolDoc> _roles = const [];
   bool _eliminando = false;
 
   @override
@@ -3925,9 +4359,6 @@ class _FormatosTabState extends State<_FormatosTab> {
           areaId: widget.esDesarrollador ? null : areaJefe,
         )
         .first;
-    final personal = await widget.svc.personalDeEmpresa(widget.empresaId);
-    final roles = await widget.svc.streamRoles(widget.empresaId).first;
-    final areaPorRol = {for (final r in roles) r.userId: r.areaId};
     if (mounted)
       setState(() {
         _areasCatalogo = {
@@ -3936,16 +4367,6 @@ class _FormatosTabState extends State<_FormatosTab> {
             if (!areas.containsKey(f.areaId)) f.areaId: f.areaNombre,
         };
         _areaJefe = areaJefe;
-        _personal = [
-          for (final p in personal)
-            VisitaPersona(
-              id: p.id,
-              nombre: p.nombre,
-              areaId: areaPorRol[p.id] ?? p.areaId,
-              cargo: p.cargo,
-            ),
-        ];
-        _roles = roles;
       });
   }
 
@@ -4198,48 +4619,6 @@ class _FormatosTabState extends State<_FormatosTab> {
     }
   }
 
-  Widget _resumenArea(
-    String areaId,
-    String nombre,
-    List<VisitaFormato> formatos,
-  ) {
-    final roles = {for (final r in _roles) r.userId: r.rol};
-    final equipo = _personal.where((p) => p.areaId == areaId).toList();
-    final jefes = equipo.where((p) => roles[p.id] == kVisitasRolJefe).toList();
-    final profesionales = equipo
-        .where((p) => roles[p.id] == kVisitasRolProfesional)
-        .toList();
-    final predeterminado = formatos
-        .where((f) => f.areaId == areaId && f.predeterminado && f.usable)
-        .firstOrNull;
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              nombre,
-              style: const TextStyle(
-                fontFamily: _kFont,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 5),
-            Text(
-              'Jefatura: ${jefes.isEmpty ? 'sin asignar' : jefes.map((p) => p.nombre).join(', ')}',
-            ),
-            Text(
-              'Profesionales: ${profesionales.isEmpty ? 'sin asignar' : profesionales.map((p) => p.nombre).join(', ')}',
-            ),
-            Text('Predeterminado: ${predeterminado?.nombre ?? 'sin definir'}'),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -4269,9 +4648,40 @@ class _FormatosTabState extends State<_FormatosTab> {
           final areas = {for (final f in formatos) f.areaNombre}.toList()
             ..sort();
           final filtro = areas.contains(_areaFiltro) ? _areaFiltro : '';
-          final visibles = filtro.isEmpty
-              ? formatos
-              : formatos.where((f) => f.areaNombre == filtro).toList();
+          final cargos =
+              {
+                  for (final f in formatos)
+                    if (filtro.isEmpty || f.areaNombre == filtro) ...f.cargos,
+                }.toList()
+                ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+          final cargo = cargos.contains(_cargoFiltro) ? _cargoFiltro : '';
+          // Ordenados por área y, dentro de cada área, los generales
+          // primero y luego por cargo (25 sep 2026: "organizar los formatos
+          // según las áreas y según los cargos").
+          final visibles =
+              formatos
+                  .where(
+                    (f) =>
+                        (filtro.isEmpty || f.areaNombre == filtro) &&
+                        (cargo.isEmpty || formatoAplicaACargo(f, cargo)),
+                  )
+                  .toList()
+                ..sort((a, b) {
+                  final porArea = a.areaNombre.toLowerCase().compareTo(
+                    b.areaNombre.toLowerCase(),
+                  );
+                  if (porArea != 0) return porArea;
+                  final ca = a.cargos.isEmpty ? '' : a.cargos.first;
+                  final cb = b.cargos.isEmpty ? '' : b.cargos.first;
+                  final porCargo = ca.toLowerCase().compareTo(cb.toLowerCase());
+                  if (porCargo != 0) return porCargo;
+                  return a.nombre.toLowerCase().compareTo(
+                    b.nombre.toLowerCase(),
+                  );
+                });
+          final maxPagina = pageCountOf(visibles.length) - 1;
+          final pagina = _pagina.clamp(0, maxPagina < 0 ? 0 : maxPagina);
+          final pagVisibles = pageOf(visibles, pagina);
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 90),
             children: [
@@ -4282,9 +4692,11 @@ class _FormatosTabState extends State<_FormatosTab> {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Text(
-                  'Cada área tiene su jefatura, profesionales y formato predeterminado. '
-                  'Configura las áreas del personal en Admin > Usuarios y los roles en Admin > Roles y permisos. '
-                  'Puedes crear preguntas aquí o importar la plantilla Excel; revisa el borrador antes de marcarlo Vigente.',
+                  'Los formatos van por área y, si quieres, por cargo: un formato '
+                  'sin cargos aplica a todo el área. El director, los '
+                  'profesionales y sus grupos se administran en la pestaña Equipo. '
+                  'Puedes crear preguntas aquí o importar la plantilla Excel; '
+                  'revisa el borrador antes de marcarlo Vigente.',
                   style: TextStyle(
                     fontFamily: _kFont,
                     fontSize: 12,
@@ -4293,23 +4705,6 @@ class _FormatosTabState extends State<_FormatosTab> {
                 ),
               ),
               const SizedBox(height: 8),
-              LayoutBuilder(
-                builder: (context, size) => Wrap(
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: [
-                    for (final area in _areasCatalogo.entries)
-                      if ((widget.esDesarrollador || area.key == _areaJefe) &&
-                          (filtro.isEmpty || area.value == filtro))
-                        SizedBox(
-                          width: size.maxWidth >= 900
-                              ? (size.maxWidth - 16) / 3
-                              : size.maxWidth,
-                          child: _resumenArea(area.key, area.value, formatos),
-                        ),
-                  ],
-                ),
-              ),
               if (!widget.esDesarrollador && _areaJefe.isEmpty)
                 const Text('Tu perfil no tiene área en Admin > Usuarios.'),
               Align(
@@ -4350,78 +4745,138 @@ class _FormatosTabState extends State<_FormatosTab> {
                   ),
                 ),
               const SizedBox(height: 8),
-              if (areas.length > 1)
-                DropdownButtonFormField<String>(
-                  key: ValueKey(filtro),
-                  initialValue: filtro,
-                  decoration: const InputDecoration(
-                    labelText: 'Filtrar formatos por área',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: [
-                    const DropdownMenuItem(
-                      value: '',
-                      child: Text('Todas las áreas'),
-                    ),
-                    for (final area in areas)
-                      DropdownMenuItem(value: area, child: Text(area)),
-                  ],
-                  onChanged: (value) =>
-                      setState(() => _areaFiltro = value ?? ''),
-                ),
-              if (areas.length > 1) const SizedBox(height: 8),
-              PagedListSection<VisitaFormato>(
-                items: visibles,
-                etiqueta: 'formatos',
-                itemBuilder: (context, f, _) => Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: ListTile(
-                    onTap: () => _editar(f),
-                    leading: const Icon(
-                      Icons.checklist_rtl_outlined,
-                      color: kVisitasColor,
-                    ),
-                    title: Text(
-                      '${f.predeterminado ? '★ ' : ''}${f.nombre}',
-                      style: const TextStyle(
-                        fontFamily: _kFont,
-                        fontWeight: FontWeight.w700,
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  if (areas.length > 1)
+                    SizedBox(
+                      width: 280,
+                      child: DropdownButtonFormField<String>(
+                        key: ValueKey('area-$filtro'),
+                        initialValue: filtro,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Área',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: [
+                          const DropdownMenuItem(
+                            value: '',
+                            child: Text('Todas las áreas'),
+                          ),
+                          for (final area in areas)
+                            DropdownMenuItem(value: area, child: Text(area)),
+                        ],
+                        onChanged: (value) => setState(() {
+                          _areaFiltro = value ?? '';
+                          _cargoFiltro = '';
+                          _pagina = 0;
+                        }),
                       ),
                     ),
-                    subtitle: Text(
-                      '${f.areaNombre} · ${f.items.length} ítems'
-                      '${f.tablas.isEmpty ? '' : ' · ${f.tablas.length} tabla(s)'}'
-                      '${f.partes.isEmpty ? '' : ' · ${f.partes.map((p) => p.codigo).join(', ')}'}'
-                      ' · v${f.version}',
-                      style: const TextStyle(fontFamily: _kFont, fontSize: 12),
+                  if (cargos.isNotEmpty)
+                    SizedBox(
+                      width: 280,
+                      child: DropdownButtonFormField<String>(
+                        key: ValueKey('cargo-$cargo'),
+                        initialValue: cargo,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Cargo',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: [
+                          const DropdownMenuItem(
+                            value: '',
+                            child: Text('Todos los cargos'),
+                          ),
+                          for (final c in cargos)
+                            DropdownMenuItem(value: c, child: Text(c)),
+                        ],
+                        onChanged: (value) => setState(() {
+                          _cargoFiltro = value ?? '';
+                          _pagina = 0;
+                        }),
+                      ),
                     ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _Chip(
-                          f.estado,
-                          f.estado == kFormatoVigente
-                              ? const Color(0xFF16A34A)
-                              : f.estado == kFormatoRetirado
-                              ? const Color(0xFF9CA3AF)
-                              : const Color(0xFFF59E0B),
-                        ),
-                        IconButton(
-                          tooltip: 'Eliminar formato',
-                          onPressed: _eliminando ? null : () => _eliminar(f),
-                          icon: const Icon(Icons.delete_outline),
-                        ),
-                      ],
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (visibles.length > kPageSize)
+                PagerBar(
+                  total: visibles.length,
+                  page: pagina,
+                  etiqueta: 'formatos',
+                  onPageChanged: (p) => setState(() => _pagina = p),
+                ),
+              for (var i = 0; i < pagVisibles.length; i++) ...[
+                // Encabezado cada vez que cambia el área dentro de la página.
+                if (i == 0 ||
+                    pagVisibles[i].areaNombre != pagVisibles[i - 1].areaNombre)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 12, 4, 6),
+                    child: Text(
+                      pagVisibles[i].areaNombre.isEmpty
+                          ? 'SIN ÁREA'
+                          : pagVisibles[i].areaNombre.toUpperCase(),
+                      style: const TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: kVisitasColor,
+                        letterSpacing: .6,
+                      ),
                     ),
                   ),
-                ),
-              ),
+                _formatoTile(pagVisibles[i]),
+              ],
             ],
           );
         },
       ),
     );
   }
+
+  Widget _formatoTile(VisitaFormato f) => Card(
+    margin: const EdgeInsets.only(bottom: 8),
+    child: ListTile(
+      onTap: () => _editar(f),
+      leading: const Icon(Icons.checklist_rtl_outlined, color: kVisitasColor),
+      title: Text(
+        '${f.predeterminado ? '★ ' : ''}${f.nombre}',
+        style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w700),
+      ),
+      subtitle: Text(
+        '${f.cargos.isEmpty ? 'Todos los cargos del área' : 'Cargos: ${f.cargos.join(', ')}'}'
+        ' · ${f.items.length} ítems'
+        '${f.tablas.isEmpty ? '' : ' · ${f.tablas.length} tabla(s)'}'
+        '${f.partes.isEmpty ? '' : ' · ${f.partes.map((p) => p.codigo).join(', ')}'}'
+        ' · v${f.version}',
+        style: const TextStyle(fontFamily: _kFont, fontSize: 12),
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _Chip(
+            f.estado,
+            f.estado == kFormatoVigente
+                ? const Color(0xFF16A34A)
+                : f.estado == kFormatoRetirado
+                ? const Color(0xFF9CA3AF)
+                : const Color(0xFFF59E0B),
+          ),
+          IconButton(
+            tooltip: 'Eliminar formato',
+            onPressed: _eliminando ? null : () => _eliminar(f),
+            icon: const Icon(Icons.delete_outline),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _FormatoEditorScreen extends StatefulWidget {
@@ -4451,9 +4906,17 @@ class _FormatoEditorScreenState extends State<_FormatoEditorScreen> {
   late List<_ItemEdit> _items;
   bool _guardando = false;
 
+  /// Cargos a los que aplica; vacío = todo el área.
+  late Set<String> _cargos;
+  List<String> _cargosEmpresa = const [];
+
   @override
   void initState() {
     super.initState();
+    _cargos = {...widget.formato.cargos};
+    widget.svc.cargosDeEmpresa(widget.formato.empresaId).then((c) {
+      if (mounted) setState(() => _cargosEmpresa = c);
+    });
     _nombre = TextEditingController(text: widget.formato.nombre);
     _areaNombre = TextEditingController(text: widget.formato.areaNombre);
     _estado = widget.formato.estado;
@@ -4516,6 +4979,8 @@ class _FormatoEditorScreenState extends State<_FormatoEditorScreen> {
       // Partes y tablas no se editan aquí: vienen del formato generado.
       partes: widget.formato.partes,
       tablas: widget.formato.tablas,
+      cargos: _cargos.toList()
+        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase())),
     );
     final errores = validarFormato(f);
     if (errores.isNotEmpty) {
@@ -4621,6 +5086,49 @@ class _FormatoEditorScreenState extends State<_FormatoEditorScreen> {
                 onChanged: _estado == kFormatoRetirado
                     ? null
                     : (value) => setState(() => _predeterminado = value),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Cargos a los que aplica',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const Text(
+                'Sin cargos, el formato aplica a todo el área. Con cargos, al '
+                'programar se propone a quien tenga uno de ellos.',
+                style: TextStyle(fontSize: 12, color: Colors.black54),
+              ),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final c in _cargos.toList()..sort())
+                    InputChip(
+                      label: Text(c),
+                      onDeleted: () => setState(() => _cargos.remove(c)),
+                    ),
+                  if (_cargos.isEmpty) const Chip(label: Text('Todo el área')),
+                ],
+              ),
+              const SizedBox(height: 6),
+              DropdownButtonFormField<String>(
+                key: ValueKey('cargos-${_cargos.length}'),
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Agregar cargo',
+                  isDense: true,
+                ),
+                items: [
+                  for (final c in _cargosEmpresa)
+                    if (!_cargos.contains(c))
+                      DropdownMenuItem(value: c, child: Text(c)),
+                ],
+                onChanged: (c) {
+                  if (c != null) setState(() => _cargos.add(c));
+                },
               ),
               const SizedBox(height: 16),
               Row(
@@ -5171,4 +5679,345 @@ class _Kpi extends StatelessWidget {
       ],
     ),
   );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Por firmar (firmante del establecimiento, 25 sep 2026)
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// El administrador que recibe la visita la firma desde su propio módulo, con
+// su cuenta y su equipo, y no en la tablet del profesional. Ve solo las
+// visitas donde el profesional le pidió la firma (así lo exigen las reglas).
+
+class _PorFirmarTab extends StatefulWidget {
+  final VisitasService svc;
+  final String userId;
+  final String empresaId;
+  final String nombreUsuario;
+  const _PorFirmarTab({
+    required this.svc,
+    required this.userId,
+    required this.empresaId,
+    required this.nombreUsuario,
+  });
+
+  @override
+  State<_PorFirmarTab> createState() => _PorFirmarTabState();
+}
+
+class _PorFirmarTabState extends State<_PorFirmarTab> {
+  late final Stream<List<VisitaProfesional>> _stream;
+
+  @override
+  void initState() {
+    super.initState();
+    _stream = widget.svc.streamPorFirmar(widget.empresaId, widget.userId);
+  }
+
+  void _abrir(VisitaProfesional v) => Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => _FirmarEstablecimientoScreen(
+        svc: widget.svc,
+        visitaId: v.id,
+        empresaId: widget.empresaId,
+        userId: widget.userId,
+        nombreUsuario: widget.nombreUsuario,
+      ),
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<VisitaProfesional>>(
+      stream: _stream,
+      builder: (context, snap) {
+        if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
+        if (!snap.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final ahora = DateTime.now();
+        final pendientes = [
+          for (final v in snap.data!)
+            if (visitasPuedeFirmarComoEstablecimiento(
+              visita: v,
+              userId: widget.userId,
+            ))
+              v,
+        ];
+        final firmadas = [
+          for (final v in snap.data!)
+            if (v.firmaEstablecimiento != null) v,
+        ];
+        Widget seccion(String titulo, List<VisitaProfesional> items) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 12, 4, 6),
+              child: Text(
+                '$titulo (${items.length})',
+                style: const TextStyle(
+                  fontFamily: _kFont,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            if (items.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(12),
+                child: Text(
+                  'Nada por aquí.',
+                  style: TextStyle(fontFamily: _kFont, color: Colors.black54),
+                ),
+              )
+            else
+              PagedListSection<VisitaProfesional>(
+                items: items,
+                etiqueta: 'visitas',
+                itemBuilder: (context, v, _) => _VisitaCard(
+                  visita: v,
+                  vencida: visitaVencida(v, ahora),
+                  onTap: () => _abrir(v),
+                ),
+              ),
+          ],
+        );
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(top: 10),
+              child: Text(
+                'Aquí llegan las visitas que te pidieron firmar como '
+                'responsable del establecimiento. Revisa el acta y fírmala '
+                'con tu firma guardada o dibujándola.',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 12,
+                  color: Colors.black54,
+                ),
+              ),
+            ),
+            seccion('Por firmar', pendientes),
+            seccion('Firmadas', firmadas),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _FirmarEstablecimientoScreen extends StatefulWidget {
+  final VisitasService svc;
+  final String visitaId;
+  final String empresaId;
+  final String userId;
+  final String nombreUsuario;
+  const _FirmarEstablecimientoScreen({
+    required this.svc,
+    required this.visitaId,
+    required this.empresaId,
+    required this.userId,
+    required this.nombreUsuario,
+  });
+
+  @override
+  State<_FirmarEstablecimientoScreen> createState() =>
+      _FirmarEstablecimientoScreenState();
+}
+
+class _FirmarEstablecimientoScreenState
+    extends State<_FirmarEstablecimientoScreen> {
+  late final Stream<VisitaProfesional?> _stream;
+  bool _ocupado = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _stream = widget.svc.streamVisita(widget.visitaId);
+  }
+
+  Future<void> _firmar(VisitaProfesional v) async {
+    setState(() => _ocupado = true);
+    final guardada = await widget.svc.firmaGuardadaDe(
+      empresaId: widget.empresaId,
+      userId: widget.userId,
+    );
+    if (!mounted) return;
+    setState(() => _ocupado = false);
+    final cap = await pedirFirma(
+      context,
+      titulo: 'Firma del responsable del establecimiento',
+      nombreInicial: v.responsableEstablecimiento.nombre.isEmpty
+          ? widget.nombreUsuario
+          : v.responsableEstablecimiento.nombre,
+      cargoInicial: v.responsableEstablecimiento.cargo,
+      firmaGuardada: guardada,
+    );
+    if (cap == null || !mounted) return;
+    setState(() => _ocupado = true);
+    try {
+      await widget.svc.firmar(
+        empresaId: widget.empresaId,
+        visitaId: v.id,
+        quien: 'establecimiento',
+        png: cap.png,
+        nombre: cap.nombre,
+        cargo: cap.cargo,
+        modo: cap.modo,
+        firmadoPorId: widget.userId,
+      );
+      try {
+        await widget.svc.avisarFirmaEstablecimiento(
+          v,
+          actorId: widget.userId,
+          actorNombre: cap.nombre,
+        );
+      } catch (_) {
+        // La firma ya quedó; el aviso es cortesía.
+      }
+      if (mounted) {
+        _snack(context, 'Firma guardada. El profesional fue avisado.');
+      }
+    } catch (e) {
+      if (mounted) _snack(context, 'No se pudo firmar: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _ocupado = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<VisitaProfesional?>(
+      stream: _stream,
+      builder: (context, snap) {
+        final v = snap.data;
+        final f = v?.formatoAsignado;
+        return Scaffold(
+          appBar: AppBar(
+            backgroundColor: kVisitasColor,
+            foregroundColor: Colors.white,
+            title: Text(
+              v?.establecimiento ?? 'Visita',
+              style: const TextStyle(fontFamily: _kFont),
+            ),
+          ),
+          body: v == null
+              ? Center(
+                  child: snap.hasError
+                      ? Text('No se pudo abrir: ${snap.error}')
+                      : const CircularProgressIndicator(),
+                )
+              : ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    Text(
+                      '${v.areaNombre} · ${v.formatoNombre}',
+                      style: const TextStyle(
+                        fontFamily: _kFont,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        UserAvatar(
+                          userId: v.profesionalId,
+                          nameHint: v.profesionalNombre,
+                          radius: 12,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: UserNameText(
+                            v.profesionalId,
+                            fallbackName: v.profesionalNombre,
+                            prefix: 'Realizó la visita: ',
+                          ),
+                        ),
+                      ],
+                    ),
+                    Text('Fecha: ${_dd(v.fechaProgramada)}'),
+                    if (f != null) ...[
+                      const Divider(height: 24),
+                      () {
+                        final r = resumenDeVisita(f, v.respuestas);
+                        return Text(
+                          'Resultado: ${r.cumple} cumple · ${r.noCumple} no '
+                          'cumple · ${r.noAplica} no aplica'
+                          '${r.porcentaje == null ? '' : ' · ${r.porcentaje}%'}',
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        );
+                      }(),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Hallazgos',
+                        style: TextStyle(
+                          fontFamily: _kFont,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      () {
+                        final malos = [
+                          for (final it in f.itemsOrdenados)
+                            if (v.respuestas[it.id]?.resultado == kItemNoCumple)
+                              it,
+                        ];
+                        if (malos.isEmpty) {
+                          return const Text('Sin hallazgos.');
+                        }
+                        return PagedListSection<VisitaFormatoItem>(
+                          items: malos,
+                          etiqueta: 'hallazgos',
+                          itemBuilder: (context, it, _) => _ItemLectura(
+                            item: it,
+                            respuesta: v.respuestas[it.id]!,
+                          ),
+                        );
+                      }(),
+                    ],
+                    if (v.observacionGeneral.trim().isNotEmpty) ...[
+                      const Divider(height: 24),
+                      Text('Observación general: ${v.observacionGeneral}'),
+                    ],
+                    const Divider(height: 24),
+                    FirmaTile(
+                      titulo: 'Responsable de inspección',
+                      firma: v.firmaProfesional,
+                    ),
+                    FirmaTile(
+                      titulo: 'Responsable del establecimiento',
+                      firma: v.firmaEstablecimiento,
+                    ),
+                    const SizedBox(height: 12),
+                    if (visitasPuedeFirmarComoEstablecimiento(
+                      visita: v,
+                      userId: widget.userId,
+                    ))
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: kVisitasColor,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                        ),
+                        onPressed: _ocupado ? null : () => _firmar(v),
+                        icon: const Icon(Icons.draw_outlined),
+                        label: Text(_ocupado ? 'Guardando…' : 'Firmar el acta'),
+                      )
+                    else
+                      Text(
+                        v.firmaEstablecimiento != null
+                            ? 'Ya firmaste esta visita.'
+                            : 'Esta visita ya no está esperando tu firma.',
+                        style: const TextStyle(color: Colors.black54),
+                      ),
+                  ],
+                ),
+        );
+      },
+    );
+  }
 }

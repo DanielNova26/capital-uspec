@@ -132,7 +132,7 @@ service cloud.firestore {
 
     function participaEnVisitas(empresaId) {
       return administraVisitas(empresaId)
-        || hasVisitasRole(empresaId, ['profesional', 'consulta']);
+        || hasVisitasRole(empresaId, ['profesional', 'consulta', 'firmante']);
     }
 
     // Rol del módulo de Planillas de Pago para la empresa activa.
@@ -330,7 +330,7 @@ service cloud.firestore {
           || resource.data.userId == request.auth.token.userDocId);
       allow create: if belongsToCompany(request.resource.data.empresaId)
         && docId == request.resource.data.empresaId + '_' + request.resource.data.userId
-        && request.resource.data.rol in ['jefe', 'profesional', 'consulta']
+        && request.resource.data.rol in ['jefe', 'profesional', 'consulta', 'firmante']
         && request.resource.data.areaId is string
         && (isDeveloper() || isDeveloperIn(request.resource.data.empresaId)
           || (request.resource.data.rol == 'profesional'
@@ -339,7 +339,7 @@ service cloud.firestore {
       allow update: if resource.data.empresaId == request.resource.data.empresaId
         && resource.data.userId == request.resource.data.userId
         && belongsToCompany(resource.data.empresaId)
-        && request.resource.data.rol in ['jefe', 'profesional', 'consulta']
+        && request.resource.data.rol in ['jefe', 'profesional', 'consulta', 'firmante']
         && request.resource.data.areaId is string
         && (isDeveloper() || isDeveloperIn(resource.data.empresaId)
           || (resource.data.rol == 'profesional'
@@ -354,6 +354,22 @@ service cloud.firestore {
             && resource.data.userId != request.auth.token.userDocId
             && administraVisitasArea(resource.data.empresaId,
               resource.data.areaId)));
+    }
+
+    // Grupos de profesionales con sus establecimientos (25 sep 2026). Los
+    // arma el jefe de cada área para su área; no se cambian de área (se
+    // borra y se crea otro), así un jefe no se lleva el grupo de otro.
+    match /TBL_VISITAS_GRUPOS/{docId} {
+      allow get: if resource == null
+        || participaEnVisitas(resource.data.empresaId);
+      allow list: if participaEnVisitas(resource.data.empresaId);
+      allow create: if administraVisitasArea(request.resource.data.empresaId,
+          request.resource.data.areaId);
+      allow update: if resource.data.empresaId == request.resource.data.empresaId
+        && resource.data.areaId == request.resource.data.areaId
+        && administraVisitasArea(resource.data.empresaId, resource.data.areaId);
+      allow delete: if administraVisitasArea(resource.data.empresaId,
+          resource.data.areaId);
     }
 
     match /TBL_VISITAS_FORMATOS/{docId} {
@@ -373,15 +389,19 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // El firmante del establecimiento (25 sep 2026) lee y firma solo las
+    // visitas donde el profesional lo designó (`firmanteEstablecimientoId`).
     match /TBL_VISITAS/{docId} {
       allow get: if resource == null
         || (belongsToCompany(resource.data.empresaId)
-          && (administraVisitasArea(resource.data.empresaId, resource.data.areaId)
+          && (esFirmanteDeVisita()
+            || administraVisitasArea(resource.data.empresaId, resource.data.areaId)
             || hasVisitasRole(resource.data.empresaId, ['consulta'])
             || (hasVisitasRole(resource.data.empresaId, ['profesional'])
               && resource.data.profesionalId == request.auth.token.userDocId)));
       allow list: if belongsToCompany(resource.data.empresaId)
-        && (administraVisitasArea(resource.data.empresaId, resource.data.areaId)
+        && (esFirmanteDeVisita()
+          || administraVisitasArea(resource.data.empresaId, resource.data.areaId)
           || hasVisitasRole(resource.data.empresaId, ['consulta'])
           || (hasVisitasRole(resource.data.empresaId, ['profesional'])
             && resource.data.profesionalId == request.auth.token.userDocId));
@@ -423,7 +443,8 @@ service cloud.firestore {
                 && request.resource.data.diff(resource.data).affectedKeys()
                   .hasOnly(['respuestas', 'tablas', 'observacionGeneral',
                     'responsableEstablecimiento', 'ciudad', 'cargoProfesional',
-                    'firmaProfesional', 'firmaEstablecimiento', 'updatedAt'])
+                    'firmaProfesional', 'firmaEstablecimiento',
+                    'firmanteEstablecimientoId', 'updatedAt'])
                 && firmaVisitaSinCambiosDeContenido())
               || (resource.data.estado == 'en_curso'
                 && request.resource.data.estado == 'terminada'
@@ -432,8 +453,25 @@ service cloud.firestore {
                   .hasOnly(['estado', 'fin', 'cumplimiento', 'tareasCreadas',
                     'cerradaPor', 'updatedAt']))
             ))
+          // El firmante designado estampa su firma y nada más, con la
+          // visita en curso y sin firma previa del establecimiento.
+          || (resource.data.estado == 'en_curso'
+            && request.resource.data.estado == 'en_curso'
+            && esFirmanteDeVisita()
+            && (!('firmaEstablecimiento' in resource.data)
+              || resource.data.firmaEstablecimiento == null)
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['firmaEstablecimiento', 'updatedAt'])
+            && belongsToCompany(resource.data.empresaId))
         );
       allow delete: if false;
+    }
+
+    function esFirmanteDeVisita() {
+      return 'firmanteEstablecimientoId' in resource.data
+        && resource.data.firmanteEstablecimientoId is string
+        && resource.data.firmanteEstablecimientoId.size() > 0
+        && resource.data.firmanteEstablecimientoId == request.auth.token.userDocId;
     }
 
     function asignacionVisitaValida() {
@@ -468,8 +506,15 @@ service cloud.firestore {
           && resource.data.firmaProfesional != null)
         || ('firmaEstablecimiento' in resource.data
           && resource.data.firmaEstablecimiento != null);
+      let firmaEstPendiente = !('firmaEstablecimiento' in resource.data)
+        || resource.data.firmaEstablecimiento == null;
+      // Con el contenido firmado solo se agregan firmas; mientras falte la
+      // del establecimiento se puede cambiar a quién se le pide (25 sep 2026).
       return firmada
-        ? changed.hasOnly(['firmaProfesional', 'firmaEstablecimiento', 'updatedAt'])
+        ? (changed.hasOnly(['firmaProfesional', 'firmaEstablecimiento', 'updatedAt'])
+            || (firmaEstPendiente
+              && changed.hasOnly(['firmanteEstablecimientoId',
+                'responsableEstablecimiento', 'updatedAt'])))
           && (!('firmaProfesional' in resource.data)
             || resource.data.firmaProfesional == null
             || request.resource.data.firmaProfesional == resource.data.firmaProfesional)
@@ -659,6 +704,7 @@ service cloud.firestore {
         && collection != 'TBL_VISITAS_FORMATOS'
         && collection != 'TBL_VISITAS_ROLES'
         && collection != 'TBL_VISITAS_UBICACIONES'
+        && collection != 'TBL_VISITAS_GRUPOS'
         && collection != 'TBL_CORREO_ROLES'
         && collection != 'TBL_GD_TIPOS_DOCUMENTALES'
         && collection != 'TBL_GD_EXPEDIENTES_EVENTOS'

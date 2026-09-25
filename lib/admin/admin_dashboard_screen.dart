@@ -25,6 +25,7 @@ import '../facturacion/facturacion_models.dart';
 import '../rutas/rutas_models.dart';
 import '../rutas/rutas_service.dart';
 import '../visitas/visitas_models.dart';
+import '../visitas/visitas_service.dart' show VisitasService;
 import '../gestion_documental/correspondencia/gd_roles_screen.dart';
 import '../gestion_documental/correspondencia/gd_permisos.dart';
 import '../gestion_documental/correspondencia/gd_tipos_documentales_screen.dart';
@@ -4965,7 +4966,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       case 'tokens_dian':
         return 'Personal autorizado';
       case 'visitas':
-        return 'Asigna primero el área en Usuarios. El jefe programa y administra formatos solo de esa área; sus profesionales reciben ese formato.';
+        return 'El jefe (director) programa y administra formatos y equipo de su área; el área se toma de la ficha o del cargo. El firmante es el administrador del establecimiento que firma las visitas desde su módulo.';
       case 'admin':
         return 'Acceso al panel administrativo';
       default:
@@ -5066,6 +5067,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             return 'Ejecuta las visitas de su área que le programaron.';
           case kVisitasRolConsulta:
             return 'Ve el cronograma y el consolidado sin modificar nada.';
+          case kVisitasRolFirmante:
+            return 'Administrador del establecimiento: firma desde su módulo las visitas que le envían.';
         }
     }
     return 'Define las acciones que la persona puede realizar en este módulo.';
@@ -5617,16 +5620,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     final cleanRole = (role ?? '').trim();
     final hasRole = cleanRole.isNotEmpty;
     String visitasAreaId = '';
-    if (module.key == 'visitas' && hasRole) {
+    // Solo jefe y profesional trabajan dentro de un área; firmante y
+    // consulta no la necesitan. El área sale de la ficha o, si no la trae,
+    // del cargo, llevada al id del catálogo (25 sep 2026).
+    if (module.key == 'visitas' &&
+        hasRole &&
+        visitasRolRequiereArea(cleanRole)) {
       final data = userDoc.data();
-      final scoped = getUserCompanyDetail(data, empresaId);
-      visitasAreaId = _safe(scoped?['areaId']).isNotEmpty
-          ? _safe(scoped?['areaId'])
-          : _safe(data['areaId']);
+      visitasAreaId = await VisitasService().areaParaRol(empresaId, data);
       if (visitasAreaId.isEmpty &&
           !isDeveloperUser(data, empresaId: empresaId)) {
         throw StateError(
-          'Asigna primero el área de ${_userName(data, userDoc.id)} en Admin > Usuarios.',
+          'No se encontró el área de ${_userName(data, userDoc.id)}: '
+          'asígnala en Admin > Usuarios o en su cargo.',
         );
       }
     }
