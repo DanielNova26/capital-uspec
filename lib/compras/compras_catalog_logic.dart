@@ -218,3 +218,213 @@ List<DocumentoMarcaVinculado> consolidarDocumentosMarcaVinculados({
   });
   return resultado;
 }
+
+// ── Excel "Productos por proveedor" (25 sep 2026) ──────────────────────────
+
+/// Columnas del Excel por proveedor, en el orden de la plantilla de Compras.
+const List<String> kColumnasProductoProveedor = [
+  'Nombre',
+  'Categoría',
+  'Marca',
+  'Proveedor',
+  'Ficha técnica por marca',
+  'Registro sanitario',
+  'Ficha técnica por proveedor',
+];
+
+/// Una fila del Excel por proveedor: un producto, una de sus marcas y un
+/// proveedor con ficha de esa marca.
+///
+/// El Excel de Consultas traía cada producto en una sola fila con todas las
+/// marcas y todos los proveedores pegados en una celda ("PALMARIUM,
+/// SOLYSOYA…", "LUHOMAR / SAN MIGUEL…"), y para escribirle a cada proveedor
+/// había que separarlo a mano. Con una fila por combinación se filtra por
+/// proveedor y sale la carta.
+class FilaProductoProveedor {
+  final String producto;
+  final String categoria;
+  final String marca;
+  final String proveedor;
+  final String fichaMarca;
+  final String registroSanitario;
+  final String fichaProveedor;
+
+  const FilaProductoProveedor({
+    required this.producto,
+    required this.categoria,
+    required this.marca,
+    required this.proveedor,
+    required this.fichaMarca,
+    required this.registroSanitario,
+    required this.fichaProveedor,
+  });
+
+  List<String> get celdas => [
+    producto,
+    categoria,
+    marca,
+    proveedor,
+    fichaMarca,
+    registroSanitario,
+    fichaProveedor,
+  ];
+}
+
+const String kSinProveedorConFicha = 'Sin proveedor con ficha';
+const String kSinFichaProveedor = 'Sin ficha del proveedor';
+const String kNoAplicaSinMarca = 'No aplica (sin marca)';
+
+/// Filas del Excel por proveedor.
+///
+/// Por cada marca del producto sale una fila por proveedor que tiene ficha
+/// técnica cargada para ese producto y esa marca; si ningún proveedor la
+/// tiene, una fila con "Sin proveedor con ficha" para que se vea lo que
+/// falta pedir. Las fichas de proveedor cuya marca no está en el producto
+/// (o del producto sin marca) también salen, con la marca que traen.
+///
+/// [estadoDocumento] dice el estado de un documento en palabras (el mismo
+/// que muestra la pantalla de Consultas): así el archivo y la pantalla no se
+/// contradicen.
+List<FilaProductoProveedor> filasProductoMarcaProveedor({
+  required Iterable<ProductoDoc> productos,
+  required Map<String, MarcaDoc> marcasPorId,
+  required Iterable<FichaTecnicaDoc> fichasTecnicas,
+  required String Function(String clave, DocAdjunto? doc) estadoDocumento,
+}) {
+  final fichas = fichasTecnicas.toList();
+  final filas = <FilaProductoProveedor>[];
+
+  String claveProveedor(FichaTecnicaDoc f) => f.proveedorId.trim().isNotEmpty
+      ? f.proveedorId.trim()
+      : normalizarClaveCatalogoCompras(f.proveedorNombre);
+  String nombreProveedor(FichaTecnicaDoc f) => f.proveedorNombre.trim().isEmpty
+      ? 'Proveedor sin nombre'
+      : f.proveedorNombre.trim();
+
+  for (final p in productos) {
+    final usadas = <String>{};
+
+    FilaProductoProveedor fila({
+      required String marca,
+      required String proveedor,
+      required String fichaMarca,
+      required String registro,
+      required String fichaProveedor,
+    }) => FilaProductoProveedor(
+      producto: p.nombre,
+      categoria: p.categoria,
+      marca: marca,
+      proveedor: proveedor,
+      fichaMarca: fichaMarca,
+      registroSanitario: registro,
+      fichaProveedor: fichaProveedor,
+    );
+
+    for (final ref in p.marcas) {
+      final marca = marcasPorId[ref.marcaId];
+      final fichaMarca = estadoDocumento(
+        'fichaTecnica',
+        marca?.documentosAsociados['fichaTecnica'],
+      );
+      final registro = estadoDocumento(
+        'registroSanitario',
+        marca?.documentosAsociados['registroSanitario'],
+      );
+      final nombreMarca = ref.descripcion.trim().isNotEmpty
+          ? ref.descripcion.trim()
+          : (marca?.descripcion ?? 'Marca sin nombre');
+      final vistos = <String>{};
+      final deMarca = fichasCargadasProductoMarca(
+        productoId: p.id,
+        productoNombre: p.nombre,
+        marcaId: ref.marcaId,
+        marcaNombre: nombreMarca,
+        fichasTecnicas: fichas,
+      );
+      for (final f in deMarca) {
+        usadas.add(f.id);
+        // Un proveedor, una fila: si quedaron dos fichas del mismo
+        // proveedor para la misma marca, manda la primera cargada.
+        if (!vistos.add(claveProveedor(f))) continue;
+        filas.add(
+          fila(
+            marca: nombreMarca,
+            proveedor: nombreProveedor(f),
+            fichaMarca: fichaMarca,
+            registro: registro,
+            fichaProveedor: estadoDocumento(
+              'fichaTecnica',
+              documentoVisibleFichaTecnica(f),
+            ),
+          ),
+        );
+      }
+      if (vistos.isEmpty) {
+        filas.add(
+          fila(
+            marca: nombreMarca,
+            proveedor: kSinProveedorConFicha,
+            fichaMarca: fichaMarca,
+            registro: registro,
+            fichaProveedor: kSinFichaProveedor,
+          ),
+        );
+      }
+    }
+
+    // Fichas del producto que no quedaron en ninguna de sus marcas: producto
+    // sin marca, o marca que ya no está vinculada al producto.
+    final vistosSueltos = <String>{};
+    for (final f in fichas) {
+      if (usadas.contains(f.id)) continue;
+      if (documentoVisibleFichaTecnica(f) == null) continue;
+      if (!fichaTecnicaCorrespondeProducto(
+        f,
+        productoId: p.id,
+        productoNombre: p.nombre,
+      )) {
+        continue;
+      }
+      final marca = marcasPorId[f.marcaId];
+      final nombreMarca = f.marcaNombre.trim().isNotEmpty
+          ? f.marcaNombre.trim()
+          : (marca?.descripcion ?? '');
+      if (!vistosSueltos.add('${claveProveedor(f)}|$nombreMarca')) continue;
+      filas.add(
+        fila(
+          marca: nombreMarca.isEmpty ? 'Sin marca' : nombreMarca,
+          proveedor: nombreProveedor(f),
+          fichaMarca: nombreMarca.isEmpty
+              ? kNoAplicaSinMarca
+              : estadoDocumento(
+                  'fichaTecnica',
+                  marca?.documentosAsociados['fichaTecnica'],
+                ),
+          registro: nombreMarca.isEmpty
+              ? kNoAplicaSinMarca
+              : estadoDocumento(
+                  'registroSanitario',
+                  marca?.documentosAsociados['registroSanitario'],
+                ),
+          fichaProveedor: estadoDocumento(
+            'fichaTecnica',
+            documentoVisibleFichaTecnica(f),
+          ),
+        ),
+      );
+    }
+
+    if (p.marcas.isEmpty && vistosSueltos.isEmpty) {
+      filas.add(
+        fila(
+          marca: 'Sin marcas vinculadas',
+          proveedor: kSinProveedorConFicha,
+          fichaMarca: kNoAplicaSinMarca,
+          registro: kNoAplicaSinMarca,
+          fichaProveedor: kSinFichaProveedor,
+        ),
+      );
+    }
+  }
+  return filas;
+}

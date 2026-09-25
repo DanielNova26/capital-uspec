@@ -6440,3 +6440,28 @@ Pruebas Dart: `test/visitas/visitas_equipo_lote_test.dart`.
   volviendo a asignarlo en Admin > Roles y permisos.
 - El módulo no da el acceso a la app: si a alguien se le da rol sin tener
   Visitas en sus accesos, el maestro lo avisa y se le da en Admin > Usuarios.
+
+## Compras: Excel de productos separado por marca y proveedor (25 sep 2026)
+
+Consultas > Productos > Exportar traía cada producto en una sola fila con todas
+las marcas y todos los proveedores pegados en una celda ("PALMARIUM,
+SOLYSOYA…", "LUHOMAR / SAN MIGUEL…"), y para hacer las cartas a proveedores
+había que separarlo a mano. El archivo ahora trae dos hojas:
+
+- **Por proveedor** (primera): una fila por producto, marca y proveedor, con
+  las columnas de la plantilla de Compras: Nombre, Categoría, Marca,
+  Proveedor, Ficha técnica por marca, Registro sanitario, Ficha técnica por
+  proveedor. El proveedor sale de las fichas técnicas cargadas para ese
+  producto y esa marca (`TBL_COMPRAS_FICHAS_TECNICAS`), que es la única
+  relación producto–marca–proveedor que guarda la app. Una marca sin ningún
+  proveedor con ficha sale igual, con "Sin proveedor con ficha": es justo lo
+  que hay que pedir. El producto sin marca muestra la ficha del proveedor con
+  "Sin marca". Los estados son los mismos de la pantalla (Completo, Pendiente,
+  Falta, Vencido…) y el registro sanitario lleva su vencimiento.
+- **Resumen por producto**: el archivo de antes, un producto por fila.
+
+Las hojas salen con encabezado azul, ancho por contenido, fila de encabezado
+fija y filtro en cada columna (`construirExcelHojas`; el paquete `excel` no
+sabe poner filtros, así que se escriben en el XML del libro). Lógica en
+`filasProductoMarcaProveedor` (`compras_catalog_logic.dart`); pruebas en
+`test/compras/compras_productos_por_proveedor_test.dart`.

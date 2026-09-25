@@ -14928,10 +14928,37 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
             ],
           )
           .toList();
-      await _exportarExcel(
-        nombreArchivo: 'consulta_productos',
-        columnas: columnas,
-        filas: filas,
+      // Primera hoja: una fila por producto, marca y proveedor (25 sep 2026),
+      // para filtrar por proveedor y escribir las cartas. La segunda es el
+      // resumen de siempre, un producto por fila.
+      final porProveedor = filasProductoMarcaProveedor(
+        productos: exportados,
+        marcasPorId: _marcasPorId,
+        fichasTecnicas: _fichasTecnicas,
+        estadoDocumento: (key, doc) {
+          final estado = _estadoDocumentoConsulta(key, doc).label;
+          final vence = doc?.tieneDoc == true && doc?.fechaVencimiento != null
+              ? ' · vence ${DateFormat('dd/MM/yyyy').format(doc!.fechaVencimiento!.toDate())}'
+              : '';
+          return '$estado$vence';
+        },
+      );
+      final bytes = construirExcelHojas([
+        HojaExcelConsulta(
+          nombre: 'Por proveedor',
+          columnas: kColumnasProductoProveedor,
+          filas: [for (final f in porProveedor) f.celdas],
+        ),
+        HojaExcelConsulta(
+          nombre: 'Resumen por producto',
+          columnas: columnas,
+          filas: filas,
+        ),
+      ]);
+      await descargarExcelCompras(
+        nombreArchivo:
+            'consulta_productos_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}',
+        bytes: bytes,
       );
     } catch (e) {
       if (mounted) {
