@@ -10480,8 +10480,11 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                   : '');
           for (final docKey in _entries[idx].documentos.keys) {
             final clave = claveDocumentoRecepcion(productoId, docKey);
-            if (_documentosCorregibles.contains(clave)) {
-              correcciones[clave] = _entries[idx].documentos[docKey]!;
+            final documento = _entries[idx].documentos[docKey]!;
+            if (_documentosCorregibles.contains(clave) &&
+                documento.tieneDoc &&
+                !documento.rechazado) {
+              correcciones[clave] = documento;
             }
           }
         }
@@ -10502,7 +10505,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                   ? 'Recepción guardada y cerrada. Quedó enviada a Calidad.'
                   : _modoEdicionPendiente
                   ? 'Recepción completada. Los cambios quedaron en revisión de Calidad.'
-                  : 'Correcciones enviadas. La recepción volvió a revisión de Calidad.',
+                  : 'Correcciones disponibles enviadas. Los documentos pendientes conservan su rechazo.',
             ),
             backgroundColor: kComprasGreen,
           ),
@@ -10911,8 +10914,8 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
   /// se borra del todo, el "Motivo" del rechazo desaparece de la pantalla y
   /// quien corrige ya no sabe qué tenía que arreglar. Se deja el rechazo sin
   /// archivo: el cuadro muestra la zona de carga con el motivo debajo, y si
-  /// intentan reenviar sin subir nada la validación del servicio lo detiene
-  /// ("Debes corregir todos los documentos rechazados"). El archivo en Storage
+  /// intentan reenviar sin subir nada la validación del servicio lo detiene.
+  /// Los demás documentos rechazados pueden enviarse posteriormente. El archivo en Storage
   /// no se toca: es la política del módulo.
   void _eliminarDocProducto(int idx, String key) {
     if (idx < 0 || idx >= _entries.length || !_puedeEditarDocumento(idx, key)) {
@@ -10971,7 +10974,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
         title: 'Corrección habilitada por Calidad',
         message: _esCorreccionDirigida
             ? 'Reemplaza únicamente el documento señalado en rojo. Al cargarlo, la recepción se cerrará y volverá automáticamente a Calidad.'
-            : 'Los datos, productos y lotes están bloqueados. Reemplaza todos los documentos señalados en rojo y envía las correcciones.',
+            : 'Los datos, productos y lotes están bloqueados. Reemplaza uno o varios documentos señalados en rojo y envía los que ya tengas disponibles. Los demás seguirán pendientes.',
         steps: const ['Recepción cerrada', 'Corrección', 'Nueva revisión'],
         activeStep: 1,
       );
@@ -11148,7 +11151,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                     ? 'Guardar y cerrar'
                     : _modoEdicionPendiente
                     ? 'Guardar cambios'
-                    : 'Enviar correcciones',
+                    : 'Enviar disponibles',
                 style: const TextStyle(
                   color: Colors.white,
                   fontFamily: _kFont,
@@ -11614,7 +11617,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                               ? 'Guardar, cerrar y enviar a Calidad'
                               : _modoEdicionPendiente
                               ? 'Guardar cambios y mantener en revisión'
-                              : 'Enviar correcciones a Calidad',
+                              : 'Enviar correcciones disponibles a Calidad',
                           style: const TextStyle(fontFamily: _kFont),
                         ),
                         style: FilledButton.styleFrom(
@@ -16971,19 +16974,12 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
         'Fecha Subida',
         'Versiones en Historial',
       ];
-      final q = _searchCtrl.text.toLowerCase();
-      final lista = q.isEmpty
-          ? _todos!
-          : _todos!
-                .where(
-                  (f) =>
-                      f.productoNombre.toLowerCase().contains(q) ||
-                      f.marcaNombre.toLowerCase().contains(q) ||
-                      f.proveedorNombre.toLowerCase().contains(q),
-                )
-                .toList();
+      final q = _searchCtrl.text;
+      final lista = _todos!
+          .where((ficha) => fichaTecnicaCoincideBusqueda(ficha, q))
+          .toList();
       final filas = lista.map((f) {
-        final doc = f.documentoActual;
+        final doc = documentoVisibleFichaTecnica(f);
         String estado = '—';
         if (doc != null) {
           if (doc.aprobadoConRequerimientos) {
@@ -17046,17 +17042,11 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
 
   @override
   Widget build(BuildContext context) {
-    final q = _searchCtrl.text.toLowerCase();
+    final q = _searchCtrl.text;
     // Ordenar por fecha de última actualización de la ficha (más reciente primero)
     final lista =
         (_todos ?? [])
-            .where(
-              (f) =>
-                  q.isEmpty ||
-                  f.productoNombre.toLowerCase().contains(q) ||
-                  f.marcaNombre.toLowerCase().contains(q) ||
-                  f.proveedorNombre.toLowerCase().contains(q),
-            )
+            .where((ficha) => fichaTecnicaCoincideBusqueda(ficha, q))
             .toList()
           ..sort((a, b) {
             final fa = a.documentoActual?.fechaSubida;
@@ -17071,14 +17061,13 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
     final ultimasActualizadas =
         (_todos ?? [])
             .where(
-              (f) =>
-                  f.documentoActual?.fechaSubida != null &&
-                  f.documentoActual?.tieneDoc == true,
+              (ficha) =>
+                  documentoVisibleFichaTecnica(ficha)?.fechaSubida != null,
             )
             .toList()
           ..sort(
-            (a, b) => b.documentoActual!.fechaSubida!.compareTo(
-              a.documentoActual!.fechaSubida!,
+            (a, b) => documentoVisibleFichaTecnica(b)!.fechaSubida!.compareTo(
+              documentoVisibleFichaTecnica(a)!.fechaSubida!,
             ),
           );
     final topActualizadas = ultimasActualizadas.take(5).toList();
@@ -17095,7 +17084,7 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
             onExportar: _exportar,
             canExport: widget.canExport,
           ),
-          if (topActualizadas.isNotEmpty && q.isEmpty)
+          if (topActualizadas.isNotEmpty && q.trim().isEmpty)
             Container(
               margin: const EdgeInsets.fromLTRB(10, 6, 10, 0),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -17132,7 +17121,7 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
                   ...topActualizadas.map((f) {
                     final fmt = DateFormat('dd/MM/yyyy HH:mm', 'es');
                     final fecha = fmt.format(
-                      f.documentoActual!.fechaSubida!.toDate(),
+                      documentoVisibleFichaTecnica(f)!.fechaSubida!.toDate(),
                     );
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 3),
@@ -17177,7 +17166,7 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
               : _todos == null
               ? const Center(
                   child: Text(
-                    'Cargando fichas técnicas aprobadas…',
+                    'Cargando fichas técnicas…',
                     style: TextStyle(fontFamily: _kFont, color: Colors.black45),
                     textAlign: TextAlign.center,
                   ),
@@ -17194,7 +17183,7 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
                   itemCount: lista.length,
                   itemBuilder: (_, i) {
                     final f = lista[i];
-                    final doc = f.documentoActual;
+                    final doc = documentoVisibleFichaTecnica(f);
                     final fmtDt = DateFormat('dd/MM/yyyy HH:mm', 'es');
                     // Marcar como reciente si fue actualizada en los últimos 7 días
                     final esReciente =

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:excel/excel.dart' as xl;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:todo/compras/abastecimiento_excel_template.dart';
 import 'package:todo/compras/abastecimiento_models.dart';
 import 'package:todo/services/compras_abastecimiento_excel_parser.dart';
 
@@ -154,6 +155,34 @@ void main() {
     expect(inicioPeriodoConsumo(DateTime(2026, 8, 27)), DateTime(2026, 8, 21));
     expect(inicioPeriodoConsumo(DateTime(2026, 8, 28)), DateTime(2026, 8, 28));
     expect(finPeriodoConsumo(DateTime(2026, 8, 28)), DateTime(2026, 9, 3));
+  });
+
+  test('ofrece cuatro periodos móviles de consumo', () {
+    final periods = periodosConsumoProgramables(DateTime(2026, 9, 30));
+
+    expect(periods, hasLength(4));
+    expect(periods, [
+      DateTime(2026, 9, 25),
+      DateTime(2026, 10, 2),
+      DateTime(2026, 10, 9),
+      DateTime(2026, 10, 16),
+    ]);
+    expect(periods.every((date) => date.weekday == DateTime.friday), isTrue);
+  });
+
+  test('el modelo descargable incluye grupo y puede leerlo el importador', () {
+    final bytes = construirPlantillaAbastecimiento();
+    final excel = xl.Excel.decodeBytes(bytes);
+    final sheet = excel.tables['Abastecimiento']!;
+    final headers = sheet.rows[4]
+        .map((cell) => cell?.value.toString() ?? '')
+        .toList();
+
+    expect(headers, containsAll(['PROVEEDOR', 'PRODUCTO', 'GRUPO', 'OC']));
+    final parsed = ComprasAbastecimientoExcelParser().parse(bytes);
+    expect(parsed.hojasLeidas, ['Abastecimiento']);
+    expect(parsed.filas, isEmpty);
+    expect(parsed.incidencias, isEmpty);
   });
 
   test('corrige al leer un período histórico guardado desde jueves', () {

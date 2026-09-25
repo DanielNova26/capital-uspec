@@ -727,7 +727,7 @@ class _InterventoriaTableroAsignacionState
         nombre: elegido.nombre,
         cargo: elegido.cargo,
         cargoMatriz: '',
-        delCentro: elegido.centroId == h.centroCostoId,
+        delCentro: elegido.cubreCentro(h.centroCostoId),
       ),
       forzado: true,
     );
@@ -989,7 +989,7 @@ class InterventoriaSelectorPersonaState
         return areaVigenteInterventoria(u.areaId, widget.areas) == areaActiva;
       }
       if (!filtraPorSitio) return true;
-      final delCentro = u.centroId == widget.centroCostoId;
+      final delCentro = u.cubreCentro(widget.centroCostoId);
       // Los cargos sin centro (Gerencia, Dirección de operaciones…) no
       // tienen establecimiento propio y deben seguir apareciendo.
       final corporativo = u.centroId.trim().isEmpty;
@@ -1002,7 +1002,7 @@ class InterventoriaSelectorPersonaState
       int rango(InterventoriaUsuario u) {
         if (widget.sugeridosIds.contains(u.id)) return 0;
         if (widget.centroCostoId.isNotEmpty &&
-            u.centroId == widget.centroCostoId) {
+            u.cubreCentro(widget.centroCostoId)) {
           return 1;
         }
         return 2;
@@ -1152,7 +1152,7 @@ class InterventoriaSelectorPersonaState
                         final u = rows[i];
                         final delCentro =
                             widget.centroCostoId.isNotEmpty &&
-                            u.centroId == widget.centroCostoId;
+                            u.cubreCentro(widget.centroCostoId);
                         final sugerido = widget.sugeridosIds.contains(u.id);
                         return ListTile(
                           onTap: () => Navigator.pop(context, u),

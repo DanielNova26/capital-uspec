@@ -72,4 +72,35 @@ void main() {
       expect(error, isNull);
     });
   });
+
+  group('cobertura operativa de Interventoría', () {
+    test('lee varios centros y elimina valores vacíos o repetidos', () {
+      final ids = resolvePersonnelAssignmentIds(
+        multiple: ['buen_pastor', ' ', 'buen_pastor', 'picota'],
+      );
+
+      expect(ids, {'buen_pastor', 'picota'});
+    });
+
+    test('conserva un centro singular de registros de transición', () {
+      final ids = resolvePersonnelAssignmentIds(
+        multiple: null,
+        legacySingle: 'buen_pastor',
+      );
+
+      expect(ids, {'buen_pastor'});
+    });
+
+    test('normaliza los grupos 1 y 9', () {
+      expect(normalizePersonnelInterventoriaGroup('Grupo 01'), 'G1');
+      expect(normalizePersonnelInterventoriaGroup('g-9'), 'G9');
+    });
+
+    test('recupera el grupo desde el código técnico del centro', () {
+      expect(
+        personnelInterventoriaGroupFromCenterData({'codigo': 'REGION_G9_103'}),
+        'G9',
+      );
+    });
+  });
 }

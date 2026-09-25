@@ -2097,6 +2097,29 @@ bool puedeEditarActaDevuelta({
       visita.correccionResponsableId.trim() == uid;
 }
 
+/// Actas que bloquean el trabajo normal de [userId] hasta que se corrijan.
+///
+/// Las devoluciones nuevas siempre traen `correccionResponsableId`. Para los
+/// documentos históricos que no lo traen se conserva como responsable a quien
+/// registró el acta. Cuando sí hay responsable explícito, el registrador no
+/// queda bloqueado también: la obligación pertenece únicamente al asignado.
+List<InterventoriaVisita> actasPendientesCorreccionDeUsuario(
+  Iterable<InterventoriaVisita> visitas,
+  String userId,
+) {
+  final uid = userId.trim();
+  if (uid.isEmpty) return const [];
+  final pendientes = visitas.where((visita) {
+    if (!esActaDevueltaParaCorreccion(visita)) return false;
+    final asignado = visita.correccionResponsableId.trim();
+    return asignado.isNotEmpty
+        ? asignado == uid
+        : visita.creadoPor.trim() == uid;
+  }).toList();
+  pendientes.sort((a, b) => a.fechaVisita.compareTo(b.fechaVisita));
+  return pendientes;
+}
+
 /// Quien registró el acta la corrige él mismo mientras nadie la haya
 /// revisado.
 ///

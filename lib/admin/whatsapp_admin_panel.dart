@@ -134,6 +134,7 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
   bool _syncingTemplates = false;
   bool _submittingTemplate = false;
   bool _assigningList = false;
+  bool _normalizingPhones = false;
   bool _showApiKey = false;
   String _purchaseNewSupplierListId = '';
   String _planillasTesoreriaAuditoriaListId = '';
@@ -398,6 +399,55 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
       _message('No fue posible asignar la lista: $error', error: true);
     } finally {
       if (mounted) setState(() => _assigningList = false);
+    }
+  }
+
+  Future<void> _normalizePhones() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Normalizar números de WhatsApp'),
+        content: Text(
+          'Se limpiarán espacios y símbolos y se agregará el indicativo '
+          '${_countryCode.text.trim()} a los celulares locales de 10 dígitos. '
+          'Los números que no se puedan validar se conservarán para revisión manual.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Normalizar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _normalizingPhones = true);
+    try {
+      final result = await _service.normalizarNumeros(
+        empresaId: widget.empresaId,
+        userId: widget.userId,
+      );
+      int count(String key) => (result[key] as num?)?.toInt() ?? 0;
+      final corrected = count('numerosCorregidos');
+      final invalid = count('numerosInvalidos');
+      final lists = count('listasActualizadas');
+      final duplicates = count('numerosDuplicados');
+      final warnings = [
+        if (invalid > 0) '$invalid requieren revisión manual',
+        if (duplicates > 0) '$duplicates están duplicados',
+      ];
+      _message(
+        '$corrected número(s) normalizado(s) en $lists lista(s).'
+        '${warnings.isEmpty ? '' : ' ${warnings.join('; ')}.'}',
+      );
+    } catch (error) {
+      _message('No fue posible normalizar los números: $error', error: true);
+    } finally {
+      if (mounted) setState(() => _normalizingPhones = false);
     }
   }
 
@@ -1111,13 +1161,48 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: () => _editList(context),
-                    icon: const Icon(Icons.playlist_add),
-                    label: const Text('Crear lista de envío'),
-                  ),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final createButton = FilledButton.icon(
+                      onPressed: () => _editList(context),
+                      icon: const Icon(Icons.playlist_add),
+                      label: const Text('Crear lista de envío'),
+                    );
+                    final normalizeButton = OutlinedButton.icon(
+                      onPressed: lists.isEmpty || _normalizingPhones
+                          ? null
+                          : _normalizePhones,
+                      icon: _normalizingPhones
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.phone_android_outlined),
+                      label: Text(
+                        _normalizingPhones
+                            ? 'Normalizando...'
+                            : 'Normalizar números',
+                      ),
+                    );
+                    if (constraints.maxWidth < 540) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          createButton,
+                          const SizedBox(height: 8),
+                          normalizeButton,
+                        ],
+                      );
+                    }
+                    return Row(
+                      children: [
+                        Expanded(child: createButton),
+                        const SizedBox(width: 10),
+                        Expanded(child: normalizeButton),
+                      ],
+                    );
+                  },
                 ),
                 const SizedBox(height: 18),
                 Text(

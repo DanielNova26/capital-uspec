@@ -504,9 +504,28 @@ class AbastecimientoService {
     required String archivoNombre,
     required String usuarioId,
     required List<AbastecimientoImportRow> filas,
+    required DateTime consumoDesde,
+    required DateTime consumoHasta,
   }) async {
     final empresa = empresaId.trim();
     if (empresa.isEmpty) throw StateError('No hay una empresa activa.');
+    final periodoDesde = DateTime(
+      consumoDesde.year,
+      consumoDesde.month,
+      consumoDesde.day,
+    );
+    final periodoHasta = DateTime(
+      consumoHasta.year,
+      consumoHasta.month,
+      consumoHasta.day,
+    );
+    if (periodoDesde.weekday != DateTime.friday ||
+        periodoHasta.weekday != DateTime.thursday ||
+        periodoHasta.difference(periodoDesde).inDays != 6) {
+      throw StateError(
+        'El período de consumo debe iniciar el viernes y terminar el jueves siguiente.',
+      );
+    }
     if (filas.isEmpty) {
       return const AbastecimientoImportResult(
         creados: 0,
@@ -604,12 +623,8 @@ class AbastecimientoService {
               ? ''
               : usuarioId,
           entradaRegistradaAt: row.numeroEntrada.trim().isEmpty ? null : now,
-          consumoDesde: row.fechaProgramada == null
-              ? null
-              : inicioPeriodoConsumo(row.fechaProgramada!),
-          consumoHasta: row.fechaProgramada == null
-              ? null
-              : finPeriodoConsumo(inicioPeriodoConsumo(row.fechaProgramada!)),
+          consumoDesde: periodoDesde,
+          consumoHasta: periodoHasta,
           estado: estado,
           observaciones: row.observaciones,
           pendencias: row.pendencias,
@@ -690,11 +705,8 @@ class AbastecimientoService {
         changeDate('fechaProgramada', row.fechaProgramada);
         changeDate('fechaSegundaEntrega', row.fechaSegundaEntrega);
         changeDate('fechaRecibido', row.fechaRecibido);
-        if (row.fechaProgramada != null) {
-          final periodStart = inicioPeriodoConsumo(row.fechaProgramada!);
-          changeDate('consumoDesde', periodStart);
-          changeDate('consumoHasta', finPeriodoConsumo(periodStart));
-        }
+        changeDate('consumoDesde', periodoDesde);
+        changeDate('consumoHasta', periodoHasta);
 
         final pendingValues = row.pendencias.map((item) => item.value).toList();
         final oldPending = (data['pendencias'] as List? ?? const [])

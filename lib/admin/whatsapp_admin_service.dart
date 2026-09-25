@@ -237,6 +237,16 @@ class WhatsAppAdminService {
     return (result.data as Map)['listadoId'].toString();
   }
 
+  Future<Map<String, dynamic>> normalizarNumeros({
+    required String empresaId,
+    required String userId,
+  }) async {
+    final result = await _functions
+        .httpsCallable('whatsappAdminNormalizarNumeros')
+        .call({'empresaId': empresaId, 'userId': userId});
+    return Map<String, dynamic>.from(result.data as Map);
+  }
+
   Future<void> asignarListado({
     required String empresaId,
     required String userId,

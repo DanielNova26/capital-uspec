@@ -1548,13 +1548,15 @@ class FichaTecnicaDoc {
     return FichaTecnicaDoc(
       id: id,
       empresaId: m['empresaId'] as String? ?? '',
-      proveedorId: m['proveedorId'] as String? ?? '',
-      proveedorNombre: m['proveedorNombre'] as String? ?? '',
-      productoId: m['productoId'] as String? ?? '',
-      productoNombre: m['productoNombre'] as String? ?? '',
-      productoCategoria: m['productoCategoria'] as String? ?? '',
-      marcaId: m['marcaId'] as String? ?? '',
-      marcaNombre: m['marcaNombre'] as String? ?? '',
+      proveedorId: (m['proveedorId'] ?? m['proveedor_id'] ?? '').toString(),
+      proveedorNombre: (m['proveedorNombre'] ?? m['razonSocial'] ?? '')
+          .toString(),
+      productoId: (m['productoId'] ?? m['producto_id'] ?? '').toString(),
+      productoNombre: (m['productoNombre'] ?? m['producto'] ?? '').toString(),
+      productoCategoria: (m['productoCategoria'] ?? m['categoria'] ?? '')
+          .toString(),
+      marcaId: (m['marcaId'] ?? m['marca_id'] ?? '').toString(),
+      marcaNombre: (m['marcaNombre'] ?? m['marca'] ?? '').toString(),
       documentoActual: actual,
       documentoAprobado: aprobado,
       historial: historial,
@@ -1622,8 +1624,10 @@ class FichaTecnicaDoc {
   );
 }
 
-/// La consulta pública de fichas solo expone el documento vigente que ya
-/// recibió aprobación de Calidad. `aprobado` también contempla la aprobación
-/// con requerimientos, que sigue siendo un estado aprobado en el modelo.
+/// La consulta muestra el ciclo documental completo: pendiente, aprobado o
+/// rechazado. También recupera la última aprobada de fichas históricas que ya
+/// no tienen `documentoActual`.
 bool fichaTecnicaVisibleEnConsultas(FichaTecnicaDoc ficha) =>
-    ficha.documentoActual?.aprobado == true;
+    ficha.documentoActual?.tieneDoc == true ||
+    ficha.documentoAprobado?.tieneDoc == true ||
+    ficha.historial.any((version) => version.url.trim().isNotEmpty);

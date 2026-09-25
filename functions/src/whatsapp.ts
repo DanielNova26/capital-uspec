@@ -398,9 +398,10 @@ function decrypt(value: string): string {
   ]).toString("utf8");
 }
 
-function normalizePhone(value: unknown, countryCode: string): string {
+export function normalizePhone(value: unknown, countryCode: string): string {
   let digits = text(value).replace(/\D/g, "");
   if (!digits) return "";
+  if (digits.startsWith("00")) digits = digits.slice(2);
   const prefix = countryCode.replace(/\D/g, "");
   if (prefix && digits.length === 10) digits = `${prefix}${digits}`;
   return digits;
@@ -837,7 +838,13 @@ class WhatsAppCloudProvider implements WhatsAppProvider {
   constructor(private readonly config: WhatsAppRuntimeConfig) {}
 
   async send(input: WhatsAppSendInput): Promise<WhatsAppSendResult> {
-    const destination = text(input.telefono).replace(/\D/g, "");
+    const destination = normalizePhone(
+      input.telefono,
+      this.config.defaultCountryCode
+    );
+    if (destination.length < 8 || destination.length > 15) {
+      throw new Error("WHATSAPP_DESTINATION_INVALID");
+    }
     const templateKey = normalize(input.metadata?.templateKey);
     const templateState = this.config.metaTemplates[templateKey];
     const explicitTemplate = text(input.metadata?.metaTemplateName);
@@ -1410,7 +1417,10 @@ export async function sendWhatsAppRoute(input: {
   if (allowedModules.length && !allowedModules.includes(moduleId)) {
     return skip("lista_no_cubre_modulo", { listId, moduleId });
   }
-  const recipients = normalizedRecipients(list.get("destinatarios"))
+  const recipients = normalizedRecipients(
+    list.get("destinatarios"),
+    config.defaultCountryCode
+  )
     .filter((item) => item.activo);
   if (!recipients.length) return skip("lista_sin_destinatarios", { listId });
   const provider = await createWhatsAppProvider(input.empresaId, moduleId);
@@ -2123,7 +2133,10 @@ export const whatsappAdminDirectorio = functions
     return { ok: true, personas: directory, detailsIncluded: includeDetails };
   });
 
-function normalizedRecipients(value: unknown): Array<{
+function normalizedRecipients(
+  value: unknown,
+  countryCode = ""
+): Array<{
   nombre: string;
   telefono: string;
   activo: boolean;
@@ -2143,9 +2156,9 @@ function normalizedRecipients(value: unknown): Array<{
   >();
   for (const raw of value.slice(0, 250)) {
     if (!raw || typeof raw !== "object") continue;
-    const telefono = text((raw as any).telefono || (raw as any).phone).replace(
-      /\D/g,
-      ""
+    const telefono = normalizePhone(
+      (raw as any).telefono || (raw as any).phone,
+      countryCode
     );
     if (telefono.length < 8 || telefono.length > 15) continue;
     unique.set(telefono, {
@@ -2161,6 +2174,60 @@ function normalizedRecipients(value: unknown): Array<{
   return [...unique.values()];
 }
 
+export function normalizeStoredRecipients(
+  value: unknown,
+  countryCode: string
+): {
+  destinatarios: unknown[];
+  corregidos: number;
+  sinCambio: number;
+  invalidos: number;
+  duplicados: number;
+} {
+  if (!Array.isArray(value)) {
+    return {
+      destinatarios: [],
+      corregidos: 0,
+      sinCambio: 0,
+      invalidos: 0,
+      duplicados: 0,
+    };
+  }
+  let corregidos = 0;
+  let sinCambio = 0;
+  let invalidos = 0;
+  let duplicados = 0;
+  const validos = new Set<string>();
+  const destinatarios = value.slice(0, 250).map((raw) => {
+    const record = raw && typeof raw === "object" && !Array.isArray(raw)
+      ? raw as Record<string, unknown>
+      : null;
+    const original = text(record?.telefono || record?.phone || raw);
+    const normalized = normalizePhone(original, countryCode);
+    if (normalized.length < 8 || normalized.length > 15) {
+      invalidos++;
+      return raw;
+    }
+    if (validos.has(normalized)) duplicados++;
+    validos.add(normalized);
+    if (original === normalized) {
+      sinCambio++;
+      return raw;
+    }
+    corregidos++;
+    return record
+      ? { ...record, telefono: normalized }
+      : {
+        nombre: "",
+        telefono: normalized,
+        activo: true,
+        personaId: "",
+        origen: "manual",
+      };
+  });
+  return { destinatarios, corregidos, sinCambio, invalidos, duplicados };
+}
+
 function normalizedListModules(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return [
@@ -2174,9 +2241,13 @@ export const whatsappAdminGuardarListado = functions
   .region(REGION)
   .https.onCall(async (data: any, context: functions.https.CallableContext) => {
     const caller = await requireWhatsAppAdmin(data, context);
+    const config = await loadRuntimeConfig(caller.empresaId);
     const listId = text(data?.listadoId);
     const nombre = text(data?.nombre).slice(0, 160);
-    const destinatarios = normalizedRecipients(data?.destinatarios);
+    const destinatarios = normalizedRecipients(
+      data?.destinatarios,
+      config.defaultCountryCode
+    );
     const modulos = normalizedListModules(data?.modulos);
     const active = data?.activo !== false;
     if (!nombre) {
@@ -2276,6 +2347,67 @@ export const whatsappAdminGuardarListado = functions
       },
     });
     return { ok: true, listadoId: ref.id };
+  });
+
+export const whatsappAdminNormalizarNumeros = functions
+  .region(REGION)
+  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+    const caller = await requireWhatsAppAdmin(data, context);
+    const config = await loadRuntimeConfig(caller.empresaId);
+    const lists = await db()
+      .collection(LIST_COLLECTION)
+      .where("empresaId", "==", caller.empresaId)
+      .get();
+    let listasActualizadas = 0;
+    let numerosCorregidos = 0;
+    let numerosSinCambio = 0;
+    let numerosInvalidos = 0;
+    let numerosDuplicados = 0;
+    let batch = db().batch();
+    let batchSize = 0;
+
+    for (const list of lists.docs) {
+      const result = normalizeStoredRecipients(
+        list.get("destinatarios"),
+        config.defaultCountryCode
+      );
+      numerosCorregidos += result.corregidos;
+      numerosSinCambio += result.sinCambio;
+      numerosInvalidos += result.invalidos;
+      numerosDuplicados += result.duplicados;
+      if (!result.corregidos) continue;
+      batch.set(list.ref, {
+        destinatarios: result.destinatarios,
+        telefonosNormalizadosAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedBy: caller.userId,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+      listasActualizadas++;
+      batchSize++;
+      if (batchSize >= 400) {
+        await batch.commit();
+        batch = db().batch();
+        batchSize = 0;
+      }
+    }
+    if (batchSize) await batch.commit();
+
+    const details = {
+      listasRevisadas: lists.size,
+      listasActualizadas,
+      numerosCorregidos,
+      numerosSinCambio,
+      numerosInvalidos,
+      numerosDuplicados,
+      codigoPais: config.defaultCountryCode,
+    };
+    await audit({
+      empresaId: caller.empresaId,
+      userId: caller.userId,
+      action: "recipient_phones_normalized",
+      details,
+    });
+    return { ok: true, ...details };
   });
 
 export const whatsappAdminAsignarListado = functions

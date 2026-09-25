@@ -114,6 +114,16 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _lastVisitasKey;
   String? _lastSyncedActiveCedula;
 
+  // Acción obligatoria de Interventoría: una devolución asignada no puede
+  // quedar escondida entre notificaciones o depender de que la persona abra
+  // voluntariamente el módulo.
+  StreamSubscription<List<InterventoriaVisita>>? _correccionesActaSub;
+  String? _lastCorreccionesActaKey;
+  List<InterventoriaVisita> _correccionesActa = const [];
+  bool _dialogoCorreccionVisible = false;
+  bool _navegandoACorreccion = false;
+  Future<void> Function()? _cerrarDialogoCorreccion;
+
   // Con el módulo de Tareas apagado no se consulta TBL_TAREAS. Son campos y no
   // `Stream.empty()` en línea para conservar la misma instancia entre builds y
   // no re-suscribir el StreamBuilder en cada reconstrucción.
@@ -683,6 +693,124 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _reiniciarCorreccionesActa({
+    required String userId,
+    required String empresaId,
+    required bool habilitado,
+  }) {
+    final key = habilitado ? '$empresaId|$userId' : '';
+    if (_lastCorreccionesActaKey == key) return;
+    _lastCorreccionesActaKey = key;
+    unawaited(_correccionesActaSub?.cancel());
+    _correccionesActaSub = null;
+    _correccionesActa = const [];
+    if (!habilitado || userId.trim().isEmpty || empresaId.trim().isEmpty) {
+      return;
+    }
+    _correccionesActaSub = InterventoriaService()
+        .streamActasPendientesCorreccionUsuario(
+          empresaId: empresaId,
+          userId: userId,
+        )
+        .listen((pendientes) {
+          _correccionesActa = pendientes;
+          if (pendientes.isEmpty) {
+            final cerrar = _cerrarDialogoCorreccion;
+            if (_dialogoCorreccionVisible && cerrar != null) {
+              unawaited(cerrar());
+            }
+            return;
+          }
+          _mostrarCorreccionObligatoria(userId, empresaId);
+        }, onError: (_) {});
+  }
+
+  void _mostrarCorreccionObligatoria(String userId, String empresaId) {
+    if (!mounted ||
+        _dialogoCorreccionVisible ||
+        _navegandoACorreccion ||
+        _correccionesActa.isEmpty) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted ||
+          _dialogoCorreccionVisible ||
+          _navegandoACorreccion ||
+          _correccionesActa.isEmpty) {
+        return;
+      }
+      _dialogoCorreccionVisible = true;
+      final visita = _correccionesActa.first;
+      var permitirCerrar = false;
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (dialogContext, setDialogState) {
+              Future<void> cerrarDialogo() async {
+                if (!dialogContext.mounted) return;
+                setDialogState(() => permitirCerrar = true);
+                await WidgetsBinding.instance.endOfFrame;
+                if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+              }
+
+              _cerrarDialogoCorreccion = cerrarDialogo;
+              return PopScope(
+                canPop: permitirCerrar,
+                child: AlertDialog(
+                  icon: const Icon(
+                    Icons.assignment_late_rounded,
+                    color: Color(0xFFB45309),
+                    size: 36,
+                  ),
+                  title: const Text('Tienes un acta pendiente por corregir.'),
+                  content: Text(
+                    '${visita.centroCostoNombre} · '
+                    '${DateFormat('dd/MM/yyyy').format(visita.fechaVisita.toDate())}\n\n'
+                    '${visita.devolucionMotivo.trim().isEmpty ? 'Revisa la devolución y carga la corrección.' : visita.devolucionMotivo.trim()}'
+                    '${_correccionesActa.length > 1 ? '\n\nQuedan ${_correccionesActa.length} actas pendientes.' : ''}',
+                  ),
+                  actions: [
+                    FilledButton.icon(
+                      onPressed: () async {
+                        _navegandoACorreccion = true;
+                        await cerrarDialogo();
+                        if (!mounted) return;
+                        final corregida = await Navigator.of(context).push<bool>(
+                          MaterialPageRoute<bool>(
+                            builder: (_) => InterventoriaDashboardScreen(
+                              userId: userId,
+                              empresaId: empresaId,
+                              focusedCorrectionId: visita.id,
+                            ),
+                          ),
+                        );
+                        if (corregida == true) {
+                          _correccionesActa = _correccionesActa
+                              .where((acta) => acta.id != visita.id)
+                              .toList();
+                        }
+                        _navegandoACorreccion = false;
+                        if (mounted && _correccionesActa.isNotEmpty) {
+                          _mostrarCorreccionObligatoria(userId, empresaId);
+                        }
+                      },
+                      icon: const Icon(Icons.edit_document),
+                      label: const Text('Corregir ahora'),
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      );
+      _cerrarDialogoCorreccion = null;
+      _dialogoCorreccionVisible = false;
+    });
+  }
+
   Future<void> _abrirVisitas(
     BuildContext context,
     String userId,
@@ -883,6 +1011,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _abastecimientoSub?.cancel();
     _visitasMiasSub?.cancel();
     _visitasJefeSub?.cancel();
+    _correccionesActaSub?.cancel();
     super.dispose();
   }
 
@@ -959,6 +1088,17 @@ class _HomeScreenState extends State<HomeScreen> {
               isDev,
               'tareasdashboard',
               disabledAppIds,
+            );
+            final showInterventoria = _moduleVisible(
+              apps,
+              isDev,
+              kInterventoriaAppId,
+              disabledAppIds,
+            );
+            _reiniciarCorreccionesActa(
+              userId: cedula,
+              empresaId: scopeEmpresa,
+              habilitado: showInterventoria,
             );
 
             // Dos queries separadas porque Firestore no admite OR entre campos distintos.
@@ -1443,20 +1583,19 @@ class _HomeScreenState extends State<HomeScreen> {
       List<Widget> cards, {
       required double maxExtent,
       double? altoFijo,
-    }) =>
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-            maxCrossAxisExtent: maxExtent,
-            mainAxisSpacing: altoFijo != null ? 10 : 16,
-            crossAxisSpacing: 16,
-            mainAxisExtent: altoFijo,
-            childAspectRatio: isWeb ? 1.6 : 1.3,
-          ),
-          itemCount: cards.length,
-          itemBuilder: (context, index) => cards[index],
-        );
+    }) => GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: maxExtent,
+        mainAxisSpacing: altoFijo != null ? 10 : 16,
+        crossAxisSpacing: 16,
+        mainAxisExtent: altoFijo,
+        childAspectRatio: isWeb ? 1.6 : 1.3,
+      ),
+      itemCount: cards.length,
+      itemBuilder: (context, index) => cards[index],
+    );
 
     return LayoutBuilder(
       builder: (context, constraints) {

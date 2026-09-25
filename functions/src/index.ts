@@ -93,6 +93,7 @@ export {
   whatsappAdminSincronizarPlantillas,
   whatsappAdminEnviarPlantillaRevision,
   whatsappAdminGuardarListado,
+  whatsappAdminNormalizarNumeros,
   whatsappAdminAsignarListado,
   whatsappAdminDirectorio,
   whatsappAdminProbar,

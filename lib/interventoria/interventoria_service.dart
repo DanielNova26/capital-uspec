@@ -94,6 +94,19 @@ class InterventoriaOcrResult {
   });
 }
 
+/// Resumen verificable de la asignación que ocurre al completar un acta.
+class InterventoriaAutoAsignacionResultado {
+  final int creadas;
+  final int pendientes;
+  final List<String> errores;
+
+  const InterventoriaAutoAsignacionResultado({
+    this.creadas = 0,
+    this.pendientes = 0,
+    this.errores = const [],
+  });
+}
+
 /// Usuario de la empresa que puede recibir un hallazgo.
 ///
 /// Se carga una sola vez por pantalla; resolver el cargo de cada hallazgo
@@ -104,6 +117,7 @@ class InterventoriaUsuario {
   final String cargo;
   final String centroId;
   final String areaId;
+  final Set<String> centrosAsignadosIds;
 
   const InterventoriaUsuario({
     required this.id,
@@ -111,7 +125,22 @@ class InterventoriaUsuario {
     required this.cargo,
     required this.centroId,
     required this.areaId,
+    this.centrosAsignadosIds = const {},
   });
+
+  /// El centro de costos es la adscripción administrativa. La cobertura de
+  /// operación/trabajo indica las sedes donde realmente puede atender visitas.
+  bool cubreCentro(String targetCentroId) {
+    final target = targetCentroId.trim();
+    if (target.isEmpty) return false;
+    // Apenas Talento Humano define cobertura operativa, esta reemplaza al
+    // centro de costos para Interventoría. El centro administrativo solo se
+    // conserva como respaldo para los perfiles que aún no han sido migrados.
+    if (centrosAsignadosIds.isNotEmpty) {
+      return centrosAsignadosIds.contains(target);
+    }
+    return centroId.trim() == target;
+  }
 }
 
 /// Los campos planos del usuario solo describen la empresa indicada en
@@ -208,8 +237,7 @@ InterventoriaPersona? resolverCargoUnico(
   for (final user in usuarios) {
     final afinidad = afinidadCargo(cargoMatriz, user.cargo);
     if (afinidad == null) continue;
-    final delCentro =
-        centroCostoId.isNotEmpty && user.centroId == centroCostoId;
+    final delCentro = user.cubreCentro(centroCostoId);
     final bool gana;
     if (mejor == null) {
       gana = true;
@@ -494,6 +522,16 @@ class InterventoriaService {
     });
   }
 
+  /// Devoluciones que constituyen una acción obligatoria para una persona.
+  /// Se consulta por empresa (campo cubierto por las reglas) y el OR entre
+  /// responsable explícito y registrador histórico se resuelve en memoria.
+  Stream<List<InterventoriaVisita>> streamActasPendientesCorreccionUsuario({
+    required String empresaId,
+    required String userId,
+  }) => streamVisitas(
+    empresaId,
+  ).map((visitas) => actasPendientesCorreccionDeUsuario(visitas, userId));
+
   /// Actas de las empresas visibles en Gerencia, incluidas las que no
   /// produjeron hallazgos.
   Stream<List<InterventoriaVisita>> streamVisitasEmpresas(
@@ -679,6 +717,11 @@ class InterventoriaService {
       'devolucionPorId': devueltoPorId,
       'devolucionPorNombre': devueltoPorNombre,
       'devolucionEn': FieldValue.serverTimestamp(),
+      // Una nueva devolución nunca hereda el dueño ni la tarea de un ciclo
+      // anterior. Se vuelven a resolver con el maestro vigente.
+      'correccionResponsableId': FieldValue.delete(),
+      'correccionResponsableNombre': FieldValue.delete(),
+      'correccionTareaId': FieldValue.delete(),
       // Cada devolución queda en el historial: el acta puede volver varias
       // veces y saber cuántas es parte de la evaluación del establecimiento.
       'devoluciones': FieldValue.arrayUnion([
@@ -711,7 +754,8 @@ class InterventoriaService {
     });
 
     final taskSvc = TaskService();
-    await taskSvc.createTaskEs(
+    final taskId = await taskSvc.createTaskEs(
+      taskId: 'interventoria_correccion_${visita.id}',
       titulo: tituloTareaDevolucionActa(
         centroNombre: visita.centroCostoNombre,
         tipoActa: visita.tipoActa,
@@ -746,6 +790,10 @@ class InterventoriaService {
         'permite_reasignacion_director': true,
       },
     );
+    await _db.collection('TBL_INTERVENTORIA_VISITAS').doc(visita.id).set({
+      'correccionTareaId': taskId,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
     return responsable;
   }
 
@@ -805,11 +853,13 @@ class InterventoriaService {
   }
 
   /// Fase 2 — el revisor completa el acta con observaciones y conclusiones.
-  Future<void> completarActa({
+  Future<InterventoriaAutoAsignacionResultado> completarActa({
     required InterventoriaVisita visita,
     required Map<String, InterventoriaItem> items,
     required String obsGenerales,
     required String conclusiones,
+    required String completadoPorId,
+    String completadoPorNombre = '',
   }) async {
     final itemsMap = items.map((k, v) => MapEntry(k, v.toMap()));
     final obsTexto = [
@@ -830,8 +880,16 @@ class InterventoriaService {
       'faseActa': 'completa',
       'updatedAt': FieldValue.serverTimestamp(),
     });
-    // Crear/actualizar hallazgos. La asignación se hace manualmente después.
-    await _autoCrearHallazgosDesdeItems(visita: visita, items: items);
+    // Al completar, cada observación con una regla resoluble nace ya como una
+    // tarea. Antes solo se creaba el hallazgo y el tablero mostraba la persona
+    // detectada, pero exigía otro clic para asignarla.
+    return _autoCrearHallazgosDesdeItems(
+      visita: visita,
+      items: items,
+      asignarAutomaticamente: true,
+      creadorId: completadoPorId,
+      creadorNombre: completadoPorNombre,
+    );
   }
 
   /// Sincroniza TBL_INTERVENTORIA_HALLAZGOS (fuente:'acta') con las
@@ -843,9 +901,12 @@ class InterventoriaService {
   ///  • Los hallazgos con tareaId != '' (ya asignados) se PRESERVAN.
   ///  • Los hallazgos huérfanos sin tareaId se eliminan.
   ///  • Los hallazgos existentes sin tareaId se actualizan in-place.
-  Future<void> _autoCrearHallazgosDesdeItems({
+  Future<InterventoriaAutoAsignacionResultado> _autoCrearHallazgosDesdeItems({
     required InterventoriaVisita visita,
     required Map<String, InterventoriaItem> items,
+    bool asignarAutomaticamente = false,
+    String creadorId = '',
+    String creadorNombre = '',
   }) async {
     // ── 1. Cargar hallazgos 'acta' existentes para esta visita ───────────────
     //
@@ -983,6 +1044,51 @@ class InterventoriaService {
     }
 
     if (hasCambios) await batch.commit();
+    if (!asignarAutomaticamente) {
+      return const InterventoriaAutoAsignacionResultado();
+    }
+
+    // Leer después del commit garantiza que también se asignen los documentos
+    // recién creados y permite reintentar los que una ejecución previa dejó sin
+    // tarea. Uno por uno evita carreras sobre el mismo hallazgo.
+    final actuales = await _db
+        .collection('TBL_INTERVENTORIA_HALLAZGOS')
+        .where('empresaId', isEqualTo: visita.empresaId)
+        .where('visitaId', isEqualTo: visita.id)
+        .where('fuente', isEqualTo: 'acta')
+        .get();
+    var creadas = 0;
+    var pendientes = 0;
+    final errores = <String>[];
+    for (final doc in actuales.docs) {
+      final hallazgo = InterventoriaHallazgo.fromMap(doc.id, doc.data());
+      if (!usedGrupoIds.contains(hallazgo.grupoId) ||
+          hallazgo.tareaId.trim().isNotEmpty ||
+          !debeAparecerEnTableroAsignacion(hallazgo)) {
+        continue;
+      }
+      try {
+        final taskId = await crearTareaYNotificarHallazgo(
+          hallazgo: hallazgo,
+          creadorId: creadorId,
+          creadorNombre: creadorNombre,
+        );
+        if (taskId == null || taskId.trim().isEmpty) {
+          pendientes++;
+          errores.add('${hallazgo.numeralParaMatriz}: no se creó la tarea');
+        } else {
+          creadas++;
+        }
+      } catch (error) {
+        pendientes++;
+        errores.add('${hallazgo.numeralParaMatriz}: $error');
+      }
+    }
+    return InterventoriaAutoAsignacionResultado(
+      creadas: creadas,
+      pendientes: pendientes,
+      errores: errores,
+    );
   }
 
   /// Sincroniza el estado del hallazgo cuando la tarea vinculada cambia.
@@ -1280,10 +1386,14 @@ class InterventoriaService {
     }
 
     final ref = _db.collection('TBL_INTERVENTORIA_VISITAS').doc(visita.id);
+    String correccionTareaId = '';
     await _db.runTransaction((transaction) async {
       final snapshot = await transaction.get(ref);
       if (!snapshot.exists) throw StateError('El acta ya no existe.');
       final actual = InterventoriaVisita.fromMap(snapshot.id, snapshot.data()!);
+      correccionTareaId = (snapshot.data()?['correccionTareaId'] ?? '')
+          .toString()
+          .trim();
       if (!esActaDevueltaParaCorreccion(actual)) {
         throw StateError('El acta ya no está pendiente de corrección.');
       }
@@ -1328,9 +1438,24 @@ class InterventoriaService {
         'devolucionEn': FieldValue.delete(),
         'correccionResponsableId': FieldValue.delete(),
         'correccionResponsableNombre': FieldValue.delete(),
+        'correccionTareaId': FieldValue.delete(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
     });
+
+    if (correccionTareaId.isNotEmpty) {
+      try {
+        await _db.collection('TBL_TAREAS').doc(correccionTareaId).update({
+          'estado': 'finalizado',
+          'status': 'finalizado',
+          'solicitud_finalizacion_estado': 'aprobado',
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      } catch (_) {
+        // La corrección ya quedó guardada; una tarea histórica ausente no debe
+        // obligar a la persona a cargarla otra vez.
+      }
+    }
 
     // Los comentarios de Fase 1 también deben quedar sincronizados sin
     // duplicar hallazgos. Una falla secundaria aquí no invalida la corrección
@@ -2238,6 +2363,33 @@ class InterventoriaService {
     bool soloAsignables = true,
   }) async {
     final snap = await _db.collection('TBL_USUARIOS').get();
+    final centrosPorGrupo = <String, Set<String>>{};
+    try {
+      final centrosSnap = await _db
+          .collection('TBL_CENTROS_COSTOS')
+          .where('empresaId', isEqualTo: empresaId)
+          .get();
+      for (final doc in centrosSnap.docs) {
+        final centro = CentroCostoRef.fromMap(doc.id, doc.data());
+        final grupo = normalizarGrupoCentroCosto(centro.grupo);
+        if (grupo.isEmpty) continue;
+        centrosPorGrupo
+            .putIfAbsent(grupo, () => <String>{})
+            .add(centro.centroId);
+      }
+    } catch (_) {
+      // La falta temporal del catálogo no debe ocultar a todo el personal.
+      // Las asignaciones explícitas por centro siguen funcionando.
+    }
+
+    Set<String> stringSet(Object? raw) {
+      if (raw is! Iterable || raw is String) return <String>{};
+      return raw
+          .map((value) => value.toString().trim())
+          .where((value) => value.isNotEmpty)
+          .toSet();
+    }
+
     // El área del cargo es un respaldo, no la fuente: si el usuario ya trae
     // areaId propio ese manda. Si TBL_CARGOS falla, se sigue sin áreas en
     // vez de quedarse sin lista de personal.
@@ -2315,6 +2467,24 @@ class InterventoriaService {
       final centroId = (scoped?['centroId'] ?? raiz['centroId'] ?? '')
           .toString()
           .trim();
+      final centrosAsignados = <String>{
+        ...stringSet(
+          scoped?['centrosOperacionIds'] ?? raiz['centrosOperacionIds'],
+        ),
+        ...stringSet(scoped?['centrosTrabajoIds'] ?? raiz['centrosTrabajoIds']),
+      };
+      for (final legacyKey in const ['centroOperacionId', 'centroTrabajoId']) {
+        final legacy = (scoped?[legacyKey] ?? raiz[legacyKey] ?? '')
+            .toString()
+            .trim();
+        if (legacy.isNotEmpty) centrosAsignados.add(legacy);
+      }
+      final grupos = stringSet(
+        scoped?['gruposInterventoria'] ?? raiz['gruposInterventoria'],
+      ).map(normalizarGrupoCentroCosto);
+      for (final grupo in grupos) {
+        centrosAsignados.addAll(centrosPorGrupo[grupo] ?? const <String>{});
+      }
       var areaId = (scoped?['areaId'] ?? raiz['areaId'] ?? '')
           .toString()
           .trim();
@@ -2328,6 +2498,7 @@ class InterventoriaService {
           cargo: cargo,
           centroId: centroId,
           areaId: areaId,
+          centrosAsignadosIds: centrosAsignados,
         ),
       );
     }
@@ -2375,12 +2546,12 @@ class InterventoriaService {
           nombre: u.nombre,
           cargo: u.cargo,
           cargoMatriz: cargoMatriz,
-          delCentro: centroCostoId.isNotEmpty && u.centroId == centroCostoId,
+          delCentro: u.cubreCentro(centroCostoId),
         );
 
     if (centroCostoId.isNotEmpty) {
       final delCentro = candidatos
-          .where((c) => c.user.centroId == centroCostoId)
+          .where((c) => c.user.cubreCentro(centroCostoId))
           .toList();
       if (delCentro.isNotEmpty) {
         // Dentro del establecimiento manda la afinidad: el cargo que mas se
@@ -2482,6 +2653,52 @@ class InterventoriaService {
         .get();
     final raw = doc.data()?['reglasSubsanacion'];
     return raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+  }
+
+  /// Repara el rezago creado por versiones que solo sugerían al responsable
+  /// en pantalla. Es idempotente: ignora hallazgos que ya tienen `tareaId` y
+  /// cada hallazgo usa un id estable de tarea.
+  Future<InterventoriaAutoAsignacionResultado>
+  asignarHallazgosPendientesAutomaticamente({
+    required String empresaId,
+    required String creadorId,
+    String creadorNombre = '',
+  }) async {
+    final snapshot = await _db
+        .collection('TBL_INTERVENTORIA_HALLAZGOS')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+    var creadas = 0;
+    var pendientes = 0;
+    final errores = <String>[];
+    for (final doc in snapshot.docs) {
+      final hallazgo = InterventoriaHallazgo.fromMap(doc.id, doc.data());
+      if (hallazgo.tareaId.trim().isNotEmpty ||
+          !debeAparecerEnTableroAsignacion(hallazgo)) {
+        continue;
+      }
+      try {
+        final taskId = await crearTareaYNotificarHallazgo(
+          hallazgo: hallazgo,
+          creadorId: creadorId,
+          creadorNombre: creadorNombre,
+        );
+        if (taskId == null || taskId.trim().isEmpty) {
+          pendientes++;
+          errores.add('${hallazgo.numeralParaMatriz}: no se creó la tarea');
+        } else {
+          creadas++;
+        }
+      } catch (error) {
+        pendientes++;
+        errores.add('${hallazgo.numeralParaMatriz}: $error');
+      }
+    }
+    return InterventoriaAutoAsignacionResultado(
+      creadas: creadas,
+      pendientes: pendientes,
+      errores: errores,
+    );
   }
 
   /// Guarda la regla de un numeral.
@@ -3079,6 +3296,9 @@ class InterventoriaService {
     //      asignarla directamente a un miembro del equipo.
     final taskSvc = TaskService();
     final taskId = await taskSvc.createTaskEs(
+      taskId: hallazgo.id.trim().isEmpty
+          ? null
+          : 'interventoria_hallazgo_${hallazgo.id}',
       titulo: titulo,
       descripcion: descripcion,
       estado: 'pendiente', // ← estado inicial, NO en_progreso

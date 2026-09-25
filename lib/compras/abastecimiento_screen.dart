@@ -4,8 +4,10 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/compras_abastecimiento_excel_parser.dart';
+import 'abastecimiento_excel_template.dart';
 import 'abastecimiento_models.dart';
 import 'abastecimiento_service.dart';
+import 'compras_excel_download.dart';
 import 'compras_models.dart';
 
 const _abBlue = Color(0xFF0F4C81);
@@ -109,6 +111,12 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                       ),
                     )
                   : const Icon(Icons.sync_rounded),
+            ),
+          if (_canImport)
+            IconButton(
+              onPressed: _importando ? null : _descargarModeloExcel,
+              tooltip: 'Descargar modelo Excel',
+              icon: const Icon(Icons.download_outlined),
             ),
           if (_canImport)
             IconButton(
@@ -360,14 +368,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     final providers = _options(rows.map((row) => row.proveedor));
     final products = _options(rows.map((row) => row.producto));
     final groups = _options(rows.map((row) => row.grupo));
-    final consumptionPeriods =
-        rows
-            .map((row) => row.consumoDesde)
-            .whereType<DateTime>()
-            .map(DateUtils.dateOnly)
-            .toSet()
-            .toList()
-          ..sort((a, b) => b.compareTo(a));
+    final consumptionPeriods = periodosConsumoProgramables(DateTime.now());
     return Container(
       color: Colors.white,
       padding: EdgeInsets.fromLTRB(desktop ? 24 : 12, 4, desktop ? 24 : 12, 14),
@@ -387,6 +388,13 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
               ),
               if (_canImport && desktop) ...[
                 const SizedBox(width: 14),
+                OutlinedButton.icon(
+                  onPressed: _importando ? null : _descargarModeloExcel,
+                  icon: const Icon(Icons.download_outlined),
+                  label: const Text('Modelo Excel'),
+                  style: OutlinedButton.styleFrom(foregroundColor: _abBlue),
+                ),
+                const SizedBox(width: 8),
                 FilledButton.icon(
                   onPressed: _importando ? null : _importarExcel,
                   icon: const Icon(Icons.upload_file_outlined),
@@ -809,7 +817,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: SizedBox(
-              width: constraints.maxWidth < 1080 ? 1080 : constraints.maxWidth,
+              width: constraints.maxWidth < 1190 ? 1190 : constraints.maxWidth,
               child: SingleChildScrollView(
                 child: DataTable(
                   showCheckboxColumn: false,
@@ -821,6 +829,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                     DataColumn(label: Text('Consumo')),
                     DataColumn(label: Text('Proveedor')),
                     DataColumn(label: Text('Producto')),
+                    DataColumn(label: Text('Grupo')),
                     DataColumn(label: Text('Destino')),
                     DataColumn(label: Text('OC')),
                     DataColumn(label: Text('Estado')),
@@ -867,6 +876,16 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                             width: 150,
                             child: Text(
                               row.producto,
+                              style: style,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                        DataCell(
+                          SizedBox(
+                            width: 110,
+                            child: Text(
+                              row.grupo.isEmpty ? '—' : row.grupo,
                               style: style,
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -1589,19 +1608,23 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
         filas: parsed.filas,
       );
       if (!mounted) return;
-      final confirmed = await _confirmImport(file.name, parsed, catalog);
-      if (confirmed != true || !mounted) return;
+      final periodoDesde = await _confirmImport(file.name, parsed, catalog);
+      if (periodoDesde == null || !mounted) return;
+      final periodoHasta = finPeriodoConsumo(periodoDesde);
       final result = await _service.importar(
         empresaId: widget.empresaId,
         archivoNombre: file.name,
         usuarioId: widget.userId,
         filas: catalog.filas,
+        consumoDesde: periodoDesde,
+        consumoHasta: periodoHasta,
       );
       if (!mounted) return;
       _message(
         'Excel procesado: ${result.creados} nuevos, '
-        '${result.actualizados} actualizados, ${result.sinCambios} sin cambios'
-        '${result.omitidosCatalogo == 0 ? '.' : ' y ${result.omitidosCatalogo} omitidos por catálogo.'}',
+        '${result.actualizados} actualizados, ${result.sinCambios} sin cambios. '
+        'Consumo: ${_periodLabel(periodoDesde)}'
+        '${result.omitidosCatalogo == 0 ? '.' : '. ${result.omitidosCatalogo} omitidos por catálogo.'}',
       );
     } catch (error) {
       if (mounted) {
@@ -1612,117 +1635,167 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     }
   }
 
-  Future<bool?> _confirmImport(
+  Future<DateTime?> _confirmImport(
     String fileName,
     AbastecimientoExcelParseResult result,
     AbastecimientoCatalogValidation catalog,
-  ) => showDialog<bool>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: const Text('Revisar carga de Abastecimiento'),
-      content: SizedBox(
-        width: 560,
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                fileName,
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 14),
-              _previewLine(
-                Icons.table_rows_outlined,
-                '${catalog.filas.length} filas listas para importar',
-              ),
-              _previewLine(
-                Icons.tab_outlined,
-                '${result.hojasLeidas.length} hojas operativas: ${result.hojasLeidas.join(', ')}',
-              ),
-              _previewLine(
-                Icons.report_gmailerrorred_outlined,
-                '${result.incidencias.length + catalog.incidencias.length} filas omitidas',
-                color: result.incidencias.isEmpty && catalog.incidencias.isEmpty
-                    ? _abGreen
-                    : _abOrange,
-              ),
-              if (catalog.proveedoresPendientes.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                const Text(
-                  'Proveedores pendientes de creación:',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 6),
-                ...catalog.proveedoresPendientes
-                    .take(10)
-                    .map((provider) => Text('• $provider')),
-                const Text(
-                  'Estas filas quedan por fuera hasta crear el proveedor y asociarle sus categorías.',
-                  style: TextStyle(color: _abOrange),
-                ),
-              ],
-              if (catalog.productosPendientes.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                const Text(
-                  'Productos pendientes de creación:',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 6),
-                ...catalog.productosPendientes
-                    .take(10)
-                    .map((product) => Text('• $product')),
-              ],
-              if (catalog.gruposPendientes.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                const Text(
-                  'Grupos pendientes de catálogo:',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 6),
-                ...catalog.gruposPendientes
-                    .take(10)
-                    .map((group) => Text('• $group')),
-              ],
-              if (result.incidencias.isNotEmpty ||
-                  catalog.incidencias.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                const Text(
-                  'Primeras incidencias:',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 6),
-                ...[...result.incidencias, ...catalog.incidencias]
-                    .take(8)
-                    .map(
-                      (issue) => Text(
-                        '• ${issue.hoja}, fila ${issue.fila}: ${issue.mensaje}',
-                      ),
+  ) {
+    final periods = periodosConsumoProgramables(DateTime.now());
+    var selectedPeriod = periods.first;
+    return showDialog<DateTime>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setLocal) => AlertDialog(
+          title: const Text('Revisar carga de Abastecimiento'),
+          content: SizedBox(
+            width: 560,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    fileName,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 14),
+                  DropdownButtonFormField<DateTime>(
+                    initialValue: selectedPeriod,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Periodo de consumo para esta carga *',
+                      helperText:
+                          'Cuatro periodos disponibles; se renuevan automáticamente cada viernes.',
+                      prefixIcon: Icon(Icons.event_repeat_outlined),
+                      border: OutlineInputBorder(),
                     ),
-              ],
-              const SizedBox(height: 14),
-              const Text(
-                'Los registros existentes se actualizarán y cada diferencia quedará en el historial. Las filas iguales no se duplican.',
-                style: TextStyle(color: Colors.black54),
+                    items: periods
+                        .map(
+                          (period) => DropdownMenuItem<DateTime>(
+                            value: period,
+                            child: Text(_periodLabel(period)),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        setLocal(() => selectedPeriod = value);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 14),
+                  _previewLine(
+                    Icons.table_rows_outlined,
+                    '${catalog.filas.length} filas listas para importar',
+                  ),
+                  _previewLine(
+                    Icons.tab_outlined,
+                    '${result.hojasLeidas.length} hojas operativas: ${result.hojasLeidas.join(', ')}',
+                  ),
+                  _previewLine(
+                    Icons.report_gmailerrorred_outlined,
+                    '${result.incidencias.length + catalog.incidencias.length} filas omitidas',
+                    color:
+                        result.incidencias.isEmpty &&
+                            catalog.incidencias.isEmpty
+                        ? _abGreen
+                        : _abOrange,
+                  ),
+                  if (catalog.proveedoresPendientes.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Proveedores pendientes de creación:',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 6),
+                    ...catalog.proveedoresPendientes
+                        .take(10)
+                        .map((provider) => Text('• $provider')),
+                    const Text(
+                      'Estas filas quedan por fuera hasta crear el proveedor y asociarle sus categorías.',
+                      style: TextStyle(color: _abOrange),
+                    ),
+                  ],
+                  if (catalog.productosPendientes.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Productos pendientes de creación:',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 6),
+                    ...catalog.productosPendientes
+                        .take(10)
+                        .map((product) => Text('• $product')),
+                  ],
+                  if (catalog.gruposPendientes.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Grupos pendientes de catálogo:',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 6),
+                    ...catalog.gruposPendientes
+                        .take(10)
+                        .map((group) => Text('• $group')),
+                  ],
+                  if (result.incidencias.isNotEmpty ||
+                      catalog.incidencias.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Primeras incidencias:',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 6),
+                    ...[...result.incidencias, ...catalog.incidencias]
+                        .take(8)
+                        .map(
+                          (issue) => Text(
+                            '• ${issue.hoja}, fila ${issue.fila}: ${issue.mensaje}',
+                          ),
+                        ),
+                  ],
+                  const SizedBox(height: 14),
+                  const Text(
+                    'Los registros existentes se actualizarán y cada diferencia quedará en el historial. Las filas iguales no se duplican.',
+                    style: TextStyle(color: Colors.black54),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: catalog.filas.isEmpty
+                  ? null
+                  : () => Navigator.pop(dialogContext, selectedPeriod),
+              style: FilledButton.styleFrom(backgroundColor: _abBlue),
+              child: const Text('Importar cambios'),
+            ),
+          ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext, false),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton(
-          onPressed: catalog.filas.isEmpty
-              ? null
-              : () => Navigator.pop(dialogContext, true),
-          style: FilledButton.styleFrom(backgroundColor: _abBlue),
-          child: const Text('Importar cambios'),
-        ),
-      ],
-    ),
-  );
+    );
+  }
+
+  Future<void> _descargarModeloExcel() async {
+    try {
+      final bytes = construirPlantillaAbastecimiento();
+      await descargarExcelCompras(
+        nombreArchivo: 'modelo_compras_abastecimiento',
+        bytes: bytes,
+      );
+      if (mounted) {
+        _message('Modelo Excel de Abastecimiento descargado.');
+      }
+    } catch (error) {
+      if (mounted) {
+        _message('No fue posible descargar el modelo: $error', error: true);
+      }
+    }
+  }
 
   Widget _previewLine(IconData icon, String text, {Color color = _abBlue}) =>
       Padding(
