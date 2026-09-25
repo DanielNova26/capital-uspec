@@ -251,4 +251,38 @@ void main() {
       expect(documentoVisibleFichaTecnica(resultado.single), fichaCompartida);
     });
   });
+
+  group('buscador de fichas técnicas', () {
+    final ficha = FichaTecnicaDoc(
+      id: 'ficha-1',
+      empresaId: 'empresa-1',
+      proveedorId: 'proveedor-1',
+      proveedorNombre: 'Distribuciones Adolfo',
+      productoId: 'producto-1',
+      productoNombre: 'Café molido',
+      marcaId: 'marca-1',
+      marcaNombre: 'Montañés',
+      documentoActual: const DocAdjunto(
+        url: 'https://storage/ficha.pdf',
+        nombre: 'Ficha café.pdf',
+        estadoCalidad: 'pendiente_revision_calidad',
+      ),
+      creadoPor: 'usuario-1',
+      createdAt: Timestamp.fromMillisecondsSinceEpoch(0),
+    );
+
+    test('encuentra proveedor sin depender de mayúsculas', () {
+      expect(fichaTecnicaCoincideBusqueda(ficha, 'ADOLFO'), isTrue);
+    });
+
+    test('encuentra nombres aunque la consulta omita tildes', () {
+      expect(fichaTecnicaCoincideBusqueda(ficha, 'montanes'), isTrue);
+      expect(fichaTecnicaCoincideBusqueda(ficha, 'cafe'), isTrue);
+    });
+
+    test('encuentra identificadores y nombre del archivo', () {
+      expect(fichaTecnicaCoincideBusqueda(ficha, 'proveedor-1'), isTrue);
+      expect(fichaTecnicaCoincideBusqueda(ficha, 'ficha cafe'), isTrue);
+    });
+  });
 }

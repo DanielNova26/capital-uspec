@@ -78,6 +78,49 @@ void main() {
 
       expect(persona, isNull);
     });
+
+    test('la cobertura operativa separa coordinadores con el mismo cargo', () {
+      const coordinadorG1 = InterventoriaUsuario(
+        id: 'coord-g1',
+        nombre: 'Coordinador Grupo 1',
+        cargo: 'Coordinador de mantenimiento',
+        centroId: 'bodega',
+        areaId: '',
+        centrosAsignadosIds: {'buen_pastor'},
+      );
+      const coordinadorG9 = InterventoriaUsuario(
+        id: 'coord-g9',
+        nombre: 'Coordinador Grupo 9',
+        cargo: 'Coordinador de mantenimiento',
+        centroId: 'bodega',
+        areaId: '',
+        centrosAsignadosIds: {'picota'},
+      );
+
+      final persona = resolverCargoUnico(
+        'Coordinador de mantenimiento',
+        'buen_pastor',
+        const [coordinadorG9, coordinadorG1],
+      );
+
+      expect(persona, isNotNull);
+      expect(persona!.id, 'coord-g1');
+      expect(persona.delCentro, isTrue);
+    });
+
+    test('la cobertura reemplaza al centro de costos para las visitas', () {
+      const coordinador = InterventoriaUsuario(
+        id: 'coord',
+        nombre: 'Coordinador',
+        cargo: 'Coordinador de mantenimiento',
+        centroId: 'bodega',
+        areaId: '',
+        centrosAsignadosIds: {'buen_pastor'},
+      );
+
+      expect(coordinador.cubreCentro('bodega'), isFalse);
+      expect(coordinador.cubreCentro('buen_pastor'), isTrue);
+    });
   });
 
   group('resolverPrimerCargoQueResuelva', () {

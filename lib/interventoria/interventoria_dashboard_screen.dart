@@ -133,6 +133,7 @@ class InterventoriaDashboardScreen extends StatefulWidget {
   final String? rolInterventoria;
   final bool openDeleteRequests;
   final String? focusedDeleteRequestId;
+  final String? focusedCorrectionId;
 
   const InterventoriaDashboardScreen({
     super.key,
@@ -141,6 +142,7 @@ class InterventoriaDashboardScreen extends StatefulWidget {
     this.rolInterventoria,
     this.openDeleteRequests = false,
     this.focusedDeleteRequestId,
+    this.focusedCorrectionId,
   });
 
   @override
@@ -171,6 +173,7 @@ class _InterventoriaDashboardScreenState
   /// true solo para el usuario con role: 'desarrollador' en TBL_USUARIOS.
   /// Permite reabrir/editar actas ya completadas, sin importar el rol de interventoría.
   bool _esAdminDesarrollo = false;
+  bool _correccionObligatoriaAbierta = false;
 
   /// Si el usuario es Registrador, este ID fija todos los streams a su centro.
   /// Vacío = sin restricción (admin/gerente/etc. ven todo).
@@ -207,6 +210,70 @@ class _InterventoriaDashboardScreenState
         _centroFijoId = centroFijo;
         _rolLoaded = true;
       });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _abrirCorreccionObligatoriaSiCorresponde();
+        if (puedeRevisarActas(rol)) {
+          // Corrige también el rezago de las versiones que detectaban a la
+          // persona pero dejaban la tarea esperando un clic manual.
+          unawaited(
+            _svc
+                .asignarHallazgosPendientesAutomaticamente(
+                  empresaId: widget.empresaId,
+                  creadorId: widget.userId,
+                  creadorNombre: widget.userId,
+                )
+                .then<void>((_) {})
+                .catchError((_) {}),
+          );
+        }
+      });
+    }
+  }
+
+  Future<void> _abrirCorreccionObligatoriaSiCorresponde() async {
+    final visitaId = widget.focusedCorrectionId?.trim() ?? '';
+    if (visitaId.isEmpty || _correccionObligatoriaAbierta) return;
+    final visita = await _svc.getVisita(visitaId);
+    if (!mounted ||
+        visita == null ||
+        !puedeEditarActaDevuelta(
+          visita: visita,
+          userId: widget.userId,
+          esAdminDesarrollo: _esAdminDesarrollo,
+        )) {
+      return;
+    }
+    _correccionObligatoriaAbierta = true;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      isDismissible: false,
+      enableDrag: false,
+      backgroundColor: Colors.transparent,
+      constraints: _registrarActaModalConstraints(context),
+      builder: (_) => _RegistrarActaSheet(
+        empresaId: visita.empresaId,
+        userId: widget.userId,
+        service: _svc,
+        centroFijoId: _centroFijoId.isEmpty ? null : _centroFijoId,
+        visitaEditar: visita,
+        permitirEdicionContingencia: _esAdminDesarrollo,
+        correccionObligatoria: true,
+      ),
+    );
+    _correccionObligatoriaAbierta = false;
+    if (!mounted) return;
+    final actual = await _svc.getVisita(visitaId);
+    if (mounted && actual != null && esActaDevueltaParaCorreccion(actual)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _abrirCorreccionObligatoriaSiCorresponde();
+      });
+    } else if (mounted) {
+      // Esta ruta nació exclusivamente desde el bloqueo del inicio. Al guardar
+      // vuelve al inicio para que, si hay otra, se exija la siguiente.
+      Navigator.of(context).pop(true);
     }
   }
 
@@ -7102,6 +7169,7 @@ class _RegistrarActaSheet extends StatefulWidget {
   /// Acta devuelta que se corrige sobre el mismo documento.
   final InterventoriaVisita? visitaEditar;
   final bool permitirEdicionContingencia;
+  final bool correccionObligatoria;
 
   const _RegistrarActaSheet({
     required this.empresaId,
@@ -7110,6 +7178,7 @@ class _RegistrarActaSheet extends StatefulWidget {
     this.centroFijoId,
     this.visitaEditar,
     this.permitirEdicionContingencia = false,
+    this.correccionObligatoria = false,
   });
 
   @override
@@ -7146,6 +7215,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
   late List<InterventoriaAdjunto> _adjuntosExistentes;
   bool _saving = false;
   bool _extracting = false;
+  bool _correccionGuardada = false;
 
   final _scrollCtrl = ScrollController();
   late Map<String, GlobalKey> _itemKeys;
@@ -7259,151 +7329,157 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
   @override
   Widget build(BuildContext context) {
     final isWeb = MediaQuery.of(context).size.width >= 900;
-    return Padding(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom,
-      ),
-      child: DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: isWeb ? 0.9 : 0.97,
-        maxChildSize: 0.99,
-        minChildSize: 0.5,
-        builder: (_, _) => Material(
-          color: const Color(0xFFF8FAFC),
-          child: Column(
-            children: [
-              // ── Drag handle ───────────────────────────────────────────
-              Center(
-                child: Container(
-                  margin: const EdgeInsets.symmetric(vertical: 8),
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFCBD5E1),
-                    borderRadius: BorderRadius.circular(2),
+    return PopScope(
+      canPop: !widget.correccionObligatoria || _correccionGuardada,
+      child: Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: isWeb ? 0.9 : 0.97,
+          maxChildSize: 0.99,
+          minChildSize: 0.5,
+          builder: (_, _) => Material(
+            color: const Color(0xFFF8FAFC),
+            child: Column(
+              children: [
+                // ── Drag handle ───────────────────────────────────────────
+                Center(
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(vertical: 8),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFCBD5E1),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
                 ),
-              ),
 
-              // ── Header fijo ───────────────────────────────────────────
-              Padding(
-                padding: const EdgeInsets.fromLTRB(18, 0, 10, 6),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _editando
-                                ? 'Corregir acta devuelta'
-                                : 'Registrar acta de interventoría',
-                            style: const TextStyle(
-                              fontFamily: _kFont,
-                              fontWeight: FontWeight.w900,
-                              fontSize: 18,
-                            ),
-                          ),
-                          Text(
-                            _editando
-                                ? 'Se actualizará la misma acta y volverá a revisión'
-                                : 'Solo puntajes — las observaciones se completan en revisión',
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: Color(0xFF64748B),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close_rounded),
-                    ),
-                  ],
-                ),
-              ),
-
-              // ── Contenido (solo puntajes, sin tab de observaciones) ───
-              Expanded(child: _buildPuntajesTab(isWeb)),
-
-              // ── Botón guardar (fijo al fondo) ─────────────────────────
-              // Deshabilitado (no solo validado al click) si falta el
-              // establecimiento, el acta PDF o algún ítem sin puntaje/NE.
-              Builder(
-                builder: (_) {
-                  final faltantes = _itemsIncompletos();
-                  final faltaActa = !puedeGenerarActaPdf([
-                    ..._adjuntosExistentes.map((file) => file.contentType),
-                    ..._files.map((file) => file.contentType),
-                  ]);
-                  final puedeGuardar =
-                      !_saving &&
-                      !_extracting &&
-                      _configActasCargada &&
-                      _centro != null &&
-                      _tipoActa != null &&
-                      !faltaActa &&
-                      faltantes.isEmpty;
-                  return SafeArea(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
-                      child: SizedBox(
-                        width: double.infinity,
+                // ── Header fijo ───────────────────────────────────────────
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 0, 10, 6),
+                  child: Row(
+                    children: [
+                      Expanded(
                         child: Column(
-                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (!puedeGuardar && !_saving && _centro != null)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 6),
-                                child: Text(
-                                  _extracting
-                                      ? 'Espera a que termine de procesarse el acta'
-                                      : !_configActasCargada
-                                      ? 'Consultando las actas habilitadas'
-                                      : _tipoActa == null
-                                      ? 'Selecciona el tipo de acta asignado'
-                                      : faltaActa
-                                      ? 'Adjunta el acta PDF obligatoria'
-                                      : 'Faltan ${faltantes.length} sección(es) sin puntaje ni NE',
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    color: _kDanger,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
+                            Text(
+                              widget.correccionObligatoria
+                                  ? 'Tienes un acta pendiente por corregir.'
+                                  : _editando
+                                  ? 'Corregir acta devuelta'
+                                  : 'Registrar acta de interventoría',
+                              style: const TextStyle(
+                                fontFamily: _kFont,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 18,
                               ),
-                            FilledButton.icon(
-                              style: FilledButton.styleFrom(
-                                backgroundColor: _kAccent,
-                              ),
-                              onPressed: puedeGuardar ? _save : null,
-                              icon: _saving
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : const Icon(Icons.save_rounded),
-                              label: Text(
-                                _saving
-                                    ? 'Guardando...'
-                                    : _editando
-                                    ? 'Guardar corrección'
-                                    : 'Guardar acta',
+                            ),
+                            Text(
+                              _editando
+                                  ? 'Se actualizará la misma acta y volverá a revisión'
+                                  : 'Solo puntajes — las observaciones se completan en revisión',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Color(0xFF64748B),
                               ),
                             ),
                           ],
                         ),
                       ),
-                    ),
-                  );
-                },
-              ),
-            ],
+                      if (!widget.correccionObligatoria)
+                        IconButton(
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                    ],
+                  ),
+                ),
+
+                // ── Contenido (solo puntajes, sin tab de observaciones) ───
+                Expanded(child: _buildPuntajesTab(isWeb)),
+
+                // ── Botón guardar (fijo al fondo) ─────────────────────────
+                // Deshabilitado (no solo validado al click) si falta el
+                // establecimiento, el acta PDF o algún ítem sin puntaje/NE.
+                Builder(
+                  builder: (_) {
+                    final faltantes = _itemsIncompletos();
+                    final faltaActa = !puedeGenerarActaPdf([
+                      ..._adjuntosExistentes.map((file) => file.contentType),
+                      ..._files.map((file) => file.contentType),
+                    ]);
+                    final puedeGuardar =
+                        !_saving &&
+                        !_extracting &&
+                        _configActasCargada &&
+                        _centro != null &&
+                        _tipoActa != null &&
+                        !faltaActa &&
+                        faltantes.isEmpty;
+                    return SafeArea(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (!puedeGuardar && !_saving && _centro != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 6),
+                                  child: Text(
+                                    _extracting
+                                        ? 'Espera a que termine de procesarse el acta'
+                                        : !_configActasCargada
+                                        ? 'Consultando las actas habilitadas'
+                                        : _tipoActa == null
+                                        ? 'Selecciona el tipo de acta asignado'
+                                        : faltaActa
+                                        ? 'Adjunta el acta PDF obligatoria'
+                                        : 'Faltan ${faltantes.length} sección(es) sin puntaje ni NE',
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      color: _kDanger,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: _kAccent,
+                                ),
+                                onPressed: puedeGuardar ? _save : null,
+                                icon: _saving
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Icon(Icons.save_rounded),
+                                label: Text(
+                                  _saving
+                                      ? 'Guardando...'
+                                      : _editando
+                                      ? 'Guardar corrección'
+                                      : 'Guardar acta',
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -8840,6 +8916,11 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
       }
 
       if (mounted) {
+        if (_editando && widget.correccionObligatoria) {
+          setState(() => _correccionGuardada = true);
+          await WidgetsBinding.instance.endOfFrame;
+          if (!mounted) return;
+        }
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -11412,19 +11493,27 @@ class _RevisionActaScreenState extends State<_RevisionActaScreen> {
     _autosave?.cancel();
     setState(() => _saving = true);
     try {
-      await widget.service.completarActa(
+      final asignacion = await widget.service.completarActa(
         visita: widget.visita,
         items: await _itemsParaGuardar(),
         obsGenerales: _obsGeneralesCtrl.text.trim(),
         conclusiones: _conclusionesCtrl.text.trim(),
+        completadoPorId: widget.userId,
+        completadoPorNombre: widget.userId,
       );
       _pendiente = false;
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: Color(0xFF16A34A),
-            content: Text('Acta completada correctamente'),
+          SnackBar(
+            backgroundColor: asignacion.pendientes == 0
+                ? const Color(0xFF16A34A)
+                : const Color(0xFFB45309),
+            content: Text(
+              asignacion.pendientes == 0
+                  ? 'Acta completada · ${asignacion.creadas} tarea(s) asignadas automáticamente'
+                  : 'Acta completada · ${asignacion.creadas} tarea(s) asignadas · ${asignacion.pendientes} requieren revisar el maestro',
+            ),
           ),
         );
       }

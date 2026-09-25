@@ -71,6 +71,9 @@ class _UserInfo {
   final String centroCostos;
   final String centroCodigo;
   final String centroId;
+  final Set<String> centrosOperacionIds;
+  final Set<String> centrosTrabajoIds;
+  final Set<String> gruposInterventoria;
 
   const _UserInfo({
     this.nombre = '',
@@ -85,6 +88,9 @@ class _UserInfo {
     this.centroCostos = '',
     this.centroCodigo = '',
     this.centroId = '',
+    this.centrosOperacionIds = const {},
+    this.centrosTrabajoIds = const {},
+    this.gruposInterventoria = const {},
   });
 
   /// Mejor correo disponible: laboral primero, luego login
@@ -241,6 +247,18 @@ class _OrganizationalStructureScreenState
         return (data[key] as String?)?.trim() ?? '';
       }
 
+      Set<String> readSet(String key, {String legacyKey = ''}) {
+        final scoped = resolvePersonnelAssignmentIds(
+          multiple: detalle[key],
+          legacySingle: legacyKey.isEmpty ? null : detalle[legacyKey],
+        );
+        if (scoped.isNotEmpty) return scoped;
+        return resolvePersonnelAssignmentIds(
+          multiple: data[key],
+          legacySingle: legacyKey.isEmpty ? null : data[legacyKey],
+        );
+      }
+
       final nombre = _buildNombre(data);
       final foto = (data['fotoUrl'] as String?)?.trim() ?? '';
       final email = (data['email'] as String?)?.trim() ?? '';
@@ -272,6 +290,15 @@ class _OrganizationalStructureScreenState
         centroCostos: _r('centroCostos'),
         centroCodigo: _r('centroCodigo'),
         centroId: _r('centroId'),
+        centrosOperacionIds: readSet(
+          'centrosOperacionIds',
+          legacyKey: 'centroOperacionId',
+        ),
+        centrosTrabajoIds: readSet(
+          'centrosTrabajoIds',
+          legacyKey: 'centroTrabajoId',
+        ),
+        gruposInterventoria: readSet('gruposInterventoria'),
       );
 
       // Guardar bajo doc.id Y campo cedula (si difiere)
@@ -493,6 +520,7 @@ class _OrganizationalStructureScreenState
           return PersonnelCostCenterOption(
             id: centroId.isEmpty ? d.id : centroId,
             nombre: (data['nombre'] ?? '').toString().trim(),
+            grupo: personnelInterventoriaGroupFromCenterData(data),
           );
         })
         .where(
@@ -1073,6 +1101,26 @@ class _OrganizationalStructureScreenState
       return (data[key] as String?)?.trim() ?? '';
     }
 
+    Set<String> userSet(
+      Map<String, dynamic> data,
+      String key, {
+      String legacyKey = '',
+    }) {
+      final detalle =
+          ((data['empresasDetalle'] as Map<String, dynamic>?)?[widget.empresaId]
+              as Map<String, dynamic>?) ??
+          {};
+      final scoped = resolvePersonnelAssignmentIds(
+        multiple: detalle[key],
+        legacySingle: legacyKey.isEmpty ? null : detalle[legacyKey],
+      );
+      if (scoped.isNotEmpty) return scoped;
+      return resolvePersonnelAssignmentIds(
+        multiple: data[key],
+        legacySingle: legacyKey.isEmpty ? null : data[legacyKey],
+      );
+    }
+
     // ── Calcular actualizaciones ────────────────────────────────────────────
     final updates =
         <DocumentReference<Map<String, dynamic>>, Map<Object, Object?>>{};
@@ -1111,6 +1159,13 @@ class _OrganizationalStructureScreenState
       return a.length != b.length || !a.containsAll(b);
     }
 
+    bool valueChanged(Object? existing, Object? next) {
+      if (next is List<String>) {
+        return existing is! List<dynamic> || listChanged(existing, next);
+      }
+      return existing != next;
+    }
+
     String textField(Map<String, dynamic> data, List<String> keys) {
       for (final key in keys) {
         final value = (data[key] as String?)?.trim() ?? '';
@@ -1146,6 +1201,17 @@ class _OrganizationalStructureScreenState
         'centroCostos': _usrField(data, 'centroCostos'),
         'centro_codigo': centroCodigo,
         'centroId': _usrField(data, 'centroId'),
+        'centrosOperacionIds': userSet(
+          data,
+          'centrosOperacionIds',
+          legacyKey: 'centroOperacionId',
+        ).toList(),
+        'centrosTrabajoIds': userSet(
+          data,
+          'centrosTrabajoIds',
+          legacyKey: 'centroTrabajoId',
+        ).toList(),
+        'gruposInterventoria': userSet(data, 'gruposInterventoria').toList(),
       };
     }
 
@@ -1222,7 +1288,7 @@ class _OrganizationalStructureScreenState
 
       for (final entry in effective.entries) {
         final current = existingScope[entry.key];
-        if (current != entry.value) {
+        if (valueChanged(current, entry.value)) {
           patch['empresasDetalle.${widget.empresaId}.${entry.key}'] =
               entry.value;
         }
@@ -1232,7 +1298,9 @@ class _OrganizationalStructureScreenState
       // este documento ya tenía como principal la empresa activa.
       if ((raw['empresaId'] ?? '').toString().trim() == widget.empresaId) {
         for (final entry in effective.entries) {
-          if (raw[entry.key] != entry.value) patch[entry.key] = entry.value;
+          if (valueChanged(raw[entry.key], entry.value)) {
+            patch[entry.key] = entry.value;
+          }
         }
       }
       queueUpdate(ref, patch);
@@ -1652,6 +1720,35 @@ class _OrganizationalStructureScreenState
     if (selectedCentro != null) {
       initialCentroName = selectedCentro.nombre;
     }
+    var selectedCentrosOperacion = resolvePersonnelAssignmentIds(
+      multiple: data['centrosOperacionIds'],
+      legacySingle: data['centroOperacionId'],
+    );
+    if (selectedCentrosOperacion.isEmpty && ui != null) {
+      selectedCentrosOperacion = {...ui.centrosOperacionIds};
+    }
+    var selectedCentrosTrabajo = resolvePersonnelAssignmentIds(
+      multiple: data['centrosTrabajoIds'],
+      legacySingle: data['centroTrabajoId'],
+    );
+    if (selectedCentrosTrabajo.isEmpty && ui != null) {
+      selectedCentrosTrabajo = {...ui.centrosTrabajoIds};
+    }
+    var selectedGruposInterventoria = personnelStringSet(
+      data['gruposInterventoria'],
+    ).map(normalizePersonnelInterventoriaGroup).toSet();
+    if (selectedGruposInterventoria.isEmpty && ui != null) {
+      selectedGruposInterventoria = ui.gruposInterventoria
+          .map(normalizePersonnelInterventoriaGroup)
+          .toSet();
+    }
+    final gruposInterventoria =
+        centrosCosto
+            .map((centro) => centro.grupo)
+            .where((grupo) => grupo.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
 
     final ctrId = TextEditingController(text: initialId);
     final ctrName = TextEditingController(text: initialName);
@@ -2004,6 +2101,109 @@ class _OrganizationalStructureScreenState
                   },
                   minCharsForSuggestions: 0,
                 ),
+                const SizedBox(height: 8),
+                Theme(
+                  data: Theme.of(
+                    ctx,
+                  ).copyWith(dividerColor: Colors.transparent),
+                  child: ExpansionTile(
+                    initiallyExpanded:
+                        selectedCentrosOperacion.isNotEmpty ||
+                        selectedCentrosTrabajo.isNotEmpty ||
+                        selectedGruposInterventoria.isNotEmpty,
+                    tilePadding: EdgeInsets.zero,
+                    childrenPadding: const EdgeInsets.only(bottom: 8),
+                    leading: const Icon(
+                      Icons.route_outlined,
+                      color: _kPrimaryColor,
+                    ),
+                    title: const Text(
+                      'Cobertura para Interventoría',
+                      style: TextStyle(
+                        fontFamily: _kFontFamily,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Define dónde se recomendará y asignará a esta persona',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    children: [
+                      if (gruposInterventoria.isNotEmpty) ...[
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'Grupos que atiende',
+                            style: Theme.of(ctx).textTheme.labelLarge,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 6,
+                            children: [
+                              for (final grupo in gruposInterventoria)
+                                FilterChip(
+                                  label: Text('Grupo $grupo'),
+                                  selected: selectedGruposInterventoria
+                                      .contains(grupo),
+                                  onSelected: (value) {
+                                    setStateDialog(() {
+                                      selectedGruposInterventoria = {
+                                        ...selectedGruposInterventoria,
+                                      };
+                                      if (value) {
+                                        selectedGruposInterventoria.add(grupo);
+                                      } else {
+                                        selectedGruposInterventoria.remove(
+                                          grupo,
+                                        );
+                                      }
+                                    });
+                                  },
+                                ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                      _PersonnelCoverageField(
+                        label: 'Centros de operación',
+                        helperText:
+                            'Sedes que coordina o atiende operativamente',
+                        options: centrosCosto,
+                        selectedIds: selectedCentrosOperacion,
+                        onChanged: (next) => setStateDialog(
+                          () => selectedCentrosOperacion = next,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      _PersonnelCoverageField(
+                        label: 'Centros de trabajo',
+                        helperText: 'Sedes donde trabaja o realiza las visitas',
+                        options: centrosCosto,
+                        selectedIds: selectedCentrosTrabajo,
+                        onChanged: (next) =>
+                            setStateDialog(() => selectedCentrosTrabajo = next),
+                      ),
+                      const SizedBox(height: 6),
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'El centro de costos sigue siendo administrativo. '
+                          'Interventoría usa esta cobertura para escoger entre '
+                          'personas que tienen el mismo cargo.',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF64748B),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 16),
                 const Divider(),
                 Theme(
@@ -2075,6 +2275,21 @@ class _OrganizationalStructureScreenState
                 }
                 final centroIdGuardado = selectedCentro?.id ?? '';
                 final centroNombreGuardado = selectedCentro?.nombre ?? '';
+                final centrosPorId = {
+                  for (final centro in centrosCosto) centro.id: centro.nombre,
+                };
+                final operacionIds = selectedCentrosOperacion.toList()..sort();
+                final trabajoIds = selectedCentrosTrabajo.toList()..sort();
+                final gruposAsignados = selectedGruposInterventoria.toList()
+                  ..sort();
+                final operacionNombres = [
+                  for (final id in operacionIds)
+                    if ((centrosPorId[id] ?? '').isNotEmpty) centrosPorId[id]!,
+                ];
+                final trabajoNombres = [
+                  for (final id in trabajoIds)
+                    if ((centrosPorId[id] ?? '').isNotEmpty) centrosPorId[id]!,
+                ];
                 final docRef = FirebaseFirestore.instance
                     .collection(_orgCollection)
                     .doc(id);
@@ -2095,6 +2310,23 @@ class _OrganizationalStructureScreenState
                   'centro_nombre': centroNombreGuardado,
                   'centroId': centroIdGuardado,
                   'centroCostos': centroNombreGuardado,
+                  'centrosOperacionIds': operacionIds,
+                  'centrosOperacionNombres': operacionNombres,
+                  'centroOperacionId': operacionIds.length == 1
+                      ? operacionIds.single
+                      : '',
+                  'centroOperacion': operacionNombres.length == 1
+                      ? operacionNombres.single
+                      : '',
+                  'centrosTrabajoIds': trabajoIds,
+                  'centrosTrabajoNombres': trabajoNombres,
+                  'centroTrabajoId': trabajoIds.length == 1
+                      ? trabajoIds.single
+                      : '',
+                  'centroTrabajo': trabajoNombres.length == 1
+                      ? trabajoNombres.single
+                      : '',
+                  'gruposInterventoria': gruposAsignados,
                   'estado': _statusOf(data),
                   'updatedAt': FieldValue.serverTimestamp(),
                 };
@@ -2144,6 +2376,15 @@ class _OrganizationalStructureScreenState
                   'cargoJefe',
                   'centroId',
                   'centroCostos',
+                  'centrosOperacionIds',
+                  'centrosOperacionNombres',
+                  'centroOperacionId',
+                  'centroOperacion',
+                  'centrosTrabajoIds',
+                  'centrosTrabajoNombres',
+                  'centroTrabajoId',
+                  'centroTrabajo',
+                  'gruposInterventoria',
                   'estadoLaboral',
                 ];
                 final userData = userSnap.data() ?? const <String, dynamic>{};
@@ -2221,6 +2462,23 @@ class _OrganizationalStructureScreenState
                     'cargoNombre': ctrCargo.text.trim(),
                     'centroId': centroIdGuardado,
                     'centroCostos': centroNombreGuardado,
+                    'centrosOperacionIds': operacionIds,
+                    'centrosOperacionNombres': operacionNombres,
+                    'centroOperacionId': operacionIds.length == 1
+                        ? operacionIds.single
+                        : '',
+                    'centroOperacion': operacionNombres.length == 1
+                        ? operacionNombres.single
+                        : '',
+                    'centrosTrabajoIds': trabajoIds,
+                    'centrosTrabajoNombres': trabajoNombres,
+                    'centroTrabajoId': trabajoIds.length == 1
+                        ? trabajoIds.single
+                        : '',
+                    'centroTrabajo': trabajoNombres.length == 1
+                        ? trabajoNombres.single
+                        : '',
+                    'gruposInterventoria': gruposAsignados,
                     'jefeId': selectedBossDirectId,
                     'jefeNombre': ctrBossName.text.trim(),
                     'cargoJefe': ctrBossCargo.text.trim(),
@@ -3018,6 +3276,172 @@ class _OrganizationalStructureScreenState
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _PersonnelCoverageField extends StatelessWidget {
+  final String label;
+  final String helperText;
+  final List<PersonnelCostCenterOption> options;
+  final Set<String> selectedIds;
+  final ValueChanged<Set<String>> onChanged;
+
+  const _PersonnelCoverageField({
+    required this.label,
+    required this.helperText,
+    required this.options,
+    required this.selectedIds,
+    required this.onChanged,
+  });
+
+  Future<void> _openPicker(BuildContext context) async {
+    var draft = {...selectedIds};
+    final result = await showDialog<Set<String>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final grouped = <String, List<PersonnelCostCenterOption>>{};
+          for (final option in options) {
+            grouped.putIfAbsent(option.grupo, () => []).add(option);
+          }
+          final groups = grouped.keys.toList()
+            ..sort((a, b) {
+              int rank(String value) => switch (value) {
+                'G1' => 0,
+                'G9' => 1,
+                '' => 3,
+                _ => 2,
+              };
+              final byRank = rank(a).compareTo(rank(b));
+              return byRank != 0 ? byRank : a.compareTo(b);
+            });
+          return AlertDialog(
+            title: Text(label),
+            content: SizedBox(
+              width: 520,
+              height: 480,
+              child: options.isEmpty
+                  ? const Center(
+                      child: Text('No hay centros activos configurados.'),
+                    )
+                  : ListView(
+                      children: [
+                        for (final group in groups) ...[
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(8, 12, 8, 4),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    group.isEmpty
+                                        ? 'Sin grupo'
+                                        : 'Grupo $group',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFF475569),
+                                    ),
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: () {
+                                    setDialogState(() {
+                                      final ids = grouped[group]!
+                                          .map((option) => option.id)
+                                          .toSet();
+                                      if (draft.containsAll(ids)) {
+                                        draft.removeAll(ids);
+                                      } else {
+                                        draft.addAll(ids);
+                                      }
+                                    });
+                                  },
+                                  child: Text(
+                                    draft.containsAll(
+                                          grouped[group]!.map(
+                                            (option) => option.id,
+                                          ),
+                                        )
+                                        ? 'Quitar grupo'
+                                        : 'Elegir grupo',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          for (final option in grouped[group]!)
+                            CheckboxListTile(
+                              dense: true,
+                              value: draft.contains(option.id),
+                              title: Text(option.nombre),
+                              controlAffinity: ListTileControlAffinity.leading,
+                              onChanged: (checked) {
+                                setDialogState(() {
+                                  draft = {...draft};
+                                  if (checked == true) {
+                                    draft.add(option.id);
+                                  } else {
+                                    draft.remove(option.id);
+                                  }
+                                });
+                              },
+                            ),
+                        ],
+                      ],
+                    ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => setDialogState(() => draft = <String>{}),
+                child: const Text('Limpiar'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, draft),
+                child: const Text('Aplicar'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    if (result != null) onChanged(result);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final names = options
+        .where((option) => selectedIds.contains(option.id))
+        .map((option) => option.nombre)
+        .toList();
+    final text = names.isEmpty
+        ? 'Sin asignar'
+        : names.length <= 2
+        ? names.join(' · ')
+        : '${names.take(2).join(' · ')} y ${names.length - 2} más';
+    return InkWell(
+      onTap: () => _openPicker(context),
+      borderRadius: BorderRadius.circular(8),
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          helperText: helperText,
+          suffixIcon: const Icon(Icons.arrow_drop_down),
+        ),
+        child: Text(
+          text,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: names.isEmpty
+                ? const Color(0xFF64748B)
+                : const Color(0xFF0F172A),
+          ),
+        ),
       ),
     );
   }

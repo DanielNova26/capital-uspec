@@ -9,7 +9,8 @@ String normalizarClaveCatalogoCompras(String value) => value
     .replaceAll('í', 'i')
     .replaceAll('ó', 'o')
     .replaceAll('ú', 'u')
-    .replaceAll('ü', 'u');
+    .replaceAll('ü', 'u')
+    .replaceAll('ñ', 'n');
 
 MarcaDoc? buscarMarcaDuplicada(
   Iterable<MarcaDoc> marcas, {
@@ -68,6 +69,25 @@ DocAdjunto? documentoVisibleFichaTecnica(FichaTecnicaDoc ficha) {
   if (actual?.tieneDoc == true) return actual;
   final aprobado = ficha.documentoAprobado;
   return aprobado?.tieneDoc == true ? aprobado : null;
+}
+
+/// El buscador de la consulta debe encontrar tanto los nombres visibles como
+/// los identificadores de registros antiguos y el nombre del archivo cargado.
+bool fichaTecnicaCoincideBusqueda(FichaTecnicaDoc ficha, String query) {
+  final term = normalizarClaveCatalogoCompras(query);
+  if (term.isEmpty) return true;
+  final documento = documentoVisibleFichaTecnica(ficha);
+  final searchable = [
+    ficha.productoNombre,
+    ficha.productoId,
+    ficha.productoCategoria,
+    ficha.marcaNombre,
+    ficha.marcaId,
+    ficha.proveedorNombre,
+    ficha.proveedorId,
+    documento?.nombre ?? '',
+  ].map(normalizarClaveCatalogoCompras).join(' ');
+  return searchable.contains(term);
 }
 
 /// Devuelve las fichas realmente cargadas para una combinación de producto y

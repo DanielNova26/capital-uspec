@@ -1558,12 +1558,11 @@ class GdService {
   Stream<List<DocumentoDoc>> streamDocumentos(String empresaId) {
     return _docCol
         .where('empresaId', isEqualTo: empresaId)
-        .orderBy('updatedAt', descending: true)
         .snapshots()
         .map(
-          (snap) => snap.docs
-              .map((d) => DocumentoDoc.fromMap(d.id, d.data()))
-              .toList(),
+          (snap) => _porUpdatedAtDesc(
+            snap.docs.map((d) => DocumentoDoc.fromMap(d.id, d.data())),
+          ),
         );
   }
 
@@ -1572,13 +1571,28 @@ class GdService {
     return _docCol
         .where('empresaId', isEqualTo: empresaId)
         .where('estado', isEqualTo: GdEstado.vigente.valor)
-        .orderBy('updatedAt', descending: true)
         .snapshots()
         .map(
-          (snap) => snap.docs
-              .map((d) => DocumentoDoc.fromMap(d.id, d.data()))
-              .toList(),
+          (snap) => _porUpdatedAtDesc(
+            snap.docs.map((d) => DocumentoDoc.fromMap(d.id, d.data())),
+          ),
         );
+  }
+
+  /// El orden va en el cliente: `orderBy('updatedAt')` junto al filtro por
+  /// empresa exige un índice compuesto que no está desplegado, y sin él la
+  /// Biblioteca entera cae con failed-precondition. Además el orderBy del
+  /// servidor escondía los documentos sin `updatedAt`; aquí van al final.
+  static List<DocumentoDoc> _porUpdatedAtDesc(Iterable<DocumentoDoc> docs) {
+    final lista = docs.toList();
+    lista.sort((a, b) {
+      final ta = a.updatedAt, tb = b.updatedAt;
+      if (ta == null && tb == null) return 0;
+      if (ta == null) return 1;
+      if (tb == null) return -1;
+      return tb.compareTo(ta);
+    });
+    return lista;
   }
 
   /// Stream de todas las versiones de un documento.

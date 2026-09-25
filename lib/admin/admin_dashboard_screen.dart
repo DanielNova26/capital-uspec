@@ -277,6 +277,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   // filtro por empresa.
   bool _saludLoading = false;
   _UserHealthReport? _saludReport;
+  final TextEditingController _saludSearchCtrl = TextEditingController();
 
   // Salud de cargos: diagnóstico read-only del catálogo TBL_CARGOS de la
   // empresa activa. Detecta cargos sin `areaId` (que se filtran en todas las
@@ -312,6 +313,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   @override
   void dispose() {
     _tabController.dispose();
+    _saludSearchCtrl.dispose();
     super.dispose();
   }
 
@@ -12815,6 +12817,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         }
       }
 
+      final allEntries = List<_UserHealthEntry>.from(tmp)
+        ..sort((a, b) {
+          final byName = a.nameKey.compareTo(b.nameKey);
+          return byName != 0 ? byName : a.docId.compareTo(b.docId);
+        });
       final flagged = tmp.where((e) => e.issues.isNotEmpty).toList()
         ..sort((a, b) {
           final c = b.issues.length.compareTo(a.issues.length);
@@ -12832,6 +12839,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       setState(() {
         _saludReport = _UserHealthReport(
           total: docs.length,
+          allEntries: allEntries,
           entries: flagged,
           counts: counts,
           scannedAt: DateTime.now(),
@@ -12885,10 +12893,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 ),
                 const SizedBox(height: 10),
                 const Text(
-                  'Diagnóstico de solo lectura sobre TODOS los usuarios '
+                  'Consulta y diagnóstico sobre TODOS los usuarios '
                   '(no solo la empresa activa). Detecta cédulas mal formadas, '
                   'posibles truncamientos por Excel, duplicados e '
-                  'inconsistencias de membresía. No modifica ningún dato.',
+                  'inconsistencias de membresía. También permite buscar por '
+                  'nombre o cédula aunque el usuario no tenga inconsistencias.',
                   style: TextStyle(
                     fontFamily: kArial,
                     fontSize: 13,
@@ -12934,6 +12943,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         ),
         if (report != null) ...[
           const SizedBox(height: 16),
+          _saludBuscadorGlobal(report),
+          const SizedBox(height: 16),
           _saludResumen(report),
           const SizedBox(height: 12),
           if (report.entries.isEmpty)
@@ -12966,6 +12977,107 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 .map((c) => _saludCategoriaCard(c, report)),
         ],
       ],
+    );
+  }
+
+  List<_UserHealthEntry> _buscarUsuariosSalud(_UserHealthReport report) {
+    final query = _normName(_saludSearchCtrl.text);
+    if (query.isEmpty) return const [];
+    final terms = query.split(' ').where((term) => term.isNotEmpty);
+    return report.allEntries.where((entry) {
+      final empresas = entry.empresas
+          .expand((id) => [id, _empresaNombre(id)])
+          .join(' ');
+      final searchable = _normName(
+        '${entry.nombre} ${entry.docId} ${entry.cedulaField} $empresas',
+      );
+      return terms.every(searchable.contains);
+    }).toList();
+  }
+
+  Widget _saludBuscadorGlobal(_UserHealthReport report) {
+    final query = _saludSearchCtrl.text.trim();
+    final resultados = _buscarUsuariosSalud(report);
+    return Card(
+      color: kAdminCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: kAdminBorder),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Buscar cualquier usuario',
+              style: TextStyle(
+                fontFamily: kArial,
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'La búsqueda incluye usuarios sanos y usuarios con inconsistencias.',
+              style: TextStyle(
+                fontFamily: kArial,
+                fontSize: 12,
+                color: kAdminMuted,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _saludSearchCtrl,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: 'Nombre o cédula',
+                hintText: 'Ejemplo: ADOLFO o 123456789',
+                prefixIcon: const Icon(Icons.person_search_outlined),
+                suffixIcon: query.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Limpiar búsqueda',
+                        onPressed: () {
+                          _saludSearchCtrl.clear();
+                          setState(() {});
+                        },
+                        icon: const Icon(Icons.close),
+                      ),
+                border: const OutlineInputBorder(),
+                isDense: true,
+              ),
+              style: const TextStyle(fontFamily: kArial),
+            ),
+            if (query.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                '${resultados.length} usuario(s) encontrado(s)',
+                style: const TextStyle(
+                  fontFamily: kArial,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 6),
+              if (resultados.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Text(
+                    'No se encontró ningún usuario con ese nombre o cédula.',
+                    style: TextStyle(fontFamily: kArial, color: kAdminMuted),
+                  ),
+                )
+              else
+                PagedListSection<_UserHealthEntry>(
+                  items: resultados,
+                  etiqueta: 'usuarios encontrados',
+                  itemBuilder: (_, entry, _) => _saludEntryTile(entry),
+                ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -13146,28 +13258,46 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           Wrap(
             spacing: 6,
             runSpacing: 6,
-            children: e.issues.map((code) {
-              final c = _saludCategorias.firstWhere(
-                (x) => x.code == code,
-                orElse: () => _saludCategorias.first,
-              );
-              return Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: c.color.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  c.label,
-                  style: TextStyle(
-                    fontFamily: kArial,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    color: c.color,
-                  ),
-                ),
-              );
-            }).toList(),
+            children: e.issues.isEmpty
+                ? const [
+                    Chip(
+                      avatar: Icon(
+                        Icons.check_circle_outline,
+                        size: 15,
+                        color: kAdminSuccess,
+                      ),
+                      label: Text(
+                        'Sin inconsistencias automáticas',
+                        style: TextStyle(fontFamily: kArial, fontSize: 10),
+                      ),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ]
+                : e.issues.map((code) {
+                    final c = _saludCategorias.firstWhere(
+                      (x) => x.code == code,
+                      orElse: () => _saludCategorias.first,
+                    );
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: c.color.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        c.label,
+                        style: TextStyle(
+                          fontFamily: kArial,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: c.color,
+                        ),
+                      ),
+                    );
+                  }).toList(),
           ),
           const SizedBox(height: 8),
           Row(
@@ -15918,11 +16048,13 @@ class _UserHealthEntry {
 /// Resultado completo de un escaneo de salud de usuarios.
 class _UserHealthReport {
   final int total;
+  final List<_UserHealthEntry> allEntries;
   final List<_UserHealthEntry> entries;
   final Map<String, int> counts;
   final DateTime scannedAt;
   const _UserHealthReport({
     required this.total,
+    required this.allEntries,
     required this.entries,
     required this.counts,
     required this.scannedAt,

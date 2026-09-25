@@ -44,7 +44,7 @@ void main() {
       expect(comprasRolPuedeCompletarRecepcion(null), isFalse);
     });
 
-    test('la consulta de fichas solo admite documentos aprobados', () {
+    test('la consulta muestra el ciclo completo de las fichas cargadas', () {
       FichaTecnicaDoc ficha(String estado) => FichaTecnicaDoc(
         empresaId: 'EMP1',
         proveedorId: 'P1',
@@ -66,9 +66,9 @@ void main() {
       );
       expect(
         fichaTecnicaVisibleEnConsultas(ficha('pendiente_revision_calidad')),
-        isFalse,
+        isTrue,
       );
-      expect(fichaTecnicaVisibleEnConsultas(ficha('rechazado')), isFalse);
+      expect(fichaTecnicaVisibleEnConsultas(ficha('rechazado')), isTrue);
     });
   });
 }

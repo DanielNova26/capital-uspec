@@ -18,7 +18,10 @@ Map<String, DocAdjunto> documentosRechazadosRecepcion(RecepcionDoc recepcion) {
 }
 
 /// Valida el único cambio permitido después de cerrar una recepción:
-/// reemplazar todos los documentos que Calidad marcó como rechazados.
+/// reemplazar uno o varios documentos que Calidad marcó como rechazados.
+///
+/// La corrección es parcial a propósito: Bodega puede reenviar lo que ya tiene
+/// disponible y los demás rechazos permanecen abiertos para otra entrega.
 String? validarCorreccionesRecepcion({
   required RecepcionDoc original,
   required Map<String, DocAdjunto> correcciones,
@@ -34,14 +37,35 @@ String? validarCorreccionesRecepcion({
     if (!rechazados.containsKey(key)) {
       return 'Solo se pueden reemplazar documentos rechazados por Calidad.';
     }
-  }
-  for (final key in rechazados.keys) {
-    final corregido = correcciones[key];
-    if (corregido == null || !corregido.tieneDoc || corregido.rechazado) {
-      return 'Debes corregir todos los documentos rechazados antes de reenviar.';
+    final corregido = correcciones[key]!;
+    if (!corregido.tieneDoc || corregido.rechazado) {
+      return 'Cada corrección enviada debe tener un documento nuevo.';
     }
   }
   return null;
+}
+
+/// Aplica únicamente los documentos enviados en esta entrega. Un rechazo que
+/// no venga en [correcciones] se conserva sin cambios para poder subsanarlo
+/// posteriormente.
+List<RecepcionProducto> aplicarCorreccionesRecepcion({
+  required RecepcionDoc original,
+  required Map<String, DocAdjunto> correcciones,
+}) {
+  return [
+    for (final producto in original.productos)
+      producto.copyWith(
+        documentos: {
+          for (final entry in producto.documentos.entries)
+            entry.key:
+                correcciones[claveDocumentoRecepcion(
+                  producto.productoId,
+                  entry.key,
+                )] ??
+                entry.value,
+        },
+      ),
+  ];
 }
 
 EstadoRecepcionCompras estadoRecepcionCompras(RecepcionDoc recepcion) {

@@ -1245,6 +1245,61 @@ y `firebase_options.dart`, que es el caso.
 
 ---
 
+## Versión 2.6.1 (15) — 2026-09-25
+
+Lo que entró después de publicar la 2.6.0. Nada de esto toca reglas de
+Firestore ni índices: es todo cliente, salvo dos funciones de WhatsApp.
+
+### Interventoría: la asignación deja rastro y se puede reparar
+
+Al completar un acta, la asignación de hallazgos ahora devuelve un **resumen
+verificable** en vez de ocurrir en silencio: cuántos se asignaron, a quién y
+cuáles quedaron sin responsable.
+
+Se agregó una **reparación del rezago**: las versiones anteriores solo
+*sugerían* el responsable en pantalla sin crear la tarea, así que hay
+hallazgos viejos que nunca le llegaron a nadie. La reparación es idempotente
+—ignora los que ya tienen `tareaId` y usa un id de tarea estable por
+hallazgo—, así que puede correrse dos veces sin duplicar nada.
+
+También entraron las **devoluciones como acción obligatoria**: un acta
+devuelta deja una tarea que la persona no puede ignorar. La consulta va por
+empresa (que es el campo que cubren las reglas) y el OR entre responsable
+explícito y registrador histórico se resuelve en memoria, para no exigir un
+índice compuesto nuevo.
+
+### Talento Humano: cobertura de operación, distinta del centro de costos
+
+El centro de costos es la **adscripción administrativa**; no dice dónde puede
+trabajar la persona. Se agregó la **cobertura de operación**: las sedes donde
+realmente puede atender visitas. `cubreCentro()` es lo que resuelve la
+pregunta "¿esta persona puede ir a este establecimiento?", que antes se
+respondía mirando el centro de costos y daba falsos negativos con quien cubre
+varias sedes.
+
+### Compras: plantilla oficial de abastecimiento
+
+Se genera desde la aplicación (`abastecimiento_excel_template.dart`) en vez de
+pasarse un archivo por correo, que es como terminan circulando tres versiones
+distintas del mismo formato.
+
+**El periodo de consumo no es una columna**: se elige explícitamente al cargar
+y se aplica a toda la carga. Ponerlo por fila invitaba a archivos con la mitad
+de los renglones en un mes y la otra mitad en otro, sin que nadie lo notara.
+
+### Lo demás
+
+- WhatsApp: ajustes en el panel de administración y en las dos funciones de
+  notificación.
+- Home, Admin, GD y el tablero de asignación: correcciones sueltas.
+
+### Estado
+
+`dart analyze` limpio · **871 pruebas** · functions compilan con lint en 0
+errores.
+
+---
+
 ## Sesión 2026-09-09 — Amonestaciones del reglamento y aviso al citado
 
 ### El cierre pasó de 4 resultados a 12, en dos grupos
@@ -6465,3 +6520,12 @@ fija y filtro en cada columna (`construirExcelHojas`; el paquete `excel` no
 sabe poner filtros, así que se escriben en el XML del libro). Lógica en
 `filasProductoMarcaProveedor` (`compras_catalog_logic.dart`); pruebas en
 `test/compras/compras_productos_por_proveedor_test.dart`.
+
+## 2026-09-23 — Biblioteca documental caía por índice faltante
+
+- `GdService.streamDocumentos` y `streamDocumentosVigentes` ya no usan
+  `orderBy('updatedAt')`: esa combinación con el filtro por empresa pedía un
+  índice compuesto en `TBL_DOCUMENTOS` que no existe, y la pantalla mostraba
+  el error `failed-precondition` en vez de la lista. Ahora se ordena en el
+  cliente (más reciente primero; los que no tienen `updatedAt` van al final,
+  antes el servidor los ocultaba). No requiere desplegar índices.

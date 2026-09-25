@@ -47,8 +47,8 @@ class ComprasService {
   /// `runTransaction` que deja ver el error real.
   ///
   /// En Flutter web el manejador de la transacción se convierte en una
-  /// promesa de JavaScript; si adentro se lanza un `StateError` (una
-  /// validación como "Debes corregir todos los documentos rechazados"), lo
+  /// promesa de JavaScript; si adentro se lanza un `StateError` (por ejemplo,
+  /// una validación de documentos de la corrección), lo
   /// que llega afuera es un envoltorio genérico: "Dart exception thrown from
   /// converted Future. Use the properties 'error'…". Bodega lo vio el 21 sep
   /// 2026 al enviar correcciones y no había forma de saber qué faltaba. Aquí
@@ -772,8 +772,9 @@ class ComprasService {
   }
 
   /// Reabre de forma controlada una recepción cerrada únicamente para
-  /// reemplazar los documentos que Calidad rechazó. Encabezado, productos,
-  /// marcas, lotes y documentos no rechazados permanecen intactos.
+  /// reemplazar uno o varios documentos que Calidad rechazó. Encabezado,
+  /// productos, marcas, lotes, documentos no rechazados y rechazos que todavía
+  /// no se pueden subsanar permanecen intactos.
   Future<void> reenviarRecepcionCorregida({
     required String recepcionId,
     required String userId,
@@ -793,16 +794,10 @@ class ComprasService {
       );
       if (error != null) throw StateError(error);
 
-      final productos = <RecepcionProducto>[];
-      for (final producto in actual.productos) {
-        final documentos = Map<String, DocAdjunto>.from(producto.documentos);
-        for (final entry in producto.documentos.entries) {
-          final key = claveDocumentoRecepcion(producto.productoId, entry.key);
-          final corregido = correcciones[key];
-          if (corregido != null) documentos[entry.key] = corregido;
-        }
-        productos.add(producto.copyWith(documentos: documentos));
-      }
+      final productos = aplicarCorreccionesRecepcion(
+        original: actual,
+        correcciones: correcciones,
+      );
       actualizada = RecepcionDoc(
         id: actual.id,
         empresaId: actual.empresaId,
@@ -2790,13 +2785,73 @@ class ComprasService {
 
   /// Carga (one-time) todas las fichas técnicas para lookup en recepción.
   Future<List<FichaTecnicaDoc>> getFichasTecnicas(String empresaId) async {
-    final snap = await _db
+    final fichasFuture = _db
         .collection('TBL_COMPRAS_FICHAS_TECNICAS')
         .where('empresaId', isEqualTo: empresaId)
         .get();
-    return snap.docs
-        .map((d) => FichaTecnicaDoc.fromMap(d.id, d.data()))
-        .toList();
+    final proveedoresFuture = _db
+        .collection('TBL_COMPRAS_PROVEEDORES')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+    final productosFuture = _db
+        .collection('TBL_COMPRAS_PRODUCTOS')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+    final marcasFuture = _db
+        .collection('TBL_COMPRAS_MARCAS')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+
+    final fichasSnap = await fichasFuture;
+    final proveedoresSnap = await proveedoresFuture;
+    final productosSnap = await productosFuture;
+    final marcasSnap = await marcasFuture;
+
+    final proveedores = <String, ProveedorDoc>{};
+    for (final doc in proveedoresSnap.docs) {
+      final proveedor = ProveedorDoc.fromMap(doc.id, doc.data());
+      proveedores[doc.id] = proveedor;
+      if (proveedor.nit.trim().isNotEmpty) {
+        proveedores[proveedor.nit.trim()] = proveedor;
+      }
+    }
+    final productos = <String, ProductoDoc>{};
+    for (final doc in productosSnap.docs) {
+      final producto = ProductoDoc.fromMap(doc.id, doc.data());
+      productos[doc.id] = producto;
+      if (producto.codigo.trim().isNotEmpty) {
+        productos[producto.codigo.trim()] = producto;
+      }
+    }
+    final marcas = <String, MarcaDoc>{};
+    for (final doc in marcasSnap.docs) {
+      final marca = MarcaDoc.fromMap(doc.id, doc.data());
+      marcas[doc.id] = marca;
+      if (marca.codigo.trim().isNotEmpty) {
+        marcas[marca.codigo.trim()] = marca;
+      }
+    }
+
+    return fichasSnap.docs.map((doc) {
+      final ficha = FichaTecnicaDoc.fromMap(doc.id, doc.data());
+      final proveedor = proveedores[ficha.proveedorId.trim()];
+      final producto = productos[ficha.productoId.trim()];
+      final marca = marcas[ficha.marcaId.trim()];
+      return ficha.copyWith(
+        proveedorNombre: ficha.proveedorNombre.trim().isNotEmpty
+            ? ficha.proveedorNombre
+            : proveedor?.razonSocial,
+        productoNombre: ficha.productoNombre.trim().isNotEmpty
+            ? ficha.productoNombre
+            : producto?.nombre,
+        productoCategoria: ficha.productoCategoria.trim().isNotEmpty
+            ? ficha.productoCategoria
+            : producto?.categoria,
+        marcaNombre: ficha.marcaNombre.trim().isNotEmpty
+            ? ficha.marcaNombre
+            : marca?.descripcion,
+      );
+    }).toList();
   }
 
   Future<List<FichaTecnicaDoc>> getFichasTecnicasPorMarca(

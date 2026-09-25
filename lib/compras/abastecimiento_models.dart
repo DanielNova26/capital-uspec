@@ -118,6 +118,18 @@ DateTime finPeriodoConsumo(DateTime inicio) {
   return date.add(const Duration(days: 6));
 }
 
+/// Cuatro periodos móviles de viernes a jueves, desde la semana de referencia
+/// y dentro del siguiente horizonte mensual. Se recalculan al abrir la vista o
+/// iniciar una carga de Excel.
+List<DateTime> periodosConsumoProgramables(DateTime referencia) {
+  final primero = inicioPeriodoConsumo(referencia);
+  return List<DateTime>.generate(
+    4,
+    (index) => primero.add(Duration(days: index * 7)),
+    growable: false,
+  );
+}
+
 class AbastecimientoCambio {
   final String campo;
   final String anterior;

@@ -265,6 +265,7 @@ class TaskService {
 
   /// Crea tarea (esquema ES + campos unificados)
   Future<String> createTaskEs({
+    String? taskId,
     required String titulo,
     String descripcion = '',
     String estado = 'en_progreso',
@@ -299,7 +300,10 @@ class TaskService {
     // extras
     Map<String, dynamic>? extra,
   }) async {
-    final ref = _db.collection(tasksCol).doc();
+    final requestedId = taskId?.trim() ?? '';
+    final ref = requestedId.isEmpty
+        ? _db.collection(tasksCol).doc()
+        : _db.collection(tasksCol).doc(requestedId);
     final id = ref.id;
 
     final now = DateTime.now();

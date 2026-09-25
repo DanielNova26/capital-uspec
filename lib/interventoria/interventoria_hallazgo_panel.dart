@@ -829,7 +829,7 @@ class _InterventoriaHallazgoPanelState
         nombre: elegido.nombre,
         cargo: elegido.cargo,
         cargoMatriz: '',
-        delCentro: elegido.centroId == _h.centroCostoId,
+        delCentro: elegido.cubreCentro(_h.centroCostoId),
       ),
       forzado: true,
     );

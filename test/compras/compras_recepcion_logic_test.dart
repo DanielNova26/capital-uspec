@@ -178,7 +178,7 @@ void main() {
       );
     });
 
-    test('exige corregir todos los documentos rechazados', () {
+    test('permite reenviar solo los documentos que ya fueron corregidos', () {
       final original = recepcionConDocumentos({
         'certCalidad': const DocAdjunto(
           url: 'https://rechazado-1',
@@ -190,17 +190,67 @@ void main() {
         ),
       });
 
+      final error = validarCorreccionesRecepcion(
+        original: original,
+        correcciones: {
+          claveDocumentoRecepcion('prod-1', 'certCalidad'): const DocAdjunto(
+            url: 'https://corregido',
+            estadoCalidad: 'pendiente_revision_calidad',
+          ),
+        },
+      );
+
+      expect(error, isNull);
+    });
+
+    test('una entrega parcial conserva intactos los demás rechazos', () {
+      final original = recepcionConDocumentos({
+        'certCalidad': const DocAdjunto(
+          url: 'https://rechazado-1',
+          estadoCalidad: 'rechazado',
+        ),
+        'guiaTransporte': const DocAdjunto(
+          url: 'https://rechazado-2',
+          estadoCalidad: 'rechazado',
+        ),
+      });
+      const corregido = DocAdjunto(
+        url: 'https://corregido',
+        estadoCalidad: 'pendiente_revision_calidad',
+      );
+
+      final productos = aplicarCorreccionesRecepcion(
+        original: original,
+        correcciones: {
+          claveDocumentoRecepcion('prod-1', 'certCalidad'): corregido,
+        },
+      );
+
+      expect(productos.single.documentos['certCalidad'], same(corregido));
+      expect(
+        productos.single.documentos['guiaTransporte']!.estadoCalidad,
+        'rechazado',
+      );
+    });
+
+    test('rechaza un elemento parcial que todavía conserva el rechazo', () {
+      final original = recepcionConDocumentos({
+        'certCalidad': const DocAdjunto(
+          url: 'https://rechazado',
+          estadoCalidad: 'rechazado',
+        ),
+      });
+
       expect(
         validarCorreccionesRecepcion(
           original: original,
           correcciones: {
             claveDocumentoRecepcion('prod-1', 'certCalidad'): const DocAdjunto(
-              url: 'https://corregido',
-              estadoCalidad: 'pendiente_revision_calidad',
+              estadoCalidad: 'rechazado',
             ),
           },
         ),
-        contains('todos'),
+        contains('documento nuevo'),
       );
     });
 
@@ -441,6 +491,27 @@ void main() {
 
     expect(ficha.documentoAprobado?.url, ficha.documentoActual?.url);
   });
+
+  test(
+    'FichaTecnicaDoc recupera los nombres usados por registros antiguos',
+    () {
+      final ficha = FichaTecnicaDoc.fromMap('ficha-legacy-nombres', {
+        'empresaId': 'EMPRESA_001',
+        'proveedor_id': 'prov-1',
+        'razonSocial': 'Distribuciones Adolfo',
+        'producto_id': 'prod-1',
+        'producto': 'Café molido',
+        'categoria': 'Abarrotes',
+        'marca_id': 'marca-1',
+        'marca': 'Montañés',
+        'createdAt': Timestamp.fromMillisecondsSinceEpoch(1),
+      });
+
+      expect(ficha.proveedorNombre, 'Distribuciones Adolfo');
+      expect(ficha.productoNombre, 'Café molido');
+      expect(ficha.marcaNombre, 'Montañés');
+    },
+  );
 
   test(
     'recupera la última aprobada del historial si la actual está pendiente',
