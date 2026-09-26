@@ -610,6 +610,62 @@ PlanCambioSede planearCambioEnSede({
   return PlanCambioSede(cambios: cambios, avisos: avisos, quedaria: quedaria);
 }
 
+// ── 2c. Responsable del hallazgo vs. quien tiene la tarea ─────────────────
+
+/// Hallazgo cuyo responsable guardado no es quien tiene hoy la tarea.
+///
+/// Pasaba cuando el jefe directo reasignaba la tarea a alguien de su equipo
+/// desde "Mis tareas": la tarea cambiaba de dueño y Subsanaciones seguía
+/// mostrando al jefe (26 sep 2026).
+class CorreccionResponsable {
+  final String hallazgoId;
+  final String anteriorNombre;
+  final String responsableId;
+  final String responsableNombre;
+  final String cargo;
+
+  const CorreccionResponsable({
+    required this.hallazgoId,
+    required this.anteriorNombre,
+    required this.responsableId,
+    required this.responsableNombre,
+    required this.cargo,
+  });
+}
+
+/// Compara cada hallazgo con su tarea. [cargoDe] resuelve el cargo actual de
+/// una persona cuando la tarea no lo trae (una reasignación no lo guarda).
+List<CorreccionResponsable> responsablesDesactualizados({
+  required Iterable<InterventoriaHallazgo> hallazgos,
+  required Map<String, Map<String, dynamic>> tareasPorId,
+  String Function(String userId)? cargoDe,
+}) {
+  String texto(Object? v) => (v ?? '').toString().trim();
+  final out = <CorreccionResponsable>[];
+  for (final h in hallazgos) {
+    final tareaId = h.tareaId.trim();
+    if (tareaId.isEmpty) continue;
+    final tarea = tareasPorId[tareaId];
+    if (tarea == null) continue;
+    final asignado = texto(tarea['asignado_uid'] ?? tarea['assignedTo']);
+    if (asignado.isEmpty || asignado == h.responsableId.trim()) continue;
+    final nombre = texto(tarea['asignado_nombre'] ?? tarea['assignedToName']);
+    final cargoTarea = texto(tarea['asignado_cargo_nombre']);
+    out.add(
+      CorreccionResponsable(
+        hallazgoId: h.id,
+        anteriorNombre: h.responsableNombre,
+        responsableId: asignado,
+        responsableNombre: nombre.isEmpty ? asignado : nombre,
+        cargo: cargoTarea.isNotEmpty
+            ? cargoTarea
+            : (cargoDe?.call(asignado) ?? ''),
+      ),
+    );
+  }
+  return out;
+}
+
 // ── 3. Hallazgos sin tarea ─────────────────────────────────────────────────
 
 enum MotivoSinAsignar {

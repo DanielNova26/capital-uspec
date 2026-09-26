@@ -71,6 +71,10 @@ class _InterventoriaMaestroRevisionState
   int _tareasANombreDePersona = 0;
   bool _pasandoAInterventoria = false;
 
+  /// Hallazgos que muestran un responsable distinto de quien tiene la tarea.
+  List<CorreccionResponsable> _responsablesViejos = const [];
+  bool _corrigiendoResponsables = false;
+
   List<RevisionCargoMaestro> _cargos = const [];
   List<RevisionSede>? _sedes;
   PrevisionAsignacionPendiente? _prevision;
@@ -109,6 +113,7 @@ class _InterventoriaMaestroRevisionState
         svc.streamCentrosCosto(eid).first,
         svc.listarHallazgosSinTarea(eid),
         svc.listarTareasAutomaticasANombreDePersona(eid),
+        svc.revisarResponsablesDesdeTareas(eid),
       ]);
       if (!mounted) return;
       _catalogo = resultados[0] as List<String>;
@@ -117,6 +122,7 @@ class _InterventoriaMaestroRevisionState
       _centros = resultados[3] as List<CentroCostoRef>;
       _sinTarea = resultados[4] as List<InterventoriaHallazgo>;
       _tareasANombreDePersona = (resultados[5] as List<String>).length;
+      _responsablesViejos = resultados[6] as List<CorreccionResponsable>;
       _recalcular();
       setState(() => _cargando = false);
     } catch (e) {
@@ -218,6 +224,10 @@ class _InterventoriaMaestroRevisionState
             // Arriba de las tres vistas: es una corrección de una sola vez
             // que no debe quedar escondida en una pestaña.
             if (_avisoTareasANombreDePersona() case final aviso?) ...[
+              aviso,
+              const SizedBox(height: 14),
+            ],
+            if (_avisoResponsablesViejos() case final aviso?) ...[
               aviso,
               const SizedBox(height: 14),
             ],
@@ -965,6 +975,60 @@ class _InterventoriaMaestroRevisionState
         ),
       ),
     );
+  }
+
+  Widget? _avisoResponsablesViejos() {
+    final n = _responsablesViejos.length;
+    if (n == 0 || !widget.canEdit) return null;
+    final ejemplo = _responsablesViejos.first;
+    return _Aviso(
+      icon: Icons.sync_problem_rounded,
+      color: _kAviso,
+      texto:
+          '$n ${n == 1 ? 'hallazgo muestra' : 'hallazgos muestran'} en '
+          'Subsanaciones a alguien que ya no tiene la tarea: se reasignó desde '
+          '"Mis tareas" y el hallazgo no se actualizó (por ejemplo '
+          '${ejemplo.anteriorNombre.isEmpty ? 'sin responsable' : ejemplo.anteriorNombre}'
+          ' → ${ejemplo.responsableNombre}).',
+      accion: TextButton(
+        onPressed: _corrigiendoResponsables ? null : _corregirResponsables,
+        child: Text(
+          _corrigiendoResponsables
+              ? 'Actualizando…'
+              : 'Actualizar responsables',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _corregirResponsables() async {
+    setState(() => _corrigiendoResponsables = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final n = await widget.service.aplicarCorreccionesResponsable(
+        _responsablesViejos,
+      );
+      if (!mounted) return;
+      setState(() => _responsablesViejos = const []);
+      messenger.showSnackBar(
+        SnackBar(
+          backgroundColor: _kOk,
+          content: Text(
+            '$n ${n == 1 ? 'hallazgo quedó' : 'hallazgos quedaron'} con quien '
+            'tiene la tarea.',
+          ),
+        ),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          backgroundColor: _kPeligro,
+          content: Text('No se pudieron actualizar: $e'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _corrigiendoResponsables = false);
+    }
   }
 
   Future<void> _pasarAInterventoria() async {

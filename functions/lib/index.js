@@ -141,6 +141,7 @@ Object.defineProperty(exports, "comprasReporteAbastecimiento1700", { enumerable:
 Object.defineProperty(exports, "comprasGenerarReporteAbastecimiento", { enumerable: true, get: function () { return compras_abastecimiento_reports_1.comprasGenerarReporteAbastecimiento; } });
 const admin = __importStar(require("firebase-admin"));
 const notification_sound_policy_1 = require("./notification_sound_policy");
+const interventoria_task_sync_1 = require("./interventoria_task_sync");
 console.log("[BUILD] functions v2025-10-09-#fix-notif-subcollection-jsdoc");
 admin.initializeApp();
 const db = admin.firestore();
@@ -691,6 +692,31 @@ exports.onTaskUpdated = functions
     // Conjunto de usuarios ya notificados en este update para evitar duplicados.
     const notifiedIds = new Set();
     const assigneeChanged = !!(newAssigned && newAssigned !== prevAssigned);
+    // Interventoría: el hallazgo muestra al responsable en Subsanaciones y
+    // debe seguir a la tarea, la reasigne quien la reasigne.
+    const syncHallazgo = (0, interventoria_task_sync_1.syncHallazgoDesdeTarea)(before, after);
+    if (syncHallazgo) {
+        try {
+            const update = {
+                ...syncHallazgo.update,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            };
+            if (!syncHallazgo.update.cargoResponsable) {
+                const u = await db.collection("TBL_USUARIOS").doc(newAssigned).get();
+                const empresaId = (after?.empresaId ?? "").toString();
+                const detalle = u.get(`empresasDetalle.${empresaId}`) || {};
+                const cargo = (detalle.cargo || u.get("cargo") || "").toString().trim();
+                if (cargo)
+                    update.cargoResponsable = cargo;
+            }
+            await db.collection("TBL_INTERVENTORIA_HALLAZGOS")
+                .doc(syncHallazgo.hallazgoId)
+                .update(update);
+        }
+        catch (e) {
+            console.warn("[onTaskUpdated] no se sincronizó el hallazgo:", e);
+        }
+    }
     if (assigneeChanged) {
         // Notif al nuevo asignado
         try {

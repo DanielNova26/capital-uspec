@@ -132,6 +132,7 @@ export {
 import * as admin from "firebase-admin";
 
 import {avisoAlJefeEsSilencioso, construirMensajePush, esSilenciosa} from "./notification_sound_policy";
+import {syncHallazgoDesdeTarea} from "./interventoria_task_sync";
 console.log("[BUILD] functions v2025-10-09-#fix-notif-subcollection-jsdoc");
 
 admin.initializeApp();
@@ -799,6 +800,31 @@ export const onTaskUpdated = functions
     const notifiedIds = new Set<string>();
 
     const assigneeChanged = !!(newAssigned && newAssigned !== prevAssigned);
+
+    // Interventoría: el hallazgo muestra al responsable en Subsanaciones y
+    // debe seguir a la tarea, la reasigne quien la reasigne.
+    const syncHallazgo = syncHallazgoDesdeTarea(before, after);
+    if (syncHallazgo) {
+      try {
+        const update: Record<string, unknown> = {
+          ...syncHallazgo.update,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+        if (!syncHallazgo.update.cargoResponsable) {
+          const u = await db.collection("TBL_USUARIOS").doc(newAssigned!).get();
+          const empresaId = ((after as any)?.empresaId ?? "").toString();
+          const detalle = u.get(`empresasDetalle.${empresaId}`) || {};
+          const cargo = (detalle.cargo || u.get("cargo") || "").toString().trim();
+          if (cargo) update.cargoResponsable = cargo;
+        }
+        await db.collection("TBL_INTERVENTORIA_HALLAZGOS")
+          .doc(syncHallazgo.hallazgoId)
+          .update(update);
+      } catch (e) {
+        console.warn("[onTaskUpdated] no se sincronizó el hallazgo:", e);
+      }
+    }
+
     if (assigneeChanged) {
       // Notif al nuevo asignado
       try {

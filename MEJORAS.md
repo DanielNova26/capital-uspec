@@ -6,6 +6,25 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Subsanaciones muestra a quien de verdad tiene la tarea — 26 sep 2026 (Claude)
+
+Caso: el jefe directo recibía la tarea del hallazgo, la reasignaba a alguien
+de su equipo desde "Mis tareas", y Subsanaciones lo seguía mostrando a él
+como responsable.
+
+- Adelante: `onTaskUpdated` (Cloud Functions) actualiza `responsableId`,
+  `responsableNombre` y `cargoResponsable` del hallazgo cada vez que cambia
+  `asignado_uid` de una tarea de Interventoría, por cualquier camino
+  (`functions/src/interventoria_task_sync.ts`). El cliente ya lo hacía al
+  reasignar desde "Mis tareas"; esto cubre el resto.
+- Lo que ya quedó mal: Maestro › Revisión muestra arriba "N hallazgos
+  muestran a alguien que ya no tiene la tarea" con el botón **Actualizar
+  responsables**. Solo corrige el hallazgo; no toca tareas ni avisa a
+  nadie.
+- Requiere `firebase deploy --only functions` para la parte automática.
+
+---
+
 ## Reasignar tareas de Interventoría sin área — 26 sep 2026 (Claude)
 
 Caso: SST tenía el hallazgo de los EPP (Buen Pastor 12.1), los entregó pero

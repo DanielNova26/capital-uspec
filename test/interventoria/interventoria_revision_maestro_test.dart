@@ -431,4 +431,49 @@ void main() {
       );
     });
   });
+
+  // 26 sep 2026: el jefe directo reasignó la tarea a su equipo y
+  // Subsanaciones lo siguió mostrando a él.
+  group('responsable del hallazgo vs. quien tiene la tarea', () {
+    InterventoriaHallazgo conTarea(String id, String responsable) =>
+        InterventoriaHallazgo.fromMap(id, {
+          'empresaId': 'emp',
+          'tareaId': 'tarea_$id',
+          'responsableId': responsable,
+          'responsableNombre': 'Jefe Directo',
+          'fuente': 'acta',
+        });
+
+    test('detecta el reasignado desde Mis tareas y trae su cargo', () {
+      final correcciones = responsablesDesactualizados(
+        hallazgos: [conTarea('1', 'jefe'), conTarea('2', 'jefe')],
+        tareasPorId: {
+          'tarea_1': {'asignado_uid': 'aux', 'asignado_nombre': 'Auxiliar'},
+          'tarea_2': {'asignado_uid': 'jefe', 'asignado_nombre': 'Jefe'},
+        },
+        cargoDe: (id) => id == 'aux' ? 'Auxiliar de calidad' : '',
+      );
+      expect(correcciones, hasLength(1));
+      final c = correcciones.single;
+      expect(c.hallazgoId, '1');
+      expect(c.anteriorNombre, 'Jefe Directo');
+      expect(c.responsableId, 'aux');
+      expect(c.responsableNombre, 'Auxiliar');
+      expect(c.cargo, 'Auxiliar de calidad');
+    });
+
+    test('sin tarea, o si la tarea ya no existe, no hay nada que corregir', () {
+      final sinTarea = InterventoriaHallazgo.fromMap('3', const {
+        'empresaId': 'emp',
+        'fuente': 'acta',
+      });
+      expect(
+        responsablesDesactualizados(
+          hallazgos: [sinTarea, conTarea('4', 'jefe')],
+          tareasPorId: const {},
+        ),
+        isEmpty,
+      );
+    });
+  });
 }

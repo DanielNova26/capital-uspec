@@ -2968,6 +2968,58 @@ class InterventoriaService {
     ].where(esHallazgoPendienteDeTarea).toList();
   }
 
+  /// Hallazgos que en Subsanaciones muestran a alguien distinto de quien
+  /// tiene hoy su tarea (reasignaciones hechas desde "Mis tareas" antes del
+  /// 26 sep 2026). Ver [responsablesDesactualizados].
+  Future<List<CorreccionResponsable>> revisarResponsablesDesdeTareas(
+    String empresaId,
+  ) async {
+    final hallazgos = await _db
+        .collection('TBL_INTERVENTORIA_HALLAZGOS')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+    final tareas = await _db
+        .collection('TBL_TAREAS')
+        .where('empresaId', isEqualTo: empresaId)
+        .where('sourceModule', isEqualTo: 'interventoria')
+        .get();
+    final personal = await _usuariosDeEmpresa(empresaId, soloAsignables: false);
+    final cargoPorId = {for (final u in personal) u.id: u.cargo};
+    return responsablesDesactualizados(
+      hallazgos: [
+        for (final d in hallazgos.docs)
+          InterventoriaHallazgo.fromMap(d.id, d.data()),
+      ],
+      tareasPorId: {for (final d in tareas.docs) d.id: d.data()},
+      cargoDe: (id) => cargoPorId[id] ?? '',
+    );
+  }
+
+  /// Escribe en cada hallazgo a quien tiene hoy su tarea. No toca la tarea
+  /// ni avisa a nadie: solo corrige lo que muestra Subsanaciones.
+  Future<int> aplicarCorreccionesResponsable(
+    List<CorreccionResponsable> correcciones,
+  ) async {
+    var hechas = 0;
+    for (var i = 0; i < correcciones.length; i += 400) {
+      final lote = _db.batch();
+      for (final c in correcciones.skip(i).take(400)) {
+        lote.update(
+          _db.collection('TBL_INTERVENTORIA_HALLAZGOS').doc(c.hallazgoId),
+          {
+            'responsableId': c.responsableId,
+            'responsableNombre': c.responsableNombre,
+            if (c.cargo.isNotEmpty) 'cargoResponsable': c.cargo,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+        );
+        hechas++;
+      }
+      await lote.commit();
+    }
+    return hechas;
+  }
+
   /// Tareas que asignó la matriz pero figuran a nombre de una persona: las
   /// que se crearon antes del 25 sep 2026 con quien dio clic como creador.
   Future<List<String>> listarTareasAutomaticasANombreDePersona(

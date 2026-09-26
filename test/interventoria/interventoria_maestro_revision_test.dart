@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:todo/interventoria/interventoria_actas_catalogo.dart';
 import 'package:todo/interventoria/interventoria_maestro_subsanaciones.dart';
 import 'package:todo/interventoria/interventoria_models.dart';
+import 'package:todo/interventoria/interventoria_revision_maestro.dart';
 import 'package:todo/interventoria/interventoria_service.dart';
 
 /// Servicio sin Firebase con una empresa pequeña: un administrador en la
@@ -86,6 +87,19 @@ class _ServicioFalso extends Fake implements InterventoriaService {
   Future<List<String>> listarTareasAutomaticasANombreDePersona(
     String empresaId,
   ) async => const ['t1', 't2'];
+
+  @override
+  Future<List<CorreccionResponsable>> revisarResponsablesDesdeTareas(
+    String empresaId,
+  ) async => const [
+    CorreccionResponsable(
+      hallazgoId: 'h1',
+      anteriorNombre: 'Jefe Directo',
+      responsableId: 'aux',
+      responsableNombre: 'Auxiliar',
+      cargo: 'Auxiliar',
+    ),
+  ];
 }
 
 void main() {
@@ -122,6 +136,7 @@ void main() {
       expect(find.text('Cocinero jefe'), findsWidgets);
       expect(find.text('No existe'), findsWidgets);
       expect(find.text('Pasar a Interventoría'), findsOneWidget);
+      expect(find.text('Actualizar responsables'), findsOneWidget);
 
       await tester.tap(find.byIcon(Icons.store_mall_directory_outlined).first);
       await tester.pumpAndSettle();
