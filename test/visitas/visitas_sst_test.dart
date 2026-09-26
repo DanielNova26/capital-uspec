@@ -194,7 +194,7 @@ void main() {
         responsable: const VisitaResponsable(),
       );
       final e = validarCierreVisita(sst, v);
-      expect(e.any((x) => x.contains('firma de quien realiza')), isTrue);
+      expect(e.any((x) => x.contains('firma del profesional')), isTrue);
       expect(e.any((x) => x.contains('firma del responsable')), isTrue);
       expect(e.any((x) => x.contains('nombre del responsable')), isTrue);
       expect(e.any((x) => x.contains('Extintores: no hay')), isTrue);

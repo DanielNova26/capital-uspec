@@ -6,6 +6,138 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Visitas: formatos como Google Forms / Excel, acta fija, anexos, Gerencia y consolidado por fechas — 26 sep 2026 (Claude)
+
+Pedido del módulo de Visitas, punto por punto.
+
+**Plantilla y "elementos".** La plantilla que se descargaba mostraba los
+códigos `calificacion / si_no / elemento` y nadie sabía qué era "elemento".
+- Tipos en palabras (`kItemTiposLabel`) con su explicación
+  (`kItemTiposAyuda`): Cumple / No cumple / No aplica · Sí / No · Sí / No con
+  cantidad y vencimiento (el "elemento" de antes, el del botiquín) · Lista de
+  opciones · Respuesta corta · Párrafo · Número · Fecha. Los cuatro últimos
+  son de formulario: guardan `VisitaRespuesta.valor`, no califican (no
+  cuentan en el %) y nunca son hallazgo; pueden ser opcionales
+  (`VisitaFormatoItem.obligatoria`) y llevar ayuda (`ayuda`).
+- `assets/visitas_plantilla_formato.xlsx` nueva, generada con
+  `tool/visitas_plantilla_formato.py` (openpyxl): hojas Instrucciones,
+  Preguntas (listas desplegables en palabras), Tablas, Ejemplo preguntas y
+  Ejemplo tablas. Los códigos viejos se siguen aceptando al importar.
+
+**Subir cualquier Excel y adaptarlo** (`visitas_formato_excel.dart`).
+`leerFormatoVisitasExcel` lee la plantilla tal cual; si el archivo no es la
+plantilla lo adapta: busca la columna de preguntas ("Parámetros de
+evaluación", "Pregunta", "Aspecto", "Descripción"…), la de secciones ("Items
+a evaluar", "Sección"…), títulos en mayúscula como sección, salta subtotales
+y firmas, toma CÓDIGO / VERSIÓN / ELABORACIÓN del encabezado y, con varias
+hojas, cada hoja es una parte del formato (como el Excel de SST). Siempre
+abre el editor para revisar antes de guardar, con los avisos de lo que se
+supuso. "Pegar desde Excel" en el editor usa el mismo adaptador.
+
+**Editor** (`visitas_formato_editor.dart`, nuevo; reemplaza al de la
+pantalla). Tarjetas como Google Forms (tipo con ícono, vista previa de cómo
+lo verá el profesional, ayuda, obligatoria, foto, duplicar, mover) o vista
+Tabla como Excel; 20 preguntas por página; "Sección", "Pegar desde Excel",
+"Agregar desde un Excel". Pregunta antes de salir sin guardar.
+- **Tablas**: ahora se crean y editan (antes solo venían del SST): nombre,
+  cómo se llama cada fila, columnas para escribir, columnas para calificar,
+  **escala** (`kEscalasLabel`: B/M/R/NC, Cumple/No cumple/NA, Sí/No) y
+  **filas fijas** (cuadrícula: Cocina, Bodega…; el profesional las califica
+  y no agrega otras). Los códigos de estado no se repiten entre escalas
+  (`CU`, `NCU`, `NA`, `SI`, `NO`) para que "¿es hallazgo?" siga sin depender
+  de la tabla.
+- **Encabezado del informe** por formato: sistema de gestión, código,
+  versión y fecha de elaboración (`VisitaFormato.codigo/versionDocumento/
+  elaboracion/sistema`); con partes, cada parte el suyo.
+- Ojo, reglas: `asignacionVisitaValida` compara `formatoAsignado.items`,
+  `partes` y `tablas` con los guardados campo por campo. Los campos nuevos
+  de ítems y tablas solo se escriben si no son los de siempre, así un
+  formato viejo copiado sigue siendo idéntico (prueba en
+  `visitas_formulario_test.dart`).
+
+**El acta: "Profesional", no "Responsable", y datos fijos.**
+- Firma y datos dicen "Profesional que realiza la visita" (pantalla y PDF).
+- Nombre y cargo del profesional salen de su ficha
+  (`cargoProfesionalDeActa`; sin cargo en la ficha, "Profesional de <área>")
+  y no se editan ni al firmar. La ciudad sale del maestro de ubicaciones y
+  queda fija. El responsable del establecimiento elegido de la lista queda
+  fijo con nombre y cargo de su ficha (menú: elegir otro o escribirlo a
+  mano si no es usuario); solo el escrito a mano se corrige al firmar.
+- Observaciones generales resaltadas (ámbar) y con **Dictar**; el dictado
+  ahora se suma a lo escrito en vez de reemplazarlo (también en las
+  observaciones de cada ítem y en respuestas de párrafo).
+- **Evidencias adicionales** opcionales al final
+  (`VisitaProfesional.evidenciasAdicionales`, con descripción).
+- **Marca de agua** en todas las fotos de la visita
+  (`visitas_marca_agua.dart` sobre `rutas_watermark.dart`, que ganó `acento`
+  y `marcaDiagonal`): banda con logo, área, establecimiento, fecha y hora,
+  profesional y GPS del inicio, más el establecimiento y la fecha en
+  diagonal sobre la foto.
+
+**Informes PDF** (`visitas_informe_pdf.dart`).
+- Todos con el encabezado del SST: logo, sistema de gestión, empresa,
+  nombre del formato y código / versión / página / elaboración (antes solo
+  el SST). DATOS con PROFESIONAL, hora de inicio y cierre y distancia.
+- Respuestas de formulario en "Información registrada"; tablas con su
+  escala y filas fijas; "Mejora y seguimiento" en todos los informes.
+- Observaciones generales destacadas y sin partirse entre páginas.
+- Firmas con espacio: firma, línea, NOMBRE y cargo centrados, fecha y
+  equipo (antes celdas grises apeñuscadas).
+- **Anexos · Registro fotográfico**: las fotos de ítems, filas y adicionales
+  incrustadas (dos por fila, con pie), bajadas por el SDK de Storage
+  (`VisitasService.bytesEvidencia`) y reducidas a 1100 px si pesan más de
+  450 KB. Las que no bajen salen como enlace.
+- Texto saneado a Latin-1 (`_s`): comillas tipográficas, guiones largos y
+  "…" ya no dejan huecos.
+
+**Gerencia (don Oscar) ve y hace todo, como Desarrollo.** Rol nuevo de
+Visitas `gerencia` ("Gerencia (ve y administra todo)"), sin área:
+`visitasTodoAcceso` le abre cronograma, formatos, equipo y consolidado de
+todas las áreas y el maestro de ubicaciones.
+- Reglas: `esGerenciaVisitas`; entra en `administraVisitas` y
+  `administraVisitasArea` (todas las áreas), lista todos los formatos,
+  escribe ubicaciones, nombra jefes, profesionales, consulta y firmantes,
+  pero no otra Gerencia ni se cambia a sí misma (eso es de Desarrollo).
+- `visitasEliminarFormato` / `visitasEliminarPrueba` la aceptan como a
+  Desarrollo (`functions/src/visitas_cleanup.ts` + `lib/`).
+- Admin › Roles y permisos › Visitas describe el rol; el calendario del
+  Home le muestra las visitas que programa.
+- **Hay que asignarle a Oscar el rol "Gerencia"** en Admin › Roles y
+  permisos › Visitas (lo asigna Desarrollo).
+
+**Ubicaciones y filtros.** El maestro de ubicaciones queda para Desarrollo y
+Gerencia (`visitasPuedeGestionarUbicaciones`). "Mis visitas" gana buscador,
+estado (incluida "Vencidas"), rango de fechas y establecimiento
+(`filtrarVisitas`); el Cronograma, para quien ve todas las áreas, filtra
+por área, profesional y establecimiento.
+
+**Consolidado por fechas, combinado y con colores**
+(`visitas_consolidado.dart`, nuevo). Periodo libre con atajos (este mes,
+anterior, 7 y 30 días, año) y una o varias áreas a la vez; cada área tiene
+su color (`kPaletaAreasVisitas`, `indiceColorAreas`) igual en pantalla y
+PDF. `consolidarMes` ganó `porArea` y `separarPorArea` (un establecimiento
+por área al combinar) y toma el texto de los ítems de la copia del formato
+de la visita. El PDF trae KPIs, tabla y barras por área, establecimientos,
+lo que más se incumple y el detalle, todo con el color del área; con
+"Incluir las actas completas" van detrás las actas del periodo, cada una
+con la franja del color de su área ("ACTA 2 DE 12 · NUTRICIÓN · …").
+
+**Pruebas.** `test/visitas/visitas_formulario_test.dart` (nuevo: Gerencia,
+tipos de formulario, escalas y filas fijas, compatibilidad con las reglas,
+consolidado por área, filtros y generación de los PDF),
+`visitas_formato_excel_test.dart` (plantilla nueva, ejemplo, adaptar Excel
+libre, pegar) y `visitas_formato_editor_test.dart` (el editor en teléfono y
+escritorio sin desbordes); Visitas: 116 verdes, toda la app: 995. Reglas:
+`functions/test/visitas_gerencia.rules.js` (6 casos) y todas las demás en el
+emulador, 40 verdes (2 omitidas que ya lo estaban).
+
+**Para desplegar:** `firestore.rules` y `firebase deploy --only
+functions:visitasEliminarFormato,functions:visitasEliminarPrueba`; sin las
+reglas, Gerencia recibe permission-denied y las evidencias adicionales no se
+guardan. Luego asignar el rol Gerencia a Oscar.
+
+---
+
 ## Subsanaciones muestra a quien de verdad tiene la tarea — 26 sep 2026 (Claude)
 
 Caso: el jefe directo recibía la tarea del hallazgo, la reasignaba a alguien

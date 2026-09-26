@@ -41,6 +41,8 @@ VisitaFormato formatoSstOficial(String empresaId) => VisitaFormato(
   predeterminado: true,
   version: 1,
   estado: kFormatoVigente,
+  // La primera línea del encabezado del Excel del contrato.
+  sistema: 'SISTEMA DE GESTIÓN DE SEGURIDAD Y SALUD EN EL TRABAJO',
   partes: const [
     VisitaFormatoParte(
       codigo: kParteSstDiagnostico,

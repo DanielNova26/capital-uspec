@@ -45,9 +45,12 @@ async function requireManager(
     db.collection("TBL_VISITAS_ROLES").doc(`${empresaId}_${userId}`).get(),
   ]);
   const userData = user.data() || {};
-  const developer = isDeveloper(userData, empresaId);
+  const rol = (role.data()?.rol || "").toString();
+  // Gerencia administra todas las áreas, igual que Desarrollo (26 sep 2026).
+  const developer = isDeveloper(userData, empresaId) ||
+    (rol === "gerencia" && belongsToCompany(userData, empresaId));
   if (!user.exists || !(developer || belongsToCompany(userData, empresaId)) ||
-      !(developer || role.data()?.rol === "jefe")) {
+      !(developer || rol === "jefe")) {
     throw new functions.https.HttpsError(
       "permission-denied", "Solo la jefatura de Visitas puede eliminar pruebas."
     );

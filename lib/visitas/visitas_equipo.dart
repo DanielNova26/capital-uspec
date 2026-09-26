@@ -46,12 +46,16 @@ class VisitasEquipoTab extends StatefulWidget {
   final String userId;
   final bool esDesarrollador;
 
+  /// Solo Desarrollo nombra a la Gerencia; Gerencia administra el resto.
+  final bool puedeNombrarGerencia;
+
   const VisitasEquipoTab({
     super.key,
     required this.svc,
     required this.empresaId,
     required this.userId,
     required this.esDesarrollador,
+    this.puedeNombrarGerencia = false,
   });
 
   @override
@@ -136,6 +140,7 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
           p,
     ];
     int orden(VisitaPersona p) => switch (p.rol) {
+      kVisitasRolGerencia => -1,
       kVisitasRolJefe => 0,
       kVisitasRolProfesional => 1,
       kVisitasRolFirmante => 2,
@@ -459,6 +464,14 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
 
   Future<void> _editarPersona(VisitaPersona p, List<VisitaGrupo> grupos) async {
     final puedeTodo = widget.esDesarrollador;
+    if (p.rol == kVisitasRolGerencia && !widget.puedeNombrarGerencia) {
+      _snack(
+        context,
+        'El rol Gerencia lo asigna Desarrollo en Roles y permisos.',
+        error: true,
+      );
+      return;
+    }
     if (!puedeTodo && p.rol.isNotEmpty) {
       String? motivo;
       if (p.rol != kVisitasRolProfesional) {
@@ -483,7 +496,12 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
       builder: (_) => _PersonaDialog(
         persona: p,
         roles: puedeTodo
-            ? ['', ...kVisitasRolesLabel.keys]
+            ? [
+                '',
+                for (final r in kVisitasRolesLabel.keys)
+                  if (r != kVisitasRolGerencia || widget.puedeNombrarGerencia)
+                    r,
+              ]
             : const ['', kVisitasRolProfesional],
         areas: puedeTodo
             ? _areasMapa
@@ -761,6 +779,7 @@ class _RolChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = switch (rol) {
+      kVisitasRolGerencia => const Color(0xFF9D174D),
       kVisitasRolJefe => const Color(0xFF7C3AED),
       kVisitasRolProfesional => const Color(0xFF2563EB),
       kVisitasRolFirmante => const Color(0xFF0F766E),

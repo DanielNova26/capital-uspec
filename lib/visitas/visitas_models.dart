@@ -73,25 +73,41 @@ const String kVisitasRolConsulta = 'consulta';
 /// quien le prestó el equipo.
 const String kVisitasRolFirmante = 'firmante';
 
+/// Gerencia (26 sep 2026): "es el jefe de todos, así que él puede ver
+/// absolutamente todo y hacer todos los formatos". Ve y hace en Visitas lo
+/// mismo que Desarrollo: todas las áreas, formatos, cronograma, equipo,
+/// consolidado y el maestro de ubicaciones. No trabaja dentro de un área.
+const String kVisitasRolGerencia = 'gerencia';
+
 const Map<String, String> kVisitasRolesLabel = {
   kVisitasRolJefe: 'Jefe inmediato (director)',
   kVisitasRolProfesional: 'Profesional',
   kVisitasRolConsulta: 'Consulta',
   kVisitasRolFirmante: 'Firmante del establecimiento',
+  kVisitasRolGerencia: 'Gerencia (ve y administra todo)',
 };
 
-/// El rol limita lo que se ve y se programa por área; firmante y consulta
-/// no trabajan dentro de un área.
+/// El rol limita lo que se ve y se programa por área; firmante, consulta y
+/// gerencia no trabajan dentro de un área.
 bool visitasRolRequiereArea(String? rol) =>
     rol == kVisitasRolJefe || rol == kVisitasRolProfesional;
 
-bool visitasPuedeProgramar(String? rol) => rol == kVisitasRolJefe;
-bool visitasPuedeGestionarFormatos(String? rol) => rol == kVisitasRolJefe;
+/// Quien ve y administra todas las áreas: Desarrollo y Gerencia. Es lo que
+/// las pantallas llaman "todo acceso" y lo mismo que exigen las reglas.
+bool visitasTodoAcceso({required String? rol, required bool esDesarrollador}) =>
+    esDesarrollador || rol == kVisitasRolGerencia;
+
+bool _administra(String? rol) =>
+    rol == kVisitasRolJefe || rol == kVisitasRolGerencia;
+
+bool visitasPuedeProgramar(String? rol) => _administra(rol);
+bool visitasPuedeGestionarFormatos(String? rol) => _administra(rol);
 
 /// El maestro de equipo (roles, grupos y centros) es del jefe de área. Un
 /// jefe solo puede dar o quitar el rol Profesional dentro de su área; el
-/// director (jefe) lo nombra Desarrollo, igual que exigen las reglas.
-bool visitasPuedeGestionarEquipo(String? rol) => rol == kVisitasRolJefe;
+/// director (jefe) lo nombra Desarrollo o Gerencia, igual que exigen las
+/// reglas.
+bool visitasPuedeGestionarEquipo(String? rol) => _administra(rol);
 
 /// El firmante designado firma mientras la visita está en curso y la firma
 /// del establecimiento sigue vacía. Nadie más firma por él.
@@ -104,7 +120,7 @@ bool visitasPuedeFirmarComoEstablecimiento({
     visita.firmanteEstablecimientoId == userId &&
     visita.firmaEstablecimiento == null;
 bool visitasPuedeVerConsolidado(String? rol) =>
-    rol == kVisitasRolJefe || rol == kVisitasRolConsulta;
+    _administra(rol) || rol == kVisitasRolConsulta;
 
 /// Reprogramar: solo el jefe, y solo una visita todavía programada.
 ///
@@ -119,13 +135,17 @@ bool visitasPuedeReprogramar({
   required String userId,
 }) {
   if (visita.estado != kVisitaProgramada) return false;
-  return rol == kVisitasRolJefe;
+  return _administra(rol);
 }
 
-/// El maestro de ubicaciones es solo de Desarrollo. No es un rol del
-/// módulo: es quien puede todo en la app.
-bool visitasPuedeGestionarUbicaciones({required bool esDesarrollador}) =>
-    esDesarrollador;
+/// El maestro de ubicaciones es de Desarrollo y Gerencia (26 sep 2026: "solo
+/// los podemos agregar el desarrollador y el gerente"). Los profesionales y
+/// los jefes de área no lo tocan: es lo que decide si una visita se puede
+/// iniciar.
+bool visitasPuedeGestionarUbicaciones({
+  required bool esDesarrollador,
+  String? rol,
+}) => esDesarrollador || rol == kVisitasRolGerencia;
 
 /// Solo el profesional asignado ejecuta su visita. Ni el jefe: si el jefe
 /// pudiera responder por él, volveríamos a "dicen que fueron".
@@ -178,29 +198,145 @@ const String kItemTipoCalificacion = 'calificacion';
 const String kItemTipoSiNo = 'si_no';
 const String kItemTipoElemento = 'elemento';
 
-List<String> resultadosPermitidos(String tipo) => tipo == kItemTipoCalificacion
-    ? const [kItemCumple, kItemNoCumple, kItemNoAplica]
-    : const [kItemCumple, kItemNoCumple];
+// Tipos "de formulario" (26 sep 2026: "que parezca prácticamente un formato
+// de Google"). Recogen un dato del sitio —el nombre del manipulador, cuántos
+// comensales, la fecha del último fumigado— y NO califican: no suman ni
+// restan en el cumplimiento y nunca son hallazgo.
+const String kItemTipoTexto = 'texto';
+const String kItemTipoParrafo = 'parrafo';
+const String kItemTipoNumero = 'numero';
+const String kItemTipoFecha = 'fecha';
+const String kItemTipoOpcion = 'opcion';
 
-// ── Estados de una fila de tabla (extintores) ───────────────────────────────
+/// Cómo se le dice a cada tipo en pantalla y en la plantilla Excel. "Elemento"
+/// no le decía nada a nadie (26 sep 2026): el nombre dice qué se responde.
+const Map<String, String> kItemTiposLabel = {
+  kItemTipoCalificacion: 'Cumple / No cumple / No aplica',
+  kItemTipoSiNo: 'Sí / No',
+  kItemTipoElemento: 'Sí / No con cantidad y vencimiento',
+  kItemTipoOpcion: 'Lista de opciones',
+  kItemTipoTexto: 'Respuesta corta',
+  kItemTipoParrafo: 'Párrafo',
+  kItemTipoNumero: 'Número',
+  kItemTipoFecha: 'Fecha',
+};
+
+/// Para qué sirve cada tipo, en una línea.
+const Map<String, String> kItemTiposAyuda = {
+  kItemTipoCalificacion:
+      'Se califica 1 (cumple), 0 (no cumple) o NA. Cuenta en el % y un "No '
+      'cumple" se vuelve tarea.',
+  kItemTipoSiNo:
+      'Solo Sí o No, sin "No aplica". Un "No" cuenta como no cumple y se '
+      'vuelve tarea.',
+  kItemTipoElemento:
+      'Para revisar que un elemento esté (gasas del botiquín, guantes…) y '
+      'anotar cuántos hay y cuándo vencen. Escribe lo esperado en "Cantidad '
+      'esperada".',
+  kItemTipoOpcion:
+      'El profesional elige una de las opciones que escribas. No califica.',
+  kItemTipoTexto: 'Un dato corto: un nombre, una placa. No califica.',
+  kItemTipoParrafo: 'Texto largo o descripción. No califica.',
+  kItemTipoNumero:
+      'Una cantidad o medida: comensales, temperatura. No '
+      'califica.',
+  kItemTipoFecha: 'Una fecha: último fumigado, vencimiento. No califica.',
+};
+
+/// Los tipos que califican: cuentan en el cumplimiento y pueden ser hallazgo.
+bool itemCalifica(String tipo) =>
+    tipo == kItemTipoCalificacion ||
+    tipo == kItemTipoSiNo ||
+    tipo == kItemTipoElemento;
+
+List<String> resultadosPermitidos(String tipo) => switch (tipo) {
+  kItemTipoCalificacion => const [kItemCumple, kItemNoCumple, kItemNoAplica],
+  kItemTipoSiNo || kItemTipoElemento => const [kItemCumple, kItemNoCumple],
+  _ => const [],
+};
+
+// ── Estados de una fila de tabla ────────────────────────────────────────────
 //
-// B: Bueno, M: Malo, R: Regular, NC: No cuenta con el elemento. Tal cual el
-// formato F-UT-SST-03. M y NC son hallazgo.
+// Escala de extintores (F-UT-SST-03): B Bueno, M Malo, R Regular, NC No
+// cuenta con el elemento; M y NC son hallazgo. Desde el 26 sep 2026 una tabla
+// también puede calificar con Cumple / No cumple / No aplica o con Sí / No.
+// Los códigos no se repiten entre escalas para que "¿es hallazgo?" no dependa
+// de saber de qué tabla viene la fila.
 
 const String kFilaBueno = 'B';
 const String kFilaMalo = 'M';
 const String kFilaRegular = 'R';
 const String kFilaNoCuenta = 'NC';
+const String kFilaCumple = 'CU';
+const String kFilaNoCumple = 'NCU';
+const String kFilaNoAplica = 'NA';
+const String kFilaSi = 'SI';
+const String kFilaNo = 'NO';
 
 const Map<String, String> kFilaEstadoLabel = {
   kFilaBueno: 'Bueno',
   kFilaMalo: 'Malo',
   kFilaRegular: 'Regular',
   kFilaNoCuenta: 'No cuenta',
+  kFilaCumple: 'Cumple',
+  kFilaNoCumple: 'No cumple',
+  kFilaNoAplica: 'No aplica',
+  kFilaSi: 'Sí',
+  kFilaNo: 'No',
 };
 
+const String kEscalaBmrnc = 'bmrnc';
+const String kEscalaCumple = 'cumple';
+const String kEscalaSiNo = 'si_no';
+
+const Map<String, String> kEscalasLabel = {
+  kEscalaBmrnc: 'Bueno / Malo / Regular / No cuenta',
+  kEscalaCumple: 'Cumple / No cumple / No aplica',
+  kEscalaSiNo: 'Sí / No',
+};
+
+/// Un estado de la escala: el código guardado, lo que va en el botón y el
+/// nombre completo.
+typedef EstadoEscala = ({String codigo, String corto, String nombre});
+
+List<EstadoEscala> estadosDeEscala(String escala) => switch (escala) {
+  kEscalaCumple => const [
+    (codigo: kFilaCumple, corto: 'C', nombre: 'Cumple'),
+    (codigo: kFilaNoCumple, corto: 'NC', nombre: 'No cumple'),
+    (codigo: kFilaNoAplica, corto: 'NA', nombre: 'No aplica'),
+  ],
+  kEscalaSiNo => const [
+    (codigo: kFilaSi, corto: 'Sí', nombre: 'Sí'),
+    (codigo: kFilaNo, corto: 'No', nombre: 'No'),
+  ],
+  _ => const [
+    (codigo: kFilaBueno, corto: 'B', nombre: 'Bueno'),
+    (codigo: kFilaMalo, corto: 'M', nombre: 'Malo'),
+    (codigo: kFilaRegular, corto: 'R', nombre: 'Regular'),
+    (codigo: kFilaNoCuenta, corto: 'NC', nombre: 'No cuenta con el elemento'),
+  ],
+};
+
+bool estadoValidoEnEscala(String escala, String? estado) =>
+    estadosDeEscala(escala).any((e) => e.codigo == estado);
+
+/// Lo que va en la celda del informe: el código corto de su escala.
+String estadoCorto(String escala, String? estado) =>
+    estadosDeEscala(
+      escala,
+    ).where((e) => e.codigo == estado).firstOrNull?.corto ??
+    (estado ?? '');
+
+/// La leyenda que acompaña la tabla: "B: Bueno · M: Malo…".
+String leyendaEscala(String escala) => [
+  for (final e in estadosDeEscala(escala)) '${e.corto}: ${e.nombre}',
+].join(' · ');
+
 bool filaEstadoEsHallazgo(String estado) =>
-    estado == kFilaMalo || estado == kFilaNoCuenta;
+    estado == kFilaMalo ||
+    estado == kFilaNoCuenta ||
+    estado == kFilaNoCumple ||
+    estado == kFilaNo;
 
 // ── Formato de visita (maestro por área) ────────────────────────────────────
 
@@ -230,6 +366,17 @@ class VisitaFormatoItem {
   /// Solo para `elemento`: la cantidad esperada ("1 Unidad", "Paquete x 20").
   final String unidad;
 
+  /// Solo para `opcion`: las opciones entre las que se elige.
+  final List<String> opciones;
+
+  /// Si la pregunta se debe contestar para cerrar. Las que califican siempre
+  /// son obligatorias; las de formulario pueden quedar opcionales.
+  final bool obligatoria;
+
+  /// Texto de ayuda debajo de la pregunta, como la descripción de Google
+  /// Forms: qué mirar, cómo medir.
+  final String ayuda;
+
   const VisitaFormatoItem({
     required this.id,
     required this.orden,
@@ -239,10 +386,19 @@ class VisitaFormatoItem {
     this.tipo = kItemTipoCalificacion,
     this.parte = '',
     this.unidad = '',
+    this.opciones = const [],
+    this.obligatoria = true,
+    this.ayuda = '',
   });
 
   bool get esElemento => tipo == kItemTipoElemento;
+  bool get califica => itemCalifica(tipo);
 
+  /// Los campos nuevos solo se escriben cuando traen algo. Las reglas de
+  /// Firestore comparan `formatoAsignado.items` con los ítems guardados del
+  /// formato, campo por campo: si un formato viejo (sin estos campos) se
+  /// copiara con `opciones: []` o `obligatoria: true`, ya no sería igual y
+  /// programar sobre él daría permission-denied.
   Map<String, dynamic> toMap() => {
     'id': id,
     'orden': orden,
@@ -252,6 +408,9 @@ class VisitaFormatoItem {
     'tipo': tipo,
     'parte': parte,
     'unidad': unidad,
+    if (opciones.isNotEmpty) 'opciones': opciones,
+    if (!obligatoria) 'obligatoria': false,
+    if (ayuda.isNotEmpty) 'ayuda': ayuda,
   };
 
   factory VisitaFormatoItem.fromMap(Map<String, dynamic> d) =>
@@ -261,9 +420,15 @@ class VisitaFormatoItem {
         seccion: (d['seccion'] ?? '').toString(),
         texto: (d['texto'] ?? '').toString(),
         requiereEvidencia: d['requiereEvidencia'] == true,
-        tipo: _tipoItem((d['tipo'] ?? '').toString()),
+        tipo: tipoItemDesde((d['tipo'] ?? '').toString()),
         parte: (d['parte'] ?? '').toString(),
         unidad: (d['unidad'] ?? '').toString(),
+        opciones: [
+          for (final o in (d['opciones'] as List? ?? const []))
+            if (o.toString().trim().isNotEmpty) o.toString().trim(),
+        ],
+        obligatoria: d['obligatoria'] != false,
+        ayuda: (d['ayuda'] ?? '').toString(),
       );
 
   VisitaFormatoItem copyWith({
@@ -274,6 +439,9 @@ class VisitaFormatoItem {
     String? tipo,
     String? parte,
     String? unidad,
+    List<String>? opciones,
+    bool? obligatoria,
+    String? ayuda,
   }) => VisitaFormatoItem(
     id: id,
     orden: orden ?? this.orden,
@@ -283,16 +451,28 @@ class VisitaFormatoItem {
     tipo: tipo ?? this.tipo,
     parte: parte ?? this.parte,
     unidad: unidad ?? this.unidad,
+    opciones: opciones ?? this.opciones,
+    obligatoria: obligatoria ?? this.obligatoria,
+    ayuda: ayuda ?? this.ayuda,
   );
 }
 
 /// Un tipo desconocido cae en `calificacion`: es el que siempre existió y
 /// el que menos exige.
-String _tipoItem(String raw) => switch (raw) {
-  kItemTipoSiNo => kItemTipoSiNo,
-  kItemTipoElemento => kItemTipoElemento,
-  _ => kItemTipoCalificacion,
-};
+String tipoItemDesde(String raw) =>
+    kItemTiposLabel.containsKey(raw) ? raw : kItemTipoCalificacion;
+
+/// ¿La respuesta de formulario es válida para su tipo? Vacía siempre lo es
+/// (si falta, lo dice `obligatoria`).
+bool valorValidoParaItem(VisitaFormatoItem it, String valor) {
+  final v = valor.trim();
+  if (v.isEmpty) return true;
+  return switch (it.tipo) {
+    kItemTipoNumero => double.tryParse(v.replaceAll(',', '.')) != null,
+    kItemTipoOpcion => it.opciones.isEmpty || it.opciones.contains(v),
+    _ => true,
+  };
+}
 
 /// Una hoja del formato: F-UT-SST-02, -03, -01. Es lo que va en el
 /// encabezado de cada página del PDF.
@@ -353,6 +533,16 @@ class VisitaFormatoTabla {
   final List<VisitaTablaCampo> camposTexto;
   final List<VisitaTablaCampo> camposEstado;
 
+  /// Con qué se califica cada columna de estado (26 sep 2026). Por defecto la
+  /// de extintores: Bueno / Malo / Regular / No cuenta.
+  final String escala;
+
+  /// Filas que trae el formato, como las filas de una cuadrícula de Google
+  /// Forms ("Cocina", "Bodega", "Baños"). Con filas fijas el profesional
+  /// califica esas y no agrega otras; sin ellas agrega las que encuentre en
+  /// el sitio (un extintor por fila).
+  final List<String> filasFijas;
+
   const VisitaFormatoTabla({
     required this.id,
     this.parte = '',
@@ -360,8 +550,15 @@ class VisitaFormatoTabla {
     this.etiquetaFila = 'Fila',
     this.camposTexto = const [],
     this.camposEstado = const [],
+    this.escala = kEscalaBmrnc,
+    this.filasFijas = const [],
   });
 
+  bool get conFilasFijas => filasFijas.isNotEmpty;
+
+  /// `escala` y `filasFijas` solo se escriben si no son las de siempre, por
+  /// la misma razón que en [VisitaFormatoItem.toMap]: las reglas comparan
+  /// las tablas del formato asignado con las guardadas.
   Map<String, dynamic> toMap() => {
     'id': id,
     'parte': parte,
@@ -369,6 +566,8 @@ class VisitaFormatoTabla {
     'etiquetaFila': etiquetaFila,
     'camposTexto': camposTexto.map((c) => c.toMap()).toList(),
     'camposEstado': camposEstado.map((c) => c.toMap()).toList(),
+    if (escala != kEscalaBmrnc) 'escala': escala,
+    if (filasFijas.isNotEmpty) 'filasFijas': filasFijas,
   };
 
   factory VisitaFormatoTabla.fromMap(Map<String, dynamic> d) =>
@@ -379,13 +578,63 @@ class VisitaFormatoTabla {
         etiquetaFila: (d['etiquetaFila'] ?? 'Fila').toString(),
         camposTexto: _campos(d['camposTexto']),
         camposEstado: _campos(d['camposEstado']),
+        escala: kEscalasLabel.containsKey(d['escala'])
+            ? d['escala'].toString()
+            : kEscalaBmrnc,
+        filasFijas: [
+          for (final f in (d['filasFijas'] as List? ?? const []))
+            if (f.toString().trim().isNotEmpty) f.toString().trim(),
+        ],
       );
+
+  VisitaFormatoTabla copyWith({
+    String? parte,
+    String? nombre,
+    String? etiquetaFila,
+    List<VisitaTablaCampo>? camposTexto,
+    List<VisitaTablaCampo>? camposEstado,
+    String? escala,
+    List<String>? filasFijas,
+  }) => VisitaFormatoTabla(
+    id: id,
+    parte: parte ?? this.parte,
+    nombre: nombre ?? this.nombre,
+    etiquetaFila: etiquetaFila ?? this.etiquetaFila,
+    camposTexto: camposTexto ?? this.camposTexto,
+    camposEstado: camposEstado ?? this.camposEstado,
+    escala: escala ?? this.escala,
+    filasFijas: filasFijas ?? this.filasFijas,
+  );
 
   static List<VisitaTablaCampo> _campos(Object? raw) => [
     for (final r in (raw as List? ?? const []))
       if (r is Map) VisitaTablaCampo.fromMap(Map<String, dynamic>.from(r)),
   ];
 }
+
+/// Id de la fila fija número [i] (desde 0). Estable: la visita guarda una
+/// copia del formato, así que el orden de sus filas fijas no cambia.
+String idFilaFija(int i) => 'fija_${i + 1}';
+
+/// Las filas que se muestran y se validan de una tabla: con filas fijas, una
+/// por cada fila del formato (la guardada o una vacía para llenar); sin
+/// ellas, las que agregó el profesional.
+List<VisitaFilaTabla> filasParaTabla(
+  VisitaFormatoTabla t,
+  List<VisitaFilaTabla> guardadas,
+) {
+  if (!t.conFilasFijas) return guardadas;
+  final porId = {for (final f in guardadas) f.id: f};
+  return [
+    for (var i = 0; i < t.filasFijas.length; i++)
+      porId[idFilaFija(i)] ?? VisitaFilaTabla(id: idFilaFija(i)),
+  ];
+}
+
+/// Nombre de una fila en mensajes y en el informe: "Extintor 2" en las
+/// dinámicas, el nombre de la fila en las fijas ("Cocina").
+String nombreFilaTabla(VisitaFormatoTabla t, VisitaFilaTabla f, int indice) =>
+    t.conFilasFijas ? f.titulo(t) : '${t.etiquetaFila} ${indice + 1}';
 
 class VisitaFormato {
   final String id;
@@ -409,6 +658,16 @@ class VisitaFormato {
   /// programar: el de la nutricionista no es el del auxiliar.
   final List<String> cargos;
 
+  /// Encabezado del documento (26 sep 2026: "que todos los informes queden
+  /// con el encabezado del SST"). Un formato de una sola hoja no tiene
+  /// partes, así que el código, la versión y la fecha de elaboración del
+  /// documento van aquí. `sistema` es la primera línea del encabezado
+  /// ("SISTEMA DE GESTIÓN DE CALIDAD"); vacío = se arma con el área.
+  final String codigo;
+  final String versionDocumento;
+  final String elaboracion;
+  final String sistema;
+
   const VisitaFormato({
     this.id = '',
     required this.empresaId,
@@ -422,10 +681,35 @@ class VisitaFormato {
     this.partes = const [],
     this.tablas = const [],
     this.cargos = const [],
+    this.codigo = '',
+    this.versionDocumento = '',
+    this.elaboracion = '',
+    this.sistema = '',
   });
 
   bool get esBorrador => estado == kFormatoBorrador;
   bool get usable => estado != kFormatoRetirado;
+
+  /// Primera línea del encabezado del informe.
+  String get sistemaEncabezado => sistema.trim().isNotEmpty
+      ? sistema.trim().toUpperCase()
+      : 'SISTEMA DE GESTIÓN · ${areaNombre.trim().toUpperCase()}';
+
+  /// Las hojas del informe: las partes del formato o, si no tiene, una sola
+  /// con el encabezado del documento. Así todos los informes salen con el
+  /// mismo bloque de código / versión / página / elaboración.
+  List<VisitaFormatoParte> get hojasInforme => partes.isNotEmpty
+      ? partes
+      : [
+          VisitaFormatoParte(
+            codigo: codigo,
+            nombre: nombre.toUpperCase(),
+            version: versionDocumento.isNotEmpty
+                ? versionDocumento
+                : '$version',
+            elaboracion: elaboracion,
+          ),
+        ];
 
   List<VisitaFormatoItem> get itemsOrdenados =>
       [...items]..sort((a, b) => a.orden.compareTo(b.orden));
@@ -453,6 +737,10 @@ class VisitaFormato {
     'partes': partes.map((p) => p.toMap()).toList(),
     'tablas': tablas.map((t) => t.toMap()).toList(),
     'cargos': cargos,
+    'codigo': codigo,
+    'versionDocumento': versionDocumento,
+    'elaboracion': elaboracion,
+    'sistema': sistema,
   };
 
   factory VisitaFormato.fromMap(String id, Map<String, dynamic> d) =>
@@ -484,9 +772,14 @@ class VisitaFormato {
           for (final c in (d['cargos'] as List? ?? const []))
             if (c.toString().trim().isNotEmpty) c.toString().trim(),
         ],
+        codigo: (d['codigo'] ?? '').toString(),
+        versionDocumento: (d['versionDocumento'] ?? '').toString(),
+        elaboracion: (d['elaboracion'] ?? '').toString(),
+        sistema: (d['sistema'] ?? '').toString(),
       );
 
   VisitaFormato copyWith({
+    String? id,
     String? nombre,
     String? estado,
     bool? predeterminado,
@@ -495,8 +788,12 @@ class VisitaFormato {
     List<VisitaFormatoParte>? partes,
     List<VisitaFormatoTabla>? tablas,
     List<String>? cargos,
+    String? codigo,
+    String? versionDocumento,
+    String? elaboracion,
+    String? sistema,
   }) => VisitaFormato(
-    id: id,
+    id: id ?? this.id,
     empresaId: empresaId,
     areaId: areaId,
     areaNombre: areaNombre,
@@ -508,6 +805,10 @@ class VisitaFormato {
     partes: partes ?? this.partes,
     tablas: tablas ?? this.tablas,
     cargos: cargos ?? this.cargos,
+    codigo: codigo ?? this.codigo,
+    versionDocumento: versionDocumento ?? this.versionDocumento,
+    elaboracion: elaboracion ?? this.elaboracion,
+    sistema: sistema ?? this.sistema,
   );
 }
 
@@ -518,7 +819,11 @@ List<String> validarFormato(VisitaFormato f) {
   if (f.nombre.trim().isEmpty) errores.add('El formato necesita un nombre.');
   if (f.areaId.trim().isEmpty)
     errores.add('El formato debe pertenecer a un área.');
-  if (f.items.isEmpty) errores.add('El formato no tiene ningún ítem.');
+  // Un formato puede ser solo una tabla (una cuadrícula por áreas), pero
+  // algo tiene que preguntar.
+  if (f.items.isEmpty && f.tablas.isEmpty) {
+    errores.add('El formato no tiene ningún ítem.');
+  }
   final ids = <String>{};
   for (final it in f.items) {
     if (it.texto.trim().isEmpty) {
@@ -529,6 +834,9 @@ List<String> validarFormato(VisitaFormato f) {
     } else if (!ids.add(it.id)) {
       errores.add('El id "${it.id}" está repetido.');
     }
+    if (it.tipo == kItemTipoOpcion && it.opciones.length < 2) {
+      errores.add('El ítem ${it.orden} es de lista y necesita dos opciones.');
+    }
   }
   final tablaIds = <String>{};
   for (final t in f.tablas) {
@@ -537,8 +845,21 @@ List<String> validarFormato(VisitaFormato f) {
     } else if (!tablaIds.add(t.id)) {
       errores.add('La tabla "${t.id}" está repetida.');
     }
+    if (t.nombre.trim().isEmpty) errores.add('Una tabla no tiene nombre.');
     if (t.camposEstado.isEmpty) {
       errores.add('La tabla "${t.nombre}" no tiene columnas de estado.');
+    }
+    final columnas = <String>{};
+    for (final c in [...t.camposTexto, ...t.camposEstado]) {
+      if (c.label.trim().isEmpty) {
+        errores.add('La tabla "${t.nombre}" tiene una columna sin nombre.');
+      }
+      if (!columnas.add(c.id)) {
+        errores.add('La tabla "${t.nombre}" repite la columna "${c.label}".');
+      }
+    }
+    if (t.filasFijas.toSet().length != t.filasFijas.length) {
+      errores.add('La tabla "${t.nombre}" repite una fila.');
     }
   }
   return errores;
@@ -552,11 +873,20 @@ class VisitaEvidencia {
   final String nombre;
   final Timestamp? tomadaEn;
 
+  /// Qué muestra la foto. Lo escribe el profesional en las evidencias
+  /// adicionales y es el pie del anexo en el informe.
+  final String descripcion;
+
+  /// La foto ya lleva la banda con fecha, hora, lugar y GPS (26 sep 2026).
+  final bool conMarca;
+
   const VisitaEvidencia({
     required this.url,
     required this.path,
     required this.nombre,
     this.tomadaEn,
+    this.descripcion = '',
+    this.conMarca = false,
   });
 
   Map<String, dynamic> toMap() => {
@@ -564,6 +894,8 @@ class VisitaEvidencia {
     'path': path,
     'nombre': nombre,
     'tomadaEn': tomadaEn ?? Timestamp.now(),
+    if (descripcion.isNotEmpty) 'descripcion': descripcion,
+    if (conMarca) 'conMarca': true,
   };
 
   factory VisitaEvidencia.fromMap(Map<String, dynamic> d) => VisitaEvidencia(
@@ -571,12 +903,27 @@ class VisitaEvidencia {
     path: (d['path'] ?? '').toString(),
     nombre: (d['nombre'] ?? '').toString(),
     tomadaEn: d['tomadaEn'] is Timestamp ? d['tomadaEn'] as Timestamp : null,
+    descripcion: (d['descripcion'] ?? '').toString(),
+    conMarca: d['conMarca'] == true,
+  );
+
+  VisitaEvidencia copyWith({String? descripcion}) => VisitaEvidencia(
+    url: url,
+    path: path,
+    nombre: nombre,
+    tomadaEn: tomadaEn,
+    descripcion: descripcion ?? this.descripcion,
+    conMarca: conMarca,
   );
 }
 
 class VisitaRespuesta {
   /// `cumple`, `no_cumple`, `no_aplica` o vacío (sin responder).
   final String resultado;
+
+  /// La respuesta de las preguntas de formulario (texto, número, fecha,
+  /// opción). Las que califican usan `resultado`.
+  final String valor;
   final String observacion;
   final List<VisitaEvidencia> evidencias;
 
@@ -599,6 +946,7 @@ class VisitaRespuesta {
 
   const VisitaRespuesta({
     this.resultado = '',
+    this.valor = '',
     this.observacion = '',
     this.evidencias = const [],
     this.cantidad = '',
@@ -610,10 +958,11 @@ class VisitaRespuesta {
     this.accionResponsableNombre = '',
   });
 
-  bool get respondida => resultado.isNotEmpty;
+  bool get respondida => resultado.isNotEmpty || valor.trim().isNotEmpty;
 
   Map<String, dynamic> toMap() => {
     'resultado': resultado,
+    if (valor.isNotEmpty) 'valor': valor,
     'observacion': observacion,
     'evidencias': evidencias.map((e) => e.toMap()).toList(),
     'cantidad': cantidad,
@@ -627,6 +976,7 @@ class VisitaRespuesta {
 
   factory VisitaRespuesta.fromMap(Map<String, dynamic> d) => VisitaRespuesta(
     resultado: (d['resultado'] ?? '').toString(),
+    valor: (d['valor'] ?? '').toString(),
     observacion: (d['observacion'] ?? '').toString(),
     evidencias: [
       for (final raw in (d['evidencias'] as List? ?? const []))
@@ -643,6 +993,7 @@ class VisitaRespuesta {
 
   VisitaRespuesta copyWith({
     String? resultado,
+    String? valor,
     String? observacion,
     List<VisitaEvidencia>? evidencias,
     String? cantidad,
@@ -654,6 +1005,7 @@ class VisitaRespuesta {
     String? accionResponsableNombre,
   }) => VisitaRespuesta(
     resultado: resultado ?? this.resultado,
+    valor: valor ?? this.valor,
     observacion: observacion ?? this.observacion,
     evidencias: evidencias ?? this.evidencias,
     cantidad: cantidad ?? this.cantidad,
@@ -686,9 +1038,19 @@ class VisitaFilaTabla {
 
   bool get tieneHallazgo => estados.values.any(filaEstadoEsHallazgo);
 
-  /// Nombre corto de la fila para informes y tareas: el primer campo con
-  /// texto (la ubicación, en extintores) o el id.
+  /// Nombre corto de la fila para informes y tareas: el de la fila fija si lo
+  /// es; si no, el primer campo con texto (la ubicación, en extintores) o el
+  /// id.
   String titulo(VisitaFormatoTabla t) {
+    if (t.conFilasFijas) {
+      final i = int.tryParse(id.replaceFirst('fija_', ''));
+      if (id.startsWith('fija_') &&
+          i != null &&
+          i >= 1 &&
+          i <= t.filasFijas.length) {
+        return t.filasFijas[i - 1];
+      }
+    }
     for (final c in t.camposTexto) {
       final v = (campos[c.id] ?? '').trim();
       if (v.isNotEmpty) return v;
@@ -1254,6 +1616,11 @@ class VisitaProfesional {
   final String firmanteEstablecimientoId;
   final List<VisitaReprogramacion> reprogramaciones;
 
+  /// Fotos que el profesional agrega al final, fuera de las preguntas
+  /// (26 sep 2026). Opcionales, con marca de agua, y en el informe van como
+  /// anexos junto con las de cada ítem.
+  final List<VisitaEvidencia> evidenciasAdicionales;
+
   const VisitaProfesional({
     this.id = '',
     required this.empresaId,
@@ -1287,10 +1654,16 @@ class VisitaProfesional {
     this.firmaEstablecimiento,
     this.firmanteEstablecimientoId = '',
     this.reprogramaciones = const [],
+    this.evidenciasAdicionales = const [],
   });
 
   String get establecimiento =>
       subcentroNombre.isEmpty ? centroNombre : '$centroNombre $subcentroNombre';
+
+  /// Clave del establecimiento (centro o centro|subcentro), la misma del
+  /// consolidado y de los filtros.
+  String get claveEstablecimiento =>
+      subcentroId.isEmpty ? centroId : '$centroId|$subcentroId';
 
   List<VisitaFilaTabla> filasDe(String tablaId) => tablas[tablaId] ?? const [];
 
@@ -1331,6 +1704,9 @@ class VisitaProfesional {
     'firmaEstablecimiento': firmaEstablecimiento?.toMap(),
     'firmanteEstablecimientoId': firmanteEstablecimientoId,
     'reprogramaciones': reprogramaciones.map((r) => r.toMap()).toList(),
+    'evidenciasAdicionales': evidenciasAdicionales
+        .map((e) => e.toMap())
+        .toList(),
   };
 
   factory VisitaProfesional.fromMap(String id, Map<String, dynamic> d) {
@@ -1413,6 +1789,10 @@ class VisitaProfesional {
           if (r is Map)
             VisitaReprogramacion.fromMap(Map<String, dynamic>.from(r)),
       ],
+      evidenciasAdicionales: [
+        for (final e in (d['evidenciasAdicionales'] as List? ?? const []))
+          if (e is Map) VisitaEvidencia.fromMap(Map<String, dynamic>.from(e)),
+      ],
     );
   }
 }
@@ -1451,6 +1831,8 @@ VisitaResumen resumenDeVisita(
   var cumple = 0, noCumple = 0, noAplica = 0, sin = 0, total = 0;
   for (final it in formato.items) {
     if (parte != null && it.parte != parte) continue;
+    // Las preguntas de formulario (texto, número…) no califican.
+    if (!it.califica) continue;
     total++;
     switch (respuestas[it.id]?.resultado ?? '') {
       case kItemCumple:
@@ -1489,7 +1871,22 @@ List<String> validarCierreVisita(
   }
   for (final it in formato.itemsOrdenados) {
     final r = visita.respuestas[it.id];
-    if (r == null || !r.respondida) {
+    if (!it.califica) {
+      final valor = r?.valor.trim() ?? '';
+      if (valor.isEmpty) {
+        if (it.obligatoria) {
+          errores.add('Ítem ${it.orden} sin responder: ${it.texto}');
+        }
+      } else if (!valorValidoParaItem(it, valor)) {
+        errores.add(
+          it.tipo == kItemTipoNumero
+              ? 'Ítem ${it.orden}: "$valor" no es un número.'
+              : 'Ítem ${it.orden}: "$valor" no es una de las opciones.',
+        );
+      }
+      continue;
+    }
+    if (r == null || r.resultado.isEmpty) {
       errores.add('Ítem ${it.orden} sin responder: ${it.texto}');
       continue;
     }
@@ -1506,7 +1903,7 @@ List<String> validarCierreVisita(
     }
   }
   for (final t in formato.tablas) {
-    final filas = visita.filasDe(t.id);
+    final filas = filasParaTabla(t, visita.filasDe(t.id));
     if (filas.isEmpty) {
       // Un establecimiento sin extintores es un hallazgo, no una tabla vacía:
       // se registra una fila "No cuenta".
@@ -1514,14 +1911,14 @@ List<String> validarCierreVisita(
     }
     for (var i = 0; i < filas.length; i++) {
       final f = filas[i];
+      final nombre = nombreFilaTabla(t, f, i);
       for (final c in t.camposEstado) {
-        final e = f.estados[c.id] ?? '';
-        if (!kFilaEstadoLabel.containsKey(e)) {
-          errores.add('${t.etiquetaFila} ${i + 1}: falta "${c.label}".');
+        if (!estadoValidoEnEscala(t.escala, f.estados[c.id])) {
+          errores.add('$nombre: falta "${c.label}".');
         }
       }
       if (f.tieneHallazgo && f.observacion.trim().isEmpty) {
-        errores.add('${t.etiquetaFila} ${i + 1} tiene novedad y no dice cuál.');
+        errores.add('$nombre tiene novedad y no dice cuál.');
       }
     }
   }
@@ -1530,7 +1927,7 @@ List<String> validarCierreVisita(
   }
   if (exigirFirmas) {
     if (visita.firmaProfesional == null) {
-      errores.add('Falta la firma de quien realiza la inspección.');
+      errores.add('Falta la firma del profesional que realiza la visita.');
     }
     if (visita.firmaEstablecimiento == null) {
       errores.add('Falta la firma del responsable del establecimiento.');
@@ -1577,6 +1974,7 @@ List<VisitaHallazgo> hallazgosDeVisita(
 }) {
   final out = <VisitaHallazgo>[];
   for (final it in formato.itemsOrdenados) {
+    if (!it.califica) continue;
     final r = respuestas[it.id];
     if (r?.resultado != kItemNoCumple) continue;
     out.add(
@@ -1594,7 +1992,7 @@ List<VisitaHallazgo> hallazgosDeVisita(
     );
   }
   for (final t in formato.tablas) {
-    final filas = tablas[t.id] ?? const [];
+    final filas = filasParaTabla(t, tablas[t.id] ?? const []);
     for (final f in filas) {
       if (!f.tieneHallazgo) continue;
       final malos = [
@@ -1679,13 +2077,44 @@ class ConsolidadoEstablecimiento {
   final int? promedio;
   final int hallazgos;
 
+  /// El área de la fila cuando el consolidado combina varias áreas: cada
+  /// establecimiento sale una vez por área, con el color de su área.
+  final String areaId;
+  final String areaNombre;
+
   const ConsolidadoEstablecimiento({
     required this.clave,
     required this.nombre,
     required this.visitas,
     required this.promedio,
     required this.hallazgos,
+    this.areaId = '',
+    this.areaNombre = '',
   });
+}
+
+/// Una línea por área del consolidado combinado (26 sep 2026): cuántas se
+/// hicieron, cuántas faltan y cómo salió cada área en el periodo.
+class ConsolidadoArea {
+  final String areaId;
+  final String nombre;
+  final int terminadas;
+  final int programadas;
+  final int canceladas;
+  final int? promedio;
+  final int hallazgos;
+
+  const ConsolidadoArea({
+    required this.areaId,
+    required this.nombre,
+    required this.terminadas,
+    required this.programadas,
+    required this.canceladas,
+    required this.promedio,
+    required this.hallazgos,
+  });
+
+  int get total => terminadas + programadas + canceladas;
 }
 
 class ConsolidadoItem {
@@ -1710,6 +2139,10 @@ class ConsolidadoMensual {
   /// Los ítems que más se incumplen en el mes, de mayor a menor.
   final List<ConsolidadoItem> itemsCriticos;
 
+  /// Una línea por área, en orden alfabético (26 sep 2026). Es la base de
+  /// los colores del consolidado combinado.
+  final List<ConsolidadoArea> porArea;
+
   const ConsolidadoMensual({
     required this.visitasTerminadas,
     required this.visitasProgramadas,
@@ -1718,6 +2151,7 @@ class ConsolidadoMensual {
     required this.hallazgos,
     required this.porEstablecimiento,
     required this.itemsCriticos,
+    this.porArea = const [],
   });
 
   static const vacio = ConsolidadoMensual(
@@ -1734,6 +2168,65 @@ class ConsolidadoMensual {
 bool visitaEnMes(VisitaProfesional v, int anio, int mes) =>
     v.fechaProgramada.year == anio && v.fechaProgramada.month == mes;
 
+/// La visita cae entre [desde] y [hasta], ambos días incluidos (26 sep 2026:
+/// "un consolidado según las fechas que se asignen", no solo por mes).
+bool visitaEnRango(VisitaProfesional v, DateTime desde, DateTime hasta) {
+  final d = DateTime(
+    v.fechaProgramada.year,
+    v.fechaProgramada.month,
+    v.fechaProgramada.day,
+  );
+  return !d.isBefore(DateTime(desde.year, desde.month, desde.day)) &&
+      !d.isAfter(DateTime(hasta.year, hasta.month, hasta.day));
+}
+
+/// Filtros de las listas de visitas (Mis visitas y Cronograma). Vacío o
+/// null = sin ese filtro. [texto] busca en establecimiento, formato, área y
+/// profesional sin tildes ni mayúsculas.
+List<VisitaProfesional> filtrarVisitas(
+  Iterable<VisitaProfesional> visitas, {
+  String texto = '',
+  String estado = '',
+  DateTime? desde,
+  DateTime? hasta,
+  String establecimiento = '',
+  String areaId = '',
+  String profesionalId = '',
+  DateTime? ahora,
+}) {
+  final q = areaClave(texto);
+  final hoy = ahora ?? DateTime.now();
+  return [
+    for (final v in visitas)
+      if ((estado.isEmpty ||
+              (estado == kVisitaVencidaFiltro
+                  ? visitaVencida(v, hoy)
+                  : v.estado == estado)) &&
+          (desde == null ||
+              !v.fechaProgramada.isBefore(
+                DateTime(desde.year, desde.month, desde.day),
+              )) &&
+          (hasta == null ||
+              v.fechaProgramada.isBefore(
+                DateTime(hasta.year, hasta.month, hasta.day + 1),
+              )) &&
+          (establecimiento.isEmpty ||
+              v.claveEstablecimiento == establecimiento) &&
+          (areaId.isEmpty || mismaAreaVisitas(v.areaId, areaId)) &&
+          (profesionalId.isEmpty || v.profesionalId == profesionalId) &&
+          (q.isEmpty ||
+              areaClave(
+                '${v.establecimiento} ${v.formatoNombre} ${v.areaNombre} '
+                '${v.profesionalNombre}',
+              ).contains(q)))
+        v,
+  ];
+}
+
+/// Valor del filtro de estado para "vencidas" (programadas que ya pasaron
+/// y nadie inició). No es un estado guardado.
+const String kVisitaVencidaFiltro = 'vencida';
+
 /// Consolida las visitas de un área en un mes. Solo las terminadas cuentan
 /// para el promedio y los hallazgos; las programadas y canceladas se cuentan
 /// aparte para que el informe diga también lo que NO se hizo.
@@ -1749,20 +2242,24 @@ int hallazgosDe(VisitaProfesional v) =>
       (acc, filas) => acc + filas.where((f) => f.tieneHallazgo).length,
     );
 
+/// [separarPorArea]: en el consolidado combinado (varias áreas) cada
+/// establecimiento sale una vez por área, para poder pintarlo con el color
+/// de su área; con un área sola da lo mismo.
 ConsolidadoMensual consolidarMes(
   Iterable<VisitaProfesional> visitas, {
   Map<String, VisitaFormato> formatos = const {},
+  bool separarPorArea = false,
 }) {
-  final reales = visitas.where((v) => !v.esPrueba);
+  final reales = visitas.where((v) => !v.esPrueba).toList();
   final terminadas = reales.where((v) => v.estado == kVisitaTerminada);
   final programadas = reales.where((v) => v.estado == kVisitaProgramada);
   final canceladas = reales.where((v) => v.estado == kVisitaCancelada);
 
   final porEst = <String, List<VisitaProfesional>>{};
   for (final v in terminadas) {
-    final clave = v.subcentroId.isEmpty
-        ? v.centroId
-        : '${v.centroId}|${v.subcentroId}';
+    final clave = separarPorArea
+        ? '${v.areaId}#${v.claveEstablecimiento}'
+        : v.claveEstablecimiento;
     porEst.putIfAbsent(clave, () => []).add(v);
   }
 
@@ -1770,7 +2267,8 @@ ConsolidadoMensual consolidarMes(
   final textoItem = <String, String>{};
   var hallazgos = 0;
   for (final v in terminadas) {
-    final f = formatos[v.formatoId];
+    // La copia del formato que lleva la visita, si el maestro ya no lo trae.
+    final f = formatos[v.formatoId] ?? v.formatoAsignado;
     for (final e in v.respuestas.entries) {
       if (e.value.resultado != kItemNoCumple) continue;
       hallazgos++;
@@ -1807,6 +2305,8 @@ ConsolidadoMensual consolidarMes(
               visitas: e.value.length,
               promedio: promedio(e.value),
               hallazgos: e.value.fold(0, (acc, v) => acc + hallazgosDe(v)),
+              areaId: separarPorArea ? e.value.first.areaId : '',
+              areaNombre: separarPorArea ? e.value.first.areaNombre : '',
             ),
           )
           .toList()
@@ -1816,6 +2316,30 @@ ConsolidadoMensual consolidarMes(
           if (pa != pb) return pa.compareTo(pb);
           return a.nombre.compareTo(b.nombre);
         });
+
+  final porAreaVisitas = <String, List<VisitaProfesional>>{};
+  for (final v in reales) {
+    porAreaVisitas.putIfAbsent(v.areaId, () => []).add(v);
+  }
+  final areas =
+      porAreaVisitas.entries.map((e) {
+        final hechas = e.value
+            .where((v) => v.estado == kVisitaTerminada)
+            .toList();
+        return ConsolidadoArea(
+          areaId: e.key,
+          nombre: e.value.first.areaNombre,
+          terminadas: hechas.length,
+          programadas: e.value
+              .where((v) => v.estado == kVisitaProgramada)
+              .length,
+          canceladas: e.value.where((v) => v.estado == kVisitaCancelada).length,
+          promedio: promedio(hechas),
+          hallazgos: hechas.fold(0, (acc, v) => acc + hallazgosDe(v)),
+        );
+      }).toList()..sort(
+        (a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()),
+      );
 
   final criticos =
       incumplidos.entries
@@ -1837,7 +2361,39 @@ ConsolidadoMensual consolidarMes(
     hallazgos: hallazgos,
     porEstablecimiento: establecimientos,
     itemsCriticos: criticos,
+    porArea: areas,
   );
+}
+
+/// Colores de las áreas en el consolidado combinado (ARGB). Los usan la
+/// pantalla (`Color`) y el PDF (`PdfColor`), para que "saber cuál es cuál"
+/// sea igual en los dos. Ninguno es el rojo/verde de los estados.
+const List<int> kPaletaAreasVisitas = [
+  0xFF2563EB, // azul
+  0xFFEA580C, // naranja
+  0xFF0D9488, // verde azulado
+  0xFF9333EA, // morado
+  0xFFDB2777, // rosado
+  0xFF854D0E, // café
+  0xFF0891B2, // cian
+  0xFF65A30D, // lima
+  0xFF4F46E5, // índigo
+  0xFFCA8A04, // mostaza
+];
+
+int colorAreaVisitas(Map<String, int> indice, String areaId) =>
+    kPaletaAreasVisitas[(indice[areaId] ?? 0) % kPaletaAreasVisitas.length];
+
+/// Posición de cada área en la paleta del consolidado. Se calcula sobre
+/// TODAS las áreas que puede ver la persona (no las filtradas) y en el orden
+/// en que llegan, para que un área conserve su color al cambiar el filtro y
+/// sea el mismo en la pantalla y en el PDF.
+Map<String, int> indiceColorAreas(Iterable<String> areaIds) {
+  final out = <String, int>{};
+  for (final id in areaIds) {
+    out.putIfAbsent(id, () => out.length);
+  }
+  return out;
 }
 
 // ── Formatos sembrados (BORRADORES) ─────────────────────────────────────────
@@ -2207,7 +2763,12 @@ List<VisitaPaso> pasosDeFormato(VisitaFormato f, {int maxItems = 20}) {
 /// [validarCierreVisita]: responderla, y si no cumple, decir por qué y la
 /// foto donde se exige.
 bool itemPendiente(VisitaFormatoItem it, VisitaRespuesta? r) {
-  if (r == null || !r.respondida) return true;
+  if (!it.califica) {
+    final valor = r?.valor.trim() ?? '';
+    if (valor.isEmpty) return it.obligatoria;
+    return !valorValidoParaItem(it, valor);
+  }
+  if (r == null || r.resultado.isEmpty) return true;
   if (!resultadosPermitidos(it.tipo).contains(r.resultado)) return true;
   if (r.resultado == kItemNoCumple) {
     if (r.observacion.trim().isEmpty) return true;
@@ -2218,17 +2779,22 @@ bool itemPendiente(VisitaFormatoItem it, VisitaRespuesta? r) {
 
 /// Lo que falta en una tabla: sin filas cuenta como un pendiente (se
 /// registra "No cuenta"), más cada fila incompleta.
-int pendientesDeTabla(VisitaFormatoTabla t, List<VisitaFilaTabla> filas) {
+int pendientesDeTabla(VisitaFormatoTabla t, List<VisitaFilaTabla> guardadas) {
+  final filas = filasParaTabla(t, guardadas);
   if (filas.isEmpty) return 1;
   var n = 0;
   for (final f in filas) {
-    final incompleta = t.camposEstado.any(
-      (c) => !kFilaEstadoLabel.containsKey(f.estados[c.id] ?? ''),
-    );
-    if (incompleta || (f.tieneHallazgo && f.observacion.trim().isEmpty)) n++;
+    if (filaTablaPendiente(t, f)) n++;
   }
   return n;
 }
+
+/// A la fila le falta un estado, o tiene novedad y no dice cuál.
+bool filaTablaPendiente(VisitaFormatoTabla t, VisitaFilaTabla f) =>
+    t.camposEstado.any(
+      (c) => !estadoValidoEnEscala(t.escala, f.estados[c.id]),
+    ) ||
+    (f.tieneHallazgo && f.observacion.trim().isEmpty);
 
 int pendientesDePaso(VisitaPaso paso, VisitaProfesional v) {
   if (paso.tabla != null) {
@@ -2237,6 +2803,16 @@ int pendientesDePaso(VisitaPaso paso, VisitaProfesional v) {
   return paso.items
       .where((it) => itemPendiente(it, v.respuestas[it.id]))
       .length;
+}
+
+/// Cargo con que firma el profesional (26 sep 2026: nombre y cargo del
+/// profesional salen del sistema y no se editan en el acta, "porque pueden
+/// meter mal un dedo"). El de su ficha; si la ficha no lo tiene, el rol.
+String cargoProfesionalDeActa(String cargoFicha, String areaNombre) {
+  final c = cargoFicha.trim();
+  if (c.isNotEmpty) return c;
+  final a = areaNombre.trim();
+  return a.isEmpty ? 'Profesional' : 'Profesional de $a';
 }
 
 /// A quién va la tarea de un hallazgo: al responsable del plan de acción si

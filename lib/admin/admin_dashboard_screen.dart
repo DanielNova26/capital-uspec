@@ -4968,7 +4968,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       case 'tokens_dian':
         return 'Personal autorizado';
       case 'visitas':
-        return 'El jefe (director) programa y administra formatos y equipo de su área; el área se toma de la ficha o del cargo. El firmante es el administrador del establecimiento que firma las visitas desde su módulo.';
+        return 'Gerencia ve y administra todas las áreas. El jefe (director) programa y administra formatos y equipo de su área; el área se toma de la ficha o del cargo. El firmante es el administrador del establecimiento que firma las visitas desde su módulo.';
       case 'admin':
         return 'Acceso al panel administrativo';
       default:
@@ -5071,6 +5071,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             return 'Ve el cronograma y el consolidado sin modificar nada.';
           case kVisitasRolFirmante:
             return 'Administrador del establecimiento: firma desde su módulo las visitas que le envían.';
+          case kVisitasRolGerencia:
+            return 'Gerencia: ve y administra todas las áreas como Desarrollo (cronograma, formatos, equipo, consolidado y ubicaciones).';
         }
     }
     return 'Define las acciones que la persona puede realizar en este módulo.';

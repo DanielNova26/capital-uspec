@@ -23,14 +23,18 @@ import 'package:image_picker/image_picker.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:table_calendar/table_calendar.dart';
 
+import '../services/company_branding_service.dart';
 import '../widgets/internal_module_layout.dart';
 import '../widgets/paged_list.dart';
 import '../widgets/user_avatar.dart';
+import 'visitas_consolidado.dart';
 import 'visitas_firma.dart';
+import 'visitas_formato_editor.dart';
 import 'visitas_formato_excel.dart';
 import 'visitas_formato_sst.dart' show kFormatoSstAreaId;
 import 'visitas_informe_pdf.dart';
 import 'visitas_equipo.dart';
+import 'visitas_marca_agua.dart';
 import 'visitas_models.dart';
 import 'visitas_programar.dart';
 import 'visitas_service.dart';
@@ -249,6 +253,12 @@ class _VisitasDashboardScreenState extends State<VisitasDashboardScreen>
   void initState() {
     super.initState();
     final rol = widget.rol;
+    // Gerencia ve y hace lo mismo que Desarrollo (26 sep 2026): todas las
+    // áreas en cronograma, formatos, equipo y consolidado.
+    final todo = visitasTodoAcceso(
+      rol: rol,
+      esDesarrollador: widget.esDesarrollador,
+    );
     _tabs = [
       // El administrador del establecimiento firma desde su propio módulo
       // (25 sep 2026), no en la tablet del profesional.
@@ -297,8 +307,7 @@ class _VisitasDashboardScreenState extends State<VisitasDashboardScreen>
             empresaId: widget.empresaId,
             rol: rol,
             nombreUsuario: widget.nombreUsuario,
-            esDesarrollador:
-                widget.esDesarrollador || rol == kVisitasRolConsulta,
+            esDesarrollador: todo || rol == kVisitasRolConsulta,
           ),
         ),
       if (visitasPuedeGestionarFormatos(rol))
@@ -309,7 +318,7 @@ class _VisitasDashboardScreenState extends State<VisitasDashboardScreen>
             svc: _svc,
             userId: widget.userId,
             empresaId: widget.empresaId,
-            esDesarrollador: widget.esDesarrollador,
+            esDesarrollador: todo,
           ),
         ),
       // Maestro de equipo (25 sep 2026): personal con acceso, roles, grupos
@@ -322,25 +331,30 @@ class _VisitasDashboardScreenState extends State<VisitasDashboardScreen>
             svc: _svc,
             empresaId: widget.empresaId,
             userId: widget.userId,
-            esDesarrollador: widget.esDesarrollador,
+            esDesarrollador: todo,
+            // A Gerencia la nombra Desarrollo; Gerencia nombra el resto.
+            puedeNombrarGerencia: widget.esDesarrollador,
           ),
         ),
       if (visitasPuedeVerConsolidado(rol))
         _TabDef(
           'Consolidado',
           Icons.stacked_bar_chart_outlined,
-          (_) => _ConsolidadoTab(
+          (_) => VisitasConsolidadoTab(
             svc: _svc,
             empresaId: widget.empresaId,
             userId: widget.userId,
-            esDesarrollador:
-                widget.esDesarrollador || rol == kVisitasRolConsulta,
+            nombreUsuario: widget.nombreUsuario,
+            todasLasAreas: todo || rol == kVisitasRolConsulta,
+            nombreEmpresa: () => _nombreEmpresa(widget.empresaId),
           ),
         ),
       // Los roles se asignan desde Admin > Roles y permisos (21 sep 2026);
-      // el módulo ya no trae pestaña propia.
+      // el módulo ya no trae pestaña propia. Ubicaciones: solo Desarrollo y
+      // Gerencia (26 sep 2026).
       if (visitasPuedeGestionarUbicaciones(
         esDesarrollador: widget.esDesarrollador,
+        rol: rol,
       ))
         _TabDef(
           'Ubicaciones',
@@ -374,8 +388,8 @@ class _VisitasDashboardScreenState extends State<VisitasDashboardScreen>
             padding: EdgeInsets.all(24),
             child: Text(
               'No tienes un rol en Visitas. Pídele a Administración que te '
-              'asigne el rol (jefe, profesional, consulta o firmante) en Roles '
-              'y permisos.',
+              'asigne el rol (gerencia, jefe, profesional, consulta o '
+              'firmante) en Roles y permisos.',
               textAlign: TextAlign.center,
               style: TextStyle(fontFamily: _kFont),
             ),
@@ -460,6 +474,11 @@ class _CronogramaTabState extends State<_CronogramaTab> {
   late DateTime _mesEnfocado;
   DateTime? _diaElegido;
   String _estado = 'todas';
+  // Quien ve todas las áreas (Gerencia, Desarrollo, Consulta) filtra por
+  // área, profesional y establecimiento (26 sep 2026).
+  String _areaFiltro = '';
+  String _profFiltro = '';
+  String _estFiltro = '';
   late final Stream<List<VisitaProfesional>> _stream;
 
   @override
@@ -504,9 +523,33 @@ class _CronogramaTabState extends State<_CronogramaTab> {
             return const Center(child: CircularProgressIndicator());
           }
           final ahora = DateTime.now();
-          final todas = snap.data!
-              .where((v) => _estado == 'todas' || v.estado == _estado)
-              .toList();
+          final base = snap.data!;
+          final areas = <String, String>{
+            for (final v in base)
+              if (v.areaId.isNotEmpty) v.areaId: v.areaNombre,
+          };
+          final profesionales = <String, String>{
+            for (final v in base)
+              if (_areaFiltro.isEmpty || v.areaId == _areaFiltro)
+                v.profesionalId: v.profesionalNombre,
+          };
+          final establecimientos = <String, String>{
+            for (final v in base)
+              if (_areaFiltro.isEmpty || v.areaId == _areaFiltro)
+                v.claveEstablecimiento: v.establecimiento,
+          };
+          final todas = filtrarVisitas(
+            base,
+            estado: _estado == 'todas' ? '' : _estado,
+            areaId: areas.containsKey(_areaFiltro) ? _areaFiltro : '',
+            profesionalId: profesionales.containsKey(_profFiltro)
+                ? _profFiltro
+                : '',
+            establecimiento: establecimientos.containsKey(_estFiltro)
+                ? _estFiltro
+                : '',
+            ahora: ahora,
+          );
           final porDia = <String, List<VisitaProfesional>>{};
           for (final v in todas) {
             final k = _dd(v.fechaProgramada);
@@ -559,12 +602,77 @@ class _CronogramaTabState extends State<_CronogramaTab> {
                         ),
                         for (final e in kVisitaEstadosLabel.entries)
                           DropdownMenuItem(value: e.key, child: Text(e.value)),
+                        const DropdownMenuItem(
+                          value: kVisitaVencidaFiltro,
+                          child: Text('Vencidas (sin realizar)'),
+                        ),
                       ],
                       onChanged: (v) => setState(() => _estado = v ?? 'todas'),
                     ),
                   ],
                 ),
               );
+              Widget filtroLista(
+                String etiqueta,
+                String valor,
+                Map<String, String> opciones,
+                ValueChanged<String> cambiar,
+              ) => SizedBox(
+                width: ancho ? 210 : double.infinity,
+                child: DropdownButtonFormField<String>(
+                  key: ValueKey('$etiqueta-$valor'),
+                  initialValue: opciones.containsKey(valor) ? valor : '',
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    labelText: etiqueta,
+                    isDense: true,
+                    border: const OutlineInputBorder(),
+                  ),
+                  items: [
+                    const DropdownMenuItem(value: '', child: Text('Todos')),
+                    for (final e
+                        in opciones.entries.toList()..sort(
+                          (a, b) => a.value.toLowerCase().compareTo(
+                            b.value.toLowerCase(),
+                          ),
+                        ))
+                      DropdownMenuItem(
+                        value: e.key,
+                        child: Text(e.value, overflow: TextOverflow.ellipsis),
+                      ),
+                  ],
+                  onChanged: (v) => setState(() => cambiar(v ?? '')),
+                ),
+              );
+              final filtrosTodas = !widget.esDesarrollador
+                  ? const SizedBox.shrink()
+                  : Padding(
+                      padding: const EdgeInsets.fromLTRB(0, 0, 0, 8),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          if (areas.length > 1)
+                            filtroLista('Área', _areaFiltro, areas, (v) {
+                              _areaFiltro = v;
+                              _profFiltro = '';
+                              _estFiltro = '';
+                            }),
+                          filtroLista(
+                            'Profesional',
+                            _profFiltro,
+                            profesionales,
+                            (v) => _profFiltro = v,
+                          ),
+                          filtroLista(
+                            'Establecimiento',
+                            _estFiltro,
+                            establecimientos,
+                            (v) => _estFiltro = v,
+                          ),
+                        ],
+                      ),
+                    );
               final calendario = Card(
                 margin: EdgeInsets.zero,
                 shape: RoundedRectangleBorder(
@@ -757,7 +865,7 @@ class _CronogramaTabState extends State<_CronogramaTab> {
                         child: SingleChildScrollView(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [filtros, calendario],
+                            children: [filtros, filtrosTodas, calendario],
                           ),
                         ),
                       ),
@@ -771,6 +879,7 @@ class _CronogramaTabState extends State<_CronogramaTab> {
                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
                 children: [
                   filtros,
+                  filtrosTodas,
                   calendario,
                   const SizedBox(height: 8),
                   detalle,
@@ -803,43 +912,6 @@ class _CronogramaTabState extends State<_CronogramaTab> {
       );
     }
   }
-}
-
-class _MesSelector extends StatelessWidget {
-  final DateTime mes;
-  final ValueChanged<DateTime> onChanged;
-  final Widget? trailing;
-  const _MesSelector({
-    required this.mes,
-    required this.onChanged,
-    this.trailing,
-  });
-
-  @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      IconButton(
-        icon: const Icon(Icons.chevron_left),
-        onPressed: () => onChanged(DateTime(mes.year, mes.month - 1)),
-      ),
-      Expanded(
-        child: Text(
-          '${nombreMes(mes.month)[0].toUpperCase()}${nombreMes(mes.month).substring(1)} ${mes.year}',
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontFamily: _kFont,
-            fontWeight: FontWeight.w800,
-            fontSize: 15,
-          ),
-        ),
-      ),
-      IconButton(
-        icon: const Icon(Icons.chevron_right),
-        onPressed: () => onChanged(DateTime(mes.year, mes.month + 1)),
-      ),
-      ?trailing,
-    ],
-  );
 }
 
 class _VisitaCard extends StatelessWidget {
@@ -963,6 +1035,13 @@ class _MisVisitasTab extends StatefulWidget {
 class _MisVisitasTabState extends State<_MisVisitasTab> {
   late final Stream<List<VisitaProfesional>> _stream;
 
+  // Filtros de Mis visitas (26 sep 2026).
+  final _buscar = TextEditingController();
+  String _estado = '';
+  String _establecimiento = '';
+  DateTime? _desde;
+  DateTime? _hasta;
+
   @override
   void initState() {
     super.initState();
@@ -973,16 +1052,169 @@ class _MisVisitasTabState extends State<_MisVisitasTab> {
   }
 
   @override
+  void dispose() {
+    _buscar.dispose();
+    super.dispose();
+  }
+
+  bool get _hayFiltros =>
+      _buscar.text.trim().isNotEmpty ||
+      _estado.isNotEmpty ||
+      _establecimiento.isNotEmpty ||
+      _desde != null;
+
+  Future<void> _elegirFechas() async {
+    final hoy = DateTime.now();
+    final r = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2024),
+      lastDate: DateTime(hoy.year + 2, 12, 31),
+      initialDateRange: _desde == null
+          ? null
+          : DateTimeRange(start: _desde!, end: _hasta ?? _desde!),
+      helpText: 'Visitas entre',
+      saveText: 'Aplicar',
+    );
+    if (r == null) return;
+    setState(() {
+      _desde = r.start;
+      _hasta = r.end;
+    });
+  }
+
+  Widget _filtros(Map<String, String> establecimientos) {
+    const estados = {
+      '': 'Todas',
+      kVisitaProgramada: 'Programadas',
+      kVisitaVencidaFiltro: 'Vencidas',
+      kVisitaEnCurso: 'En curso',
+      kVisitaTerminada: 'Terminadas',
+      kVisitaCancelada: 'Canceladas',
+    };
+    final ancho = MediaQuery.of(context).size.width >= 700;
+    return Card(
+      margin: const EdgeInsets.only(top: 10),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                SizedBox(
+                  width: ancho ? 280 : double.infinity,
+                  child: TextField(
+                    controller: _buscar,
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      prefixIcon: Icon(Icons.search, size: 20),
+                      hintText: 'Buscar establecimiento o formato',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+                SizedBox(
+                  width: ancho ? 260 : double.infinity,
+                  child: DropdownButtonFormField<String>(
+                    key: ValueKey('est-$_establecimiento'),
+                    initialValue: establecimientos.containsKey(_establecimiento)
+                        ? _establecimiento
+                        : '',
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      labelText: 'Establecimiento',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: [
+                      const DropdownMenuItem(value: '', child: Text('Todos')),
+                      for (final e
+                          in establecimientos.entries.toList()..sort(
+                            (a, b) => a.value.toLowerCase().compareTo(
+                              b.value.toLowerCase(),
+                            ),
+                          ))
+                        DropdownMenuItem(
+                          value: e.key,
+                          child: Text(e.value, overflow: TextOverflow.ellipsis),
+                        ),
+                    ],
+                    onChanged: (v) =>
+                        setState(() => _establecimiento = v ?? ''),
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _elegirFechas,
+                  icon: const Icon(Icons.date_range_outlined, size: 18),
+                  label: Text(
+                    _desde == null
+                        ? 'Todas las fechas'
+                        : '${_dd(_desde!)} – ${_dd(_hasta ?? _desde!)}',
+                  ),
+                ),
+                if (_hayFiltros)
+                  TextButton.icon(
+                    onPressed: () => setState(() {
+                      _buscar.clear();
+                      _estado = '';
+                      _establecimiento = '';
+                      _desde = null;
+                      _hasta = null;
+                    }),
+                    icon: const Icon(Icons.filter_alt_off_outlined, size: 18),
+                    label: const Text('Quitar filtros'),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final e in estados.entries)
+                  ChoiceChip(
+                    label: Text(e.value),
+                    selected: _estado == e.key,
+                    onSelected: (_) => setState(() => _estado = e.key),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<VisitaProfesional>>(
       stream: _stream,
       builder: (context, snap) {
         if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
-        if (!snap.hasData)
+        if (!snap.hasData) {
           return const Center(child: CircularProgressIndicator());
+        }
         final ahora = DateTime.now();
+        final establecimientos = {
+          for (final v in snap.data!) v.claveEstablecimiento: v.establecimiento,
+        };
+        final visibles = filtrarVisitas(
+          snap.data!,
+          texto: _buscar.text,
+          estado: _estado,
+          desde: _desde,
+          hasta: _hasta,
+          establecimiento: establecimientos.containsKey(_establecimiento)
+              ? _establecimiento
+              : '',
+          ahora: ahora,
+        );
         final pendientes =
-            snap.data!
+            visibles
                 .where(
                   (v) =>
                       v.estado == kVisitaProgramada ||
@@ -990,7 +1222,7 @@ class _MisVisitasTabState extends State<_MisVisitasTab> {
                 )
                 .toList()
               ..sort((a, b) => a.fechaProgramada.compareTo(b.fechaProgramada));
-        final hechas = snap.data!
+        final hechas = visibles
             .where(
               (v) =>
                   v.estado == kVisitaTerminada || v.estado == kVisitaCancelada,
@@ -1059,8 +1291,16 @@ class _MisVisitasTabState extends State<_MisVisitasTab> {
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
           children: [
-            seccion('Pendientes', pendientes),
-            seccion('Realizadas', hechas),
+            _filtros(establecimientos),
+            if (_estado.isEmpty ||
+                _estado == kVisitaProgramada ||
+                _estado == kVisitaVencidaFiltro ||
+                _estado == kVisitaEnCurso)
+              seccion('Pendientes', pendientes),
+            if (_estado.isEmpty ||
+                _estado == kVisitaTerminada ||
+                _estado == kVisitaCancelada)
+              seccion('Realizadas', hechas),
           ],
         );
       },
@@ -1439,6 +1679,15 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
   VisitaUbicacion? _referencia;
   bool _referenciaBuscada = false;
 
+  /// La ciudad sale del maestro de ubicaciones y no se escribe (26 sep 2026:
+  /// "fijar todo, que no se permita editar": un dedo mal puesto queda en el
+  /// acta). Solo si el maestro no la tiene se escribe a mano.
+  bool _ciudadFija = false;
+
+  /// Logo de la empresa para la marca de agua de las fotos.
+  Uint8List? _logo;
+  bool _logoCargado = false;
+
   /// Sección del formato en pantalla (25 sep 2026: por páginas, no una lista
   /// interminable). La última es el cierre: encabezado, firmas y cerrar.
   int _paso = 0;
@@ -1501,23 +1750,35 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
       centroId: v.centroId,
       subcentroId: v.subcentroId,
     );
+    // Nombre y cargo del profesional salen de su ficha y no se editan en el
+    // acta (26 sep 2026). Si la ficha no trae cargo, va el rol.
     String? cargo;
     if (v.cargoProfesional.isEmpty) {
-      cargo = await widget.svc.cargoDe(
-        empresaId: v.empresaId,
-        userId: widget.userId,
+      cargo = cargoProfesionalDeActa(
+        await widget.svc.cargoDe(empresaId: v.empresaId, userId: widget.userId),
+        v.areaNombre,
       );
     }
     if (!mounted) return;
     setState(() {
       _referencia = ref;
-      if (_ciudad.text.isEmpty && (ref?.ciudad ?? '').isNotEmpty) {
-        _ciudad.text = ref!.ciudad;
+      if ((ref?.ciudad ?? '').trim().isNotEmpty) {
+        _ciudad.text = ref!.ciudad.trim();
+        _ciudadFija = true;
       }
       if (_cargoProf.text.isEmpty && (cargo ?? '').isNotEmpty) {
         _cargoProf.text = cargo!;
       }
     });
+  }
+
+  Future<Uint8List?> _logoEmpresa() async {
+    if (_logoCargado) return _logo;
+    _logoCargado = true;
+    try {
+      _logo = await CompanyBrandingService().loadLogoBytes(widget.empresaId);
+    } catch (_) {}
+    return _logo;
   }
 
   void _cargarEncabezado(VisitaProfesional v) {
@@ -1551,8 +1812,9 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
     );
     if (p == null || !mounted) return;
     setState(() {
+      // Nombre y cargo de su ficha, tal cual: quedan fijos en el acta.
       _respNombre.text = p.nombre;
-      if (p.cargo.isNotEmpty) _respCargo.text = p.cargo;
+      _respCargo.text = p.cargo;
       _respUserId = p.id;
       _respNombreElegido = p.nombre;
     });
@@ -1816,23 +2078,26 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
       if (mounted) setState(() => _ocupado = false);
     }
     if (!mounted) return;
+    // Los datos del profesional son los de su ficha; los del responsable, los
+    // de la persona elegida de la lista. Ninguno se reescribe al firmar: solo
+    // a un responsable escrito a mano se le corrige el nombre antes de la
+    // primera firma.
+    final responsableManual = _respUserId.isEmpty && !yaHayFirma;
     final cap = await pedirFirma(
       context,
       titulo: esProfesional
-          ? 'Firma de quien realiza la inspección'
+          ? 'Firma del profesional que realiza la visita'
           : 'Firma del responsable del establecimiento',
       nombreInicial: esProfesional ? widget.nombreUsuario : _respNombre.text,
       cargoInicial: esProfesional ? _cargoProf.text : _respCargo.text,
       firmaGuardada: guardada,
-      nombreEditable: !esProfesional && !yaHayFirma,
-      cargoEditable: !yaHayFirma,
+      nombreEditable: !esProfesional && responsableManual,
+      cargoEditable: !esProfesional && responsableManual,
     );
     if (cap == null) return;
     setState(() => _ocupado = true);
     try {
-      if (esProfesional) {
-        _cargoProf.text = cap.cargo;
-      } else {
+      if (!esProfesional && responsableManual) {
         _respNombre.text = cap.nombre;
         _respCargo.text = cap.cargo;
       }
@@ -2039,26 +2304,138 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
     );
   }
 
-  /// Campo del responsable del establecimiento con el botón para elegirlo
-  /// de la lista del personal.
-  Widget _campoResponsable(VisitaProfesional v, {VoidCallback? onSalir}) =>
-      _campo(
-        _respNombre,
-        'Responsable del establecimiento',
-        obligatorio: true,
-        onSalir: onSalir,
-        onChanged: _alEscribirResponsable,
-        sufijo: IconButton(
-          tooltip: 'Elegir del personal del establecimiento',
-          icon: Icon(
-            _respUserId.isEmpty
-                ? Icons.person_search_outlined
-                : Icons.verified_user_outlined,
-            color: _respUserId.isEmpty ? null : const Color(0xFF15803D),
+  /// Un dato que pone el sistema y no se edita: se ve como campo, pero fijo.
+  Widget _datoFijo(
+    String label,
+    String valor, {
+    Widget? inicio,
+    Widget? accion,
+    String? nota,
+  }) => Container(
+    margin: const EdgeInsets.only(bottom: 8),
+    padding: const EdgeInsets.fromLTRB(12, 8, 6, 8),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF5F3FF),
+      borderRadius: BorderRadius.circular(6),
+      border: Border.all(color: const Color(0xFFDDD6FE)),
+    ),
+    child: Row(
+      children: [
+        if (inicio != null) ...[inicio, const SizedBox(width: 10)],
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 11,
+                  color: Colors.black54,
+                ),
+              ),
+              Text(
+                valor.trim().isEmpty ? '—' : valor,
+                style: const TextStyle(
+                  fontFamily: _kFont,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (nota != null)
+                Text(
+                  nota,
+                  style: const TextStyle(fontSize: 11, color: Colors.black45),
+                ),
+            ],
           ),
-          onPressed: () => _elegirResponsable(v),
+        ),
+        accion ??
+            const Icon(Icons.lock_outline, size: 16, color: Colors.black38),
+      ],
+    ),
+  );
+
+  /// El profesional: nombre y cargo de su ficha, fijos.
+  Widget _datoProfesional(VisitaProfesional v) => _datoFijo(
+    'Profesional que realiza la visita',
+    '${v.profesionalNombre.isEmpty ? widget.nombreUsuario : v.profesionalNombre}'
+        '${_cargoProf.text.trim().isEmpty ? '' : ' · ${_cargoProf.text.trim()}'}',
+    inicio: UserAvatar(
+      userId: v.profesionalId,
+      nameHint: v.profesionalNombre,
+      radius: 16,
+    ),
+    nota:
+        'Nombre y cargo de tu ficha; si no son, se corrigen en Talento Humano.',
+  );
+
+  Widget _datoCiudad({VoidCallback? onSalir}) => _ciudadFija
+      ? _datoFijo(
+          'Ciudad',
+          _ciudad.text,
+          nota: 'Del maestro de ubicaciones del establecimiento.',
+        )
+      : _campo(_ciudad, 'Ciudad', onSalir: onSalir);
+
+  /// Responsable del establecimiento. Elegido de la lista del personal queda
+  /// fijo (nombre y cargo de su ficha) y puede firmar desde su módulo; solo
+  /// si no es usuario de la app se escribe a mano.
+  Widget _campoResponsable(VisitaProfesional v, {VoidCallback? onSalir}) {
+    if (_respUserId.isNotEmpty) {
+      return _datoFijo(
+        'Responsable del establecimiento *',
+        '${_respNombre.text}'
+            '${_respCargo.text.trim().isEmpty ? '' : ' · ${_respCargo.text.trim()}'}',
+        inicio: UserAvatar(
+          userId: _respUserId,
+          nameHint: _respNombre.text,
+          radius: 16,
+        ),
+        accion: PopupMenuButton<String>(
+          tooltip: 'Cambiar',
+          icon: const Icon(Icons.more_vert),
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: 'otro', child: Text('Elegir otra persona')),
+            PopupMenuItem(
+              value: 'mano',
+              child: Text('No es usuario de la app: escribirlo'),
+            ),
+          ],
+          onSelected: (op) async {
+            if (op == 'otro') {
+              await _elegirResponsable(v);
+            } else {
+              setState(() {
+                _respUserId = '';
+                _respNombreElegido = '';
+                _respNombre.clear();
+                _respCargo.clear();
+              });
+              await _guardarEncabezado(v);
+            }
+          },
         ),
       );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _campo(
+          _respNombre,
+          'Responsable del establecimiento',
+          obligatorio: true,
+          onSalir: onSalir,
+          onChanged: _alEscribirResponsable,
+          sufijo: IconButton(
+            tooltip: 'Elegir del personal del establecimiento',
+            icon: const Icon(Icons.person_search_outlined),
+            onPressed: () => _elegirResponsable(v),
+          ),
+        ),
+        _campo(_respCargo, 'Cargo del responsable', onSalir: onSalir),
+      ],
+    );
+  }
 
   Widget _estadoReferencia() {
     final ref = _referencia;
@@ -2156,10 +2533,9 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
             ),
           ),
           const SizedBox(height: 8),
+          _datoProfesional(v),
+          _datoCiudad(),
           _campoResponsable(v),
-          _campo(_respCargo, 'Cargo del responsable'),
-          _campo(_ciudad, 'Ciudad'),
-          _campo(_cargoProf, 'Tu cargo (responsable de inspección)'),
           const SizedBox(height: 8),
           Text(
             v.esPrueba
@@ -2429,39 +2805,24 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Text(
-                'Encabezado del acta',
+                'Datos del acta',
                 style: TextStyle(
                   fontFamily: _kFont,
                   fontWeight: FontWeight.w800,
                 ),
               ),
               const SizedBox(height: 8),
+              _datoFijo(
+                'Establecimiento y fecha',
+                '${v.establecimiento} · ${_dd(v.inicio?.at.toDate().toLocal() ?? v.fechaProgramada)}',
+              ),
+              _datoProfesional(v),
+              _datoCiudad(onSalir: () => _guardarEncabezado(v)),
               _campoResponsable(v, onSalir: () => _guardarEncabezado(v)),
-              _campo(
-                _respCargo,
-                'Cargo del responsable',
-                onSalir: () => _guardarEncabezado(v),
-              ),
-              _campo(_ciudad, 'Ciudad', onSalir: () => _guardarEncabezado(v)),
-              _campo(
-                _cargoProf,
-                'Tu cargo (responsable de inspección)',
-                onSalir: () => _guardarEncabezado(v),
-              ),
-              const SizedBox(height: 4),
-              Focus(
-                onFocusChange: (tiene) {
-                  if (!tiene) _guardarAvance(v, silencioso: true);
-                },
-                child: TextField(
-                  controller: _obsGeneral,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                    labelText: 'Observación general de la visita',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ),
+              const SizedBox(height: 8),
+              _observacionGeneral(v),
+              const SizedBox(height: 16),
+              _evidenciasAdicionales(v, bloqueado: contenidoFirmado),
             ],
           ),
         ),
@@ -2484,7 +2845,7 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
       ),
       const SizedBox(height: 8),
       FirmaTile(
-        titulo: 'Responsable de inspección',
+        titulo: 'Profesional que realiza la visita',
         firma: v.firmaProfesional,
         onFirmar: _ocupado || v.firmaProfesional != null
             ? null
@@ -2547,6 +2908,287 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
         label: Text(_ocupado ? 'Cerrando…' : 'Cerrar visita y generar informe'),
       ),
     ];
+  }
+
+  /// Observaciones generales resaltadas y con dictado (26 sep 2026: "al final
+  /// también puede dictar las observaciones"). El dictado se suma a lo que ya
+  /// está escrito.
+  Widget _observacionGeneral(VisitaProfesional v) => Container(
+    padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+    decoration: BoxDecoration(
+      color: const Color(0xFFFFFBEB),
+      borderRadius: BorderRadius.circular(12),
+      border: const Border(
+        left: BorderSide(color: Color(0xFFF59E0B), width: 5),
+        top: BorderSide(color: Color(0xFFFCD34D)),
+        right: BorderSide(color: Color(0xFFFCD34D)),
+        bottom: BorderSide(color: Color(0xFFFCD34D)),
+      ),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.campaign_outlined, color: Color(0xFFB45309)),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text(
+                'OBSERVACIONES GENERALES',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF92400E),
+                  letterSpacing: .5,
+                ),
+              ),
+            ),
+            FilledButton.tonalIcon(
+              onPressed: () => _dictarObservacionGeneral(v),
+              icon: const Icon(Icons.mic_none, size: 18),
+              label: const Text('Dictar'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'Lo que el director debe saber de la visita. Sale destacado en el '
+          'informe.',
+          style: TextStyle(fontSize: 12, color: Color(0xFF92400E)),
+        ),
+        const SizedBox(height: 8),
+        Focus(
+          onFocusChange: (tiene) {
+            if (!tiene) _guardarAvance(v, silencioso: true);
+          },
+          child: TextField(
+            controller: _obsGeneral,
+            minLines: 3,
+            maxLines: 8,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(
+              filled: true,
+              fillColor: Colors.white,
+              hintText: 'Escribe o dicta las observaciones de la visita',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Future<void> _dictarObservacionGeneral(VisitaProfesional v) async {
+    final texto = await showDialog<String>(
+      context: context,
+      builder: (_) => _DictadoDialog(
+        inicial: _obsGeneral.text,
+        titulo: 'Dictar observaciones generales',
+      ),
+    );
+    if (texto == null || !mounted) return;
+    setState(() => _obsGeneral.text = texto.trim());
+    await _guardarAvance(v, silencioso: true);
+  }
+
+  /// Fotos adicionales, opcionales, fuera de las preguntas. Llevan marca de
+  /// agua y en el informe van como anexos.
+  Widget _evidenciasAdicionales(
+    VisitaProfesional v, {
+    required bool bloqueado,
+  }) {
+    final evs = v.evidenciasAdicionales;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Evidencias adicionales (opcional)',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            OutlinedButton.icon(
+              onPressed: _ocupado || bloqueado
+                  ? null
+                  : () => _agregarEvidenciaAdicional(v),
+              icon: const Icon(Icons.add_a_photo_outlined, size: 18),
+              label: const Text('Agregar foto'),
+            ),
+          ],
+        ),
+        const Text(
+          'Fotos que no son de una pregunta (la fachada, la cocina, algo que '
+          'viste). Salen con marca de agua y van como anexos del informe.',
+          style: TextStyle(fontSize: 12, color: Colors.black54),
+        ),
+        const SizedBox(height: 8),
+        if (evs.isEmpty)
+          const Text(
+            'Sin evidencias adicionales.',
+            style: TextStyle(fontSize: 12, color: Colors.black38),
+          )
+        else
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (var i = 0; i < evs.length; i++)
+                SizedBox(
+                  width: 150,
+                  child: Card(
+                    margin: EdgeInsets.zero,
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Image.network(
+                          evs[i].url,
+                          height: 96,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => const SizedBox(
+                            height: 96,
+                            child: Icon(Icons.broken_image_outlined),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(6, 4, 0, 2),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  evs[i].descripcion.isEmpty
+                                      ? 'Anexo ${i + 1}'
+                                      : evs[i].descripcion,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                              ),
+                              if (!bloqueado)
+                                PopupMenuButton<String>(
+                                  iconSize: 18,
+                                  itemBuilder: (_) => const [
+                                    PopupMenuItem(
+                                      value: 'desc',
+                                      child: Text('Describir'),
+                                    ),
+                                    PopupMenuItem(
+                                      value: 'quitar',
+                                      child: Text('Quitar'),
+                                    ),
+                                  ],
+                                  onSelected: (op) => op == 'quitar'
+                                      ? _quitarEvidencia(v, i)
+                                      : _describirEvidencia(v, i),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+      ],
+    );
+  }
+
+  Future<String?> _pedirDescripcion({String inicial = ''}) async {
+    final c = TextEditingController(text: inicial);
+    final r = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('¿Qué muestra la foto?'),
+        content: TextField(
+          controller: c,
+          autofocus: true,
+          maxLines: 2,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            hintText: 'Fachada, estado de la cocina…',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, ''),
+            child: const Text('Sin descripción'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: kVisitasColor),
+            onPressed: () => Navigator.pop(context, c.text.trim()),
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+    c.dispose();
+    return r;
+  }
+
+  Future<void> _agregarEvidenciaAdicional(VisitaProfesional v) async {
+    final img = await ImagePicker().pickImage(
+      source: kIsWeb ? ImageSource.gallery : ImageSource.camera,
+      imageQuality: 80,
+      maxWidth: 1600,
+    );
+    if (img == null || !mounted) return;
+    final descripcion = await _pedirDescripcion() ?? '';
+    final original = await img.readAsBytes();
+    setState(() => _ocupado = true);
+    try {
+      final marcada = await fotoConMarcaVisita(
+        foto: original,
+        v: v,
+        detalle: descripcion.isEmpty ? 'Evidencia adicional' : descripcion,
+        logo: await _logoEmpresa(),
+      );
+      final ev = await widget.svc.subirEvidencia(
+        empresaId: widget.empresaId,
+        visitaId: v.id,
+        itemId: 'adicionales',
+        bytes: marcada.bytes,
+        nombre: 'adicional_${DateTime.now().millisecondsSinceEpoch}.jpg',
+        descripcion: descripcion,
+        conMarca: marcada.conMarca,
+      );
+      await widget.svc.guardarEvidenciasAdicionales(v.id, [
+        ...v.evidenciasAdicionales,
+        ev,
+      ]);
+    } catch (e) {
+      if (mounted) _snack(context, 'No se pudo subir la foto: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _ocupado = false);
+    }
+  }
+
+  Future<void> _describirEvidencia(VisitaProfesional v, int i) async {
+    final d = await _pedirDescripcion(
+      inicial: v.evidenciasAdicionales[i].descripcion,
+    );
+    if (d == null) return;
+    final lista = [...v.evidenciasAdicionales];
+    lista[i] = lista[i].copyWith(descripcion: d);
+    try {
+      await widget.svc.guardarEvidenciasAdicionales(v.id, lista);
+    } catch (e) {
+      if (mounted) _snack(context, 'No se pudo guardar: $e', error: true);
+    }
+  }
+
+  Future<void> _quitarEvidencia(VisitaProfesional v, int i) async {
+    final lista = [...v.evidenciasAdicionales]..removeAt(i);
+    try {
+      await widget.svc.guardarEvidenciasAdicionales(v.id, lista);
+    } catch (e) {
+      if (mounted) _snack(context, 'No se pudo quitar: $e', error: true);
+    }
   }
 
   Widget _pantallaFormato(VisitaProfesional v, VisitaFormato f) {
@@ -2678,20 +3320,36 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
       maxWidth: 1600,
     );
     if (img == null) return;
-    final Uint8List bytes = await img.readAsBytes();
+    final Uint8List original = await img.readAsBytes();
     setState(() => _ocupado = true);
     try {
+      final marcada = await fotoConMarcaVisita(
+        foto: original,
+        v: v,
+        detalle: '${t.nombre} · ${fila.titulo(t)}',
+        logo: await _logoEmpresa(),
+      );
       final ev = await widget.svc.subirEvidencia(
         empresaId: widget.empresaId,
         visitaId: v.id,
         itemId: '${t.id}_${fila.id}',
-        bytes: bytes,
+        bytes: marcada.bytes,
         nombre: '${t.id}_${DateTime.now().millisecondsSinceEpoch}.jpg',
+        conMarca: marcada.conMarca,
       );
-      final filas = [
-        for (final f in v.filasDe(t.id))
-          f.id == fila.id ? f.copyWith(evidencias: [...f.evidencias, ev]) : f,
-      ];
+      final actuales = v.filasDe(t.id);
+      // Una fila fija que todavía no se había guardado entra con su foto.
+      final filas = actuales.any((f) => f.id == fila.id)
+          ? [
+              for (final f in actuales)
+                f.id == fila.id
+                    ? f.copyWith(evidencias: [...f.evidencias, ev])
+                    : f,
+            ]
+          : [
+              ...actuales,
+              fila.copyWith(evidencias: [...fila.evidencias, ev]),
+            ];
       await widget.svc.guardarFilas(v.id, t.id, filas);
     } catch (e) {
       if (mounted) _snack(context, 'No se pudo subir la foto: $e', error: true);
@@ -2714,15 +3372,22 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
       maxWidth: 1600,
     );
     if (img == null) return;
-    final Uint8List bytes = await img.readAsBytes();
+    final Uint8List original = await img.readAsBytes();
     setState(() => _ocupado = true);
     try {
+      final marcada = await fotoConMarcaVisita(
+        foto: original,
+        v: v,
+        detalle: 'Ítem ${it.orden}',
+        logo: await _logoEmpresa(),
+      );
       final ev = await widget.svc.subirEvidencia(
         empresaId: widget.empresaId,
         visitaId: v.id,
         itemId: it.id,
-        bytes: bytes,
+        bytes: marcada.bytes,
         nombre: 'item_${it.orden}_${DateTime.now().millisecondsSinceEpoch}.jpg',
+        conMarca: marcada.conMarca,
       );
       final actual = v.respuestas[it.id] ?? const VisitaRespuesta();
       await widget.svc.guardarRespuesta(
@@ -2781,10 +3446,12 @@ class _ItemCardState extends State<_ItemCard> {
   late final TextEditingController _cantidad;
   late final TextEditingController _vencimiento;
   late final TextEditingController _accion;
+  late final TextEditingController _valor;
   final _focus = FocusNode();
   final _focusCantidad = FocusNode();
   final _focusVenc = FocusNode();
   final _focusAccion = FocusNode();
+  final _focusValor = FocusNode();
 
   @override
   void initState() {
@@ -2794,6 +3461,13 @@ class _ItemCardState extends State<_ItemCard> {
     _cantidad = TextEditingController(text: r.cantidad);
     _vencimiento = TextEditingController(text: r.vencimiento);
     _accion = TextEditingController(text: r.accion);
+    _valor = TextEditingController(text: r.valor);
+    _focusValor.addListener(() {
+      if (!_focusValor.hasFocus &&
+          _valor.text.trim() != widget.respuesta.valor) {
+        widget.onCambio(widget.respuesta.copyWith(valor: _valor.text.trim()));
+      }
+    });
     // Se guarda al salir del campo, no en cada tecla: cada tecla sería una
     // escritura a Firestore.
     _focus.addListener(() {
@@ -2844,6 +3518,9 @@ class _ItemCardState extends State<_ItemCard> {
     if (!_focusAccion.hasFocus && old.respuesta.accion != r.accion) {
       _accion.text = r.accion;
     }
+    if (!_focusValor.hasFocus && old.respuesta.valor != r.valor) {
+      _valor.text = r.valor;
+    }
   }
 
   @override
@@ -2852,10 +3529,12 @@ class _ItemCardState extends State<_ItemCard> {
     _cantidad.dispose();
     _vencimiento.dispose();
     _accion.dispose();
+    _valor.dispose();
     _focus.dispose();
     _focusCantidad.dispose();
     _focusVenc.dispose();
     _focusAccion.dispose();
+    _focusValor.dispose();
     super.dispose();
   }
 
@@ -2868,7 +3547,116 @@ class _ItemCardState extends State<_ItemCard> {
     cantidad: _cantidad.text.trim(),
     vencimiento: _vencimiento.text.trim(),
     accion: _accion.text.trim(),
+    valor: _valor.text.trim(),
   );
+
+  Future<void> _elegirFecha() async {
+    final hoy = DateTime.now();
+    DateTime? inicial;
+    final partes = _valor.text.split('/');
+    if (partes.length == 3) {
+      inicial = DateTime.tryParse(
+        '${partes[2]}-${partes[1].padLeft(2, '0')}-${partes[0].padLeft(2, '0')}',
+      );
+    }
+    final d = await showDatePicker(
+      context: context,
+      initialDate: inicial ?? hoy,
+      firstDate: DateTime(hoy.year - 20),
+      lastDate: DateTime(hoy.year + 20),
+    );
+    if (d == null) return;
+    _valor.text = _dd(d);
+    widget.onCambio(_actual.copyWith(valor: _dd(d)));
+  }
+
+  Future<void> _dictarValor() async {
+    final texto = await showDialog<String>(
+      context: context,
+      builder: (_) =>
+          _DictadoDialog(inicial: _valor.text, titulo: 'Dictar respuesta'),
+    );
+    if (texto == null) return;
+    _valor.text = texto.trim();
+    widget.onCambio(_actual.copyWith(valor: texto.trim()));
+  }
+
+  /// La respuesta de las preguntas que no califican (26 sep 2026).
+  Widget _respuestaFormulario(VisitaFormatoItem it, VisitaRespuesta r) {
+    final invalido =
+        r.valor.trim().isNotEmpty && !valorValidoParaItem(it, r.valor);
+    final borde = OutlineInputBorder(
+      borderSide: BorderSide(
+        color: itemPendiente(it, r) ? const Color(0xFFDC2626) : Colors.black26,
+        width: itemPendiente(it, r) ? 1.4 : 1,
+      ),
+    );
+    switch (it.tipo) {
+      case kItemTipoOpcion:
+        return Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final o in it.opciones)
+              ChoiceChip(
+                label: Text(o),
+                selected: r.valor == o,
+                selectedColor: kVisitasColor.withValues(alpha: .18),
+                onSelected: (sel) {
+                  _valor.text = sel ? o : '';
+                  widget.onCambio(_actual.copyWith(valor: sel ? o : ''));
+                },
+              ),
+          ],
+        );
+      case kItemTipoFecha:
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            onPressed: _elegirFecha,
+            style: OutlinedButton.styleFrom(
+              side: BorderSide(
+                color: itemPendiente(it, r)
+                    ? const Color(0xFFDC2626)
+                    : Colors.black38,
+              ),
+            ),
+            icon: const Icon(Icons.event_outlined, size: 18),
+            label: Text(r.valor.isEmpty ? 'Elegir la fecha' : r.valor),
+          ),
+        );
+      default:
+        final numero = it.tipo == kItemTipoNumero;
+        return TextField(
+          controller: _valor,
+          focusNode: _focusValor,
+          keyboardType: numero
+              ? const TextInputType.numberWithOptions(decimal: true)
+              : TextInputType.text,
+          textCapitalization: TextCapitalization.sentences,
+          minLines: it.tipo == kItemTipoParrafo ? 3 : 1,
+          maxLines: it.tipo == kItemTipoParrafo ? 6 : 1,
+          decoration: InputDecoration(
+            isDense: true,
+            hintText: switch (it.tipo) {
+              kItemTipoNumero => 'Escribe el número',
+              kItemTipoParrafo => 'Escribe o dicta la respuesta',
+              _ => 'Tu respuesta',
+            },
+            errorText: invalido ? 'Escribe solo el número' : null,
+            border: borde,
+            enabledBorder: borde,
+            suffixIcon: numero
+                ? null
+                : IconButton(
+                    tooltip: 'Dictar',
+                    icon: const Icon(Icons.mic_none),
+                    onPressed: _dictarValor,
+                  ),
+          ),
+        );
+    }
+  }
 
   Future<void> _dictar() async {
     final texto = await showDialog<String>(
@@ -3019,12 +3807,26 @@ class _ItemCardState extends State<_ItemCard> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '${it.orden}. ${it.texto}',
+              '${it.orden}. ${it.texto}'
+              '${!it.califica && !it.obligatoria ? ' (opcional)' : ''}',
               style: const TextStyle(
                 fontFamily: _kFont,
                 fontWeight: FontWeight.w700,
               ),
             ),
+            if (it.ayuda.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  it.ayuda,
+                  style: const TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 12,
+                    color: Colors.black54,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ),
             if (it.unidad.isNotEmpty)
               Text(
                 'Esperado: ${it.unidad}',
@@ -3035,24 +3837,56 @@ class _ItemCardState extends State<_ItemCard> {
                 ),
               ),
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              children: [
-                for (final res in resultadosPermitidos(it.tipo))
-                  ChoiceChip(
-                    label: Text(_labelResultado(it.tipo, res)),
-                    selected: r.resultado == res,
-                    selectedColor: switch (res) {
-                      kItemCumple => const Color(0xFFDCFCE7),
-                      kItemNoCumple => const Color(0xFFFEE2E2),
-                      _ => const Color(0xFFE5E7EB),
-                    },
-                    onSelected: (_) =>
-                        widget.onCambio(_actual.copyWith(resultado: res)),
+            if (!it.califica) ...[
+              _respuestaFormulario(it, r),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: widget.onFoto,
+                    icon: const Icon(Icons.photo_camera_outlined, size: 18),
+                    label: Text(
+                      r.evidencias.isEmpty
+                          ? 'Foto (opcional)'
+                          : 'Foto (${r.evidencias.length})',
+                    ),
                   ),
-              ],
-            ),
-            if (r.respondida && it.esElemento) ...[
+                  const SizedBox(width: 8),
+                  for (final ev in r.evidencias.take(4))
+                    Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: Image.network(
+                          ev.url,
+                          width: 40,
+                          height: 40,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+            if (it.califica)
+              Wrap(
+                spacing: 6,
+                children: [
+                  for (final res in resultadosPermitidos(it.tipo))
+                    ChoiceChip(
+                      label: Text(_labelResultado(it.tipo, res)),
+                      selected: r.resultado == res,
+                      selectedColor: switch (res) {
+                        kItemCumple => const Color(0xFFDCFCE7),
+                        kItemNoCumple => const Color(0xFFFEE2E2),
+                        _ => const Color(0xFFE5E7EB),
+                      },
+                      onSelected: (_) =>
+                          widget.onCambio(_actual.copyWith(resultado: res)),
+                    ),
+                ],
+              ),
+            if (it.califica && r.respondida && it.esElemento) ...[
               const SizedBox(height: 8),
               Row(
                 children: [
@@ -3082,7 +3916,7 @@ class _ItemCardState extends State<_ItemCard> {
                 ],
               ),
             ],
-            if (r.respondida) ...[
+            if (it.califica && r.respondida) ...[
               const SizedBox(height: 8),
               TextField(
                 controller: _obs,
@@ -3171,7 +4005,9 @@ class _TablaSection extends StatelessWidget {
       builder: (_) => _FilaDialog(tabla: tabla, fila: fila),
     );
     if (r == null) return;
-    final nuevas = fila == null
+    // Una fila fija que todavía no se había guardado entra ahora.
+    final existe = filas.any((f) => f.id == r.id);
+    final nuevas = !existe
         ? [...filas, r]
         : [for (final f in filas) f.id == r.id ? r : f];
     onGuardar(nuevas);
@@ -3179,6 +4015,8 @@ class _TablaSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Con filas fijas se muestran todas las del formato, llenas o no.
+    final vista = filasParaTabla(tabla, filas);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -3188,7 +4026,7 @@ class _TablaSection extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  '${tabla.nombre.toUpperCase()} (${filas.length})',
+                  '${tabla.nombre.toUpperCase()} (${vista.length})',
                   style: const TextStyle(
                     fontFamily: _kFont,
                     fontSize: 12,
@@ -3198,31 +4036,32 @@ class _TablaSection extends StatelessWidget {
                   ),
                 ),
               ),
-              TextButton.icon(
-                onPressed: () => _editar(context, null),
-                icon: const Icon(Icons.add, size: 18),
-                label: Text(tabla.etiquetaFila),
-              ),
+              if (!tabla.conFilasFijas)
+                TextButton.icon(
+                  onPressed: () => _editar(context, null),
+                  icon: const Icon(Icons.add, size: 18),
+                  label: Text(tabla.etiquetaFila),
+                ),
             ],
           ),
         ),
-        const Padding(
-          padding: EdgeInsets.fromLTRB(4, 0, 4, 6),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
           child: Text(
-            'B: Bueno · M: Malo · R: Regular · NC: No cuenta con el elemento',
-            style: TextStyle(
+            leyendaEscala(tabla.escala),
+            style: const TextStyle(
               fontFamily: _kFont,
               fontSize: 11,
               color: Colors.black54,
             ),
           ),
         ),
-        if (filas.isEmpty)
+        if (vista.isEmpty)
           Card(
             margin: const EdgeInsets.only(bottom: 8),
             child: ListTile(
               leading: const Icon(
-                Icons.fire_extinguisher,
+                Icons.table_rows_outlined,
                 color: Colors.black38,
               ),
               title: Text(
@@ -3236,29 +4075,47 @@ class _TablaSection extends StatelessWidget {
               ),
             ),
           ),
-        for (var i = 0; i < filas.length; i++)
-          _FilaCard(
+        PagedListSection<VisitaFilaTabla>(
+          items: vista,
+          etiqueta: tabla.etiquetaFila.toLowerCase(),
+          itemBuilder: (context, fila, i) => _FilaCard(
             tabla: tabla,
             indice: i + 1,
-            fila: filas[i],
-            onEditar: () => _editar(context, filas[i]),
-            onEliminar: () => onGuardar([
-              for (final f in filas)
-                if (f.id != filas[i].id) f,
-            ]),
-            onFoto: () => onFoto(filas[i]),
+            fila: fila,
+            onEditar: () => _editar(context, fila),
+            onEliminar: tabla.conFilasFijas
+                ? null
+                : () => onGuardar([
+                    for (final f in filas)
+                      if (f.id != fila.id) f,
+                  ]),
+            onFoto: () => onFoto(fila),
           ),
+        ),
       ],
     );
   }
 }
+
+Color _colorEstadoFila(String? estado) => switch (estado) {
+  kFilaBueno || kFilaCumple || kFilaSi => const Color(0xFF16A34A),
+  kFilaRegular => const Color(0xFFF59E0B),
+  kFilaNoAplica => const Color(0xFF6B7280),
+  kFilaMalo ||
+  kFilaNoCuenta ||
+  kFilaNoCumple ||
+  kFilaNo => const Color(0xFFDC2626),
+  _ => const Color(0xFF9CA3AF),
+};
 
 class _FilaCard extends StatelessWidget {
   final VisitaFormatoTabla tabla;
   final int indice;
   final VisitaFilaTabla fila;
   final VoidCallback onEditar;
-  final VoidCallback onEliminar;
+
+  /// Null en las filas fijas: esas no se quitan.
+  final VoidCallback? onEliminar;
   final VoidCallback onFoto;
   const _FilaCard({
     required this.tabla,
@@ -3273,7 +4130,7 @@ class _FilaCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final hallazgo = fila.tieneHallazgo;
     final faltan = tabla.camposEstado
-        .where((c) => !kFilaEstadoLabel.containsKey(fila.estados[c.id] ?? ''))
+        .where((c) => !estadoValidoEnEscala(tabla.escala, fila.estados[c.id]))
         .length;
     final textos = [
       for (final c in tabla.camposTexto)
@@ -3302,7 +4159,9 @@ class _FilaCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    '${tabla.etiquetaFila} $indice · ${fila.titulo(tabla)}',
+                    tabla.conFilasFijas
+                        ? fila.titulo(tabla)
+                        : '${tabla.etiquetaFila} $indice · ${fila.titulo(tabla)}',
                     style: const TextStyle(
                       fontFamily: _kFont,
                       fontWeight: FontWeight.w700,
@@ -3310,15 +4169,23 @@ class _FilaCard extends StatelessWidget {
                   ),
                 ),
                 IconButton(
-                  tooltip: 'Editar',
-                  icon: const Icon(Icons.edit_outlined, size: 20),
+                  tooltip: faltan == tabla.camposEstado.length
+                      ? 'Calificar'
+                      : 'Editar',
+                  icon: Icon(
+                    faltan == tabla.camposEstado.length
+                        ? Icons.rule_rounded
+                        : Icons.edit_outlined,
+                    size: 20,
+                  ),
                   onPressed: onEditar,
                 ),
-                IconButton(
-                  tooltip: 'Eliminar',
-                  icon: const Icon(Icons.delete_outline, size: 20),
-                  onPressed: onEliminar,
-                ),
+                if (onEliminar != null)
+                  IconButton(
+                    tooltip: 'Eliminar',
+                    icon: const Icon(Icons.delete_outline, size: 20),
+                    onPressed: onEliminar,
+                  ),
               ],
             ),
             if (textos.isNotEmpty)
@@ -3333,13 +4200,8 @@ class _FilaCard extends StatelessWidget {
               children: [
                 for (final c in tabla.camposEstado)
                   _Chip(
-                    '${c.label}: ${fila.estados[c.id] ?? '?'}',
-                    switch (fila.estados[c.id]) {
-                      kFilaBueno => const Color(0xFF16A34A),
-                      kFilaRegular => const Color(0xFFF59E0B),
-                      kFilaMalo || kFilaNoCuenta => const Color(0xFFDC2626),
-                      _ => const Color(0xFF9CA3AF),
-                    },
+                    '${c.label}: ${estadoValidoEnEscala(tabla.escala, fila.estados[c.id]) ? estadoCorto(tabla.escala, fila.estados[c.id]) : '?'}',
+                    _colorEstadoFila(fila.estados[c.id]),
                   ),
               ],
             ),
@@ -3436,15 +4298,20 @@ class _FilaDialogState extends State<_FilaDialog> {
     super.dispose();
   }
 
+  /// Todas las columnas con el primer estado de la escala (Bueno, Cumple,
+  /// Sí): lo normal en un equipo en buen estado.
   void _todoBueno() => setState(() {
+    final bueno = estadosDeEscala(widget.tabla.escala).first.codigo;
     for (final c in widget.tabla.camposEstado) {
-      _estados[c.id] = kFilaBueno;
+      _estados[c.id] = bueno;
     }
   });
 
   void _guardar() {
     final faltan = widget.tabla.camposEstado
-        .where((c) => !kFilaEstadoLabel.containsKey(_estados[c.id] ?? ''))
+        .where(
+          (c) => !estadoValidoEnEscala(widget.tabla.escala, _estados[c.id]),
+        )
         .toList();
     if (faltan.isNotEmpty) {
       _snack(
@@ -3458,7 +4325,7 @@ class _FilaDialogState extends State<_FilaDialog> {
     if (hallazgo && _obs.text.trim().isEmpty) {
       _snack(
         context,
-        'Hay un estado Malo o No cuenta: escribe la novedad encontrada.',
+        'Hay una calificación con novedad: escribe cuál es.',
         error: true,
       );
       return;
@@ -3480,7 +4347,9 @@ class _FilaDialogState extends State<_FilaDialog> {
     final ancho = MediaQuery.of(context).size.width;
     return AlertDialog(
       title: Text(
-        widget.fila == null
+        widget.tabla.conFilasFijas && widget.fila != null
+            ? widget.fila!.titulo(widget.tabla)
+            : widget.fila == null
             ? 'Nuevo ${widget.tabla.etiquetaFila.toLowerCase()}'
             : 'Editar ${widget.tabla.etiquetaFila.toLowerCase()}',
         style: const TextStyle(fontFamily: _kFont),
@@ -3508,7 +4377,7 @@ class _FilaDialogState extends State<_FilaDialog> {
                 children: [
                   const Expanded(
                     child: Text(
-                      'Estado del equipo',
+                      'Calificación',
                       style: TextStyle(
                         fontFamily: _kFont,
                         fontWeight: FontWeight.w800,
@@ -3518,7 +4387,9 @@ class _FilaDialogState extends State<_FilaDialog> {
                   ),
                   TextButton(
                     onPressed: _todoBueno,
-                    child: const Text('Todo Bueno'),
+                    child: Text(
+                      'Todo ${estadosDeEscala(widget.tabla.escala).first.nombre}',
+                    ),
                   ),
                 ],
               ),
@@ -3544,17 +4415,21 @@ class _FilaDialogState extends State<_FilaDialog> {
                         showSelectedIcon: false,
                         emptySelectionAllowed: true,
                         segments: [
-                          for (final e in kFilaEstadoLabel.keys)
+                          for (final e in estadosDeEscala(widget.tabla.escala))
                             ButtonSegment(
-                              value: e,
+                              value: e.codigo,
+                              tooltip: e.nombre,
                               label: Text(
-                                e,
+                                e.corto,
                                 style: const TextStyle(fontSize: 11),
                               ),
                             ),
                         ],
                         selected: {
-                          if (kFilaEstadoLabel.containsKey(_estados[c.id]))
+                          if (estadoValidoEnEscala(
+                            widget.tabla.escala,
+                            _estados[c.id],
+                          ))
                             _estados[c.id]!,
                         },
                         onSelectionChanged: (sel) => setState(() {
@@ -3597,9 +4472,16 @@ class _FilaDialogState extends State<_FilaDialog> {
   }
 }
 
+/// Dictado por voz. Lo dictado se SUMA a lo que ya estaba escrito (26 sep
+/// 2026): antes lo reemplazaba y se perdía lo que el profesional había
+/// tecleado.
 class _DictadoDialog extends StatefulWidget {
   final String inicial;
-  const _DictadoDialog({required this.inicial});
+  final String titulo;
+  const _DictadoDialog({
+    required this.inicial,
+    this.titulo = 'Dictar observación',
+  });
   @override
   State<_DictadoDialog> createState() => _DictadoDialogState();
 }
@@ -3607,6 +4489,9 @@ class _DictadoDialog extends StatefulWidget {
 class _DictadoDialogState extends State<_DictadoDialog> {
   final _speech = stt.SpeechToText();
   late String _texto = widget.inicial;
+
+  /// Lo que había antes de esta tanda de dictado.
+  late String _base = widget.inicial.trim();
   bool _disponible = false;
   bool _escuchando = false;
   String? _error;
@@ -3635,6 +4520,7 @@ class _DictadoDialogState extends State<_DictadoDialog> {
     setState(() {
       _escuchando = true;
       _error = null;
+      _base = _texto.trim();
     });
     await _speech.listen(
       localeId: 'es_CO',
@@ -3645,10 +4531,18 @@ class _DictadoDialogState extends State<_DictadoDialog> {
       onResult: (r) {
         if (!mounted) return;
         final palabras = r.recognizedWords.trim();
-        if (palabras.isNotEmpty) setState(() => _texto = palabras);
+        if (palabras.isEmpty) return;
+        setState(
+          () => _texto = _base.isEmpty
+              ? _mayuscula(palabras)
+              : '$_base${_base.endsWith('.') ? ' ' : '. '}${_mayuscula(palabras)}',
+        );
       },
     );
   }
+
+  String _mayuscula(String t) =>
+      t.isEmpty ? t : '${t[0].toUpperCase()}${t.substring(1)}';
 
   @override
   void dispose() {
@@ -3665,7 +4559,7 @@ class _DictadoDialogState extends State<_DictadoDialog> {
           color: _escuchando ? Colors.red : Colors.grey,
         ),
         const SizedBox(width: 8),
-        const Text('Dictar observación'),
+        Expanded(child: Text(widget.titulo)),
       ],
     ),
     content: SizedBox(
@@ -3702,7 +4596,7 @@ class _DictadoDialogState extends State<_DictadoDialog> {
         child: const Text('Cancelar'),
       ),
       if (_disponible && !_escuchando)
-        TextButton(onPressed: _escuchar, child: const Text('Otra vez')),
+        TextButton(onPressed: _escuchar, child: const Text('Dictar más')),
       FilledButton(
         onPressed: () async {
           await _speech.stop();
@@ -3764,6 +4658,8 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
         v: v,
         formato: f,
         empresaNombre: await _nombreEmpresa(widget.empresaId),
+        logo: await CompanyBrandingService().loadLogoBytes(widget.empresaId),
+        cargarImagen: widget.svc.bytesEvidencia,
       );
       await entregarPdf(
         bytes,
@@ -4008,7 +4904,7 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
                   v.firmaEstablecimiento != null) ...[
                 const Divider(height: 24),
                 FirmaTile(
-                  titulo: 'Responsable de inspección',
+                  titulo: 'Profesional que realiza la visita',
                   firma: v.firmaProfesional,
                 ),
                 FirmaTile(
@@ -4028,41 +4924,82 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                for (final it in f.itemsOrdenados)
-                  _ItemLectura(
+                PagedListSection<VisitaFormatoItem>(
+                  items: f.itemsOrdenados,
+                  etiqueta: 'preguntas',
+                  itemBuilder: (context, it, _) => _ItemLectura(
                     item: it,
                     respuesta: v.respuestas[it.id] ?? const VisitaRespuesta(),
                   ),
+                ),
                 for (final t in f.tablas) ...[
                   const SizedBox(height: 8),
-                  Text(
-                    '${t.nombre} (${v.filasDe(t.id).length})',
-                    style: const TextStyle(
-                      fontFamily: _kFont,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  for (var i = 0; i < v.filasDe(t.id).length; i++)
-                    _FilaLectura(
-                      tabla: t,
-                      indice: i + 1,
-                      fila: v.filasDe(t.id)[i],
-                    ),
+                  () {
+                    final filas = filasParaTabla(t, v.filasDe(t.id));
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          '${t.nombre} (${filas.length})',
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        PagedListSection<VisitaFilaTabla>(
+                          items: filas,
+                          etiqueta: 'filas',
+                          itemBuilder: (context, fila, i) =>
+                              _FilaLectura(tabla: t, indice: i + 1, fila: fila),
+                        ),
+                      ],
+                    );
+                  }(),
                 ],
               ],
-              if (v.observacionGeneral.trim().isNotEmpty) ...[
-                const Divider(height: 24),
-                const Text(
-                  'Observación general',
-                  style: TextStyle(
+              const Divider(height: 24),
+              _ObservacionGeneralLectura(texto: v.observacionGeneral),
+              if (v.evidenciasAdicionales.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Text(
+                  'Evidencias adicionales (${v.evidenciasAdicionales.length})',
+                  style: const TextStyle(
                     fontFamily: _kFont,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
-                Text(
-                  v.observacionGeneral,
-                  style: const TextStyle(fontFamily: _kFont),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final e in v.evidenciasAdicionales)
+                      SizedBox(
+                        width: 140,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.network(
+                                e.url,
+                                height: 90,
+                                width: 140,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                            if (e.descripcion.isNotEmpty)
+                              Text(
+                                e.descripcion,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                          ],
+                        ),
+                      ),
+                  ],
                 ),
               ],
             ],
@@ -4103,6 +5040,58 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
   );
 }
 
+/// Observaciones generales en el detalle: resaltadas, igual que en el
+/// informe.
+class _ObservacionGeneralLectura extends StatelessWidget {
+  final String texto;
+  const _ObservacionGeneralLectura({required this.texto});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+    decoration: BoxDecoration(
+      color: const Color(0xFFFFFBEB),
+      borderRadius: BorderRadius.circular(12),
+      border: const Border(
+        left: BorderSide(color: Color(0xFFF59E0B), width: 5),
+        top: BorderSide(color: Color(0xFFFCD34D)),
+        right: BorderSide(color: Color(0xFFFCD34D)),
+        bottom: BorderSide(color: Color(0xFFFCD34D)),
+      ),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Row(
+          children: [
+            Icon(Icons.campaign_outlined, color: Color(0xFFB45309), size: 20),
+            SizedBox(width: 8),
+            Text(
+              'OBSERVACIONES GENERALES',
+              style: TextStyle(
+                fontFamily: _kFont,
+                fontWeight: FontWeight.w900,
+                color: Color(0xFF92400E),
+                letterSpacing: .5,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          texto.trim().isEmpty ? 'Sin observaciones generales.' : texto,
+          style: TextStyle(
+            fontFamily: _kFont,
+            fontSize: 14,
+            height: 1.35,
+            color: texto.trim().isEmpty ? Colors.black45 : Colors.black87,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 class _ItemLectura extends StatelessWidget {
   final VisitaFormatoItem item;
   final VisitaRespuesta respuesta;
@@ -4110,6 +5099,44 @@ class _ItemLectura extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!item.califica) {
+      final valor = respuesta.valor.trim();
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 92,
+              child: _Chip(
+                valor.isEmpty ? 'Sin dato' : 'Dato',
+                const Color(0xFF7C3AED),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${item.orden}. ${item.texto}',
+                    style: const TextStyle(fontFamily: _kFont, fontSize: 13),
+                  ),
+                  Text(
+                    valor.isEmpty ? '—' : valor,
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     final color = switch (respuesta.resultado) {
       kItemCumple => const Color(0xFF16A34A),
       kItemNoCumple => const Color(0xFFDC2626),
@@ -4428,21 +5455,23 @@ class _FormatosTabState extends State<_FormatosTab> {
     }
   }
 
-  void _editar(VisitaFormato f) => Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (_) => _FormatoEditorScreen(
-        svc: widget.svc,
-        formato: f,
-        userId: widget.userId,
-        areas: {
-          ..._areasCatalogo,
-          if (f.areaId.isNotEmpty) f.areaId: f.areaNombre,
-        },
-        areaFija: widget.esDesarrollador ? '' : _areaJefe,
-      ),
-    ),
-  );
+  Future<bool?> _editar(VisitaFormato f, {List<String> avisos = const []}) =>
+      Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => VisitaFormatoEditorScreen(
+            svc: widget.svc,
+            formato: f,
+            userId: widget.userId,
+            areas: {
+              ..._areasCatalogo,
+              if (f.areaId.isNotEmpty) f.areaId: f.areaNombre,
+            },
+            areaFija: widget.esDesarrollador ? '' : _areaJefe,
+            avisosImportacion: avisos,
+          ),
+        ),
+      );
 
   Future<void> _descargarPlantilla() async {
     try {
@@ -4482,7 +5511,7 @@ class _FormatosTabState extends State<_FormatosTab> {
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (context, setLocal) => AlertDialog(
-          title: const Text('Crear formato desde Excel'),
+          title: const Text('Crear formato desde un Excel'),
           content: SizedBox(
             width: 430,
             child: Column(
@@ -4507,7 +5536,11 @@ class _FormatosTabState extends State<_FormatosTab> {
                 ),
                 const SizedBox(height: 10),
                 const Text(
-                  'El Excel se importará como borrador. Revísalo y márcalo Vigente antes de asignarlo en visitas reales.',
+                  'Sirve la plantilla o el Excel que ya usa el área (el de '
+                  'SST, uno de Google Sheets…): la app busca las preguntas y '
+                  'las secciones y te lo muestra en el editor para que lo '
+                  'revises antes de guardar. Queda como borrador.',
+                  style: TextStyle(fontSize: 12),
                 ),
               ],
             ),
@@ -4545,9 +5578,12 @@ class _FormatosTabState extends State<_FormatosTab> {
         );
       }
       final bytes = picked.files.single.bytes;
-      if (bytes == null)
+      if (bytes == null) {
         throw const FormatException('No se pudo leer el Excel.');
-      final f = importarFormatoVisitasExcel(
+      }
+      // La plantilla se lee tal cual; cualquier otro Excel se adapta y se
+      // abre en el editor para revisarlo antes de guardar (26 sep 2026).
+      final r = leerFormatoVisitasExcel(
         bytes,
         empresaId: widget.empresaId,
         areaId: area,
@@ -4555,29 +5591,19 @@ class _FormatosTabState extends State<_FormatosTab> {
         nombre: nombreFormato,
       );
       if (!mounted) return;
-      final guardar = await showDialog<bool>(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Revisar importación'),
-          content: Text(
-            '${f.items.length} preguntas de ${f.areaNombre}. Se guardará como borrador.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Crear borrador'),
-            ),
-          ],
-        ),
+      final guardado = await _editar(
+        r.formato,
+        avisos: [
+          if (r.desdePlantilla)
+            'Se leyó la plantilla: ${r.formato.items.length} pregunta(s)'
+                '${r.formato.tablas.isEmpty ? '' : ' y ${r.formato.tablas.length} tabla(s)'}.',
+          ...r.avisos,
+          'Queda como borrador: márcalo Vigente cuando esté listo.',
+        ],
       );
-      if (guardar != true) return;
-      await widget.svc.guardarFormato(f, actorId: widget.userId);
-      if (mounted)
-        _snack(context, 'Formato importado. Revísalo antes de activarlo.');
+      if (guardado == true && mounted) {
+        _snack(context, 'Formato guardado como borrador.');
+      }
     } catch (e) {
       if (mounted) _snack(context, 'No se pudo importar: $e', error: true);
     }
@@ -4693,10 +5719,11 @@ class _FormatosTabState extends State<_FormatosTab> {
                 ),
                 child: const Text(
                   'Los formatos van por área y, si quieres, por cargo: un formato '
-                  'sin cargos aplica a todo el área. El director, los '
-                  'profesionales y sus grupos se administran en la pestaña Equipo. '
-                  'Puedes crear preguntas aquí o importar la plantilla Excel; '
-                  'revisa el borrador antes de marcarlo Vigente.',
+                  'sin cargos aplica a todo el área. Arma las preguntas como en '
+                  'Google Forms (o en vista tabla, como en Excel), pégalas desde '
+                  'Excel o sube el Excel que ya tienes. La plantilla trae una '
+                  'hoja de ejemplo y explica cada tipo de respuesta. Revisa el '
+                  'borrador antes de marcarlo Vigente.',
                   style: TextStyle(
                     fontFamily: _kFont,
                     fontSize: 12,
@@ -4723,12 +5750,12 @@ class _FormatosTabState extends State<_FormatosTab> {
                     OutlinedButton.icon(
                       onPressed: _descargarPlantilla,
                       icon: const Icon(Icons.download_outlined),
-                      label: const Text('Plantilla Excel'),
+                      label: const Text('Plantilla Excel con ejemplo'),
                     ),
                     OutlinedButton.icon(
                       onPressed: _importarExcel,
                       icon: const Icon(Icons.upload_file_outlined),
-                      label: const Text('Crear desde Excel'),
+                      label: const Text('Crear desde un Excel'),
                     ),
                   ],
                 ),
@@ -4875,808 +5902,6 @@ class _FormatosTabState extends State<_FormatosTab> {
           ),
         ],
       ),
-    ),
-  );
-}
-
-class _FormatoEditorScreen extends StatefulWidget {
-  final VisitasService svc;
-  final VisitaFormato formato;
-  final String userId;
-  final Map<String, String> areas;
-  final String areaFija;
-  const _FormatoEditorScreen({
-    required this.svc,
-    required this.formato,
-    required this.userId,
-    required this.areas,
-    required this.areaFija,
-  });
-
-  @override
-  State<_FormatoEditorScreen> createState() => _FormatoEditorScreenState();
-}
-
-class _FormatoEditorScreenState extends State<_FormatoEditorScreen> {
-  late final TextEditingController _nombre;
-  late final TextEditingController _areaNombre;
-  late String _estado;
-  late String _areaId;
-  late bool _predeterminado;
-  late List<_ItemEdit> _items;
-  bool _guardando = false;
-
-  /// Cargos a los que aplica; vacío = todo el área.
-  late Set<String> _cargos;
-  List<String> _cargosEmpresa = const [];
-
-  @override
-  void initState() {
-    super.initState();
-    _cargos = {...widget.formato.cargos};
-    widget.svc.cargosDeEmpresa(widget.formato.empresaId).then((c) {
-      if (mounted) setState(() => _cargosEmpresa = c);
-    });
-    _nombre = TextEditingController(text: widget.formato.nombre);
-    _areaNombre = TextEditingController(text: widget.formato.areaNombre);
-    _estado = widget.formato.estado;
-    _areaId = widget.formato.areaId.isNotEmpty
-        ? widget.formato.areaId
-        : widget.areaFija;
-    _predeterminado = widget.formato.predeterminado;
-    _items = [for (final it in widget.formato.itemsOrdenados) _ItemEdit.de(it)];
-  }
-
-  @override
-  void dispose() {
-    _nombre.dispose();
-    _areaNombre.dispose();
-    for (final i in _items) {
-      i.dispose();
-    }
-    super.dispose();
-  }
-
-  String _areaIdDesdeNombre(String n) => n
-      .trim()
-      .toLowerCase()
-      .replaceAll(RegExp(r'[áà]'), 'a')
-      .replaceAll(RegExp(r'[éè]'), 'e')
-      .replaceAll(RegExp(r'[íì]'), 'i')
-      .replaceAll(RegExp(r'[óò]'), 'o')
-      .replaceAll(RegExp(r'[úù]'), 'u')
-      .replaceAll('ñ', 'n')
-      .replaceAll(RegExp(r'[^a-z0-9]+'), '_');
-
-  Future<void> _guardar() async {
-    final areaId = _areaId.isNotEmpty
-        ? _areaId
-        : _areaIdDesdeNombre(_areaNombre.text);
-    final f = VisitaFormato(
-      id: widget.formato.id,
-      empresaId: widget.formato.empresaId,
-      areaId: areaId,
-      areaNombre: widget.areas[areaId] ?? _areaNombre.text.trim(),
-      nombre: _nombre.text.trim(),
-      estado: _estado,
-      predeterminado: _estado != kFormatoRetirado && _predeterminado,
-      // Cambiar ítems de un formato ya usado es una versión nueva; así el
-      // informe de una visita vieja dice con qué versión se hizo.
-      version: widget.formato.id.isEmpty ? 1 : widget.formato.version + 1,
-      items: [
-        for (var i = 0; i < _items.length; i++)
-          VisitaFormatoItem(
-            id: _items[i].id,
-            orden: i + 1,
-            seccion: _items[i].seccion.text.trim(),
-            texto: _items[i].texto.text.trim(),
-            requiereEvidencia: _items[i].requiereEvidencia,
-            tipo: _items[i].tipo,
-            parte: _items[i].parte,
-            unidad: _items[i].unidad.text.trim(),
-          ),
-      ],
-      // Partes y tablas no se editan aquí: vienen del formato generado.
-      partes: widget.formato.partes,
-      tablas: widget.formato.tablas,
-      cargos: _cargos.toList()
-        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase())),
-    );
-    final errores = validarFormato(f);
-    if (errores.isNotEmpty) {
-      _snack(context, errores.first, error: true);
-      return;
-    }
-    setState(() => _guardando = true);
-    try {
-      await widget.svc.guardarFormato(f, actorId: widget.userId);
-      if (mounted) Navigator.pop(context);
-    } catch (e) {
-      if (mounted) {
-        setState(() => _guardando = false);
-        _snack(context, 'No se pudo guardar: $e', error: true);
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: kVisitasColor,
-        foregroundColor: Colors.white,
-        title: Text(
-          widget.formato.id.isEmpty ? 'Nuevo formato' : 'Editar formato',
-          style: const TextStyle(fontFamily: _kFont),
-        ),
-        actions: [
-          TextButton(
-            onPressed: _guardando ? null : _guardar,
-            child: Text(
-              _guardando ? 'Guardando…' : 'Guardar',
-              style: const TextStyle(color: Colors.white),
-            ),
-          ),
-        ],
-      ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 760),
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              if (widget.formato.areaId.isEmpty && widget.areas.isNotEmpty)
-                DropdownButtonFormField<String>(
-                  initialValue: _areaId.isEmpty ? null : _areaId,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Área del formato',
-                  ),
-                  items: [
-                    for (final e in widget.areas.entries)
-                      DropdownMenuItem(value: e.key, child: Text(e.value)),
-                  ],
-                  onChanged: widget.areaFija.isNotEmpty
-                      ? null
-                      : (value) => setState(() => _areaId = value ?? ''),
-                )
-              else
-                TextField(
-                  controller: _areaNombre,
-                  enabled: widget.formato.areaId.isEmpty,
-                  decoration: const InputDecoration(
-                    labelText: 'Área (Calidad, HSE, Mantenimiento, Nutrición…)',
-                  ),
-                ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _nombre,
-                decoration: const InputDecoration(
-                  labelText: 'Nombre del formato',
-                ),
-              ),
-              const SizedBox(height: 10),
-              DropdownButtonFormField<String>(
-                initialValue: _estado,
-                decoration: const InputDecoration(labelText: 'Estado'),
-                items: const [
-                  DropdownMenuItem(
-                    value: kFormatoBorrador,
-                    child: Text('Borrador (se puede usar, marcado como tal)'),
-                  ),
-                  DropdownMenuItem(
-                    value: kFormatoVigente,
-                    child: Text('Vigente'),
-                  ),
-                  DropdownMenuItem(
-                    value: kFormatoRetirado,
-                    child: Text('Retirado (no se ofrece)'),
-                  ),
-                ],
-                onChanged: (v) =>
-                    setState(() => _estado = v ?? kFormatoBorrador),
-              ),
-              SwitchListTile.adaptive(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Formato predeterminado del área'),
-                subtitle: const Text(
-                  'Se propondrá al programar visitas de los profesionales de esta área.',
-                ),
-                value: _predeterminado && _estado != kFormatoRetirado,
-                onChanged: _estado == kFormatoRetirado
-                    ? null
-                    : (value) => setState(() => _predeterminado = value),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Cargos a los que aplica',
-                style: TextStyle(
-                  fontFamily: _kFont,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const Text(
-                'Sin cargos, el formato aplica a todo el área. Con cargos, al '
-                'programar se propone a quien tenga uno de ellos.',
-                style: TextStyle(fontSize: 12, color: Colors.black54),
-              ),
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  for (final c in _cargos.toList()..sort())
-                    InputChip(
-                      label: Text(c),
-                      onDeleted: () => setState(() => _cargos.remove(c)),
-                    ),
-                  if (_cargos.isEmpty) const Chip(label: Text('Todo el área')),
-                ],
-              ),
-              const SizedBox(height: 6),
-              DropdownButtonFormField<String>(
-                key: ValueKey('cargos-${_cargos.length}'),
-                isExpanded: true,
-                decoration: const InputDecoration(
-                  labelText: 'Agregar cargo',
-                  isDense: true,
-                ),
-                items: [
-                  for (final c in _cargosEmpresa)
-                    if (!_cargos.contains(c))
-                      DropdownMenuItem(value: c, child: Text(c)),
-                ],
-                onChanged: (c) {
-                  if (c != null) setState(() => _cargos.add(c));
-                },
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      'Ítems',
-                      style: TextStyle(
-                        fontFamily: _kFont,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  TextButton.icon(
-                    onPressed: () => setState(
-                      () => _items.add(_ItemEdit.nuevo(_items.length + 1)),
-                    ),
-                    icon: const Icon(Icons.add),
-                    label: const Text('Ítem'),
-                  ),
-                ],
-              ),
-              for (var i = 0; i < _items.length; i++)
-                Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${i + 1}.',
-                          style: const TextStyle(
-                            fontFamily: _kFont,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            children: [
-                              TextField(
-                                controller: _items[i].seccion,
-                                decoration: const InputDecoration(
-                                  isDense: true,
-                                  labelText: 'Sección',
-                                ),
-                              ),
-                              TextField(
-                                controller: _items[i].texto,
-                                decoration: const InputDecoration(
-                                  isDense: true,
-                                  labelText: 'Qué se revisa',
-                                ),
-                              ),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: DropdownButtonFormField<String>(
-                                      initialValue: _items[i].tipo,
-                                      isDense: true,
-                                      decoration: const InputDecoration(
-                                        isDense: true,
-                                        labelText: 'Tipo de respuesta',
-                                      ),
-                                      items: const [
-                                        DropdownMenuItem(
-                                          value: kItemTipoCalificacion,
-                                          child: Text('1 / 0 / NA'),
-                                        ),
-                                        DropdownMenuItem(
-                                          value: kItemTipoSiNo,
-                                          child: Text('Sí / No'),
-                                        ),
-                                        DropdownMenuItem(
-                                          value: kItemTipoElemento,
-                                          child: Text(
-                                            'Elemento (cantidad y vencimiento)',
-                                          ),
-                                        ),
-                                      ],
-                                      onChanged: (v) => setState(
-                                        () => _items[i].tipo =
-                                            v ?? kItemTipoCalificacion,
-                                      ),
-                                    ),
-                                  ),
-                                  if (_items[i].tipo == kItemTipoElemento) ...[
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: TextField(
-                                        controller: _items[i].unidad,
-                                        decoration: const InputDecoration(
-                                          isDense: true,
-                                          labelText: 'Cantidad esperada',
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                              if (_items[i].parte.isNotEmpty)
-                                Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: Padding(
-                                    padding: const EdgeInsets.only(top: 4),
-                                    child: Text(
-                                      'Parte ${_items[i].parte}',
-                                      style: const TextStyle(
-                                        fontFamily: _kFont,
-                                        fontSize: 11,
-                                        color: Colors.black54,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              SwitchListTile(
-                                dense: true,
-                                contentPadding: EdgeInsets.zero,
-                                title: const Text(
-                                  'Exigir foto si no cumple',
-                                  style: TextStyle(
-                                    fontFamily: _kFont,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                                value: _items[i].requiereEvidencia,
-                                onChanged: (v) => setState(
-                                  () => _items[i].requiereEvidencia = v,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Column(
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.arrow_upward, size: 18),
-                              onPressed: i == 0
-                                  ? null
-                                  : () => setState(
-                                      () => _items.insert(
-                                        i - 1,
-                                        _items.removeAt(i),
-                                      ),
-                                    ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.arrow_downward, size: 18),
-                              onPressed: i == _items.length - 1
-                                  ? null
-                                  : () => setState(
-                                      () => _items.insert(
-                                        i + 1,
-                                        _items.removeAt(i),
-                                      ),
-                                    ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.delete_outline, size: 18),
-                              onPressed: () =>
-                                  setState(() => _items.removeAt(i).dispose()),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ItemEdit {
-  final String id;
-  final TextEditingController seccion;
-  final TextEditingController texto;
-  final TextEditingController unidad;
-  bool requiereEvidencia;
-  String tipo;
-  final String parte;
-  _ItemEdit({
-    required this.id,
-    required String seccion,
-    required String texto,
-    required this.requiereEvidencia,
-    this.tipo = kItemTipoCalificacion,
-    this.parte = '',
-    String unidad = '',
-  }) : seccion = TextEditingController(text: seccion),
-       texto = TextEditingController(text: texto),
-       unidad = TextEditingController(text: unidad);
-
-  factory _ItemEdit.de(VisitaFormatoItem it) => _ItemEdit(
-    id: it.id,
-    seccion: it.seccion,
-    texto: it.texto,
-    requiereEvidencia: it.requiereEvidencia,
-    tipo: it.tipo,
-    parte: it.parte,
-    unidad: it.unidad,
-  );
-
-  factory _ItemEdit.nuevo(int n) => _ItemEdit(
-    id: 'it_${DateTime.now().millisecondsSinceEpoch}_$n',
-    seccion: '',
-    texto: '',
-    requiereEvidencia: false,
-  );
-
-  void dispose() {
-    seccion.dispose();
-    texto.dispose();
-    unidad.dispose();
-  }
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// Consolidado mensual por área
-// ═════════════════════════════════════════════════════════════════════════════
-
-class _ConsolidadoTab extends StatefulWidget {
-  final VisitasService svc;
-  final String empresaId;
-  final String userId;
-  final bool esDesarrollador;
-  const _ConsolidadoTab({
-    required this.svc,
-    required this.empresaId,
-    required this.userId,
-    required this.esDesarrollador,
-  });
-
-  @override
-  State<_ConsolidadoTab> createState() => _ConsolidadoTabState();
-}
-
-class _ConsolidadoTabState extends State<_ConsolidadoTab> {
-  late final Stream<List<VisitaProfesional>> _visitas;
-  late final Stream<List<VisitaFormato>> _formatos;
-  late DateTime _mes;
-  String _areaId = '';
-  bool _ocupado = false;
-
-  @override
-  void initState() {
-    super.initState();
-    final now = DateTime.now();
-    _mes = DateTime(now.year, now.month);
-    // Consulta conserva la vista general; la jefatura ve su área.
-    _visitas = widget.esDesarrollador
-        ? widget.svc.streamVisitas(widget.empresaId)
-        : widget.svc
-              .areaDeUsuario(widget.empresaId, widget.userId)
-              .asStream()
-              .asyncExpand(
-                (area) =>
-                    widget.svc.streamVisitas(widget.empresaId, areaId: area),
-              );
-    _formatos = widget.esDesarrollador
-        ? widget.svc.streamFormatos(widget.empresaId)
-        : widget.svc
-              .areaDeUsuario(widget.empresaId, widget.userId)
-              .asStream()
-              .asyncExpand(
-                (area) =>
-                    widget.svc.streamFormatos(widget.empresaId, areaId: area),
-              );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<List<VisitaFormato>>(
-      stream: _formatos,
-      builder: (context, fSnap) {
-        final formatos = fSnap.data ?? const <VisitaFormato>[];
-        final areas = <String, String>{};
-        for (final f in formatos) {
-          areas.putIfAbsent(f.areaId, () => f.areaNombre);
-        }
-        if (_areaId.isEmpty && areas.isNotEmpty) _areaId = areas.keys.first;
-        return StreamBuilder<List<VisitaProfesional>>(
-          stream: _visitas,
-          builder: (context, vSnap) {
-            if (!vSnap.hasData)
-              return const Center(child: CircularProgressIndicator());
-            final delMes = vSnap.data!
-                .where((v) => visitaEnMes(v, _mes.year, _mes.month))
-                .where((v) => _areaId.isEmpty || v.areaId == _areaId)
-                .toList();
-            final c = consolidarMes(
-              delMes,
-              formatos: {for (final f in formatos) f.id: f},
-            );
-            final ancho = MediaQuery.of(context).size.width;
-            return ListView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              children: [
-                _MesSelector(
-                  mes: _mes,
-                  onChanged: (m) => setState(() => _mes = m),
-                  trailing: DropdownButton<String>(
-                    value: areas.containsKey(_areaId) ? _areaId : null,
-                    hint: const Text('Área'),
-                    underline: const SizedBox.shrink(),
-                    items: [
-                      for (final e in areas.entries)
-                        DropdownMenuItem(value: e.key, child: Text(e.value)),
-                    ],
-                    onChanged: (v) => setState(() => _areaId = v ?? ''),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _Kpi(
-                      'Terminadas',
-                      '${c.visitasTerminadas}',
-                      const Color(0xFF16A34A),
-                    ),
-                    _Kpi(
-                      'Sin realizar',
-                      '${c.visitasProgramadas}',
-                      const Color(0xFF2563EB),
-                    ),
-                    _Kpi(
-                      'Canceladas',
-                      '${c.visitasCanceladas}',
-                      const Color(0xFF9CA3AF),
-                    ),
-                    _Kpi(
-                      'Cumplimiento',
-                      c.promedioGeneral == null ? '—' : '${c.promedioGeneral}%',
-                      _colorCumplimiento(c.promedioGeneral),
-                    ),
-                    _Kpi(
-                      'Hallazgos',
-                      '${c.hallazgos}',
-                      const Color(0xFFDC2626),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: kVisitasColor,
-                    ),
-                    onPressed: _ocupado || c.visitasTerminadas == 0
-                        ? null
-                        : () => _pdf(c, areas[_areaId] ?? 'Todas', delMes),
-                    icon: const Icon(Icons.picture_as_pdf_outlined),
-                    label: Text(
-                      _ocupado ? 'Generando…' : 'Informe consolidado PDF',
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Por establecimiento (peores primero)',
-                  style: TextStyle(
-                    fontFamily: _kFont,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                if (c.porEstablecimiento.isEmpty)
-                  const Text(
-                    'Sin visitas terminadas en el mes.',
-                    style: TextStyle(fontFamily: _kFont, color: Colors.black54),
-                  )
-                else if (ancho >= 900)
-                  PagedDataTable(
-                    etiqueta: 'establecimientos',
-                    tabla: DataTable(
-                      columns: const [
-                        DataColumn(label: Text('Establecimiento')),
-                        DataColumn(label: Text('Visitas'), numeric: true),
-                        DataColumn(label: Text('Cumplimiento'), numeric: true),
-                        DataColumn(label: Text('Hallazgos'), numeric: true),
-                      ],
-                      rows: [
-                        for (final e in c.porEstablecimiento)
-                          DataRow(
-                            cells: [
-                              DataCell(Text(e.nombre)),
-                              DataCell(Text('${e.visitas}')),
-                              DataCell(
-                                Text(
-                                  e.promedio == null ? '—' : '${e.promedio}%',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    color: _colorCumplimiento(e.promedio),
-                                  ),
-                                ),
-                              ),
-                              DataCell(Text('${e.hallazgos}')),
-                            ],
-                          ),
-                      ],
-                    ),
-                  )
-                else
-                  PagedListSection<ConsolidadoEstablecimiento>(
-                    items: c.porEstablecimiento,
-                    etiqueta: 'establecimientos',
-                    itemBuilder: (context, e, _) => Card(
-                      margin: const EdgeInsets.only(bottom: 6),
-                      child: ListTile(
-                        dense: true,
-                        title: Text(
-                          e.nombre,
-                          style: const TextStyle(
-                            fontFamily: _kFont,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        subtitle: Text(
-                          '${e.visitas} visita(s) · ${e.hallazgos} hallazgo(s)',
-                          style: const TextStyle(
-                            fontFamily: _kFont,
-                            fontSize: 12,
-                          ),
-                        ),
-                        trailing: Text(
-                          e.promedio == null ? '—' : '${e.promedio}%',
-                          style: TextStyle(
-                            fontFamily: _kFont,
-                            fontWeight: FontWeight.w800,
-                            color: _colorCumplimiento(e.promedio),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                if (c.itemsCriticos.isNotEmpty) ...[
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Lo que más se incumple',
-                    style: TextStyle(
-                      fontFamily: _kFont,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  for (final i in c.itemsCriticos.take(10))
-                    ListTile(
-                      dense: true,
-                      leading: CircleAvatar(
-                        radius: 14,
-                        backgroundColor: const Color(0xFFFEE2E2),
-                        child: Text(
-                          '${i.incumplimientos}',
-                          style: const TextStyle(
-                            fontFamily: _kFont,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFFB91C1C),
-                          ),
-                        ),
-                      ),
-                      title: Text(
-                        i.texto,
-                        style: const TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ),
-                ],
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<void> _pdf(
-    ConsolidadoMensual c,
-    String areaNombre,
-    List<VisitaProfesional> visitas,
-  ) async {
-    setState(() => _ocupado = true);
-    try {
-      final bytes = await generarConsolidadoMensual(
-        c: c,
-        areaNombre: areaNombre,
-        anio: _mes.year,
-        mes: _mes.month,
-        empresaNombre: await _nombreEmpresa(widget.empresaId),
-        visitas: visitas,
-      );
-      await entregarPdf(
-        bytes,
-        'Consolidado_visitas_${areaNombre}_${_mes.year}_${_mes.month.toString().padLeft(2, '0')}'
-            .replaceAll(RegExp(r'[^\w\-]+'), '_'),
-      );
-    } catch (e) {
-      if (mounted) _snack(context, 'No se pudo generar: $e', error: true);
-    } finally {
-      if (mounted) setState(() => _ocupado = false);
-    }
-  }
-}
-
-class _Kpi extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color color;
-  const _Kpi(this.label, this.value, this.color);
-  @override
-  Widget build(BuildContext context) => Container(
-    width: 130,
-    padding: const EdgeInsets.all(10),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: .08),
-      borderRadius: BorderRadius.circular(10),
-      border: Border.all(color: color.withValues(alpha: .35)),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontFamily: _kFont,
-            fontSize: 11,
-            color: Colors.black54,
-          ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            fontFamily: _kFont,
-            fontSize: 20,
-            fontWeight: FontWeight.w800,
-            color: color,
-          ),
-        ),
-      ],
     ),
   );
 }
@@ -5853,6 +6078,10 @@ class _FirmarEstablecimientoScreenState
           : v.responsableEstablecimiento.nombre,
       cargoInicial: v.responsableEstablecimiento.cargo,
       firmaGuardada: guardada,
+      // Firma con su cuenta: nombre y cargo son los de la persona elegida en
+      // el acta, fijos (26 sep 2026).
+      nombreEditable: v.responsableEstablecimiento.userId.isEmpty,
+      cargoEditable: v.responsableEstablecimiento.userId.isEmpty,
     );
     if (cap == null || !mounted) return;
     setState(() => _ocupado = true);
@@ -5980,13 +6209,11 @@ class _FirmarEstablecimientoScreenState
                         );
                       }(),
                     ],
-                    if (v.observacionGeneral.trim().isNotEmpty) ...[
-                      const Divider(height: 24),
-                      Text('Observación general: ${v.observacionGeneral}'),
-                    ],
+                    const Divider(height: 24),
+                    _ObservacionGeneralLectura(texto: v.observacionGeneral),
                     const Divider(height: 24),
                     FirmaTile(
-                      titulo: 'Responsable de inspección',
+                      titulo: 'Profesional que realiza la visita',
                       firma: v.firmaProfesional,
                     ),
                     FirmaTile(

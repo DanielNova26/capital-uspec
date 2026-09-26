@@ -516,6 +516,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted || _lastVisitasKey != key) return;
     final esJefe =
         rol == kVisitasRolJefe ||
+        rol == kVisitasRolGerencia ||
         isDeveloperUser(userData, empresaId: empresaId);
     if (!esJefe) return;
     _visitasJefeSub = col

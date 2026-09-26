@@ -113,7 +113,15 @@ service cloud.firestore {
     function administraVisitas(empresaId) {
       return belongsToCompany(empresaId)
         && (isDeveloper() || isDeveloperIn(empresaId)
-          || hasVisitasRole(empresaId, ['jefe']));
+          || hasVisitasRole(empresaId, ['jefe', 'gerencia']));
+    }
+
+    // Gerencia (26 sep 2026): "es el jefe de todos, puede ver absolutamente
+    // todo y hacer todos los formatos". En Visitas tiene el alcance de
+    // Desarrollo: todas las áreas y el maestro de ubicaciones. El rol lo da
+    // Desarrollo; Gerencia no se nombra a sí misma ni a otra Gerencia.
+    function esGerenciaVisitas(empresaId) {
+      return hasVisitasRole(empresaId, ['gerencia']);
     }
 
     function areaVisitasUsuario(empresaId, userId) {
@@ -125,6 +133,7 @@ service cloud.firestore {
     function administraVisitasArea(empresaId, areaId) {
       return belongsToCompany(empresaId)
         && (isDeveloper() || isDeveloperIn(empresaId)
+          || esGerenciaVisitas(empresaId)
           || (areaId is string && areaId.size() > 0
             && hasVisitasRole(empresaId, ['jefe'])
             && areaVisitasUsuario(empresaId, request.auth.token.userDocId) == areaId));
@@ -330,18 +339,25 @@ service cloud.firestore {
           || resource.data.userId == request.auth.token.userDocId);
       allow create: if belongsToCompany(request.resource.data.empresaId)
         && docId == request.resource.data.empresaId + '_' + request.resource.data.userId
-        && request.resource.data.rol in ['jefe', 'profesional', 'consulta', 'firmante']
+        && request.resource.data.rol in ['jefe', 'profesional', 'consulta', 'firmante', 'gerencia']
         && request.resource.data.areaId is string
         && (isDeveloper() || isDeveloperIn(request.resource.data.empresaId)
+          || (request.resource.data.rol != 'gerencia'
+            && request.resource.data.userId != request.auth.token.userDocId
+            && esGerenciaVisitas(request.resource.data.empresaId))
           || (request.resource.data.rol == 'profesional'
             && administraVisitasArea(request.resource.data.empresaId,
               request.resource.data.areaId)));
       allow update: if resource.data.empresaId == request.resource.data.empresaId
         && resource.data.userId == request.resource.data.userId
         && belongsToCompany(resource.data.empresaId)
-        && request.resource.data.rol in ['jefe', 'profesional', 'consulta', 'firmante']
+        && request.resource.data.rol in ['jefe', 'profesional', 'consulta', 'firmante', 'gerencia']
         && request.resource.data.areaId is string
         && (isDeveloper() || isDeveloperIn(resource.data.empresaId)
+          || (resource.data.rol != 'gerencia'
+            && request.resource.data.rol != 'gerencia'
+            && resource.data.userId != request.auth.token.userDocId
+            && esGerenciaVisitas(resource.data.empresaId))
           || (resource.data.rol == 'profesional'
             && request.resource.data.rol == 'profesional'
             && resource.data.areaId == request.resource.data.areaId
@@ -350,6 +366,9 @@ service cloud.firestore {
               resource.data.areaId)));
       allow delete: if belongsToCompany(resource.data.empresaId)
         && (isDeveloper() || isDeveloperIn(resource.data.empresaId)
+          || (resource.data.rol != 'gerencia'
+            && resource.data.userId != request.auth.token.userDocId
+            && esGerenciaVisitas(resource.data.empresaId))
           || (resource.data.rol == 'profesional'
             && resource.data.userId != request.auth.token.userDocId
             && administraVisitasArea(resource.data.empresaId,
@@ -377,7 +396,7 @@ service cloud.firestore {
         || participaEnVisitas(resource.data.empresaId);
       allow list: if belongsToCompany(resource.data.empresaId)
         && (isDeveloper() || isDeveloperIn(resource.data.empresaId)
-          || hasVisitasRole(resource.data.empresaId, ['consulta'])
+          || hasVisitasRole(resource.data.empresaId, ['consulta', 'gerencia'])
           || (hasVisitasRole(resource.data.empresaId, ['jefe', 'profesional'])
             && resource.data.areaId == areaVisitasUsuario(
               resource.data.empresaId, request.auth.token.userDocId)));
@@ -444,7 +463,8 @@ service cloud.firestore {
                   .hasOnly(['respuestas', 'tablas', 'observacionGeneral',
                     'responsableEstablecimiento', 'ciudad', 'cargoProfesional',
                     'firmaProfesional', 'firmaEstablecimiento',
-                    'firmanteEstablecimientoId', 'updatedAt'])
+                    'firmanteEstablecimientoId', 'evidenciasAdicionales',
+                    'updatedAt'])
                 && firmaVisitaSinCambiosDeContenido())
               || (resource.data.estado == 'en_curso'
                 && request.resource.data.estado == 'terminada'
@@ -535,16 +555,20 @@ service cloud.firestore {
 
     // Maestro de ubicaciones de los establecimientos: lo lee cualquiera
     // que participe en Visitas (el profesional lo necesita para iniciar),
-    // lo escribe solo Desarrollo. No es un rol del módulo a propósito.
+    // lo escriben Desarrollo y Gerencia (26 sep 2026). Ni los profesionales
+    // ni los jefes de área: es lo que decide si una visita se puede iniciar.
     match /TBL_VISITAS_UBICACIONES/{docId} {
       allow get: if resource == null
         || participaEnVisitas(resource.data.empresaId);
       allow list: if participaEnVisitas(resource.data.empresaId);
       allow create: if belongsToCompany(request.resource.data.empresaId)
-        && (isDeveloper() || isDeveloperIn(request.resource.data.empresaId));
+        && (isDeveloper() || isDeveloperIn(request.resource.data.empresaId)
+          || esGerenciaVisitas(request.resource.data.empresaId));
       allow update: if resource.data.empresaId == request.resource.data.empresaId
-        && (isDeveloper() || isDeveloperIn(resource.data.empresaId));
-      allow delete: if isDeveloper() || isDeveloperIn(resource.data.empresaId);
+        && (isDeveloper() || isDeveloperIn(resource.data.empresaId)
+          || esGerenciaVisitas(resource.data.empresaId));
+      allow delete: if isDeveloper() || isDeveloperIn(resource.data.empresaId)
+        || esGerenciaVisitas(resource.data.empresaId);
     }
 
     // La colección de roles no puede quedar en el fallback general: de otro

@@ -81,6 +81,11 @@ Future<RutasImagenResultado> generarEvidenciaConMarca({
   int jpgQuality = 82,
   int thumbWidth = 360,
   int quarterTurns = 0,
+  // Color de la franja sobre la banda (verde de Rutas por defecto) y texto
+  // opcional en diagonal sobre la foto: Visitas lo usa como marca de agua
+  // para que la foto no se pueda pasar por evidencia de otra visita.
+  ui.Color acento = const ui.Color(0xFF15803D),
+  String? marcaDiagonal,
 }) async {
   var base = await _decodeUi(fotoBytes);
   // Endereza la foto ANTES de la banda: así la marca de agua siempre queda
@@ -103,6 +108,32 @@ Future<RutasImagenResultado> generarEvidenciaConMarca({
 
   canvas.drawImage(base, ui.Offset.zero, ui.Paint());
 
+  if (marcaDiagonal != null && marcaDiagonal.trim().isNotEmpty) {
+    final lado = math.min(w, h).toDouble();
+    final marca =
+        (ui.ParagraphBuilder(
+                ui.ParagraphStyle(textAlign: ui.TextAlign.center, maxLines: 2),
+              )
+              ..pushStyle(
+                ui.TextStyle(
+                  color: const ui.Color(0x55FFFFFF),
+                  fontSize: (lado * 0.075).clamp(22.0, 90.0).toDouble(),
+                  fontWeight: ui.FontWeight.w800,
+                  shadows: const [
+                    ui.Shadow(color: ui.Color(0x55000000), blurRadius: 4),
+                  ],
+                ),
+              )
+              ..addText(marcaDiagonal))
+            .build()
+          ..layout(ui.ParagraphConstraints(width: w * 0.95));
+    canvas.save();
+    canvas.translate(w / 2, h / 2);
+    canvas.rotate(-math.pi / 7);
+    canvas.drawParagraph(marca, ui.Offset(-w * 0.95 / 2, -marca.height / 2));
+    canvas.restore();
+  }
+
   // Banda inferior legible fuera de la foto: no cubre evidencia visual.
   canvas.drawRRect(
     ui.RRect.fromRectAndCorners(
@@ -114,7 +145,7 @@ Future<RutasImagenResultado> generarEvidenciaConMarca({
   );
   canvas.drawRect(
     ui.Rect.fromLTWH(0, bandTop, w.toDouble(), 4),
-    ui.Paint()..color = const ui.Color(0xFF15803D),
+    ui.Paint()..color = acento,
   );
 
   final padding = (w * 0.022).clamp(14.0, 28.0).toDouble();

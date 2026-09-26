@@ -479,7 +479,7 @@ class VisitasService {
   }
 
   /// Cargo del usuario en la empresa, para el encabezado del acta
-  /// ("RESPONSABLE INSPECCIÓN / CARGO"). Vacío si no lo tiene.
+  /// ("PROFESIONAL / CARGO"). Vacío si no lo tiene.
   Future<String> cargoDe({
     required String empresaId,
     required String userId,
@@ -786,12 +786,14 @@ class VisitasService {
     }
     final areaJefe = await areaDeUsuario(v.empresaId, v.asignadoPorId);
     if (areaJefe != v.areaId) {
-      // Desarrollo puede administrar varias áreas; Firestore decide esa excepción.
-      final actor = await _db
-          .collection('TBL_USUARIOS')
-          .doc(v.asignadoPorId)
-          .get();
-      if (!isDeveloperUser(actor.data() ?? {}, empresaId: v.empresaId)) {
+      // Desarrollo y Gerencia administran todas las áreas; Firestore decide
+      // esa excepción.
+      final rolActor = await getRolUsuario(v.empresaId, v.asignadoPorId);
+      final actor = rolActor == kVisitasRolGerencia
+          ? null
+          : await _db.collection('TBL_USUARIOS').doc(v.asignadoPorId).get();
+      if (rolActor != kVisitasRolGerencia &&
+          !isDeveloperUser(actor?.data() ?? {}, empresaId: v.empresaId)) {
         throw const VisitasException(
           'Solo la jefatura de esta área puede programar la visita.',
         );
@@ -1135,6 +1137,27 @@ class VisitasService {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
+  /// Reemplaza las evidencias adicionales (fotos fuera de las preguntas).
+  Future<void> guardarEvidenciasAdicionales(
+    String visitaId,
+    List<VisitaEvidencia> evidencias,
+  ) => _visitas.doc(visitaId).update({
+    'evidenciasAdicionales': evidencias.map((e) => e.toMap()).toList(),
+    'updatedAt': FieldValue.serverTimestamp(),
+  });
+
+  /// Bytes de una foto para los anexos del informe. Por el SDK de Storage
+  /// primero (en web no depende de que la URL pase CORS); si no, null y el
+  /// PDF la intenta por la URL.
+  Future<Uint8List?> bytesEvidencia(VisitaEvidencia e) async {
+    if (e.path.isEmpty) return null;
+    try {
+      return await _storage.ref(e.path).getData(12 * 1024 * 1024);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<VisitaEvidencia> subirEvidencia({
     required String empresaId,
     required String visitaId,
@@ -1142,6 +1165,8 @@ class VisitasService {
     required Uint8List bytes,
     required String nombre,
     String contentType = 'image/jpeg',
+    String descripcion = '',
+    bool conMarca = false,
   }) async {
     final stamp = DateTime.now().millisecondsSinceEpoch;
     final path = 'visitas/$empresaId/$visitaId/$itemId/${stamp}_$nombre';
@@ -1170,6 +1195,8 @@ class VisitasService {
       path: path,
       nombre: nombre,
       tomadaEn: Timestamp.now(),
+      descripcion: descripcion,
+      conMarca: conMarca,
     );
   }
 
