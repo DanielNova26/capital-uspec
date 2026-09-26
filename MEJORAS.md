@@ -6,6 +6,34 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Maestro › Revisión: cambiar la persona de una sede desde ahí — 26 sep 2026 (Claude)
+
+Pedido: "poder editar desde ahí, seleccionar a otra persona, más grupal" y
+ver el centro de operación y de trabajo para asignar.
+
+- La matriz dice qué CARGO responde; la persona es quien tiene ese cargo y
+  cubre la sede (centros de operación, de trabajo o grupo de Interventoría,
+  lo que guarda Talento Humano › Estructura organizacional). Cambiar a la
+  persona de una sede = cambiar esa cobertura.
+- Por establecimiento: cada fila tiene un lápiz para "quién responde" y
+  "quién aprueba". El diálogo lista a quienes tienen el cargo con su
+  cobertura ("Grupo G1 · Opera en … · Trabaja en …"), permite cubrir **solo
+  esa sede** (se agrega a sus centros de operación) o **todo el grupo** (se
+  agrega el grupo: un coordinador de calidad por grupo), y quita la sede a
+  quien la cubría con el mismo cargo. Antes de guardar muestra cómo queda
+  (`planearCambioEnSede`), y avisa si alguien la sigue cubriendo por su
+  grupo o su centro de costo.
+- Se guarda en `TBL_USUARIOS` (lo que lee la asignación) y en los espejos
+  de Talento Humano (`TBL_ESTRUCTURA_ORGANIZACIONAL`, `TBL_EMPLEADOS`), con
+  las listas completas por empresa (`aplicarCambiosCobertura`).
+- Cada sede muestra su grupo y hay filtro por grupo. Las reglas sin cargos
+  (actas con catálogo propio sin llenar) salen en un solo aviso y ya no
+  marcan a todas las sedes.
+- "Quiénes lo tienen" (Cargos del maestro) muestra la cobertura de cada
+  persona.
+
+---
+
 ## Notificaciones de Interventoría, calendario y Maestro › Revisión — 25 sep 2026 (Claude)
 
 Origen: con la asignación automática de Interventoría "empezaron a llegar las

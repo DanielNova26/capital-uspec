@@ -125,7 +125,18 @@ class InterventoriaUsuario {
   final String cargo;
   final String centroId;
   final String areaId;
+
+  /// Cobertura efectiva: centros de operación + de trabajo + los de sus
+  /// grupos. Es lo que usa [cubreCentro].
   final Set<String> centrosAsignadosIds;
+
+  /// Desglose de la cobertura tal como la guarda Talento Humano, para
+  /// mostrarla y para simular un cambio (Maestro › Revisión).
+  final Set<String> centrosOperacionIds;
+  final Set<String> centrosTrabajoIds;
+
+  /// Grupos de Interventoría, normalizados (`G1`, `G9`...).
+  final Set<String> grupos;
 
   const InterventoriaUsuario({
     required this.id,
@@ -134,7 +145,27 @@ class InterventoriaUsuario {
     required this.centroId,
     required this.areaId,
     this.centrosAsignadosIds = const {},
+    this.centrosOperacionIds = const {},
+    this.centrosTrabajoIds = const {},
+    this.grupos = const {},
   });
+
+  InterventoriaUsuario copyWith({
+    Set<String>? centrosAsignadosIds,
+    Set<String>? centrosOperacionIds,
+    Set<String>? centrosTrabajoIds,
+    Set<String>? grupos,
+  }) => InterventoriaUsuario(
+    id: id,
+    nombre: nombre,
+    cargo: cargo,
+    centroId: centroId,
+    areaId: areaId,
+    centrosAsignadosIds: centrosAsignadosIds ?? this.centrosAsignadosIds,
+    centrosOperacionIds: centrosOperacionIds ?? this.centrosOperacionIds,
+    centrosTrabajoIds: centrosTrabajoIds ?? this.centrosTrabajoIds,
+    grupos: grupos ?? this.grupos,
+  );
 
   /// El centro de costos es la adscripción administrativa. La cobertura de
   /// operación/trabajo indica las sedes donde realmente puede atender visitas.
@@ -2462,6 +2493,122 @@ class InterventoriaService {
   Future<List<InterventoriaUsuario>> listarUsuariosActivos(String empresaId) =>
       _usuariosDeEmpresa(empresaId, soloAsignables: false);
 
+  /// Aplica cambios de cobertura hechos desde Maestro › Revisión › Por
+  /// establecimiento, en los mismos campos y colecciones que escribe Talento
+  /// Humano (Estructura organizacional): `TBL_USUARIOS` —de donde lee
+  /// Interventoría—, `TBL_ESTRUCTURA_ORGANIZACIONAL` y `TBL_EMPLEADOS`.
+  ///
+  /// Se escriben las listas completas dentro de `empresasDetalle.{empresa}`
+  /// (y en la raíz si es la empresa principal), no `arrayUnion`: si la
+  /// persona solo tenía los datos en la raíz, un `arrayUnion` sobre el
+  /// detalle crearía una lista con un único centro y le borraría el resto de
+  /// su cobertura en esta empresa.
+  Future<void> aplicarCambiosCobertura({
+    required String empresaId,
+    required List<CambioCobertura> cambios,
+    Map<String, String> nombresCentro = const {},
+  }) async {
+    Set<String> lista(Object? raw) => raw is Iterable && raw is! String
+        ? raw.map((v) => v.toString().trim()).where((v) => v.isNotEmpty).toSet()
+        : <String>{};
+    String texto(Object? raw) => (raw ?? '').toString().trim();
+
+    for (final cambio in cambios.where((c) => !c.vacio)) {
+      Map<String, dynamic>? payload;
+      final userRef = _db.collection('TBL_USUARIOS').doc(cambio.userId);
+      await _db.runTransaction((trx) async {
+        final snap = await trx.get(userRef);
+        final data = snap.data();
+        if (data == null) return;
+        final detalle = data['empresasDetalle'];
+        final scoped = detalle is Map && detalle[empresaId] is Map
+            ? Map<String, dynamic>.from(detalle[empresaId] as Map)
+            : const <String, dynamic>{};
+        final raiz = puedeUsarDatosRaizInterventoria(data, empresaId)
+            ? data
+            : const <String, dynamic>{};
+        Object? leer(String clave) => scoped[clave] ?? raiz[clave];
+
+        final operacion = lista(leer('centrosOperacionIds'));
+        final legacyOperacion = texto(leer('centroOperacionId'));
+        if (legacyOperacion.isNotEmpty) operacion.add(legacyOperacion);
+        final trabajo = lista(leer('centrosTrabajoIds'));
+        final legacyTrabajo = texto(leer('centroTrabajoId'));
+        if (legacyTrabajo.isNotEmpty) trabajo.add(legacyTrabajo);
+        final grupos = lista(leer('gruposInterventoria'));
+
+        operacion
+          ..addAll(cambio.agregarCentros)
+          ..removeAll(cambio.quitarCentros);
+        trabajo.removeAll(cambio.quitarCentros);
+        grupos.addAll(cambio.agregarGrupos);
+
+        String nombre(String id) => nombresCentro[id] ?? id;
+        final operacionIds = operacion.toList()..sort();
+        final trabajoIds = trabajo.toList()..sort();
+        payload = {
+          'centrosOperacionIds': operacionIds,
+          'centrosOperacionNombres': operacionIds.map(nombre).toList(),
+          'centroOperacionId': operacionIds.length == 1
+              ? operacionIds.single
+              : '',
+          'centroOperacion': operacionIds.length == 1
+              ? nombre(operacionIds.single)
+              : '',
+          'centrosTrabajoIds': trabajoIds,
+          'centrosTrabajoNombres': trabajoIds.map(nombre).toList(),
+          'centroTrabajoId': trabajoIds.length == 1 ? trabajoIds.single : '',
+          'centroTrabajo': trabajoIds.length == 1
+              ? nombre(trabajoIds.single)
+              : '',
+          'gruposInterventoria': grupos.toList()..sort(),
+        };
+        final update = <String, dynamic>{
+          'updatedAt': FieldValue.serverTimestamp(),
+        };
+        final esPrincipal = texto(data['empresaId']) == empresaId;
+        payload!.forEach((clave, valor) {
+          update['empresasDetalle.$empresaId.$clave'] = valor;
+          if (esPrincipal) update[clave] = valor;
+        });
+        trx.update(userRef, update);
+      });
+      final datos = payload;
+      if (datos == null) continue;
+
+      // Espejos de Talento Humano. Si no existen, no se crean aquí: los crea
+      // su propia pantalla con todos los datos de la persona.
+      try {
+        final orgRef = _db
+            .collection('TBL_ESTRUCTURA_ORGANIZACIONAL')
+            .doc(cambio.userId);
+        final org = await orgRef.get();
+        if (org.exists) {
+          final esPrincipal = texto(org.data()?['empresaId']) == empresaId;
+          await orgRef.update({
+            for (final e in datos.entries) ...{
+              'empresasDetalle.$empresaId.${e.key}': e.value,
+              if (esPrincipal) e.key: e.value,
+            },
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
+        final empRef = _db
+            .collection('TBL_EMPLEADOS')
+            .doc('${empresaId}_${cambio.userId}');
+        final emp = await empRef.get();
+        if (emp.exists) {
+          await empRef.set({
+            ...datos,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        }
+      } catch (_) {
+        // TBL_USUARIOS, que es lo que usa la asignación, ya quedó.
+      }
+    }
+  }
+
   Future<List<InterventoriaUsuario>> _usuariosDeEmpresa(
     String empresaId, {
     bool soloAsignables = true,
@@ -2579,21 +2726,26 @@ class InterventoriaService {
       final centroId = (scoped?['centroId'] ?? raiz['centroId'] ?? '')
           .toString()
           .trim();
-      final centrosAsignados = <String>{
-        ...stringSet(
-          scoped?['centrosOperacionIds'] ?? raiz['centrosOperacionIds'],
-        ),
-        ...stringSet(scoped?['centrosTrabajoIds'] ?? raiz['centrosTrabajoIds']),
-      };
-      for (final legacyKey in const ['centroOperacionId', 'centroTrabajoId']) {
-        final legacy = (scoped?[legacyKey] ?? raiz[legacyKey] ?? '')
-            .toString()
-            .trim();
-        if (legacy.isNotEmpty) centrosAsignados.add(legacy);
-      }
+      final operacion = stringSet(
+        scoped?['centrosOperacionIds'] ?? raiz['centrosOperacionIds'],
+      );
+      final trabajo = stringSet(
+        scoped?['centrosTrabajoIds'] ?? raiz['centrosTrabajoIds'],
+      );
+      final legacyOperacion =
+          (scoped?['centroOperacionId'] ?? raiz['centroOperacionId'] ?? '')
+              .toString()
+              .trim();
+      if (legacyOperacion.isNotEmpty) operacion.add(legacyOperacion);
+      final legacyTrabajo =
+          (scoped?['centroTrabajoId'] ?? raiz['centroTrabajoId'] ?? '')
+              .toString()
+              .trim();
+      if (legacyTrabajo.isNotEmpty) trabajo.add(legacyTrabajo);
+      final centrosAsignados = <String>{...operacion, ...trabajo};
       final grupos = stringSet(
         scoped?['gruposInterventoria'] ?? raiz['gruposInterventoria'],
-      ).map(normalizarGrupoCentroCosto);
+      ).map(normalizarGrupoCentroCosto).where((g) => g.isNotEmpty).toSet();
       for (final grupo in grupos) {
         centrosAsignados.addAll(centrosPorGrupo[grupo] ?? const <String>{});
       }
@@ -2611,6 +2763,9 @@ class InterventoriaService {
           centroId: centroId,
           areaId: areaId,
           centrosAsignadosIds: centrosAsignados,
+          centrosOperacionIds: operacion,
+          centrosTrabajoIds: trabajo,
+          grupos: grupos,
         ),
       );
     }

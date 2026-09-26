@@ -127,6 +127,40 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Sede A'), findsWidgets);
 
+      if (nombre == 'web') {
+        // Abrir una sede y cambiar quién responde: diálogo con vista previa.
+        Future<void> tocar(Finder f) async {
+          await tester.ensureVisible(f);
+          await tester.pumpAndSettle();
+          await tester.tap(f);
+          await tester.pumpAndSettle();
+        }
+
+        await tocar(find.text('Sede B'));
+        // La fila donde responde el Administrador (Ana, de la sede A).
+        final filaAna = find
+            .ancestor(
+              of: find.text('Ana Admin').first,
+              matching: find.byType(ConstrainedBox),
+            )
+            .first;
+        await tocar(
+          find.descendant(
+            of: filaAna,
+            matching: find.byTooltip('Cambiar quién responde aquí'),
+          ),
+        );
+        expect(find.text('Quién responde en Sede B'), findsOneWidget);
+        await tocar(find.text('Ana Admin').last);
+        expect(find.textContaining('Así queda: Ana Admin'), findsOneWidget);
+        expect(find.textContaining('se agrega Sede B'), findsOneWidget);
+        await tocar(find.text('Cancelar'));
+        await tester.scrollUntilVisible(
+          find.byIcon(Icons.assignment_late_outlined).first,
+          -300,
+        );
+      }
+
       await tester.tap(find.byIcon(Icons.assignment_late_outlined).first);
       await tester.pumpAndSettle();
       expect(

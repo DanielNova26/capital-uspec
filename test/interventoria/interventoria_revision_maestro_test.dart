@@ -253,4 +253,182 @@ void main() {
       expect(prevision.cargosQueFaltan, {'Cocinero jefe': 1});
     });
   });
+
+  // 26 sep 2026: "poder editar desde ahí, seleccionar a otra persona... más
+  // grupal". Cambiar a la persona de una sede = cambiar su cobertura.
+  group('cambiar quién responde en una sede', () {
+    const bacom = CentroCostoRef(
+      centroId: 'BAC',
+      empresaId: 'emp',
+      codigo: 'BAC',
+      nombre: 'Bacom',
+      grupo: 'G1',
+    );
+    const picota = CentroCostoRef(
+      centroId: 'PIC',
+      empresaId: 'emp',
+      codigo: 'PIC',
+      nombre: 'Picota',
+      grupo: 'G1',
+    );
+    const combita = CentroCostoRef(
+      centroId: 'COM',
+      empresaId: 'emp',
+      codigo: 'COM',
+      nombre: 'Cómbita',
+      grupo: 'G9',
+    );
+    final porGrupo = centrosPorGrupo(const [bacom, picota, combita]);
+    const gineth = InterventoriaUsuario(
+      id: 'gineth',
+      nombre: 'Gineth',
+      cargo: 'Coordinador de calidad',
+      centroId: 'OFICINA',
+      areaId: '',
+    );
+    const carlos = InterventoriaUsuario(
+      id: 'carlos',
+      nombre: 'Carlos',
+      cargo: 'Coordinador de calidad',
+      centroId: 'OFICINA',
+      areaId: '',
+    );
+    const cargos = ['Coordinador de calidad'];
+
+    test('los centros se agrupan por grupo', () {
+      expect(porGrupo, {
+        'G1': {'BAC', 'PIC'},
+        'G9': {'COM'},
+      });
+    });
+
+    test('sin cobertura, nadie responde "en la sede"', () {
+      final plan = planearCambioEnSede(
+        sede: bacom,
+        cargos: cargos,
+        elegido: carlos,
+        alcance: AlcanceCobertura.sede,
+        usuarios: const [gineth, carlos],
+        porGrupo: porGrupo,
+      );
+      expect(plan.cambios.single.userId, 'carlos');
+      expect(plan.cambios.single.agregarCentros, {'BAC'});
+      expect(plan.quedaria?.id, 'carlos');
+      expect(plan.quedaElegido, isTrue);
+    });
+
+    test('todo el grupo: un coordinador de calidad por grupo', () {
+      final plan = planearCambioEnSede(
+        sede: bacom,
+        cargos: cargos,
+        elegido: carlos,
+        alcance: AlcanceCobertura.grupo,
+        usuarios: const [gineth, carlos],
+        porGrupo: porGrupo,
+      );
+      expect(plan.cambios.single.agregarGrupos, {'G1'});
+      final conGrupo = aplicarCambioCobertura(
+        carlos,
+        plan.cambios.single,
+        porGrupo,
+      );
+      expect(conGrupo.cubreCentro('BAC'), isTrue);
+      expect(conGrupo.cubreCentro('PIC'), isTrue);
+      expect(conGrupo.cubreCentro('COM'), isFalse);
+    });
+
+    test('a quien cubría la sede con el mismo cargo se le quita', () {
+      final ginethEnBacom = gineth.copyWith(
+        centrosAsignadosIds: {'BAC', 'COM'},
+        centrosOperacionIds: {'BAC', 'COM'},
+      );
+      final plan = planearCambioEnSede(
+        sede: bacom,
+        cargos: cargos,
+        elegido: carlos,
+        alcance: AlcanceCobertura.sede,
+        usuarios: [ginethEnBacom, carlos],
+        porGrupo: porGrupo,
+      );
+      final quitar = plan.cambios.singleWhere((c) => c.userId == 'gineth');
+      expect(quitar.quitarCentros, {'BAC'});
+      expect(plan.quedaria?.id, 'carlos');
+      final despues = aplicarCambioCobertura(ginethEnBacom, quitar, porGrupo);
+      // Solo pierde Bacom; Cómbita la conserva.
+      expect(despues.centrosOperacionIds, {'COM'});
+      expect(despues.cubreCentro('COM'), isTrue);
+    });
+
+    test('si la cubre por su grupo, se avisa en vez de tocar el grupo', () {
+      final ginethG1 = gineth.copyWith(
+        grupos: {'G1'},
+        centrosAsignadosIds: {'BAC', 'PIC'},
+      );
+      final plan = planearCambioEnSede(
+        sede: bacom,
+        cargos: cargos,
+        elegido: carlos,
+        alcance: AlcanceCobertura.sede,
+        usuarios: [ginethG1, carlos],
+        porGrupo: porGrupo,
+      );
+      expect(plan.cambios.map((c) => c.userId), ['carlos']);
+      expect(plan.avisos.single, contains('grupo G1'));
+    });
+
+    test('sin quitar a los demás, la vista previa dice quién queda', () {
+      final ginethEnBacom = gineth.copyWith(
+        centrosAsignadosIds: {'BAC'},
+        centrosOperacionIds: {'BAC'},
+      );
+      final plan = planearCambioEnSede(
+        sede: bacom,
+        cargos: cargos,
+        elegido: carlos,
+        alcance: AlcanceCobertura.sede,
+        usuarios: [ginethEnBacom, carlos],
+        porGrupo: porGrupo,
+        quitarALosDemas: false,
+      );
+      // Las dos cubren Bacom con el mismo cargo; el desempate es por nombre
+      // y gana Carlos, pero la vista previa lo dice en vez de suponerlo.
+      expect(plan.quedaria?.delCentro, isTrue);
+      expect(plan.cambios.map((c) => c.userId), ['carlos']);
+    });
+
+    test('quien ya cubre la sede no necesita cambios', () {
+      final carlosEnBacom = carlos.copyWith(
+        centrosAsignadosIds: {'BAC'},
+        centrosOperacionIds: {'BAC'},
+      );
+      final plan = planearCambioEnSede(
+        sede: bacom,
+        cargos: cargos,
+        elegido: carlosEnBacom,
+        alcance: AlcanceCobertura.sede,
+        usuarios: [gineth, carlosEnBacom],
+        porGrupo: porGrupo,
+      );
+      expect(plan.cambios, isEmpty);
+      expect(plan.quedaElegido, isTrue);
+    });
+
+    test('las reglas sin cargos se cuentan una vez, no por sede', () {
+      final sinCargos = reglasSinCargos(const {});
+      expect(sinCargos['Infraestructura'], greaterThan(0));
+      final sedes = revisarSedes(
+        reglas: const {},
+        centros: const [bacom],
+        usuariosActivos: const [gineth],
+        usuariosAsignables: const [gineth],
+      );
+      expect(
+        sedes.single.grupos.every(
+          (g) =>
+              g.responsable.cargos.isNotEmpty && g.aprobador.cargos.isNotEmpty,
+        ),
+        isTrue,
+      );
+    });
+  });
 }

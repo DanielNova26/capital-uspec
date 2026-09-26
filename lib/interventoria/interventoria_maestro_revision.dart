@@ -75,6 +75,13 @@ class _InterventoriaMaestroRevisionState
   List<RevisionSede>? _sedes;
   PrevisionAsignacionPendiente? _prevision;
 
+  /// Numerales sin cargos en el maestro, por acta. Se muestran una vez y no
+  /// cuentan como problema de cada sede.
+  Map<String, int> _sinCargos = const {};
+
+  /// Grupo de establecimientos que se está mirando ('' = todos).
+  String _grupoFiltro = '';
+
   @override
   void initState() {
     super.initState();
@@ -134,6 +141,7 @@ class _InterventoriaMaestroRevisionState
       usuariosActivos: _activos,
       usuariosAsignables: _asignables,
     );
+    _sinCargos = reglasSinCargos(widget.reglas);
     // La cobertura por sede es la más costosa: se calcula al abrir su vista.
     _sedes = null;
     if (mounted) setState(() {});
@@ -400,7 +408,6 @@ class _InterventoriaMaestroRevisionState
   }
 
   Future<void> _verPersonas(RevisionCargoMaestro c) async {
-    final nombresCentro = {for (final x in _centros) x.centroId: x.nombre};
     final asignables = c.asignables.map((u) => u.id).toSet();
     await showDialog<void>(
       context: context,
@@ -421,8 +428,7 @@ class _InterventoriaMaestroRevisionState
                       subtitle: Text(
                         [
                           u.cargo,
-                          nombresCentro[u.centroId] ??
-                              (u.centroId.isEmpty ? 'Sin sede' : 'Otra sede'),
+                          _resumenCobertura(u),
                           if (!asignables.contains(u.id)) 'No recibe tareas',
                         ].join(' · '),
                       ),
@@ -564,15 +570,33 @@ class _InterventoriaMaestroRevisionState
     }
     final sedes = _sedesCalculadas;
     final conProblema = sedes.where((s) => s.bloqueados > 0).length;
-    final conFuera = sedes
-        .where((s) => s.bloqueados == 0 && s.fueraDeSede > 0)
-        .length;
-    final visibles = _soloProblemas
-        ? sedes.where((s) => s.bloqueados > 0 || s.fueraDeSede > 0).toList()
-        : sedes;
+    final conFuera = sedes.where((s) => s.fueraDeSede > 0).length;
+    final grupos = {
+      for (final c in _centros) normalizarGrupoCentroCosto(c.grupo),
+    }..remove('');
+    final ordenGrupos = grupos.toList()..sort();
+    final visibles = sedes.where((s) {
+      if (_soloProblemas && s.bloqueados == 0 && s.fueraDeSede == 0) {
+        return false;
+      }
+      if (_grupoFiltro.isEmpty) return true;
+      return normalizarGrupoCentroCosto(s.centro.grupo) == _grupoFiltro;
+    }).toList();
+    final sinCargos = _sinCargos.values.fold<int>(0, (a, b) => a + b);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (sinCargos > 0) ...[
+          _Aviso(
+            icon: Icons.rule_folder_outlined,
+            color: _kAviso,
+            texto:
+                '$sinCargos numerales no tienen cargos en el maestro '
+                '(${_sinCargos.entries.map((e) => '${e.key} ${e.value}').join(', ')}). '
+                'No cuentan como problema de cada sede: llénelos en Reglas.',
+          ),
+          const SizedBox(height: 12),
+        ],
         Wrap(
           spacing: 8,
           runSpacing: 8,
@@ -604,6 +628,28 @@ class _InterventoriaMaestroRevisionState
             onSelected: (v) => setState(() => _soloProblemas = v),
           ),
         ),
+        if (ordenGrupos.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              ChoiceChip(
+                label: const Text('Todos los grupos'),
+                selected: _grupoFiltro.isEmpty,
+                showCheckmark: false,
+                onSelected: (_) => setState(() => _grupoFiltro = ''),
+              ),
+              for (final g in ordenGrupos)
+                ChoiceChip(
+                  label: Text('Grupo $g'),
+                  selected: _grupoFiltro == g,
+                  showCheckmark: false,
+                  onSelected: (_) => setState(() => _grupoFiltro = g),
+                ),
+            ],
+          ),
+        ],
         const SizedBox(height: 10),
         if (visibles.isEmpty)
           const _Aviso(
@@ -615,14 +661,288 @@ class _InterventoriaMaestroRevisionState
           )
         else
           PagedListSection<RevisionSede>(
-            key: ValueKey('sedes|$_soloProblemas'),
+            key: ValueKey('sedes|$_soloProblemas|$_grupoFiltro'),
             items: visibles,
             etiqueta: 'establecimientos',
             separator: const SizedBox(height: 10),
-            itemBuilder: (context, sede, _) => _TarjetaSede(sede: sede),
+            itemBuilder: (context, sede, _) => _TarjetaSede(
+              sede: sede,
+              onCambiar: widget.canEdit
+                  ? (g, esResponsable) =>
+                        _cambiarPersona(sede, g, esResponsable)
+                  : null,
+            ),
           ),
       ],
     );
+  }
+
+  Map<String, String> get _nombresCentro => {
+    for (final c in _centros)
+      c.centroId: c.nombre.isEmpty ? c.codigo : c.nombre,
+  };
+
+  /// "Grupo G1 · Opera en Bacom, Picota · Trabaja en Cómbita".
+  String _resumenCobertura(InterventoriaUsuario u) {
+    final n = _nombresCentro;
+    String nombres(Iterable<String> ids) {
+      final l = ids.map((id) => n[id] ?? id).toList()..sort();
+      if (l.length <= 3) return l.join(', ');
+      return '${l.take(3).join(', ')} y ${l.length - 3} más';
+    }
+
+    final partes = [
+      if (u.grupos.isNotEmpty)
+        'Grupo ${(u.grupos.toList()..sort()).join(', ')}',
+      if (u.centrosOperacionIds.isNotEmpty)
+        'Opera en ${nombres(u.centrosOperacionIds)}',
+      if (u.centrosTrabajoIds.isNotEmpty)
+        'Trabaja en ${nombres(u.centrosTrabajoIds)}',
+    ];
+    if (partes.isNotEmpty) return partes.join(' · ');
+    return u.centroId.isEmpty
+        ? 'Sin sede asignada'
+        : 'Centro de costo ${n[u.centroId] ?? u.centroId}';
+  }
+
+  /// Cambia quién responde (o aprueba) un grupo de numerales en una sede,
+  /// ajustando la cobertura de las personas (ver `planearCambioEnSede`).
+  Future<void> _cambiarPersona(
+    RevisionSede sede,
+    GrupoReglaSede g,
+    bool esResponsable,
+  ) async {
+    final rol = esResponsable ? g.responsable : g.aprobador;
+    final usuarios = esResponsable ? _asignables : _activos;
+    final centro = sede.centro;
+    final porGrupo = centrosPorGrupo(_centros);
+    final grupo = normalizarGrupoCentroCosto(centro.grupo);
+    final nombreSede = centro.nombre.isEmpty ? centro.codigo : centro.nombre;
+    final candidatos = candidatosDeCargos(
+      rol.cargos,
+      usuarios,
+      centroId: centro.centroId,
+    );
+    if (candidatos.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Nadie ${esResponsable ? 'que reciba tareas ' : ''}tiene el cargo '
+            '${rol.cargos.join(' · ')}. Corrija el cargo en "Cargos del '
+            'maestro" o asígnelo en Talento Humano.',
+          ),
+        ),
+      );
+      return;
+    }
+    InterventoriaUsuario? elegido;
+    var alcance = AlcanceCobertura.sede;
+    var quitar = true;
+    var buscar = '';
+    final plan = await showDialog<PlanCambioSede>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialog) {
+          final consulta = normalizarCargo(buscar);
+          final visibles = consulta.isEmpty
+              ? candidatos
+              : candidatos
+                    .where(
+                      (u) => normalizarCargo(
+                        '${u.nombre} ${u.cargo}',
+                      ).contains(consulta),
+                    )
+                    .toList();
+          final e = elegido;
+          final previo = e == null
+              ? null
+              : planearCambioEnSede(
+                  sede: centro,
+                  cargos: rol.cargos,
+                  elegido: e,
+                  alcance: alcance,
+                  usuarios: usuarios,
+                  porGrupo: porGrupo,
+                  quitarALosDemas: quitar,
+                );
+          return AlertDialog(
+            title: Text(
+              '${esResponsable ? 'Quién responde' : 'Quién aprueba'} en '
+              '$nombreSede',
+            ),
+            content: SizedBox(
+              width: 580,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      '${rol.cargos.join(' · ')} · ${g.numerales.length} '
+                      '${g.numerales.length == 1 ? 'numeral' : 'numerales'}. '
+                      'Elija a la persona: se ajusta su cobertura (centros de '
+                      'operación o grupo), la misma que edita Talento Humano.',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF475569),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (candidatos.length > 6) ...[
+                      TextField(
+                        decoration: const InputDecoration(
+                          prefixIcon: Icon(Icons.search),
+                          hintText: 'Buscar persona o cargo',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        onChanged: (v) => setDialog(() => buscar = v),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                    PagedListSection<InterventoriaUsuario>(
+                      key: ValueKey(consulta),
+                      items: visibles,
+                      etiqueta: 'personas',
+                      itemBuilder: (context, u, _) {
+                        final actual = rol.persona?.id == u.id;
+                        final marcado = elegido?.id == u.id;
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          selected: marcado,
+                          leading: UserAvatar(
+                            userId: u.id,
+                            nameHint: u.nombre,
+                            radius: 16,
+                          ),
+                          title: Row(
+                            children: [
+                              Flexible(
+                                child: UserNameText(
+                                  u.id,
+                                  fallbackName: u.nombre,
+                                ),
+                              ),
+                              if (actual) ...[
+                                const SizedBox(width: 6),
+                                const Text(
+                                  'actual',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                    color: _kAccent,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          subtitle: Text(
+                            '${u.cargo} · ${_resumenCobertura(u)}',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: Icon(
+                            marcado
+                                ? Icons.radio_button_checked
+                                : Icons.radio_button_unchecked,
+                            color: marcado ? _kAccent : const Color(0xFF94A3B8),
+                          ),
+                          onTap: () => setDialog(() => elegido = u),
+                        );
+                      },
+                    ),
+                    if (grupo.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          ChoiceChip(
+                            label: Text('Solo $nombreSede'),
+                            selected: alcance == AlcanceCobertura.sede,
+                            showCheckmark: false,
+                            onSelected: (_) => setDialog(
+                              () => alcance = AlcanceCobertura.sede,
+                            ),
+                          ),
+                          ChoiceChip(
+                            label: Text(
+                              'Todo el grupo $grupo '
+                              '(${porGrupo[grupo]?.length ?? 0} sedes)',
+                            ),
+                            selected: alcance == AlcanceCobertura.grupo,
+                            showCheckmark: false,
+                            onSelected: (_) => setDialog(
+                              () => alcance = AlcanceCobertura.grupo,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      value: quitar,
+                      onChanged: (v) => setDialog(() => quitar = v ?? true),
+                      title: Text(
+                        'Quitar $nombreSede a quien la cubría con este cargo',
+                      ),
+                    ),
+                    if (previo != null)
+                      _VistaPreviaCambio(
+                        plan: previo,
+                        elegido: e!,
+                        nombreSede: nombreSede,
+                        centrosDelGrupo: porGrupo[grupo]?.length ?? 0,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: previo == null || previo.cambios.isEmpty
+                    ? null
+                    : () => Navigator.pop(ctx, previo),
+                child: const Text('Guardar'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    if (plan == null || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await widget.service.aplicarCambiosCobertura(
+        empresaId: widget.empresaId,
+        cambios: plan.cambios,
+        nombresCentro: _nombresCentro,
+      );
+      messenger.showSnackBar(
+        SnackBar(
+          backgroundColor: _kOk,
+          content: Text(
+            'Cobertura actualizada en $nombreSede. Aplica a las próximas '
+            'asignaciones.',
+          ),
+        ),
+      );
+      await _cargar();
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          backgroundColor: _kPeligro,
+          content: Text('No se pudo guardar: $e'),
+        ),
+      );
+    }
   }
 
   // ── 3. Hallazgos sin tarea ───────────────────────────────────────────────
@@ -1251,10 +1571,13 @@ class _TarjetaCargo extends StatelessWidget {
   }
 }
 
+typedef _AlCambiar = void Function(GrupoReglaSede grupo, bool esResponsable);
+
 class _TarjetaSede extends StatelessWidget {
   final RevisionSede sede;
+  final _AlCambiar? onCambiar;
 
-  const _TarjetaSede({required this.sede});
+  const _TarjetaSede({required this.sede, this.onCambiar});
 
   @override
   Widget build(BuildContext context) {
@@ -1275,12 +1598,37 @@ class _TarjetaSede extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: ExpansionTile(
         leading: Icon(Icons.store_mall_directory_outlined, color: color),
-        title: Text(
-          sede.centro.nombre.isEmpty ? sede.centro.codigo : sede.centro.nombre,
-          style: const TextStyle(
-            fontFamily: _kFont,
-            fontWeight: FontWeight.w800,
-          ),
+        title: Wrap(
+          spacing: 8,
+          runSpacing: 4,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(
+              sede.centro.nombre.isEmpty
+                  ? sede.centro.codigo
+                  : sede.centro.nombre,
+              style: const TextStyle(
+                fontFamily: _kFont,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            if (normalizarGrupoCentroCosto(sede.centro.grupo).isNotEmpty)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: _kAccent.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  'Grupo ${normalizarGrupoCentroCosto(sede.centro.grupo)}',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: _kAccent,
+                  ),
+                ),
+              ),
+          ],
         ),
         subtitle: Text(
           resumen.isEmpty
@@ -1294,7 +1642,12 @@ class _TarjetaSede extends StatelessWidget {
             items: sede.grupos,
             etiqueta: 'grupos de reglas',
             separator: const Divider(height: 16),
-            itemBuilder: (context, g, _) => _FilaGrupo(grupo: g),
+            itemBuilder: (context, g, _) => _FilaGrupo(
+              grupo: g,
+              onCambiar: onCambiar == null
+                  ? null
+                  : (esResponsable) => onCambiar!(g, esResponsable),
+            ),
           ),
         ],
       ),
@@ -1304,8 +1657,9 @@ class _TarjetaSede extends StatelessWidget {
 
 class _FilaGrupo extends StatelessWidget {
   final GrupoReglaSede grupo;
+  final ValueChanged<bool>? onCambiar;
 
-  const _FilaGrupo({required this.grupo});
+  const _FilaGrupo({required this.grupo, this.onCambiar});
 
   @override
   Widget build(BuildContext context) {
@@ -1337,11 +1691,13 @@ class _FilaGrupo extends StatelessWidget {
           titulo: 'Responde',
           resolucion: grupo.responsable,
           esResponsable: true,
+          onCambiar: onCambiar == null ? null : () => onCambiar!(true),
         ),
         _Rol(
           titulo: 'Aprueba',
           resolucion: grupo.aprobador,
           esResponsable: false,
+          onCambiar: onCambiar == null ? null : () => onCambiar!(false),
         ),
       ],
     );
@@ -1352,11 +1708,13 @@ class _Rol extends StatelessWidget {
   final String titulo;
   final ResolucionRolSede resolucion;
   final bool esResponsable;
+  final VoidCallback? onCambiar;
 
   const _Rol({
     required this.titulo,
     required this.resolucion,
     required this.esResponsable,
+    this.onCambiar,
   });
 
   @override
@@ -1374,7 +1732,7 @@ class _Rol extends StatelessWidget {
       CoberturaRol.nadie => ('Nadie', _kPeligro),
     };
     return ConstrainedBox(
-      constraints: const BoxConstraints(minWidth: 220, maxWidth: 340),
+      constraints: const BoxConstraints(minWidth: 220, maxWidth: 380),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -1439,6 +1797,92 @@ class _Rol extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+          if (onCambiar != null && resolucion.cargos.isNotEmpty)
+            IconButton(
+              tooltip: esResponsable
+                  ? 'Cambiar quién responde aquí'
+                  : 'Cambiar quién aprueba aquí',
+              visualDensity: VisualDensity.compact,
+              onPressed: onCambiar,
+              icon: const Icon(Icons.edit_outlined, size: 18),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _VistaPreviaCambio extends StatelessWidget {
+  final PlanCambioSede plan;
+  final InterventoriaUsuario elegido;
+  final String nombreSede;
+  final int centrosDelGrupo;
+
+  const _VistaPreviaCambio({
+    required this.plan,
+    required this.elegido,
+    required this.nombreSede,
+    required this.centrosDelGrupo,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final quedaria = plan.quedaria;
+    final gana = quedaria?.id == elegido.id && quedaria!.delCentro;
+    final lineas = [
+      for (final c in plan.cambios) ...[
+        if (c.agregarCentros.isNotEmpty)
+          'A ${c.nombre}: se agrega $nombreSede a sus centros de operación.',
+        if (c.agregarGrupos.isNotEmpty)
+          'A ${c.nombre}: se agrega el grupo ${c.agregarGrupos.join(', ')} '
+              '($centrosDelGrupo sedes).',
+        if (c.quitarCentros.isNotEmpty)
+          'A ${c.nombre}: se quita $nombreSede de su cobertura.',
+      ],
+    ];
+    return Container(
+      margin: const EdgeInsets.only(top: 6),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: (gana ? _kOk : _kAviso).withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: (gana ? _kOk : _kAviso).withValues(alpha: 0.25),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            plan.cambios.isEmpty
+                ? '${elegido.nombre} ya responde aquí: no hay nada que cambiar.'
+                : gana
+                ? 'Así queda: ${elegido.nombre} en $nombreSede.'
+                : 'Con esto respondería '
+                      '${quedaria?.nombre ?? 'nadie'}, no ${elegido.nombre}.',
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              color: gana ? _kOk : _kAviso,
+            ),
+          ),
+          for (final l in lineas) ...[
+            const SizedBox(height: 4),
+            Text('• $l', style: const TextStyle(fontSize: 12.5)),
+          ],
+          for (final a in plan.avisos) ...[
+            const SizedBox(height: 4),
+            Text(
+              '⚠ $a',
+              style: const TextStyle(fontSize: 12.5, color: _kAviso),
+            ),
+          ],
+          const SizedBox(height: 6),
+          const Text(
+            'Cambia la cobertura de la persona en Talento Humano: vale para '
+            'todos los numerales de su cargo en esa sede y para las próximas '
+            'asignaciones. Las tareas ya creadas no cambian.',
+            style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B)),
           ),
         ],
       ),
