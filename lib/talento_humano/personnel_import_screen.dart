@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:file_saver/file_saver.dart';
+import 'package:todo/utils/guardar_archivo.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -92,7 +92,7 @@ class _PersonnelImportScreenState extends State<PersonnelImportScreen> {
         empresaId: widget.empresaId,
         empresaNombre: _empresaNombre,
       );
-      await FileSaver.instance.saveFile(
+      await guardarArchivo(
         name: 'plantilla_personal_talento_humano',
         bytes: export.bytes,
         fileExtension: 'xlsx',

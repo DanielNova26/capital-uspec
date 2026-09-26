@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:file_saver/file_saver.dart';
+import 'package:todo/utils/guardar_archivo.dart';
 import 'package:flutter/material.dart';
 
 import '../core/area_directory.dart';
@@ -2420,7 +2420,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
             codigo: _codigoController.text.trim(),
             area: _areaController.text.trim(),
           );
-      await FileSaver.instance.saveFile(
+      await guardarArchivo(
         name: fileName.replaceAll(RegExp(r'\.xlsx$'), ''),
         bytes: bytes,
         fileExtension: 'xlsx',

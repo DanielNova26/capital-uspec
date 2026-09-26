@@ -9,7 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_typeahead/flutter_typeahead.dart';
 import 'package:excel/excel.dart';
-import 'package:file_saver/file_saver.dart';
+import 'package:todo/utils/guardar_archivo.dart';
 import '../core/hierarchy_order.dart';
 import '../widgets/internal_module_layout.dart';
 import 'personnel_access_picker.dart';
@@ -1002,7 +1002,7 @@ class _OrganizationalStructureScreenState
       );
 
       final bytes = await pdf.save();
-      await FileSaver.instance.saveFile(
+      await guardarArchivo(
         name:
             'organigrama_${widget.empresaId}_${DateTime.now().millisecondsSinceEpoch}',
         bytes: Uint8List.fromList(bytes),
@@ -1614,7 +1614,7 @@ class _OrganizationalStructureScreenState
 
       final bytes = ex.encode();
       if (bytes == null) return;
-      await FileSaver.instance.saveFile(
+      await guardarArchivo(
         name:
             'personal_${widget.empresaId}_${DateTime.now().millisecondsSinceEpoch}',
         bytes: Uint8List.fromList(bytes),

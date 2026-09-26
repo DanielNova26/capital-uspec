@@ -1,12 +1,15 @@
 // lib/home/home_shell.dart
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:todo/state/empresa_scope.dart';
+import 'package:todo/theme/app_layout.dart';
 import 'app_drawer.dart';
 import 'widgets/home_shared_widgets.dart';
 
-/// Shell que decide qué versión de la interfaz mostrar (Web o Móvil).
+/// Shell que decide qué versión de la interfaz mostrar (amplia o móvil).
+///
+/// La amplia (barra lateral fija) no es solo de la web: un iPad o una tableta
+/// acostada también la usan. Ver `lib/theme/app_layout.dart`.
 class HomeShell extends StatelessWidget {
   final String userId;
   final Widget body;
@@ -30,7 +33,10 @@ class HomeShell extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (kIsWeb && constraints.maxWidth >= 900) {
+        if (anchoUsaLayoutAmplio(
+          ancho: constraints.maxWidth,
+          ventana: MediaQuery.sizeOf(context),
+        )) {
           return _WebShell(
             userId: userId,
             body: body,

@@ -1,12 +1,12 @@
 // lib/home/app_drawer.dart
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../widgets/version_label.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:todo/state/empresa_scope.dart';
+import 'package:todo/theme/app_layout.dart';
 import 'package:todo/utils/user_company.dart';
 
 import '../core/task_permissions.dart';
@@ -229,8 +229,9 @@ class AppDrawer extends StatelessWidget {
   // ----------------------- UI -----------------------
   @override
   Widget build(BuildContext context) {
-    // Si estamos en web (sidebar), no usamos el wrapper Drawer ni el header redundante
-    final bool isSidebar = kIsWeb && MediaQuery.of(context).size.width >= 900;
+    // En la composición amplia (web, iPad acostado) va como barra lateral fija:
+    // sin el wrapper Drawer ni el header redundante. Misma regla que HomeShell.
+    final bool isSidebar = usaLayoutAmplio(context);
 
     final content = StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
@@ -306,7 +307,12 @@ class AppDrawer extends StatelessWidget {
             );
 
             final listContent = ListView(
-              padding: EdgeInsets.zero,
+              // Abajo, lo que ocupe la barra de gestos (Android edge-to-edge)
+              // o el indicador de inicio del iPhone/iPad: sin esto "Cerrar
+              // sesión" y la versión quedaban debajo de ellos.
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.paddingOf(context).bottom,
+              ),
               children: [
                 if (!isSidebar)
                   UserAccountsDrawerHeader(

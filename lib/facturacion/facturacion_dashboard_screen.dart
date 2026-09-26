@@ -2814,7 +2814,14 @@ class _DetalleEstablecimientoScreenState
     final mesActual = _selectedMes ?? widget.mes;
     return Container(
       color: Colors.white,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      // Abajo suma el indicador de inicio (iPhone/iPad) o la barra de gestos
+      // (Android edge-to-edge): sin eso el botón ZIP quedaba debajo de ellos.
+      padding: EdgeInsets.fromLTRB(
+        16,
+        10,
+        16,
+        10 + MediaQuery.paddingOf(context).bottom,
+      ),
       child: Row(
         children: [
           if (_mesesDisponibles.length > 1) ...[
@@ -3462,7 +3469,14 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
   Widget _buildBottomBar() {
     return Container(
       color: Colors.white,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      // Va al pie de la pantalla: reserva el indicador de inicio / barra de
+      // gestos, igual que la barra del establecimiento.
+      padding: EdgeInsets.fromLTRB(
+        12,
+        8,
+        12,
+        8 + MediaQuery.paddingOf(context).bottom,
+      ),
       width: double.infinity,
       child: Wrap(
         alignment: WrapAlignment.spaceBetween,
@@ -4540,7 +4554,12 @@ class _DocCardState extends State<_DocCard> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (_) => Column(
+      // Con muchos archivos la lista pasaba del alto de la hoja; y el último
+      // quedaba debajo del indicador de inicio / barra de gestos.
+      builder: (_) => SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           const SizedBox(height: 8),
@@ -4589,6 +4608,8 @@ class _DocCardState extends State<_DocCard> {
           ),
           const SizedBox(height: 12),
         ],
+          ),
+        ),
       ),
     );
   }

@@ -10,7 +10,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:file_saver/file_saver.dart';
+import 'package:todo/utils/guardar_archivo.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
@@ -940,7 +940,7 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
 
     try {
       final csv = generarArchivoPlanoCsv(filas);
-      await FileSaver.instance.saveFile(
+      await guardarArchivo(
         name: _downloadBaseName(_downloadFileName(planilla)),
         // latin1 y no UTF-8: el cargador del banco es de los que no entienden
         // los acentos en UTF-8, y un nombre con tilde mal codificado es una
@@ -1027,7 +1027,7 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
       );
       final fileName = _downloadFileName(planilla);
       if (bytes != null && bytes.isNotEmpty) {
-        await FileSaver.instance.saveFile(
+        await guardarArchivo(
           name: _downloadBaseName(fileName),
           bytes: bytes,
           fileExtension: 'pdf',

@@ -15,7 +15,7 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:file_saver/file_saver.dart';
+import 'package:todo/utils/guardar_archivo.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
@@ -4449,7 +4449,7 @@ class _FormatosTabState extends State<_FormatosTab> {
       final datos = await rootBundle.load(
         'assets/visitas_plantilla_formato.xlsx',
       );
-      await FileSaver.instance.saveFile(
+      await guardarArchivo(
         name: 'plantilla_formato_visitas',
         bytes: datos.buffer.asUint8List(),
         fileExtension: 'xlsx',

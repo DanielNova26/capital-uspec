@@ -13,6 +13,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:todo/state/empresa_scope.dart';
 import 'package:todo/services/app_update_service.dart';
 import 'package:todo/services/notification_service.dart';
+import 'package:todo/theme/app_layout.dart';
 import 'package:todo/theme/app_typography.dart';
 import 'package:todo/utils/task_status.dart';
 import 'package:todo/utils/user_company.dart';
@@ -133,7 +134,8 @@ class _HomeScreenState extends State<HomeScreen> {
   final Stream<QuerySnapshot<Map<String, dynamic>>> _sinTareasPorRecibir =
       Stream<QuerySnapshot<Map<String, dynamic>>>.empty();
 
-  bool get _isWebShell => kIsWeb && MediaQuery.of(context).size.width >= 900;
+  // Amplia = barra lateral de HomeShell (web, escritorio, iPad acostado).
+  bool get _isWebShell => usaLayoutAmplio(context);
 
   // --- Lógica FCM y Notificaciones ---
 
@@ -778,15 +780,16 @@ class _HomeScreenState extends State<HomeScreen> {
                         _navegandoACorreccion = true;
                         await cerrarDialogo();
                         if (!mounted) return;
-                        final corregida = await Navigator.of(context).push<bool>(
-                          MaterialPageRoute<bool>(
-                            builder: (_) => InterventoriaDashboardScreen(
-                              userId: userId,
-                              empresaId: empresaId,
-                              focusedCorrectionId: visita.id,
-                            ),
-                          ),
-                        );
+                        final corregida = await Navigator.of(context)
+                            .push<bool>(
+                              MaterialPageRoute<bool>(
+                                builder: (_) => InterventoriaDashboardScreen(
+                                  userId: userId,
+                                  empresaId: empresaId,
+                                  focusedCorrectionId: visita.id,
+                                ),
+                              ),
+                            );
                         if (corregida == true) {
                           _correccionesActa = _correccionesActa
                               .where((acta) => acta.id != visita.id)
@@ -1239,98 +1242,103 @@ class _HomeScreenState extends State<HomeScreen> {
     String nombre,
     bool showTareas,
   ) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Hola, $nombre',
-                    style: theme.textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      fontFamily: kArial,
-                    ),
-                  ),
-                  CompanyNameWidget(
-                    empresaId: empresaId,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: scheme.primary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-              Row(
-                children: [
-                  // La campana no depende de ningún módulo: las
-                  // notificaciones las recibe todo el personal.
-                  _buildNotificationBell(cedula, userData),
-                  if (showTareas) ...[
-                    const SizedBox(width: 16),
-                    FilledButton.icon(
-                      onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              CreateTaskScreen(currentUserId: cedula),
-                        ),
-                      ),
-                      icon: const Icon(Icons.add),
-                      label: const Text('Nueva Tarea'),
-                    ),
-                  ],
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 32),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Columna Izquierda: Grid de Módulos (Consola)
-              Expanded(
-                flex: 2,
-                child: _buildModuleGrid(
-                  cedula,
-                  empresaId,
-                  userData,
-                  apps,
-                  isDev,
-                  disabledAppIds,
-                  true,
-                ),
-              ),
-              const SizedBox(width: 32),
-              // Columna Derecha: Agenda y Tareas del día
-              Expanded(
-                flex: 1,
-                child: Column(
+    // En el iPad acostado esta vista va sin AppBar: el SafeArea aparta la
+    // barra de estado. En web no suma nada.
+    return SafeArea(
+      bottom: false,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const SectionHeader(title: 'Calendario de Actividades'),
-                    const SizedBox(height: 12),
-                    _buildCalendarCard(scheme),
-                    const SizedBox(height: 24),
-                    // Sin el módulo de Tareas la agenda del día sigue viva:
-                    // muestra citas y notificaciones, no tareas.
-                    SectionHeader(
-                      title: showTareas
-                          ? 'Pendientes para ${DateFormat('dd/MM').format(_selectedDay)}'
-                          : 'Agenda del ${DateFormat('dd/MM').format(_selectedDay)}',
+                    Text(
+                      'Hola, $nombre',
+                      style: theme.textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        fontFamily: kArial,
+                      ),
                     ),
-                    const SizedBox(height: 12),
-                    _buildSelectedDayTasksCard(cedula, empresaId, userData),
+                    CompanyNameWidget(
+                      empresaId: empresaId,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: scheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ],
                 ),
-              ),
-            ],
-          ),
-        ],
+                Row(
+                  children: [
+                    // La campana no depende de ningún módulo: las
+                    // notificaciones las recibe todo el personal.
+                    _buildNotificationBell(cedula, userData),
+                    if (showTareas) ...[
+                      const SizedBox(width: 16),
+                      FilledButton.icon(
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                CreateTaskScreen(currentUserId: cedula),
+                          ),
+                        ),
+                        icon: const Icon(Icons.add),
+                        label: const Text('Nueva Tarea'),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 32),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Columna Izquierda: Grid de Módulos (Consola)
+                Expanded(
+                  flex: 2,
+                  child: _buildModuleGrid(
+                    cedula,
+                    empresaId,
+                    userData,
+                    apps,
+                    isDev,
+                    disabledAppIds,
+                    true,
+                  ),
+                ),
+                const SizedBox(width: 32),
+                // Columna Derecha: Agenda y Tareas del día
+                Expanded(
+                  flex: 1,
+                  child: Column(
+                    children: [
+                      const SectionHeader(title: 'Calendario de Actividades'),
+                      const SizedBox(height: 12),
+                      _buildCalendarCard(scheme),
+                      const SizedBox(height: 24),
+                      // Sin el módulo de Tareas la agenda del día sigue viva:
+                      // muestra citas y notificaciones, no tareas.
+                      SectionHeader(
+                        title: showTareas
+                            ? 'Pendientes para ${DateFormat('dd/MM').format(_selectedDay)}'
+                            : 'Agenda del ${DateFormat('dd/MM').format(_selectedDay)}',
+                      ),
+                      const SizedBox(height: 12),
+                      _buildSelectedDayTasksCard(cedula, empresaId, userData),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

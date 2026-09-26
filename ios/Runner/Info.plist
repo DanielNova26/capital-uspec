@@ -39,6 +39,16 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- Los Excel, PDF y CSV que la app genera (FileSaver / guardarArchivo)
+	     quedan en la carpeta Documentos de la app. Sin estas dos claves esa
+	     carpeta es invisible: en iPhone y iPad "Descargar" guardaba el archivo
+	     donde nadie lo podia abrir. Con ellas aparece en Archivos › En mi
+	     iPhone/iPad › To-Do Gestion. La app no declara tipos de documento, asi
+	     que abrir "en su lugar" no agrega ningun otro comportamiento. -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>La aplicación necesita usar la cámara para capturar fotos y evidencias relacionadas con los procesos internos de la empresa.</string>
 	<key>NSFaceIDUsageDescription</key>

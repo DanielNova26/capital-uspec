@@ -20,6 +20,7 @@ import '../services/seeder_service.dart';
 import '../services/catalog_export_service.dart';
 import '../services/demo_seed_service.dart';
 import '../bootstrap/static_excel_catalogs_seed.dart';
+import '../utils/guardar_archivo.dart' show origenCompartir;
 import '../utils/user_company.dart';
 import '../widgets/paged_list.dart';
 
@@ -387,11 +388,17 @@ class _SeedAdminScreenState extends State<SeedAdminScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Guardado en:\n$filePath')));
+      // En iPad la hoja de compartir sin origen lanza error y no abre.
+      final origen = origenCompartir(context);
 
       try {
         if (io.Platform.isAndroid || io.Platform.isIOS) {
           await SharePlus.instance.share(
-            ShareParams(files: [XFile(f.path)], text: 'Catálogos base'),
+            ShareParams(
+              files: [XFile(f.path)],
+              text: 'Catálogos base',
+              sharePositionOrigin: origen,
+            ),
           );
         } else {
           await OpenFilex.open(f.path);

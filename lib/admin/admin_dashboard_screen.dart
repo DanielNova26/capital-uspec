@@ -605,7 +605,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 left: 16,
                 right: 16,
                 top: 8,
-                bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+                // Teclado abierto: viewInsets. Cerrado: el indicador de
+                // inicio / barra de gestos (padding). Nunca los dos a la vez.
+                bottom:
+                    MediaQuery.of(ctx).viewInsets.bottom +
+                    MediaQuery.paddingOf(ctx).bottom +
+                    16,
               ),
               child: SizedBox(
                 height: MediaQuery.of(ctx).size.height * 0.88,
@@ -1089,7 +1094,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   left: 16,
                   right: 16,
                   top: 10,
-                  bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+                  // Teclado abierto: viewInsets. Cerrado: el indicador de
+                // inicio / barra de gestos (padding). Nunca los dos a la vez.
+                bottom:
+                    MediaQuery.of(ctx).viewInsets.bottom +
+                    MediaQuery.paddingOf(ctx).bottom +
+                    16,
                 ),
                 child: SizedBox(
                   height: MediaQuery.of(ctx).size.height * 0.9,

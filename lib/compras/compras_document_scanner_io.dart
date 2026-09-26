@@ -1,12 +1,24 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_document_scanner/google_mlkit_document_scanner.dart';
 
-bool get documentScannerAvailable => Platform.isAndroid;
+/// Android: ML Kit. iOS/iPadOS: VisionKit, el escáner de Apple, expuesto por
+/// `ios/Runner/AppDelegate.swift` (ML Kit no tiene escáner para iOS). Los dos
+/// detectan bordes, recortan y admiten varias páginas, y devuelven un PDF.
+///
+/// Se decide con `defaultTargetPlatform` (y no `Platform`) para poder probar la
+/// rama de iOS; en la app es exactamente el sistema en el que corre.
+bool get documentScannerAvailable =>
+    defaultTargetPlatform == TargetPlatform.android ||
+    defaultTargetPlatform == TargetPlatform.iOS;
+
+const MethodChannel _escanerIos = MethodChannel('todo/escaner_documentos');
 
 Future<Uint8List?> scanDocumentPdf() async {
-  if (!Platform.isAndroid) return null;
+  if (defaultTargetPlatform == TargetPlatform.iOS) return _scanDocumentPdfIos();
+  if (defaultTargetPlatform != TargetPlatform.android) return null;
 
   final scanner = DocumentScanner(
     options: DocumentScannerOptions(
@@ -28,4 +40,10 @@ Future<Uint8List?> scanDocumentPdf() async {
   } finally {
     await scanner.close();
   }
+}
+
+/// Devuelve null si la persona cancela. Un error (sin cámara, simulador) sube
+/// como [PlatformException] y la pantalla ofrece "Cámara rápida".
+Future<Uint8List?> _scanDocumentPdfIos() {
+  return _escanerIos.invokeMethod<Uint8List>('escanearPdf');
 }

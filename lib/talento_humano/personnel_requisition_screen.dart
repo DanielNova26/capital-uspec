@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:file_saver/file_saver.dart';
+import 'package:todo/utils/guardar_archivo.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -1719,7 +1719,7 @@ class _PersonnelRequisitionScreenState
             );
 
       final prefijo = resumen ? 'avance_reclutamiento' : 'procesos_seleccion';
-      await FileSaver.instance.saveFile(
+      await guardarArchivo(
         name:
             '${prefijo}_${widget.empresaId}_'
             '${DateFormat('yyyyMMdd').format(DateTime.now())}',
@@ -1750,7 +1750,7 @@ class _PersonnelRequisitionScreenState
         empresaId: widget.empresaId,
         empresaNombre: companyName,
       );
-      await FileSaver.instance.saveFile(
+      await guardarArchivo(
         name:
             'requerimientos_personal_${widget.empresaId}_${DateFormat('yyyyMMdd').format(DateTime.now())}',
         bytes: bytes,

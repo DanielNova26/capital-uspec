@@ -1,5 +1,4 @@
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -8,6 +7,7 @@ import 'gd_colaboracion_panel.dart';
 import 'gd_correspondencia_models.dart';
 import 'gd_correspondencia_service.dart';
 import 'gd_permisos.dart';
+import '../../theme/app_layout.dart';
 import '../../widgets/user_avatar.dart';
 
 const _ink = Color(0xFF17324D);
@@ -84,7 +84,7 @@ class _GdCorrespondenciaScreenState extends State<GdCorrespondenciaScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final wide = kIsWeb && MediaQuery.sizeOf(context).width >= 1080;
+    final wide = usaLayoutAmplio(context, minAncho: 1080);
     return Scaffold(
       backgroundColor: _canvas,
       appBar: AppBar(

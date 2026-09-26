@@ -11,7 +11,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:excel/excel.dart' as xl;
-import 'package:file_saver/file_saver.dart';
+import 'package:todo/utils/guardar_archivo.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
@@ -2062,7 +2062,7 @@ class MovilidadExport {
   // ── Descarga multiplataforma ───────────────────────────────────────────────
 
   static Future<void> descargarCsv(String nombre, String contenido) async {
-    await FileSaver.instance.saveFile(
+    await guardarArchivo(
       name: nombre,
       // BOM UTF-8 para que Excel abra las tildes correctamente.
       bytes: Uint8List.fromList(utf8.encode('﻿$contenido')),
@@ -2072,7 +2072,7 @@ class MovilidadExport {
   }
 
   static Future<void> descargarExcel(String nombre, Uint8List bytes) async {
-    await FileSaver.instance.saveFile(
+    await guardarArchivo(
       name: nombre,
       bytes: bytes,
       fileExtension: 'xlsx',
@@ -2081,7 +2081,7 @@ class MovilidadExport {
   }
 
   static Future<void> descargarPdf(String nombre, Uint8List bytes) async {
-    await FileSaver.instance.saveFile(
+    await guardarArchivo(
       name: nombre,
       bytes: bytes,
       fileExtension: 'pdf',

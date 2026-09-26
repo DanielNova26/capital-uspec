@@ -10,6 +10,7 @@ import 'carnet_qr.dart';
 import 'hoja_de_vida_pdf.dart';
 import '../services/task_service.dart';
 import '../utils/doc_preview.dart';
+import '../utils/guardar_archivo.dart' show origenCompartir;
 import '../utils/user_company.dart';
 import '../widgets/user_avatar.dart';
 
@@ -886,7 +887,12 @@ class _HojaDeVidaViewerScreenState extends State<HojaDeVidaViewerScreen> {
         fotoUrl: (datos['fotoUrl'] ?? '').toString(),
       );
       final limpio = widget.empleadoNombre.replaceAll(' ', '_');
-      await Printing.sharePdf(bytes: bytes, filename: 'QR_carnet_$limpio.pdf');
+      if (!mounted) return;
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: 'QR_carnet_$limpio.pdf',
+        bounds: origenCompartir(context),
+      );
       if (mounted && rotar) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -947,7 +953,12 @@ class _HojaDeVidaViewerScreenState extends State<HojaDeVidaViewerScreen> {
         marca: marca,
       );
       final limpio = widget.empleadoNombre.replaceAll(' ', '_');
-      await Printing.sharePdf(bytes: bytes, filename: 'Carnet_$limpio.pdf');
+      if (!mounted) return;
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: 'Carnet_$limpio.pdf',
+        bounds: origenCompartir(context),
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1006,8 +1017,13 @@ class _HojaDeVidaViewerScreenState extends State<HojaDeVidaViewerScreen> {
       );
       final fileName = 'HV_${widget.empleadoNombre.replaceAll(' ', '_')}.pdf';
       // sharePdf: en web abre el diálogo de descarga/impresión del navegador;
-      // en móvil abre el share sheet nativo.
-      await Printing.sharePdf(bytes: bytes, filename: fileName);
+      // en móvil abre el share sheet nativo (en iPad, anclado con bounds).
+      if (!mounted) return;
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: fileName,
+        bounds: origenCompartir(context),
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

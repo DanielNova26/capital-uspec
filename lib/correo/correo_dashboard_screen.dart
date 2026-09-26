@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -6,6 +5,7 @@ import '../gestion_documental/correspondencia/gd_correspondencia_models.dart';
 import '../gestion_documental/correspondencia/gd_correspondencia_screen.dart';
 import '../gestion_documental/correspondencia/gd_correspondencia_service.dart';
 import '../gestion_documental/correspondencia/gd_permisos.dart';
+import '../theme/app_layout.dart';
 import '../whatsapp/whatsapp_recipient_models.dart';
 import 'correo_models.dart';
 import 'correo_service.dart';
@@ -85,7 +85,7 @@ class _CorreoDashboardScreenState extends State<CorreoDashboardScreen> {
 
   Widget _correoDashboardBody({required _CorreoAccess access}) {
     final canManage = access.canManage;
-    final isWide = kIsWeb && MediaQuery.of(context).size.width >= 980;
+    final isWide = usaLayoutAmplio(context, minAncho: 980);
     final tabs = canManage
         ? const [
             Tab(icon: Icon(Icons.insights_outlined), text: 'Resumen'),

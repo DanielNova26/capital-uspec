@@ -1,5 +1,5 @@
 import 'package:file_picker/file_picker.dart';
-import 'package:file_saver/file_saver.dart';
+import 'package:todo/utils/guardar_archivo.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -536,7 +536,7 @@ class _GenerarTabState extends State<_GenerarTab> {
         throw StateError('No se pudo generar ningún documento.');
       }
       final zip = empaquetarZip(resultado.documentos);
-      await FileSaver.instance.saveFile(
+      await guardarArchivo(
         name:
             '${_tipo}_${widget.empresaId}_'
             '${DateFormat('yyyyMMdd').format(DateTime.now())}',

@@ -1,8 +1,7 @@
 import 'dart:math' as math;
 
-import 'package:file_saver/file_saver.dart';
+import 'package:todo/utils/guardar_archivo.dart';
 import 'package:fl_chart/fl_chart.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -12,6 +11,7 @@ import 'gd_correspondencia_models.dart';
 import 'gd_correspondencia_screen.dart';
 import 'gd_correspondencia_service.dart';
 import 'gd_permisos.dart';
+import '../../theme/app_layout.dart';
 import '../../widgets/paged_list.dart';
 import '../../widgets/user_avatar.dart';
 
@@ -108,8 +108,7 @@ class _GdControlDashboardScreenState extends State<GdControlDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final width = MediaQuery.sizeOf(context).width;
-    final wide = kIsWeb && width >= 1050;
+    final wide = usaLayoutAmplio(context, minAncho: 1050);
     return Scaffold(
       backgroundColor: _background,
       appBar: AppBar(
@@ -292,7 +291,7 @@ class _GdControlDashboardScreenState extends State<GdControlDashboardScreen> {
       final stamp =
           '${now.year}${now.month.toString().padLeft(2, '0')}'
           '${now.day.toString().padLeft(2, '0')}';
-      await FileSaver.instance.saveFile(
+      await guardarArchivo(
         name: 'correspondencia_${widget.empresaId}_$stamp',
         bytes: bytes,
         fileExtension: 'xlsx',

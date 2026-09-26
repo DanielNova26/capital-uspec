@@ -6,6 +6,76 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Revisión Web / Android / iOS / iPad — 26 sep 2026 (Claude)
+
+Pedido: "que todo se vea bien en web, en móvil Android, que todas las
+funcionalidades estén para iOS y que se vea un buen diseño en un iPad".
+
+**iPad.**
+- La app estaba compilada **solo para iPhone** (`TARGETED_DEVICE_FAMILY = 1`
+  en Debug, Profile y Release del target Runner): en el iPad corría como un
+  iPhone ampliado. Ahora es `"1,2"`. Los íconos de iPad, las cuatro
+  orientaciones y la pantalla de arranque ya estaban.
+  - App Store Connect pedirá capturas de iPad (13") en la próxima versión, y
+    una vez publicada con iPad no se puede volver a solo iPhone.
+- La barra lateral, la cabecera de escritorio y las vistas maestro-detalle
+  solo se activaban con `kIsWeb`: un iPad acostado (1180 o 1366 de ancho)
+  recibía el teléfono estirado. Regla única nueva, `usaLayoutAmplio(context)`
+  (`lib/theme/app_layout.dart`): web y escritorio por ancho como siempre;
+  tableta igual que la web al mismo ancho; teléfono nunca, ni acostado (se
+  reconoce por el lado corto < 600). Aplicada en HomeShell, AppDrawer, Home,
+  InternalModuleLayout, TaskResponsiveLayout, Correo, Tokens DIAN y
+  Correspondencia.
+- De paso, `InternalModuleLayout` le ponía la cabecera de escritorio a un
+  iPhone grande acostado (932 de ancho), con el botón de volver bajo la isla.
+  Ahora un teléfono acostado conserva su AppBar.
+- Las cabeceras sin AppBar (módulos, tareas, Home amplio) reservan la barra
+  de estado con `SafeArea`: en el iPad quedaban pegadas a la hora.
+- Compartir en iPad es un popover y necesita origen: `share_plus` fallaba y
+  `Printing.sharePdf` aparecía en la esquina. `origenCompartir(context)` en
+  carnets, QR, hoja de vida y exportación de catálogos.
+
+**iOS: funciones que faltaban.**
+- "Descargar" (Excel, PDF, CSV, ZIP) en iPhone/iPad guardaba en la carpeta
+  privada de la app y no pasaba nada visible. `guardarArchivo`
+  (`lib/utils/guardar_archivo.dart`, misma firma que `FileSaver.saveFile`)
+  en iOS abre la vista previa del sistema con compartir / Guardar en
+  Archivos, y `Info.plist` declara `UIFileSharingEnabled` +
+  `LSSupportsOpeningDocumentsInPlace` para que la copia quede en Archivos ›
+  En mi iPhone › To-Do Gestión. Android y web no cambian. Talento Humano,
+  Organigrama, Zeus, Finalización, Requerimientos, Visitas, Planillas,
+  Correspondencia, Biblioteca, Movilidad y todo lo que usa
+  `descargarExcelCompras` (Compras, Abastecimiento, Gerencia, Interventoría).
+- "Escanear documento" en Compras solo existía en Android (ML Kit no tiene
+  escáner para iOS). En iOS lo hace ahora VisionKit, el escáner de Apple
+  (bordes, recorte, varias páginas), desde `ios/Runner/AppDelegate.swift`
+  por el canal `todo/escaner_documentos`; las páginas se unen en PDF.
+  **El código Swift no se pudo compilar en esta sesión: compilar en Xcode
+  antes de subir.**
+
+**Android y iPhone: bordes inferiores.** Con edge-to-edge (Android 15) y el
+indicador de inicio del iPhone, "Cerrar sesión" en el menú, las barras
+inferiores de Facturación, la hoja de archivos de Facturación (que además
+pasaba del alto con muchos archivos) y los formularios en hoja de
+Administración quedaban debajo de la barra del sistema.
+
+**Web.** Compila (`flutter build web`); capturas del ingreso en tamaños de
+Pixel 7, iPhone 15, iPad Pro 11 (vertical y horizontal) y escritorio sin
+desbordes ni errores. El botón de App Store no aparece porque
+`kUrlAppStore` (`lib/core/app_stores.dart`) sigue vacío: falta el número de
+la ficha (App Store Connect › Información de la app › Apple ID).
+
+**Queda igual, a propósito.** "Calcular ruta con tráfico" del tablero de
+Rutas solo funciona en web, en Android y en iOS (usa el SDK de Maps para
+JavaScript); llevarlo al celular pide una Cloud Function con la API de
+Directions.
+
+Pruebas: `test/app_layout_test.dart`,
+`test/compras/compras_document_scanner_test.dart`,
+`test/utils/guardar_archivo_test.dart`. Suite completa en verde.
+
+---
+
 ## Subsanaciones muestra a quien de verdad tiene la tarea — 26 sep 2026 (Claude)
 
 Caso: el jefe directo recibía la tarea del hallazgo, la reasignaba a alguien

@@ -1,12 +1,12 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/guarded_module_page.dart';
 import '../home/widgets/home_shared_widgets.dart';
+import '../theme/app_layout.dart';
 import '../widgets/internal_module_layout.dart';
 import 'dian_buzon_dialog.dart';
 import 'dian_tokens_models.dart';
@@ -177,7 +177,7 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen>
 
   @override
   Widget build(BuildContext context) {
-    final isWeb = kIsWeb && MediaQuery.sizeOf(context).width >= 980;
+    final isWeb = usaLayoutAmplio(context, minAncho: 980);
     return GuardedModulePage(
       userIdentity: widget.userId,
       appId: kDianTokensAppId,

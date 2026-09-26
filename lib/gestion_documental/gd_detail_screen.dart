@@ -3,7 +3,7 @@
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:file_saver/file_saver.dart';
+import 'package:todo/utils/guardar_archivo.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
@@ -1937,7 +1937,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
         docId: doc.docId,
         empresaId: widget.empresaId,
       );
-      await FileSaver.instance.saveFile(
+      await guardarArchivo(
         name: fileName.replaceAll(RegExp(r'\.xlsx$'), ''),
         bytes: bytes,
         fileExtension: 'xlsx',

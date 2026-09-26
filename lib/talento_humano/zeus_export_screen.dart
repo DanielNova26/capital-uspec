@@ -1,4 +1,4 @@
-import 'package:file_saver/file_saver.dart';
+import 'package:todo/utils/guardar_archivo.dart';
 import 'package:flutter/material.dart';
 
 import '../home/widgets/home_shared_widgets.dart' show CompanyNameWidget;
@@ -129,7 +129,7 @@ class _ZeusExportScreenState extends State<ZeusExportScreen> {
       final now = DateTime.now();
       final stamp =
           '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}';
-      await FileSaver.instance.saveFile(
+      await guardarArchivo(
         name: 'zeus_alta_${widget.empresaId}_$stamp',
         bytes: bytes,
         fileExtension: 'xlsx',

@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 
 import '../core/guarded_module_page.dart';
+import '../utils/guardar_archivo.dart' show origenCompartir;
 import '../widgets/internal_module_layout.dart';
 import '../widgets/paged_list.dart';
 import '../widgets/user_avatar.dart';
@@ -979,9 +980,11 @@ class _CarnetScreenState extends State<CarnetScreen> {
               formato: _formato,
               recursos: recursos,
             );
+      if (!mounted) return;
       await Printing.sharePdf(
         bytes: bytes,
         filename: 'carnets_${widget.empresaId}_${personas.length}.pdf',
+        bounds: origenCompartir(context),
       );
       if (!mounted) return;
       // El listado se recarga para que la etiqueta "Ya tiene carnet" refleje

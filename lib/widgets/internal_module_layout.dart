@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_layout.dart';
 import '../theme/app_scroll_behavior.dart' show usaBarraHorizontal;
 import '../theme/app_typography.dart';
 import '../home/home_screen.dart';
@@ -29,8 +30,9 @@ class InternalModuleLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final width = MediaQuery.of(context).size.width;
-    final isWeb = width >= 900;
+    // Cabecera de escritorio en web, escritorio y tableta ancha; AppBar en
+    // teléfono aunque esté acostado (932 de ancho no lo vuelve escritorio).
+    final isWeb = usaLayoutAmplio(context);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC), // Fondo limpio Slate 50
@@ -95,7 +97,6 @@ class InternalModuleLayout extends StatelessWidget {
 
   Widget _buildWebHeader(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
       decoration: const BoxDecoration(
         color: Colors.white,
         border: Border(
@@ -105,83 +106,93 @@ class InternalModuleLayout extends StatelessWidget {
           BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2)),
         ],
       ),
-      child: Row(
-        children: [
-          // Botón Volver
-          IconButton(
-            icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
-            onPressed: () => Navigator.of(context).pop(),
-            tooltip: 'Volver',
-            color: const Color(0xFF64748B), // Slate 500
-          ),
-          const SizedBox(width: 8),
-          // Botón Home
-          IconButton(
-            icon: const Icon(Icons.home_rounded, size: 24),
-            onPressed: () => _navToHome(context),
-            tooltip: 'Ir al Home',
-            color: accentColor,
-          ),
-          const SizedBox(width: 16),
-          // Título y Subtítulo
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+      // Sin AppBar nadie reserva la barra de estado: en el iPad la cabecera
+      // quedaba pegada a la hora y la batería. En web el SafeArea no suma nada.
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+          child: Row(
+            children: [
+              // Botón Volver
+              IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+                onPressed: () => Navigator.of(context).pop(),
+                tooltip: 'Volver',
+                color: const Color(0xFF64748B), // Slate 500
+              ),
+              const SizedBox(width: 8),
+              // Botón Home
+              IconButton(
+                icon: const Icon(Icons.home_rounded, size: 24),
+                onPressed: () => _navToHome(context),
+                tooltip: 'Ir al Home',
+                color: accentColor,
+              ),
+              const SizedBox(width: 16),
+              // Título y Subtítulo
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: 4,
-                      height: 24,
-                      decoration: BoxDecoration(
-                        color: accentColor,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
+                    Row(
+                      children: [
+                        Container(
+                          width: 4,
+                          height: 24,
+                          decoration: BoxDecoration(
+                            color: accentColor,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          title.toUpperCase(),
+                          style: const TextStyle(
+                            fontFamily: kArial,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 24,
+                            color: Color(0xFF0F172A), // Slate 900
+                            letterSpacing: -0.5,
+                          ),
+                        ),
+                        if (badge != null) ...[
+                          const SizedBox(width: 12),
+                          _buildBadge(),
+                        ],
+                      ],
                     ),
-                    const SizedBox(width: 12),
-                    Text(
-                      title.toUpperCase(),
-                      style: const TextStyle(
-                        fontFamily: kArial,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 24,
-                        color: Color(0xFF0F172A), // Slate 900
-                        letterSpacing: -0.5,
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 4),
+                      Padding(
+                        padding: const EdgeInsets.only(left: 16),
+                        child: Text(
+                          subtitle!,
+                          style: const TextStyle(
+                            fontFamily: kArial,
+                            fontSize: 14,
+                            color: Color(0xFF64748B), // Slate 500
+                            letterSpacing: 0.2,
+                          ),
+                        ),
                       ),
-                    ),
-                    if (badge != null) ...[
-                      const SizedBox(width: 12),
-                      _buildBadge(),
                     ],
                   ],
                 ),
-                if (subtitle != null) ...[
-                  const SizedBox(height: 4),
-                  Padding(
-                    padding: const EdgeInsets.only(left: 16),
-                    child: Text(
-                      subtitle!,
-                      style: const TextStyle(
-                        fontFamily: kArial,
-                        fontSize: 14,
-                        color: Color(0xFF64748B), // Slate 500
-                        letterSpacing: 0.2,
-                      ),
-                    ),
+              ),
+              // Acciones
+              if (headerActions != null) ...[
+                const SizedBox(width: 16),
+                ...headerActions!.map(
+                  (a) => Padding(
+                    padding: const EdgeInsets.only(left: 12),
+                    child: a,
                   ),
-                ],
+                ),
               ],
-            ),
+            ],
           ),
-          // Acciones
-          if (headerActions != null) ...[
-            const SizedBox(width: 16),
-            ...headerActions!.map(
-              (a) =>
-                  Padding(padding: const EdgeInsets.only(left: 12), child: a),
-            ),
-          ],
-        ],
+        ),
       ),
     );
   }

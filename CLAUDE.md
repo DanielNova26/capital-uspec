@@ -46,7 +46,19 @@ nombre con `?? doc.id`, y prohibido filtrar comparando `areaId ==`: se usa
 `UserAvatar` y `UserNameText` (`lib/widgets/user_avatar.dart`) en cualquier
 lugar donde se muestre una persona.
 
-### 5. Módulos y accesos
+### 5. Composición amplia: por ancho y tipo de equipo, nunca por `kIsWeb`
+Barra lateral, cabecera de escritorio o maestro-detalle se deciden con
+`usaLayoutAmplio(context, minAncho: N)` (`lib/theme/app_layout.dart`). Un iPad
+acostado usa la amplia; un teléfono acostado, nunca. `kIsWeb` queda solo para
+lo que de verdad es del navegador (arrastrar archivos, `dart:html`).
+
+### 6. Guardar archivos generados: `guardarArchivo`
+Excel, PDF, CSV o ZIP generados en memoria se guardan con `guardarArchivo`
+(`lib/utils/guardar_archivo.dart`), no con `FileSaver.instance.saveFile`: en
+iOS este último los deja donde nadie los ve. Toda hoja de compartir lleva
+`origenCompartir(context)`, que el iPad exige.
+
+### 7. Módulos y accesos
 El catálogo de módulos es `lib/core/app_catalog.dart`. Notificaciones y
 calendario NO son módulos: los tiene todo el personal y nadie los puede quitar.
 

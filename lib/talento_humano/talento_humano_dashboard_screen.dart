@@ -1,7 +1,7 @@
 // lib/talento_humano/talento_humano_dashboard_screen.dart
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:file_saver/file_saver.dart';
+import 'package:todo/utils/guardar_archivo.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -251,7 +251,7 @@ class _TalentoHumanoDashboardScreenState
         empresaId: empresaId,
         empresaNombre: companyName,
       );
-      await FileSaver.instance.saveFile(
+      await guardarArchivo(
         name:
             'gestion_hojas_de_vida_${empresaId}_${DateFormat('yyyyMMdd').format(DateTime.now())}',
         bytes: bytes,
