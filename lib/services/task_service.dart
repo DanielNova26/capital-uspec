@@ -577,6 +577,7 @@ class TaskService {
     required String newAssignedTo,
     String? newAssignedToName,
     String? newAreaId,
+    String? newCargoNombre,
 
     // Alias que tu UI está usando (AssignedTasksScreen)
     String? byUserId,
@@ -587,6 +588,7 @@ class TaskService {
     String? performedByName,
   }) async {
     final taskRef = _db.collection(tasksCol).doc(taskId);
+    var hallazgoId = '';
 
     // Prioridad del actor: byUserId/byUserName (UI) > performedBy/performedByName
     final actorId = (byUserId ?? performedBy ?? '').trim();
@@ -600,6 +602,9 @@ class TaskService {
       final t = snap.data() ?? <String, dynamic>{};
       final prevAssignedUid = _s(t, ['asignado_uid', 'assignedTo']);
       final prevAssignedName = _s(t, ['asignado_nombre', 'assignedToName']);
+      if (_s(t, ['sourceModule', 'origen']) == 'interventoria') {
+        hallazgoId = _s(t, ['hallazgoId', 'sourceEntityId']);
+      }
 
       final update = <String, dynamic>{
         'asignado_uid': targetUid,
@@ -641,6 +646,29 @@ class TaskService {
       };
       trx.update(taskRef, update);
     });
+
+    // En Interventoría el hallazgo guarda a quién quedó (Subsanaciones lo
+    // muestra y la aprobación lo lee). Sin esto, la tarea pasaba al
+    // administrador pero la tabla seguía diciendo que la tenía SST.
+    if (hallazgoId.isNotEmpty) {
+      try {
+        await _db
+            .collection('TBL_INTERVENTORIA_HALLAZGOS')
+            .doc(hallazgoId)
+            .update({
+              'responsableId': targetUid,
+              if (newAssignedToName != null &&
+                  newAssignedToName.trim().isNotEmpty)
+                'responsableNombre': newAssignedToName.trim(),
+              if (newCargoNombre != null && newCargoNombre.trim().isNotEmpty)
+                'cargoResponsable': newCargoNombre.trim(),
+              'reasignadoPorId': actorId,
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+      } catch (_) {
+        // La tarea ya quedó reasignada, que es lo que mueve el trabajo.
+      }
+    }
 
     // onTaskUpdated genera las notificaciones de reasignación.
   }

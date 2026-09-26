@@ -6,6 +6,25 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Reasignar tareas de Interventoría sin área — 26 sep 2026 (Claude)
+
+Caso: SST tenía el hallazgo de los EPP (Buen Pastor 12.1), los entregó pero
+el administrador no los usa, y al reasignarle la tarea salía "La tarea no
+tiene área definida para reasignar".
+
+- Causa: los hallazgos del acta no traen área y la tarea nacía con
+  `areaId` vacío; "Reasignar" (Mis tareas) exigía área.
+- Reasignar ahora ofrece "Todas las áreas" y abre ahí cuando la tarea no
+  tiene área: se busca a la persona por nombre o cargo.
+- Las tareas nuevas de Interventoría toman el área del responsable cuando
+  el hallazgo no la tiene.
+- Al reasignar una tarea de Interventoría se actualiza también el hallazgo
+  (`responsableId`, `responsableNombre`, `cargoResponsable`): antes la
+  tarea pasaba a la otra persona y Subsanaciones seguía mostrando a la
+  anterior.
+
+---
+
 ## Maestro › Revisión: cambiar la persona de una sede desde ahí — 26 sep 2026 (Claude)
 
 Pedido: "poder editar desde ahí, seleccionar a otra persona, más grupal" y

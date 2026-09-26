@@ -318,15 +318,12 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         ? _selectedEmpresaId!.trim()
         : (_empresaIds.length == 1 ? _empresaIds.first : '');
     if (empresaId.isEmpty) return;
+    // Las tareas de Interventoría nacían sin área (el hallazgo del acta no
+    // la trae) y aquí se bloqueaban con "La tarea no tiene área definida
+    // para reasignar" (26 sep 2026: SST quería pasarle a un administrador la
+    // tarea de los EPP). Sin área se abre en "Todas las áreas" y se busca a
+    // la persona por nombre o cargo.
     final taskAreaId = _str(taskData, ['areaId']).trim();
-    if (taskAreaId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('La tarea no tiene área definida para reasignar.'),
-        ),
-      );
-      return;
-    }
 
     final areasSnap = await FirebaseFirestore.instance
         .collection('TBL_AREAS')
@@ -450,12 +447,17 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         .whereType<Map<String, String>>()
         .toList();
 
-    if (areas.every((area) => area['id'] != taskAreaId)) {
+    if (taskAreaId.isNotEmpty &&
+        areas.every((area) => area['id'] != taskAreaId)) {
       areas.add({'id': taskAreaId, 'nombre': _areaLabelFor(taskAreaId)});
       areas.sort((a, b) => a['nombre']!.compareTo(b['nombre']!));
     }
+    // '' = todas las áreas.
+    areas.insert(0, {'id': '', 'nombre': 'Todas las áreas'});
     String selectedAreaId = taskAreaId;
-    String selectedAreaName = areaNameById(taskAreaId);
+    String selectedAreaName = taskAreaId.isEmpty
+        ? ''
+        : areaNameById(taskAreaId);
     String? selectedCargoId;
     String search = '';
     Map<String, String>? pickedUser;
@@ -466,12 +468,12 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       builder: (_) => StatefulBuilder(
         builder: (context, setDialogState) {
           final filteredCargos = cargos.where((c) {
-            return c['areaId'] == selectedAreaId;
+            return selectedAreaId.isEmpty || c['areaId'] == selectedAreaId;
           }).toList()..sort((a, b) => a['nombre']!.compareTo(b['nombre']!));
 
           final filteredUsers = usuarios.where((u) {
             if (u['id'] == widget.userId) return false;
-            if (u['areaId'] != selectedAreaId) {
+            if (selectedAreaId.isNotEmpty && u['areaId'] != selectedAreaId) {
               return false;
             }
             if (selectedCargoId != null &&
@@ -525,7 +527,9 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                         if (value == null || value == selectedAreaId) return;
                         setDialogState(() {
                           selectedAreaId = value;
-                          selectedAreaName = areaNameById(value);
+                          selectedAreaName = value.isEmpty
+                              ? ''
+                              : areaNameById(value);
                           selectedCargoId = null;
                           pickedUser = null;
                         });
@@ -539,9 +543,13 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                         border: OutlineInputBorder(),
                       ),
                       items: [
-                        const DropdownMenuItem<String>(
+                        DropdownMenuItem<String>(
                           value: '',
-                          child: Text('Todos los cargos del área'),
+                          child: Text(
+                            selectedAreaId.isEmpty
+                                ? 'Todos los cargos'
+                                : 'Todos los cargos del área',
+                          ),
                         ),
                         ...filteredCargos.map(
                           (c) => DropdownMenuItem<String>(
@@ -655,6 +663,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         newAssignedTo: pickedUser!['id']!,
         newAssignedToName: pickedUser!['nombre'],
         newAreaId: pickedUser!['areaId'],
+        newCargoNombre: pickedUser!['cargoNombre'],
         byUserId: widget.userId,
         byUserName: _currentUserName(),
       );

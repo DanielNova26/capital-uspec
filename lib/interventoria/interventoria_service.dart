@@ -3522,6 +3522,30 @@ class InterventoriaService {
     bool exigirResponsableEnCentro = false,
     bool notificarCreacion = true,
     void Function(InterventoriaTareaCreada creada)? alCrear,
+  }) => enLote(
+    // En lote: el personal se lee una vez aunque lo pidan la asignación, el
+    // aprobador y el área de la tarea.
+    () => _crearTareaYNotificarHallazgo(
+      hallazgo: hallazgo,
+      creadorId: creadorId,
+      creadorNombre: creadorNombre,
+      preferirAreaManual: preferirAreaManual,
+      responsableForzado: responsableForzado,
+      exigirResponsableEnCentro: exigirResponsableEnCentro,
+      notificarCreacion: notificarCreacion,
+      alCrear: alCrear,
+    ),
+  );
+
+  Future<String?> _crearTareaYNotificarHallazgo({
+    required InterventoriaHallazgo hallazgo,
+    required String creadorId,
+    required String creadorNombre,
+    required bool preferirAreaManual,
+    required InterventoriaPersona? responsableForzado,
+    required bool exigirResponsableEnCentro,
+    required bool notificarCreacion,
+    required void Function(InterventoriaTareaCreada creada)? alCrear,
   }) async {
     // ── 1. Resolver nombre real del creador ──────────────────────────────────
     String creadorNombreReal = creadorNombre;
@@ -3667,6 +3691,25 @@ class InterventoriaService {
         !preferirAreaManual &&
         asignacion?.completa == true;
 
+    // Área de la tarea: la del hallazgo si alguien la eligió; si no, la del
+    // responsable. Los hallazgos del acta no traen área y la tarea nacía sin
+    // ella, así que "Reasignar" se bloqueaba (26 sep 2026).
+    var areaTarea = hallazgo.areaId.trim();
+    if (areaTarea.isEmpty) {
+      try {
+        final personal = await _usuariosDeEmpresa(
+          hallazgo.empresaId,
+          soloAsignables: false,
+        );
+        for (final u in personal) {
+          if (u.id == destinatarioId) {
+            areaTarea = u.areaId;
+            break;
+          }
+        }
+      } catch (_) {}
+    }
+
     // ── 5. Crear tarea vía TaskService en estado PENDIENTE ───────────────────
     //      Estado "pendiente" = tarea creada, esperando acción del responsable.
     //      El responsable la ve en su lista y puede: iniciarla, reasignarla o
@@ -3693,7 +3736,7 @@ class InterventoriaService {
       centroId: hallazgo.centroCostoId.isNotEmpty
           ? hallazgo.centroCostoId
           : 'global',
-      areaId: hallazgo.areaId,
+      areaId: areaTarea,
       empresaId: hallazgo.empresaId,
       fechaLimite: fechaLimite,
       extra: {
