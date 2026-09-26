@@ -70,6 +70,11 @@ Rutas solo funciona en web, en Android y en iOS (usa el SDK de Maps para
 JavaScript); llevarlo al celular pide una Cloud Function con la API de
 Directions.
 
+**Versión 2.6.2 (16).** Build nuevo para TestFlight: el 15 pudo haberse
+subido ya y Apple no acepta un número repetido. Plan: TestFlight (no pide
+capturas) → el jefe la instala en su iPad y toma las capturas → envío a
+revisión.
+
 Pruebas: `test/app_layout_test.dart`,
 `test/compras/compras_document_scanner_test.dart`,
 `test/utils/guardar_archivo_test.dart`. Suite completa en verde.
