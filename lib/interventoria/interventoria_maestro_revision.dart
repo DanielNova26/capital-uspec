@@ -173,38 +173,32 @@ class _InterventoriaMaestroRevisionState
               runSpacing: 10,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                SegmentedButton<_Vista>(
-                  segments: [
-                    ButtonSegment(
-                      value: _Vista.cargos,
-                      icon: const Icon(Icons.badge_outlined, size: 18),
-                      label: Text(movil ? 'Cargos' : 'Cargos del maestro'),
-                    ),
-                    ButtonSegment(
-                      value: _Vista.sedes,
-                      icon: const Icon(
-                        Icons.store_mall_directory_outlined,
-                        size: 18,
-                      ),
-                      label: Text(movil ? 'Sedes' : 'Por establecimiento'),
-                    ),
-                    ButtonSegment(
-                      value: _Vista.pendientes,
-                      icon: const Icon(
-                        Icons.assignment_late_outlined,
-                        size: 18,
-                      ),
-                      label: Text(
-                        movil
-                            ? 'Sin tarea (${_prevision?.total ?? 0})'
-                            : 'Hallazgos sin tarea (${_prevision?.total ?? 0})',
-                      ),
-                    ),
-                  ],
-                  selected: {_vista},
-                  showSelectedIcon: false,
-                  onSelectionChanged: (s) => setState(() => _vista = s.first),
-                ),
+                // En móvil tres segmentos no caben en una fila (se
+                // desbordaban): chips que bajan de línea. En web, el selector
+                // segmentado de siempre.
+                if (movil)
+                  for (final (vista, icono, texto) in _opcionesVista(movil))
+                    ChoiceChip(
+                      avatar: Icon(icono, size: 17),
+                      label: Text(texto),
+                      selected: _vista == vista,
+                      showCheckmark: false,
+                      onSelected: (_) => setState(() => _vista = vista),
+                    )
+                else
+                  SegmentedButton<_Vista>(
+                    segments: [
+                      for (final (vista, icono, texto) in _opcionesVista(movil))
+                        ButtonSegment(
+                          value: vista,
+                          icon: Icon(icono, size: 18),
+                          label: Text(texto),
+                        ),
+                    ],
+                    selected: {_vista},
+                    showSelectedIcon: false,
+                    onSelectionChanged: (s) => setState(() => _vista = s.first),
+                  ),
                 IconButton(
                   tooltip: 'Volver a leer personal, cargos y hallazgos',
                   onPressed: _cargar,
@@ -228,6 +222,27 @@ class _InterventoriaMaestroRevisionState
         );
       },
     );
+  }
+
+  List<(_Vista, IconData, String)> _opcionesVista(bool movil) {
+    final pendientes = _prevision?.total ?? 0;
+    return [
+      (
+        _Vista.cargos,
+        Icons.badge_outlined,
+        movil ? 'Cargos' : 'Cargos del maestro',
+      ),
+      (
+        _Vista.sedes,
+        Icons.store_mall_directory_outlined,
+        movil ? 'Sedes' : 'Por establecimiento',
+      ),
+      (
+        _Vista.pendientes,
+        Icons.assignment_late_outlined,
+        movil ? 'Sin tarea ($pendientes)' : 'Hallazgos sin tarea ($pendientes)',
+      ),
+    ];
   }
 
   // ── 1. Cargos ────────────────────────────────────────────────────────────
@@ -958,13 +973,28 @@ class _Aviso extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: color.withValues(alpha: 0.18)),
       ),
-      child: Row(
-        children: [
-          Icon(icon, color: color),
-          const SizedBox(width: 12),
-          Expanded(child: Text(texto, style: const TextStyle(fontSize: 13))),
-          ?accion,
-        ],
+      child: LayoutBuilder(
+        builder: (context, restricciones) {
+          final fila = Row(
+            children: [
+              Icon(icon, color: color),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(texto, style: const TextStyle(fontSize: 13)),
+              ),
+              if (restricciones.maxWidth >= 560) ?accion,
+            ],
+          );
+          // En pantalla angosta el botón no cabe al lado del texto: va debajo.
+          if (accion == null || restricciones.maxWidth >= 560) return fila;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              fila,
+              Align(alignment: Alignment.centerRight, child: accion),
+            ],
+          );
+        },
       ),
     );
   }
