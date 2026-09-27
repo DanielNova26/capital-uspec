@@ -5,13 +5,17 @@ import 'package:todo/gestion_documental/gd_models.dart';
 
 void main() {
   group('estructura de Biblioteca Documental', () {
-    test('separa formatos, contrato y normograma', () {
+    test('separa formatos, contrato, normograma y radicados', () {
       expect(gdSectionForCategory('Formato'), GdLibrarySection.formatos);
       expect(
         gdSectionForCategory('Certificado de existencia'),
         GdLibrarySection.contrato,
       );
       expect(gdSectionForCategory('Resolución'), GdLibrarySection.normograma);
+      expect(
+        gdSectionForCategory('Documento radicado'),
+        GdLibrarySection.radicados,
+      );
       expect(gdIsInstitutionalFormat('Política'), isTrue);
       expect(gdIsInstitutionalFormat('Formato'), isTrue);
       expect(gdIsInstitutionalFormat('Documento contractual'), isFalse);
@@ -19,6 +23,7 @@ void main() {
       // Contrato y normograma se publican al cargarlos; solo formatos llevan flujo.
       expect(gdIsReferenceDocument('RUT'), isTrue);
       expect(gdIsReferenceDocument('Ley'), isTrue);
+      expect(gdIsReferenceDocument('Documento radicado'), isTrue);
       expect(gdIsReferenceDocument('Formato'), isFalse);
       expect(gdIsReferenceDocument(null), isFalse);
       expect(GdRoles.puedeEjecutar('validar_formato', GdRoles.revisor), isTrue);
@@ -61,6 +66,14 @@ void main() {
           categoria: 'Resolución',
         ),
         'RES',
+      );
+      expect(
+        gdCodePrefixFor(
+          section: GdLibrarySection.radicados,
+          area: '',
+          categoria: 'Documento radicado',
+        ),
+        'RAD',
       );
       expect(gdContractCategories, contains('Documentacion interna'));
       expect(gdContractFolders.first, 'Documentos básicos');
@@ -144,6 +157,24 @@ void main() {
       expect(gdDocumentMatchesQuery(norm, 'Ley 123'), isTrue);
       expect(gdDocumentMatchesQuery(norm, 'dotacion PPL'), isTrue);
       expect(gdSectionForCategory(norm.categoria), GdLibrarySection.normograma);
+    });
+
+    test('busca documentos radicados por su número', () {
+      final filed = DocumentoDoc.fromMap('radicado', {
+        'empresaId': 'empresa',
+        'codigo': 'RAD-001',
+        'titulo': 'Respuesta a requerimiento contractual',
+        'categoria': 'Documento radicado',
+        'codigoExterno': '2026-123456',
+        'alias': 'Respuesta del supervisor',
+        'versionActual': 'v1',
+        'estado': 'vigente',
+        'creadoPor': 'redactor',
+      });
+
+      expect(gdSectionForCategory(filed.categoria), GdLibrarySection.radicados);
+      expect(gdDocumentMatchesQuery(filed, '2026-123456'), isTrue);
+      expect(gdDocumentMatchesQuery(filed, 'supervisor'), isTrue);
     });
 
     test('el modelo conserva palabras clave y fecha de aprobación', () {

@@ -37,7 +37,7 @@ void main() {
       expect(gdHashClaveHoja('abc'), 'CC1A');
     });
 
-    test('el encabezado va bloqueado y el contenido libre', () {
+    test('la hoja permite combinar celdas y conserva el encabezado', () {
       final datos = GdPlantillaFormatoDatos(
         empresaNombre: 'UT Alfa',
         tipo: 'Formato',
@@ -51,9 +51,9 @@ void main() {
       final hoja = partes['xl/worksheets/sheet1.xml']!;
       final estilos = partes['xl/styles.xml']!;
 
-      expect(hoja, contains('<sheetProtection password="88EA" sheet="1"'));
-      expect(hoja, contains('selectLockedCells="1"'));
-      expect(hoja, contains('formatCells="0"'));
+      // Excel deshabilita combinar celdas en toda hoja protegida, aunque las
+      // celdas de contenido estén desbloqueadas.
+      expect(hoja, isNot(contains('<sheetProtection')));
       // Geometría del modelo del jefe (14 sep 2026).
       expect(hoja, contains('<mergeCell ref="A1:C4"/>'));
       expect(hoja, contains('<mergeCell ref="D1:L1"/>'));
@@ -272,7 +272,7 @@ void _selloTests() {
       );
       expect(r.detalle, contains('O2'));
       expect(hoja, isNot(contains('Pendiente')));
-      expect(hoja, contains('password="88EA"'));
+      expect(hoja, isNot(contains('<sheetProtection')));
       // Las demás partes quedan idénticas.
       for (final k in antes.keys.where((k) => !k.endsWith('sheet1.xml'))) {
         expect(despues[k], antes[k], reason: k);

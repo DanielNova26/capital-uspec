@@ -4,13 +4,12 @@
 // "unos ponen un logo, otros otro, otros un código arriba, otros abajo".
 // Por eso la plantilla no es un archivo suelto: se genera por registro con
 // los datos que ya tiene la Biblioteca (código, nombre, área, versión)
-// y el logo de la empresa, y el encabezado queda BLOQUEADO con protección de
-// hoja. De la fila 7 hacia abajo todas las celdas están desbloqueadas: ahí
-// cada dependencia arma el contenido como necesite (bordes, combinaciones,
-// filas nuevas...).
+// y el logo de la empresa. La hoja queda sin protección para que Excel permita
+// combinar celdas; desde la fila 7 cada dependencia arma el contenido como
+// necesite (bordes, combinaciones, filas nuevas...).
 //
 // Se escribe OOXML a mano en vez de usar el paquete `excel` porque ese
-// paquete no sabe insertar imágenes ni proteger hojas, y post-procesar su
+// paquete no sabe insertar imágenes con el control requerido, y post-procesar su
 // salida sería más frágil que armar una estructura fija y pequeña.
 //
 // La geometría reproduce el modelo que entregó el jefe el 14 sep 2026
@@ -37,13 +36,12 @@ import 'package:archive/archive.dart';
 const String kGdPlantillaColorPrimario = '0D1B68';
 const String kGdPlantillaColorSecundario = 'E8EEF5';
 
-/// Clave de la protección de hoja. No es un secreto fuerte (Excel usa un
-/// hash de 16 bits): es un candado para que nadie toque el encabezado por
-/// accidente. Calidad la conoce por si hay que corregir algo a mano.
+/// Clave de las plantillas históricas que tenían protección de hoja. Se
+/// conserva para reconocerlas y poder sellarlas al validar.
 const String kGdPlantillaClaveHoja = 'CALIDAD-USPEC';
 
 /// Primera fila editable. Las filas 1-4 son el encabezado y la 5 y 6 son
-/// separadores; todo lo demás queda desbloqueado.
+/// separadores; desde aquí se construye el contenido del formato.
 const int kGdPlantillaPrimeraFilaLibre = 7;
 
 /// Celda donde va "quién · cuándo" validó (etiqueta *Aprobado* en M2). El
@@ -442,18 +440,8 @@ String _sheet(GdPlantillaFormatoDatos datos, bool conLogo) {
   });
   b
     ..write('</sheetData>')
-    // Candado: encabezado intocable; contenido con formato, filas y
-    // ordenamiento libres. `1` = prohibido, `0` = permitido.
-    ..write(
-      '<sheetProtection password="${gdHashClaveHoja(kGdPlantillaClaveHoja)}" '
-      'sheet="1" objects="1" scenarios="1" '
-      'formatCells="0" formatColumns="0" formatRows="0" '
-      'insertRows="0" deleteRows="0" insertColumns="1" deleteColumns="1" '
-      'insertHyperlinks="0" sort="0" autoFilter="0" pivotTables="1" '
-      // Ni seleccionar el encabezado: así tampoco se pueden insertar filas
-      // entre sus celdas.
-      'selectLockedCells="1" selectUnlockedCells="0"/>',
-    )
+    // La hoja no se protege: Excel bloquea "Combinar celdas" en cualquier
+    // hoja protegida, incluso si el rango de contenido está desbloqueado.
     ..write(
       '<mergeCells count="11">'
       '<mergeCell ref="A1:C4"/>'

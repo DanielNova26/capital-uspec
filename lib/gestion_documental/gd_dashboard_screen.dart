@@ -72,7 +72,7 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
             empresaId: widget.empresaId,
             title: 'Biblioteca Documental',
             subtitle:
-                'Formatos aprobados, documentos del contrato y normas aplicables',
+                'Formatos, documentos contractuales, normas y documentos radicados',
             badge: rolDocumental,
             accentColor: GdPalette.accent,
             headerActions: [
@@ -654,33 +654,39 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
     GdLibrarySection.formatos => 'Formatos institucionales',
     GdLibrarySection.contrato => 'Documentos del contrato',
     GdLibrarySection.normograma => 'Normograma',
+    GdLibrarySection.radicados => 'Documentos radicados',
   };
 
   String _sectionShortTitle(GdLibrarySection section) => switch (section) {
     GdLibrarySection.formatos => 'Formatos',
     GdLibrarySection.contrato => 'Contrato',
     GdLibrarySection.normograma => 'Normograma',
+    GdLibrarySection.radicados => 'Radicados',
   };
 
   String _sectionDescription(GdLibrarySection section) => switch (section) {
     GdLibrarySection.formatos =>
-      'Cada formato nace con su registro; desde ahí se descarga la plantilla Excel con el encabezado bloqueado (logo, nombre, código, versión) y Calidad lo valida con un check.',
+      'Cada formato nace con su registro; desde ahí se descarga la plantilla Excel con encabezado institucional y celdas combinables, y Calidad lo valida con un check.',
     GdLibrarySection.contrato =>
       'Documentos ya existentes, publicados al cargarlos, organizados por carpetas temáticas y localizables por nombre, alias o código externo.',
     GdLibrarySection.normograma =>
       'Repositorio único de normas para consulta general, localizables por número, tema y palabras clave.',
+    GdLibrarySection.radicados =>
+      'Repositorio de documentos ya radicados, localizables por número de radicado, nombre, alias o concepto.',
   };
 
   IconData _sectionIcon(GdLibrarySection section) => switch (section) {
     GdLibrarySection.formatos => Icons.dashboard_customize_outlined,
     GdLibrarySection.contrato => Icons.folder_copy_outlined,
     GdLibrarySection.normograma => Icons.gavel_rounded,
+    GdLibrarySection.radicados => Icons.markunread_mailbox_outlined,
   };
 
   Color _sectionColor(GdLibrarySection section) => switch (section) {
     GdLibrarySection.formatos => const Color(0xFF2563EB),
     GdLibrarySection.contrato => const Color(0xFF7C3AED),
     GdLibrarySection.normograma => const Color(0xFF0F766E),
+    GdLibrarySection.radicados => const Color(0xFFB45309),
   };
 
   Widget _buildRolDocumentalNotice(bool isWeb) {
@@ -716,9 +722,12 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
   }
 
   Widget _buildFilters(bool isWeb, List<DocumentoDoc> sectionDocs) {
-    final hint = _selectedSection == GdLibrarySection.normograma
-        ? 'Buscar número de norma o tema...'
-        : 'Buscar nombre, código, alias o carpeta...';
+    final hint = switch (_selectedSection) {
+      GdLibrarySection.normograma => 'Buscar número de norma o tema...',
+      GdLibrarySection.radicados =>
+        'Buscar número de radicado, nombre o concepto...',
+      _ => 'Buscar nombre, código, alias o carpeta...',
+    };
     final searchField = Container(
       height: 45,
       decoration: BoxDecoration(
@@ -1029,6 +1038,8 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                   _buildTableHeader(
                     _selectedSection == GdLibrarySection.normograma
                         ? 'N° LEY / RESOLUCION'
+                        : _selectedSection == GdLibrarySection.radicados
+                        ? 'N° RADICADO'
                         : 'TIPO',
                   ),
                   _buildTableHeader(
@@ -1036,6 +1047,8 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                         ? 'PALABRAS CLAVE'
                         : _selectedSection == GdLibrarySection.contrato
                         ? 'CARPETA'
+                        : _selectedSection == GdLibrarySection.radicados
+                        ? 'CONCEPTO'
                         : 'AREA',
                   ),
                   _buildTableHeader('VERSION'),
@@ -1065,12 +1078,15 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                         ? _buildNormTitleCell(d, allDocs)
                         : _buildTableCell(d.titulo),
                     _buildTableCell(
-                      _selectedSection == GdLibrarySection.normograma
+                      _selectedSection == GdLibrarySection.normograma ||
+                              _selectedSection == GdLibrarySection.radicados
                           ? ((d.codigoExterno ?? '').trim().isEmpty
                                 ? '-'
                                 : d.codigoExterno!)
                           : (d.categoria ?? '-'),
-                      isBold: _selectedSection == GdLibrarySection.normograma,
+                      isBold:
+                          _selectedSection == GdLibrarySection.normograma ||
+                          _selectedSection == GdLibrarySection.radicados,
                     ),
                     _buildTableCell(
                       _selectedSection == GdLibrarySection.normograma
@@ -1081,6 +1097,8 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                           ? ((d.carpeta ?? '').trim().isEmpty
                                 ? 'Sin carpeta'
                                 : d.carpeta!)
+                          : _selectedSection == GdLibrarySection.radicados
+                          ? ((d.alias ?? '').trim().isEmpty ? '-' : d.alias!)
                           : (d.area ?? '-'),
                     ),
                     _buildTableCell(d.versionActual),
@@ -1944,6 +1962,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
 
   bool get _esFormato => widget.section == GdLibrarySection.formatos;
   bool get _esNormograma => widget.section == GdLibrarySection.normograma;
+  bool get _esRadicado => widget.section == GdLibrarySection.radicados;
 
   @override
   void initState() {
@@ -2017,6 +2036,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
               GdLibrarySection.formatos => 'Cargar formato institucional',
               GdLibrarySection.contrato => 'Cargar documento del contrato',
               GdLibrarySection.normograma => 'Registrar norma aplicable',
+              GdLibrarySection.radicados => 'Cargar documento radicado',
             },
             style: const TextStyle(
               fontFamily: kArial,
@@ -2033,6 +2053,8 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                 'Un registro, un archivo, en su carpeta. Se publica para consulta al cargarlo.',
               GdLibrarySection.normograma =>
                 'Título de la norma y su número de ley o resolución. Se publica para consulta al cargarla.',
+              GdLibrarySection.radicados =>
+                'Registra el número de radicado y adjunta el archivo. Se publica para consulta al cargarlo.',
             },
             style: TextStyle(
               fontFamily: kArial,
@@ -2119,17 +2141,23 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                     decoration: InputDecoration(
                       labelText: _esNormograma
                           ? 'Número de ley o resolución'
+                          : _esRadicado
+                          ? 'Número de radicado'
                           : 'Código externo o número de resolución',
                       hintText: _esNormograma
                           ? 'Ej: Ley 80 de 1993'
+                          : _esRadicado
+                          ? 'Ej: 2026-123456'
                           : 'Ej: Resolución USPEC 001-26',
                       border: const OutlineInputBorder(),
                       prefixIcon: const Icon(Icons.tag_outlined),
                     ),
                     onSaved: (value) => _codigoExterno = (value ?? '').trim(),
-                    validator: _esNormograma
+                    validator: _esNormograma || _esRadicado
                         ? (value) => (value ?? '').trim().isEmpty
-                              ? 'Indica el número de la ley o resolución'
+                              ? (_esRadicado
+                                    ? 'Indica el número de radicado'
+                                    : 'Indica el número de la ley o resolución')
                               : null
                         : null,
                   ),
@@ -2244,7 +2272,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                 const SizedBox(height: 8),
                 Text(
                   _esFormato
-                      ? '* Sube el Excel armado sobre la plantilla (el encabezado viene bloqueado). El registro queda en borrador hasta el check de Calidad.'
+                      ? '* Sube el Excel armado sobre la plantilla. Puedes combinar celdas; el registro queda en borrador hasta el check de Calidad.'
                       : '* Se admite un único PDF, Word o Excel. El documento queda publicado para consulta de inmediato, sin revisión ni firma.',
                   style: TextStyle(
                     fontFamily: kArial,
@@ -2475,7 +2503,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
           const SizedBox(height: 8),
           Text(
             listo
-                ? 'Excel con logo, "$_titulo", ${_areaController.text.trim()}, código ${_codigoController.text.trim()} y versión v1. El encabezado va bloqueado; de la fila 7 hacia abajo arma el formato como necesites.'
+                ? 'Excel con logo, "$_titulo", ${_areaController.text.trim()}, código ${_codigoController.text.trim()} y versión v1. Desde la fila 7 arma el formato y combina celdas como necesites.'
                 : 'Escribe el área y el nombre del formato para habilitar la descarga.',
             style: const TextStyle(
               fontFamily: kArial,

@@ -114,6 +114,9 @@ class _EditLibraryMetadataDialogState
     final isContract =
         gdSectionForCategory(widget.document.categoria) ==
         GdLibrarySection.contrato;
+    final isFiled =
+        gdSectionForCategory(widget.document.categoria) ==
+        GdLibrarySection.radicados;
     return AlertDialog(
       title: const Text('Editar clasificación'),
       content: SizedBox(
@@ -162,12 +165,16 @@ class _EditLibraryMetadataDialogState
                 decoration: InputDecoration(
                   labelText: isContract
                       ? 'Código externo o resolución'
+                      : isFiled
+                      ? 'Número de radicado'
                       : 'Número de ley o resolución',
                 ),
                 validator: isContract
                     ? null
                     : (value) => (value ?? '').trim().isEmpty
-                          ? 'Indica el número de la ley o resolución'
+                          ? (isFiled
+                                ? 'Indica el número de radicado'
+                                : 'Indica el número de la ley o resolución')
                           : null,
               ),
               const SizedBox(height: 12),
@@ -637,7 +644,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                 ),
                 if (doc.estado == GdEstado.borrador)
                   const Text(
-                    'Trae el encabezado bloqueado (logo, nombre, código, versión). Arma el formato debajo y súbelo con "Subir archivo".',
+                    'Trae el encabezado institucional (logo, nombre, código y versión). Puedes combinar celdas; arma el formato debajo y súbelo con "Subir archivo".',
                     style: TextStyle(
                       fontFamily: kArial,
                       fontSize: 12,
