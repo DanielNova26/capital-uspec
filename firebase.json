@@ -26,6 +26,9 @@
     {
       "site": "to-do-gestion",
       "public": "build/web",
+      "predeploy": [
+        "node tool/verificar_build_web.js"
+      ],
       "ignore": [
         "firebase.json",
         "**/.*",

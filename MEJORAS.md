@@ -6,6 +6,22 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Publicación web: no se sube una compilación vieja — 27 sep 2026 (Claude)
+
+Caso: con `main` en la 2.6.2 (16), se publicó y to-do-gestion.com seguía
+diciendo 2.6.1 (15). `firebase deploy --only hosting` sube lo que haya en
+`build/web` sin compilar: si `flutter build web` no corrió o falló, sale la
+anterior sin ningún aviso.
+
+- El hosting tiene `predeploy`: `tool/verificar_build_web.js` compara
+  `build/web/version.json` con la versión de `pubspec.yaml` y detiene la
+  publicación, con la instrucción de compilar, si no coinciden o si no hay
+  compilación.
+- Probado con build igual (pasa), vieja y ausente (se detiene), también como
+  lo ejecuta Firebase CLI (cross-env, directorio del proyecto).
+
+---
+
 ## Visitas: Gerencia por cargo, sin tener que asignar el rol — 27 sep 2026 (Claude)
 
 Caso: tras publicar, en Admin › Roles y permisos › Visitas no aparecía
