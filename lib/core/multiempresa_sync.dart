@@ -24,6 +24,7 @@
 //     empresa para tener el mismo catálogo que otra, sin tocar al personal.
 
 import '../utils/user_company.dart';
+import 'app_catalog.dart';
 import 'area_directory.dart';
 
 /// Qué catálogo de la empresa se está mirando.
@@ -365,6 +366,13 @@ class PuestoEmpresa {
   final String estructuraArea;
   final String estructuraCargo;
 
+  /// Módulos que la persona ve hoy en esta empresa.
+  final List<String> modulos;
+
+  /// De [modulos], los que ve solo porque están en la lista general, que es
+  /// de otra empresa (ver `appsHeredadasEnEmpresa`).
+  final List<String> modulosHeredados;
+
   const PuestoEmpresa({
     required this.empresaId,
     required this.estado,
@@ -377,9 +385,20 @@ class PuestoEmpresa {
     this.jefeNombre = '',
     this.estructuraArea = '',
     this.estructuraCargo = '',
+    this.modulos = const [],
+    this.modulosHeredados = const [],
   });
 
   bool get activa => estado == EstadoMembresia.activa;
+}
+
+/// Nombre de un módulo para mostrar, nunca el appId crudo si está en el
+/// catálogo.
+String nombreModulo(String appId) {
+  for (final m in kAppCatalog) {
+    if (appIdsEquivalent(m.appId, appId)) return m.nombre;
+  }
+  return appId;
 }
 
 enum TipoDescuadre {
@@ -434,12 +453,21 @@ class PersonaMultiempresa {
   final List<PuestoEmpresa> puestos;
   final List<Descuadre> descuadres;
 
+  /// Sus módulos ya están escritos empresa por empresa
+  /// (`appsPorEmpresa`); si no, cada empresa suma la lista general.
+  final bool modulosFijados;
+
   const PersonaMultiempresa({
     required this.cedula,
     required this.empresaPrincipal,
     required this.puestos,
     required this.descuadres,
+    this.modulosFijados = false,
   });
+
+  /// Empresas donde ve módulos que son de otra empresa.
+  Iterable<PuestoEmpresa> get conModulosHeredados =>
+      puestos.where((p) => p.modulosHeredados.isNotEmpty);
 
   Iterable<PuestoEmpresa> get activas => puestos.where((p) => p.activa);
   bool get esMultiempresa => activas.length > 1;
@@ -798,6 +826,8 @@ PersonaMultiempresa analizarPersona({
           : _texto(detalle, const ['jefeNombre', 'jefe_directo']),
       estructuraArea: _texto(bloqueOrg, _kAreaNombre),
       estructuraCargo: _texto(bloqueOrg, _kCargoNombre),
+      modulos: extractUserApps(usuario, empresaId: empresaId),
+      modulosHeredados: appsHeredadasEnEmpresa(usuario, empresaId),
     );
     puestos.add(puesto);
     if (puesto.activa) {
@@ -876,6 +906,7 @@ PersonaMultiempresa analizarPersona({
     empresaPrincipal: principal,
     puestos: puestos,
     descuadres: descuadres,
+    modulosFijados: appsPorEmpresa(usuario),
   );
 }
 
@@ -1059,6 +1090,9 @@ class AjusteEmpresa {
 
   final List<MovimientoCedula> cedulas;
 
+  /// Módulos con que entra a la empresa al vincularla; null = no se tocan.
+  final List<String>? modulos;
+
   const AjusteEmpresa({
     required this.empresaId,
     this.vincular = false,
@@ -1066,6 +1100,7 @@ class AjusteEmpresa {
     this.estructura = const {},
     this.empleado = const {},
     this.cedulas = const [],
+    this.modulos,
   });
 
   bool get vacio =>
@@ -1209,10 +1244,16 @@ class CamposSincronizacion {
   /// Centro de costos, centros de operación y centros de trabajo.
   final bool centros;
 
+  /// Al vincular a una empresa nueva, entra con los módulos que tiene en la
+  /// de referencia (sin los de Administración). No aplica entre empresas que
+  /// ya tiene: los módulos de cada empresa pueden ser distintos a propósito.
+  final bool modulos;
+
   const CamposSincronizacion({
     this.area = true,
     this.cargo = true,
     this.centros = true,
+    this.modulos = true,
   });
 
   bool get ninguno => !area && !cargo && !centros;
@@ -1535,6 +1576,18 @@ PlanPersona planearSincronizacion({
         estructura: org,
         empleado: emp,
         cedulas: movimientos,
+        modulos: vincular && campos.modulos
+            ? [
+                for (final app in extractUserApps(
+                  usuario,
+                  empresaId: referenciaId,
+                ))
+                  if (!kAppCatalog.any(
+                    (m) => m.soloAdmin && appIdsEquivalent(m.appId, app),
+                  ))
+                    app,
+              ]
+            : null,
       ),
     );
   }

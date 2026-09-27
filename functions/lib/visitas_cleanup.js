@@ -27,6 +27,7 @@ exports.visitasEliminarPrueba = exports.visitasEliminarFormato = void 0;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 const crypto_1 = require("crypto");
+const apps_por_empresa_1 = require("./apps_por_empresa");
 const REGION = "us-central1";
 const VISITAS = "TBL_VISITAS";
 const FORMATOS = "TBL_VISITAS_FORMATOS";
@@ -53,8 +54,7 @@ function isGerenciaPorFicha(data, empresaId) {
     const texto = (v) => (typeof v === "string" ? v.trim() : "");
     // La raíz es de la empresa principal: su cargo no cuenta en otra empresa.
     // Espejo de `raizEsDeEmpresa` en las reglas y en la app.
-    const principal = texto(data.empresaId);
-    const raiz = principal === "" || principal === empresaId ? data : {};
+    const raiz = (0, apps_por_empresa_1.raizEsDeEmpresa)(data, empresaId) ? data : {};
     const cargo = [scoped.cargoNombre, scoped.cargo, raiz.cargoNombre, raiz.cargo]
         .map(texto).find((v) => v.length > 0) || "";
     const roles = [scoped.roleKey, data.roleKey, data.role]

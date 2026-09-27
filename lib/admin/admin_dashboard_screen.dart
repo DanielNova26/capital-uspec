@@ -746,26 +746,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     if (guardar != true) return;
 
     try {
-      // Mapa anidado real (mismo formato que el seeder). set(merge:true) hace
-      // deep-merge: reemplaza solo `apps` de cada empresa tocada y conserva sus
-      // otros campos (área/cargo/roles) y las empresas no tocadas.
-      final detalleUpdate = <String, dynamic>{};
-      Set<String>? interseccion;
-      for (final e in empresas) {
-        final ids = normalizeAppIdList(chosen[e]!.toList()).ids;
-        detalleUpdate[e] = {'apps': ids};
-        interseccion = interseccion == null
-            ? {...ids}
-            : interseccion.intersection({...ids});
-      }
-      final update = <String, dynamic>{
-        'empresasDetalle': detalleUpdate,
-        // El global `apps` = intersección: evita que un módulo asignado en una
-        // empresa "se filtre" a las demás (extractUserApps une top-level ∪ scope).
-        'apps': (interseccion?.toList() ?? <String>[])..sort(),
+      // Lo marcado en cada empresa ES su lista, y la persona queda con los
+      // módulos por empresa (ver planearAppsPorEmpresa). set(merge:true) hace
+      // deep-merge: reemplaza solo `apps` de cada empresa y conserva sus otros
+      // campos (área/cargo/roles).
+      final plan = planearAppsPorEmpresa(
+        data,
+        cambios: {for (final e in empresas) e: chosen[e]!},
+      );
+      await userDoc.reference.set({
+        ...plan.comoAnidado(),
         'updatedAt': FieldValue.serverTimestamp(),
-      };
-      await userDoc.reference.set(update, SetOptions(merge: true));
+      }, SetOptions(merge: true));
 
       _snack('Módulos actualizados.');
       if (!mounted) return;

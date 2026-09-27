@@ -28,6 +28,7 @@ const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 const crypto_1 = require("crypto");
 const util_1 = require("util");
+const apps_por_empresa_1 = require("./apps_por_empresa");
 const scrypt = (0, util_1.promisify)(crypto_1.scrypt);
 const usersCollection = "TBL_USUARIOS";
 const credentialsCollection = "TBL_AUTH_CREDENTIALS";
@@ -118,7 +119,7 @@ function isAdminForCompany(data, empresaId) {
     if (roles.some((role) => ["administrador", "admin", "superadmin", "administrador_sistema"].includes(role) ||
         role.endsWith("_administrador") || role.endsWith("_admin")))
         return true;
-    return [...textList(data.apps), ...textList(scoped?.apps)].some(adminApp);
+    return (0, apps_por_empresa_1.appsDeEmpresa)(data, empresaId).some(adminApp);
 }
 async function requireAdmin(data, context) {
     const empresaId = clean(data?.empresaId, 160);
@@ -152,8 +153,7 @@ function scopedText(data, empresaId, fields) {
     const scoped = companyDetail(data, empresaId);
     // La raíz es la copia de la empresa principal: el área y el cargo de otra
     // empresa no se completan con ella (raizEsDeEmpresa en la app).
-    const principal = clean(data.empresaId, 120);
-    const raiz = principal === "" || principal === empresaId ? data : {};
+    const raiz = (0, apps_por_empresa_1.raizEsDeEmpresa)(data, empresaId) ? data : {};
     for (const field of fields) {
         const value = clean(scoped?.[field] ?? raiz[field], 240);
         if (value)

@@ -16,10 +16,12 @@
 
 import 'package:flutter/material.dart';
 
+import '../core/app_catalog.dart';
 import '../core/area_directory.dart';
 import '../core/multiempresa_sync.dart';
 import '../core/user_directory.dart';
 import '../widgets/paged_list.dart';
+import '../utils/user_company.dart';
 import '../widgets/user_avatar.dart';
 import 'admin_repository.dart';
 import 'multiempresa_sync_service.dart';
@@ -32,12 +34,13 @@ const Color _kOk = Color(0xFF10B981);
 const Color _kWarn = Color(0xFFD97706);
 const Color _kWarnBg = Color(0xFFFFF7ED);
 
-enum _Vista { varias, descuadradas, todas }
+enum _Vista { varias, descuadradas, modulos, todas }
 
 extension on _Vista {
   String get etiqueta => switch (this) {
     _Vista.varias => 'En varias empresas',
     _Vista.descuadradas => 'Con descuadres',
+    _Vista.modulos => 'Módulos de otra empresa',
     _Vista.todas => 'Todo el personal',
   };
 }
@@ -198,6 +201,8 @@ class _AdminMultiempresaPanelState extends State<AdminMultiempresaPanel> {
           if (p.puestos.length < 2) return false;
         case _Vista.descuadradas:
           if (p.sincronizada) return false;
+        case _Vista.modulos:
+          if (p.conModulosHeredados.isEmpty) return false;
         case _Vista.todas:
           break;
       }
@@ -253,6 +258,8 @@ class _AdminMultiempresaPanelState extends State<AdminMultiempresaPanel> {
           _resumen(),
           const SizedBox(height: 12),
           _tarjetaCatalogo(),
+          const SizedBox(height: 12),
+          _tarjetaModulos(),
           const SizedBox(height: 12),
           _filtros(areas),
           const SizedBox(height: 8),
@@ -409,7 +416,329 @@ class _AdminMultiempresaPanelState extends State<AdminMultiempresaPanel> {
           _kWarn,
           _Vista.descuadradas,
         ),
+        dato(
+          '${_personas.where((p) => p.conModulosHeredados.isNotEmpty).length}',
+          'con módulos de otra empresa',
+          _kWarn,
+          _Vista.modulos,
+        ),
         dato('${_personas.length}', 'personas en total', _kMuted, _Vista.todas),
+      ],
+    );
+  }
+
+  // ─── Módulos por empresa ──────────────────────────────────────────────────
+
+  bool _quitarHeredados = false;
+
+  Widget _tarjetaModulos() {
+    final ancho = MediaQuery.sizeOf(context).width >= 760;
+    final sinFijar = _personas.where((p) => !p.modulosFijados).toList();
+    final conHeredados = _personas
+        .where((p) => p.conModulosHeredados.isNotEmpty)
+        .toList();
+    final heredados = conHeredados.fold<int>(
+      0,
+      (n, p) =>
+          n +
+          p.conModulosHeredados.fold<int>(
+            0,
+            (m, x) => m + x.modulosHeredados.length,
+          ),
+    );
+    const titulo = 'Módulos por empresa';
+    final contenido = <Widget>[
+      Text(
+        'Antes cada empresa sumaba a sus módulos la lista general de la '
+        'persona, así que un módulo dado en una empresa aparecía también en la '
+        'otra. Fijar deja escrita la lista de cada empresa y desde ahí cada '
+        'una ve solo la suya.',
+        style: _estilo(12, color: _kMuted),
+      ),
+      const SizedBox(height: 10),
+      Text(
+        sinFijar.isEmpty
+            ? 'Todo el personal ya tiene los módulos fijados por empresa.'
+            : '${sinFijar.length} persona(s) sin fijar. '
+                  '${conHeredados.length} ven $heredados módulo(s) que '
+                  'llegan de otra empresa.',
+        style: _estilo(13, weight: FontWeight.w700),
+      ),
+      if (sinFijar.isNotEmpty) ...[
+        CheckboxListTile(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          value: _quitarHeredados,
+          onChanged: (v) => setState(() => _quitarHeredados = v ?? false),
+          title: Text(
+            'Quitar los módulos que llegan de otra empresa',
+            style: _estilo(13),
+          ),
+          subtitle: Text(
+            _quitarHeredados
+                ? 'Cada empresa queda solo con su lista. Revisa antes quién '
+                      'los usa en la vista "Módulos de otra empresa".'
+                : 'Nadie pierde nada: cada empresa queda con lo que la persona '
+                      've hoy, y después se ajusta persona por persona.',
+            style: _estilo(11.5, color: _kMuted),
+          ),
+        ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton.icon(
+            onPressed: _ocupado ? null : () => _fijarModulos(sinFijar),
+            icon: const Icon(Icons.lock_outline_rounded),
+            label: Text('Fijar módulos de ${sinFijar.length} persona(s)'),
+          ),
+        ),
+      ],
+    ];
+    final forma = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+      side: const BorderSide(color: _kBorder),
+    );
+    if (!ancho) {
+      return Card(
+        shape: forma,
+        clipBehavior: Clip.antiAlias,
+        child: ExpansionTile(
+          leading: const Icon(Icons.apps_rounded, color: _kAccent),
+          title: Text(titulo, style: _estilo(13.5, weight: FontWeight.w900)),
+          subtitle: sinFijar.isEmpty
+              ? null
+              : Text(
+                  '${sinFijar.length} sin fijar',
+                  style: _estilo(11.5, color: _kWarn),
+                ),
+          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+          expandedCrossAxisAlignment: CrossAxisAlignment.start,
+          children: contenido,
+        ),
+      );
+    }
+    return Card(
+      shape: forma,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.apps_rounded, color: _kAccent),
+                const SizedBox(width: 8),
+                Text(titulo, style: _estilo(14, weight: FontWeight.w900)),
+              ],
+            ),
+            const SizedBox(height: 4),
+            ...contenido,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _fijarModulos(List<PersonaMultiempresa> personas) async {
+    final datos = _datos;
+    if (datos == null) return;
+    final quitar = _quitarHeredados;
+    final afectados = personas
+        .where((p) => p.conModulosHeredados.isNotEmpty)
+        .length;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          'Fijar módulos por empresa',
+          style: _estilo(16, weight: FontWeight.w800),
+        ),
+        content: SizedBox(
+          width: 480,
+          child: Text(
+            quitar
+                ? 'A ${personas.length} persona(s) se les escribe la lista de '
+                      'cada empresa. $afectados dejarán de ver en alguna '
+                      'empresa módulos que solo tenían por otra empresa.'
+                : 'A ${personas.length} persona(s) se les escribe la lista de '
+                      'cada empresa con lo que ven hoy. Nadie gana ni pierde '
+                      'módulos; desde ahora un cambio en una empresa no se '
+                      'pasa a las otras.',
+            style: _estilo(13),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Fijar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() {
+      _ocupado = true;
+      _progreso = 'Fijando módulos…';
+    });
+    try {
+      final n = await _svc.fijarModulos(
+        datos: datos,
+        cedulas: personas.map((p) => p.cedula),
+        actorId: widget.userId,
+        quitarHeredadas: quitar,
+        onProgreso: (hechas, total) {
+          if (mounted) setState(() => _progreso = '$hechas de $total');
+        },
+      );
+      _snack('Módulos fijados por empresa para $n persona(s).');
+    } catch (e) {
+      _snack('No se pudieron fijar los módulos: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _ocupado = false;
+          _progreso = null;
+        });
+      }
+      await _cargar();
+    }
+  }
+
+  Future<void> _editarModulos(PersonaMultiempresa p) async {
+    final datos = _datos;
+    if (datos == null) return;
+    final usuario = datos.usuarios[p.cedula] ?? const <String, dynamic>{};
+    final elegidos = <String, Set<String>>{
+      for (final x in p.puestos) x.empresaId: {...x.modulos},
+    };
+    bool tiene(String empresa, String appId) =>
+        elegidos[empresa]!.any((a) => appIdsEquivalent(a, appId));
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: Text(
+            'Módulos de ${_nombre(p.cedula)}',
+            style: _estilo(16, weight: FontWeight.w800),
+          ),
+          content: SizedBox(
+            width: 620,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Lo marcado en cada empresa es exactamente lo que verá '
+                    'allí. En naranja, lo que hoy ve solo porque lo tiene en '
+                    'otra empresa.',
+                    style: _estilo(12, color: _kMuted),
+                  ),
+                  for (final x in p.puestos) ...[
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _empresa(x.empresaId),
+                            style: _estilo(13.5, weight: FontWeight.w800),
+                          ),
+                        ),
+                        _estado(x),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (final m in kAppCatalog)
+                          FilterChip(
+                            label: Text(m.nombre, style: _estilo(12)),
+                            selected: tiene(x.empresaId, m.appId),
+                            selectedColor:
+                                x.modulosHeredados.any(
+                                  (h) => appIdsEquivalent(h, m.appId),
+                                )
+                                ? _kWarnBg
+                                : null,
+                            side: BorderSide(
+                              color:
+                                  x.modulosHeredados.any(
+                                    (h) => appIdsEquivalent(h, m.appId),
+                                  )
+                                  ? _kWarn
+                                  : _kBorder,
+                            ),
+                            onSelected: (v) => setLocal(() {
+                              final set = elegidos[x.empresaId]!;
+                              if (v) {
+                                set.add(m.appId);
+                              } else {
+                                set.removeWhere(
+                                  (a) => appIdsEquivalent(a, m.appId),
+                                );
+                              }
+                            }),
+                          ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Guardar'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _ocupado = true);
+    try {
+      await _svc.guardarModulos(
+        cedula: p.cedula,
+        usuario: usuario,
+        porEmpresa: elegidos,
+        actorId: widget.userId,
+      );
+      _snack('Módulos de ${_nombre(p.cedula)} guardados por empresa.');
+      await _cargar();
+    } catch (e) {
+      _snack('No se pudieron guardar los módulos: $e');
+    } finally {
+      if (mounted) setState(() => _ocupado = false);
+    }
+  }
+
+  Widget _modulos(PuestoEmpresa x) {
+    if (x.modulos.isEmpty) {
+      return Text('—', style: _estilo(12.5, color: _kMuted));
+    }
+    return Wrap(
+      spacing: 4,
+      runSpacing: 4,
+      children: [
+        for (final app in x.modulos)
+          if (x.modulosHeredados.contains(app))
+            Tooltip(
+              message: 'Lo ve solo porque lo tiene en otra empresa',
+              child: _chip(nombreModulo(app), _kWarn),
+            )
+          else
+            _chip(nombreModulo(app), _kMuted),
       ],
     );
   }
@@ -943,25 +1272,30 @@ class _AdminMultiempresaPanelState extends State<AdminMultiempresaPanel> {
                           overflow: TextOverflow.ellipsis,
                           style: _estilo(11.5, color: _kMuted),
                         ),
+                        const SizedBox(height: 4),
+                        // Debajo del nombre y no a la derecha: en el teléfono
+                        // no caben al lado.
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 4,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            _chip(
+                              ok
+                                  ? 'Sincronizada'
+                                  : '${p.descuadres.length} descuadre(s)',
+                              ok ? _kOk : _kWarn,
+                            ),
+                            if (p.conModulosHeredados.isNotEmpty)
+                              _chip('Módulos de otra empresa', _kWarn),
+                            Text(
+                              '$activas activa(s) de ${p.puestos.length}',
+                              style: _estilo(10.5, color: _kMuted),
+                            ),
+                          ],
+                        ),
                       ],
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      _chip(
-                        ok
-                            ? 'Sincronizada'
-                            : '${p.descuadres.length} descuadre(s)',
-                        ok ? _kOk : _kWarn,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '$activas activa(s) de ${p.puestos.length}',
-                        style: _estilo(10.5, color: _kMuted),
-                      ),
-                    ],
                   ),
                   Icon(
                     abierta ? Icons.expand_less : Icons.expand_more,
@@ -1060,6 +1394,7 @@ class _AdminMultiempresaPanelState extends State<AdminMultiempresaPanel> {
                 DataColumn(label: Text('Centros de operación')),
                 DataColumn(label: Text('Centros de trabajo')),
                 DataColumn(label: Text('Jefe')),
+                DataColumn(label: Text('Módulos')),
               ],
               rows: [
                 for (final x in p.puestos)
@@ -1091,6 +1426,12 @@ class _AdminMultiempresaPanelState extends State<AdminMultiempresaPanel> {
                         Text(
                           x.jefeNombre.isEmpty ? '—' : x.jefeNombre,
                           style: _estilo(12.5),
+                        ),
+                      ),
+                      DataCell(
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 300),
+                          child: _modulos(x),
                         ),
                       ),
                     ],
@@ -1141,6 +1482,11 @@ class _AdminMultiempresaPanelState extends State<AdminMultiempresaPanel> {
                 onPressed: _ocupado ? null : () => _sincronizarPersona(p),
                 icon: const Icon(Icons.sync_rounded, size: 18),
                 label: const Text('Sincronizar…'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _ocupado ? null : () => _editarModulos(p),
+                icon: const Icon(Icons.apps_rounded, size: 18),
+                label: const Text('Módulos…'),
               ),
               OutlinedButton.icon(
                 onPressed:
@@ -1201,6 +1547,7 @@ class _AdminMultiempresaPanelState extends State<AdminMultiempresaPanel> {
           fila('Trabajo', _valores(x.trabajo)),
           if (x.jefeNombre.isNotEmpty)
             fila('Jefe', Text(x.jefeNombre, style: _estilo(12.5))),
+          fila('Módulos', _modulos(x)),
         ],
       ),
     );

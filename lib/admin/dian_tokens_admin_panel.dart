@@ -136,15 +136,15 @@ class _AdminDianTokensPanelState extends State<AdminDianTokensPanel> {
         } else {
           apps.removeWhere((app) => appIdsEquivalent(app, kDianTokensAppId));
         }
-        final normalized = normalizeAppIdList(apps.toList()).ids..sort();
-        final update = <String, dynamic>{
-          'empresasDetalle.${widget.empresaId}.apps': normalized,
+        // Solo en esta empresa; las demás conservan sus módulos.
+        final plan = planearAppsPorEmpresa(
+          data,
+          cambios: {widget.empresaId: apps},
+        );
+        transaction.update(ref, {
+          ...plan.comoRutas(),
           'updatedAt': FieldValue.serverTimestamp(),
-        };
-        if ((data['empresaId'] ?? '').toString().trim() == widget.empresaId) {
-          update['apps'] = normalized;
-        }
-        transaction.update(ref, update);
+        });
       });
       await _load();
       _snack(enabled ? 'Acceso autorizado.' : 'Acceso retirado.');

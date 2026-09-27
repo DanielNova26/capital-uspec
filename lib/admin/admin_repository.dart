@@ -429,21 +429,31 @@ class AdminRepository {
     String empresaId,
   ) => FirestoreUserRepository.instance.loadUsersByEmpresa(empresaId);
 
+  /// Fija los módulos de la persona en [empresaId] sin tocar lo que tiene en
+  /// sus otras empresas (antes pisaba la lista general y esos módulos
+  /// aparecían también allá).
   Future<void> updateUserApps(
     String userId,
     Set<String> apps, {
     String? empresaId,
   }) async {
-    final normalized = normalizeAppIdList(apps.toList());
-    final update = <String, dynamic>{
-      'apps': normalized.ids,
-      'updatedAt': FieldValue.serverTimestamp(),
-    };
-    // Guarda también en el scope de empresa para soporte multiempresa.
-    if (empresaId != null && empresaId.trim().isNotEmpty) {
-      update['empresasDetalle.${empresaId.trim()}.apps'] = normalized.ids;
+    final ref = _db.collection('TBL_USUARIOS').doc(userId);
+    final data = (await ref.get()).data() ?? const <String, dynamic>{};
+    final empresa = (empresaId ?? '').trim();
+    if (empresa.isEmpty) {
+      // Sin empresa no hay a quién asignarlo: queda como antes, en la lista
+      // general (cuentas antiguas de una sola empresa).
+      await ref.update({
+        'apps': normalizeAppIdList(apps.toList()).ids,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return;
     }
-    await _db.collection('TBL_USUARIOS').doc(userId).update(update);
+    final plan = planearAppsPorEmpresa(data, cambios: {empresa: apps});
+    await ref.update({
+      ...plan.comoRutas(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
   }
 
   Future<void> grantUserApps({
@@ -460,16 +470,12 @@ class AdminRepository {
     final data = snap.data() ?? const <String, dynamic>{};
     final current = extractUserApps(data, empresaId: empresaId).toSet();
     current.addAll(normalizedToGrant);
-    final normalized = normalizeAppIdList(current.toList()).ids..sort();
-
-    final update = <String, dynamic>{
-      'empresasDetalle.$empresaId.apps': normalized,
+    // Solo suma en esta empresa; las demás quedan como están.
+    final plan = planearAppsPorEmpresa(data, cambios: {empresaId: current});
+    await ref.update({
+      ...plan.comoRutas(),
       'updatedAt': FieldValue.serverTimestamp(),
-    };
-    if ((data['empresaId'] ?? '').toString().trim() == empresaId) {
-      update['apps'] = normalized;
-    }
-    await ref.update(update);
+    });
   }
 
   Future<void> updateUserOrg({
@@ -1061,7 +1067,9 @@ class AdminRepository {
 
       if (update.isEmpty) continue;
       update['updatedAt'] = FieldValue.serverTimestamp();
-      batch.set(user.reference, update, SetOptions(merge: true));
+      // update(), no set(merge): set no interpreta la ruta con punto y dejaba
+      // un campo literal "empresasDetalle.X.apps" en vez de tocar el bloque.
+      batch.update(user.reference, update);
       writes++;
       changed++;
       if (writes >= 450) await commitIfNeeded();

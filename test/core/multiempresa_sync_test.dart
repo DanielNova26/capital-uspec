@@ -355,6 +355,67 @@ void main() {
     });
   });
 
+  group('módulos por empresa en la ficha', () {
+    test('marca los que B ve solo por la lista general', () {
+      final usuario = _usuario(
+        raiz: const {
+          'apps': ['tareasdashboard', 'comprasdashboard'],
+        },
+        detalle: {
+          _a: _bloqueA(),
+          _b: {
+            ..._bloqueBSano(),
+            'apps': ['tareasdashboard'],
+          },
+        },
+      );
+      final p = analizarPersona(
+        cedula: '111',
+        usuario: usuario,
+        catalogos: _catalogos(),
+      );
+      expect(p.modulosFijados, isFalse);
+      expect(p.puesto(_b)!.modulosHeredados, ['comprasdashboard']);
+      expect(p.puesto(_a)!.modulosHeredados, isEmpty);
+      expect(nombreModulo('comprasdashboard'), isNot('comprasdashboard'));
+    });
+
+    test('al vincular entra con los módulos de la referencia, sin Admin', () {
+      final usuario = _usuario(
+        empresas: const [_a],
+        raiz: const {
+          'apps': ['tareasdashboard', 'admindashboard', 'rutasdashboard'],
+        },
+        detalle: {_a: _bloqueA()},
+      );
+      final persona = analizarPersona(
+        cedula: '111',
+        usuario: usuario,
+        catalogos: _catalogos(),
+      );
+      final plan = planearSincronizacion(
+        persona: persona,
+        usuario: usuario,
+        referenciaId: _a,
+        destinos: const [_c],
+        catalogos: _catalogos(),
+      );
+      expect(plan.ajustes.single.modulos, [
+        'tareasdashboard',
+        'rutasdashboard',
+      ]);
+      final sinModulos = planearSincronizacion(
+        persona: persona,
+        usuario: usuario,
+        referenciaId: _a,
+        destinos: const [_c],
+        catalogos: _catalogos(),
+        campos: const CamposSincronizacion(modulos: false),
+      );
+      expect(sinModulos.ajustes.single.modulos, isNull);
+    });
+  });
+
   group('planearSincronizacion', () {
     test('iguala B a la principal y deja a la persona sin descuadres', () {
       final cats = _catalogos();

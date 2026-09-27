@@ -1,5 +1,6 @@
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
+import {appsDeEmpresa} from "./apps_por_empresa";
 import {
   createCipheriv,
   createDecipheriv,
@@ -84,6 +85,8 @@ function scopedApps(
   user: FirebaseFirestore.DocumentData,
   empresaId: string
 ): string[] {
+  // Con los módulos ya fijados por empresa manda la regla común de la app.
+  if (user.appsPorEmpresa === true) return appsDeEmpresa(user, empresaId);
   const detail = user.empresasDetalle;
   const companyDetail = detail && typeof detail === "object" && !Array.isArray(detail)
     ? detail[empresaId]

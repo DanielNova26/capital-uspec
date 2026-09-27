@@ -390,6 +390,16 @@ class MultiempresaSyncService {
     if (vinculadas.isNotEmpty) {
       userUpdate['empresas'] = FieldValue.arrayUnion(vinculadas);
     }
+    // Módulos de las empresas nuevas; las que ya tenía conservan los suyos.
+    final modulos = <String, List<String>>{
+      for (final a in plan.ajustes)
+        if (a.modulos != null) a.empresaId: a.modulos!,
+    };
+    if (modulos.isNotEmpty) {
+      userUpdate.addAll(
+        planearAppsPorEmpresa(usuario, cambios: modulos).comoRutas(),
+      );
+    }
     batch.update(_db.collection(_usuarios).doc(cedula), userUpdate);
 
     if (estructura != null && (orgUpdate.isNotEmpty || vinculadas.isNotEmpty)) {
@@ -485,6 +495,71 @@ class MultiempresaSyncService {
       entradasCreadas: creadas,
       errores: errores,
     );
+  }
+
+  /// Fija los módulos por empresa de [cedulas]: cada empresa queda con lo
+  /// que la persona ve hoy en ella (o, con [quitarHeredadas], sin lo que solo
+  /// veía por la lista general de otra empresa) y la persona pasa a la regla
+  /// de módulos por empresa. Devuelve cuántas personas se escribieron.
+  Future<int> fijarModulos({
+    required MultiempresaDatos datos,
+    required Iterable<String> cedulas,
+    required String actorId,
+    bool quitarHeredadas = false,
+    void Function(int hechas, int total)? onProgreso,
+  }) async {
+    final lista = cedulas.where(datos.usuarios.containsKey).toList();
+    var batch = _db.batch();
+    var writes = 0;
+    var hechas = 0;
+    for (final cedula in lista) {
+      final plan = planearAppsPorEmpresa(
+        datos.usuarios[cedula]!,
+        quitarHeredadas: quitarHeredadas,
+      );
+      if (plan.porEmpresa.isEmpty) continue;
+      batch.update(_db.collection(_usuarios).doc(cedula), {
+        ...plan.comoRutas(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      writes++;
+      hechas++;
+      if (writes >= 400) {
+        await batch.commit();
+        batch = _db.batch();
+        writes = 0;
+        onProgreso?.call(hechas, lista.length);
+      }
+    }
+    if (writes > 0) await batch.commit();
+    onProgreso?.call(hechas, lista.length);
+    for (final cedula in lista) {
+      UserDirectory.instance.invalidate(cedula);
+    }
+    await _log(
+      actorId: actorId,
+      action: 'multiempresaFijarModulos',
+      empresaId: '*',
+      extra: {'personas': hechas, 'quitarHeredadas': quitarHeredadas},
+    );
+    return hechas;
+  }
+
+  /// Guarda los módulos de una persona en cada una de sus empresas.
+  Future<void> guardarModulos({
+    required String cedula,
+    required Map<String, dynamic> usuario,
+    required Map<String, Set<String>> porEmpresa,
+    required String actorId,
+  }) async {
+    final plan = planearAppsPorEmpresa(usuario, cambios: porEmpresa);
+    await _db.collection(_usuarios).doc(cedula).update({
+      ...plan.comoRutas(),
+      'accesosActualizadoPor': actorId,
+      'accesosActualizadoAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    UserDirectory.instance.invalidate(cedula);
   }
 
   Future<void> _log({

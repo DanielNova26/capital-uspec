@@ -1,6 +1,7 @@
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
 import {createHash} from "crypto";
+import {raizEsDeEmpresa} from "./apps_por_empresa";
 
 const REGION = "us-central1";
 const VISITAS = "TBL_VISITAS";
@@ -36,8 +37,7 @@ function isGerenciaPorFicha(
   const texto = (v: unknown) => (typeof v === "string" ? v.trim() : "");
   // La raíz es de la empresa principal: su cargo no cuenta en otra empresa.
   // Espejo de `raizEsDeEmpresa` en las reglas y en la app.
-  const principal = texto(data.empresaId);
-  const raiz = principal === "" || principal === empresaId ? data : {};
+  const raiz = raizEsDeEmpresa(data, empresaId) ? data : {};
   const cargo = [scoped.cargoNombre, scoped.cargo, raiz.cargoNombre, raiz.cargo]
     .map(texto).find((v) => v.length > 0) || "";
   const roles = [scoped.roleKey, data.roleKey, data.role]

@@ -41,6 +41,7 @@ exports.normalizeStoredRecipients = normalizeStoredRecipients;
  */
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
+const apps_por_empresa_1 = require("./apps_por_empresa");
 const crypto_1 = require("crypto");
 const notification_branding_1 = require("./notification_branding");
 const REGION = "us-central1";
@@ -379,15 +380,6 @@ function belongsToEmpresa(user, empresaId) {
     }
     return text(user.empresaId || user.empresa) === empresaId;
 }
-/**
- * ¿La raíz del usuario es de [empresaId]? La raíz es la copia de la empresa
- * principal; sin principal escrita, vale. Espejo de `raizEsDeEmpresa` en
- * lib/utils/user_company.dart.
- */
-function raizEsDeEmpresa(user, empresaId) {
-    const principal = text(user.empresaId);
-    return principal === "" || principal === empresaId;
-}
 function companyDetail(user, empresaId) {
     const detail = user.empresasDetalle;
     if (!detail || typeof detail !== "object" || Array.isArray(detail)) {
@@ -440,7 +432,7 @@ function hasAdminAccess(user, empresaId) {
     ].map(normalize);
     if (roles.some(roleIsAdmin))
         return true;
-    const appIds = [...textList(user.apps), ...textList(scoped?.apps)];
+    const appIds = (0, apps_por_empresa_1.appsDeEmpresa)(user, empresaId);
     return appIds.some(appIsAdminDashboard);
 }
 async function findUser(identity) {
@@ -1718,7 +1710,7 @@ exports.whatsappAdminDirectorio = functions
                 email: firstText(cv.email, root.email, root.correo, root.mail),
                 // El cargo de la raíz es de la empresa principal: en otra empresa
                 // solo cuenta el de su bloque (raizEsDeEmpresa en la app).
-                cargo: firstText(scoped?.cargo, raizEsDeEmpresa(root, caller.empresaId) ? root.cargo : "", raizEsDeEmpresa(root, caller.empresaId) ? root.cargoNombre : ""),
+                cargo: firstText(scoped?.cargo, (0, apps_por_empresa_1.raizEsDeEmpresa)(root, caller.empresaId) ? root.cargo : "", (0, apps_por_empresa_1.raizEsDeEmpresa)(root, caller.empresaId) ? root.cargoNombre : ""),
                 tieneTelefonoValido: telefono.length >= 8 && telefono.length <= 15,
             }];
     });

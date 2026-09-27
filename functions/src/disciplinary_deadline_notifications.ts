@@ -1,6 +1,7 @@
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
 import {sendWhatsAppDirect} from "./whatsapp";
+import {appsDeEmpresa} from "./apps_por_empresa";
 
 /**
  * Alertas de los plazos del proceso disciplinario.
@@ -112,16 +113,8 @@ async function talentoHumanoTeam(empresaId: string): Promise<string[]> {
   const recipients = new Set<string>();
   for (const document of [...byArray.docs, ...byField.docs]) {
     const data = document.data() as JsonMap;
-    const apps: unknown[] = [];
-    if (Array.isArray(data.apps)) apps.push(...data.apps);
-    const detail = data.empresasDetalle;
-    if (detail && typeof detail === "object") {
-      const scoped = (detail as JsonMap)[empresaId];
-      if (scoped && typeof scoped === "object") {
-        const scopedApps = (scoped as JsonMap).apps;
-        if (Array.isArray(scopedApps)) apps.push(...scopedApps);
-      }
-    }
+    // Talento Humano de ESTA empresa (misma regla que la app).
+    const apps = appsDeEmpresa(data, empresaId);
     if (apps.some(isTalentoHumanoApp)) recipients.add(document.id);
   }
   return [...recipients];

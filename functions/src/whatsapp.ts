@@ -7,6 +7,7 @@
  */
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
+import {appsDeEmpresa, raizEsDeEmpresa} from "./apps_por_empresa";
 import {
   createCipheriv,
   createDecipheriv,
@@ -456,19 +457,6 @@ function belongsToEmpresa(
   return text(user.empresaId || user.empresa) === empresaId;
 }
 
-/**
- * ¿La raíz del usuario es de [empresaId]? La raíz es la copia de la empresa
- * principal; sin principal escrita, vale. Espejo de `raizEsDeEmpresa` en
- * lib/utils/user_company.dart.
- */
-function raizEsDeEmpresa(
-  user: admin.firestore.DocumentData,
-  empresaId: string
-): boolean {
-  const principal = text(user.empresaId);
-  return principal === "" || principal === empresaId;
-}
-
 function companyDetail(
   user: admin.firestore.DocumentData,
   empresaId: string
@@ -528,7 +516,7 @@ function hasAdminAccess(
   ].map(normalize);
   if (roles.some(roleIsAdmin)) return true;
 
-  const appIds = [...textList(user.apps), ...textList(scoped?.apps)];
+  const appIds = appsDeEmpresa(user, empresaId);
   return appIds.some(appIsAdminDashboard);
 }
 

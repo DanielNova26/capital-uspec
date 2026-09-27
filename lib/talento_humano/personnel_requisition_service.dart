@@ -686,24 +686,31 @@ class PersonnelRequisitionService {
         ...extractUserApps(existing, empresaId: current.empresaId),
         ...hire.apps,
       ]).ids..sort();
-      company['apps'] = nextApps;
-
-      // Antes de pisar la lista global se congela lo que cada otra empresa
-      // heredaba de ella, para no quitarle módulos a la persona allá.
-      for (final otra in details.keys.toList()) {
-        if (otra == current.empresaId) continue;
-        final raw = details[otra];
+      // Módulos por empresa: esta empresa con lo que tenía más lo elegido al
+      // contratar; las demás, con lo que ven hoy (ver planearAppsPorEmpresa).
+      final planApps = planearAppsPorEmpresa(
+        existing,
+        cambios: {current.empresaId: nextApps},
+      );
+      company['apps'] = planApps.porEmpresa[current.empresaId] ?? nextApps;
+      for (final otra in planApps.porEmpresa.entries) {
+        if (otra.key == current.empresaId) continue;
+        final raw = details[otra.key];
         final bloque = raw is Map
             ? raw.map((key, value) => MapEntry(key.toString(), value))
             : <String, dynamic>{};
-        if (bloque['apps'] is List) continue;
-        bloque['apps'] = normalizeAppIdList(
-          extractUserApps(existing, empresaId: otra),
-        ).ids..sort();
-        details[otra] = bloque;
+        bloque['apps'] = otra.value;
+        details[otra.key] = bloque;
       }
 
       details[current.empresaId] = company;
+      // Contratar en otra empresa no cambia la principal de quien ya tenía
+      // una: la raíz es la copia de esa principal (ver raizEsDeEmpresa).
+      final principalActual = _text(existing['empresaId']);
+      final principal =
+          principalActual.isNotEmpty && companies.contains(principalActual)
+          ? principalActual
+          : current.empresaId;
 
       transaction.set(userRef, {
         ...existing,
@@ -715,10 +722,11 @@ class PersonnelRequisitionService {
         'nombreCompleto': capitalizarPalabras(hire.fullName),
         if (hire.email.trim().isNotEmpty) 'correo': hire.email.trim(),
         if (hire.phone.trim().isNotEmpty) 'telefono': hire.phone.trim(),
-        'empresaId': current.empresaId,
+        'empresaId': principal,
         'empresas': companies,
         'empresasDetalle': details,
-        'apps': nextApps,
+        'apps': planApps.raiz,
+        kCampoAppsPorEmpresa: true,
         'estado': 'activo',
         'estadoLaboral': 'activo',
         'role': existing['role'] ?? 'usuario',
