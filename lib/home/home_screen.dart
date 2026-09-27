@@ -509,10 +509,11 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         }, onError: (_) {});
 
-    String? rol;
-    try {
-      rol = await VisitasService().getRolUsuario(empresaId, cedula);
-    } catch (_) {}
+    final rol = await VisitasService().rolVisitasDeUsuario(
+      empresaId: empresaId,
+      userId: cedula,
+      userData: userData,
+    );
     if (!mounted || _lastVisitasKey != key) return;
     final esJefe =
         rol == kVisitasRolJefe ||
@@ -825,14 +826,13 @@ class _HomeScreenState extends State<HomeScreen> {
       appId: kVisitasAppId,
       deniedMessage: 'Sin acceso a Visitas.',
     )) {
-      String? rol;
-      try {
-        rol = await VisitasService().getRolUsuario(empresaId, userId);
-      } catch (_) {}
-      // El desarrollador entra como jefe: puede programar, ver y configurar.
-      if (rol == null && isDeveloperUser(userData, empresaId: empresaId)) {
-        rol = kVisitasRolJefe;
-      }
+      // El desarrollador sin rol entra como jefe; quien tiene cargo de
+      // Gerencia entra como Gerencia aunque no se le haya asignado el rol.
+      final rol = await VisitasService().rolVisitasDeUsuario(
+        empresaId: empresaId,
+        userId: userId,
+        userData: userData,
+      );
       final nombre = resolveScopedStringWithFallbacks(
         userData,
         empresaId,

@@ -21,6 +21,27 @@ function isDeveloper(data: FirebaseFirestore.DocumentData, empresaId: string): b
     ));
 }
 
+/**
+ * Gerencia por la ficha, sin rol asignado (27 sep 2026). Mismo criterio que
+ * `esGerenciaPorFicha` en firestore.rules y `resolverRolVisitas` en la app.
+ * @param {FirebaseFirestore.DocumentData} data Ficha de TBL_USUARIOS.
+ * @param {string} empresaId Empresa activa.
+ * @return {boolean} Si el cargo o el rol de la app es de Gerencia.
+ */
+function isGerenciaPorFicha(
+  data: FirebaseFirestore.DocumentData,
+  empresaId: string
+): boolean {
+  const scoped = data.empresasDetalle?.[empresaId] || {};
+  const texto = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  const cargo = [scoped.cargoNombre, scoped.cargo, data.cargoNombre, data.cargo]
+    .map(texto).find((v) => v.length > 0) || "";
+  const roles = [scoped.roleKey, data.roleKey, data.role]
+    .map((v) => texto(v).toLowerCase());
+  return /^(gerente|gerencia)/.test(cargo.toLowerCase()) ||
+    roles.some((r) => r === "gerencia" || r === "gerente");
+}
+
 function belongsToCompany(data: FirebaseFirestore.DocumentData, empresaId: string): boolean {
   return data.empresaId === empresaId || data.empresa === empresaId ||
     (Array.isArray(data.empresas) && data.empresas.includes(empresaId)) ||
@@ -48,7 +69,8 @@ async function requireManager(
   const rol = (role.data()?.rol || "").toString();
   // Gerencia administra todas las áreas, igual que Desarrollo (26 sep 2026).
   const developer = isDeveloper(userData, empresaId) ||
-    (rol === "gerencia" && belongsToCompany(userData, empresaId));
+    ((rol === "gerencia" || isGerenciaPorFicha(userData, empresaId)) &&
+      belongsToCompany(userData, empresaId));
   if (!user.exists || !(developer || belongsToCompany(userData, empresaId)) ||
       !(developer || rol === "jefe")) {
     throw new functions.https.HttpsError(

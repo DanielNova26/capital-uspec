@@ -37,10 +37,12 @@ Future<bool> abrirVisitasDesdeNotificacion(
       _avisar(context, 'Sin acceso a Visitas en esta empresa.');
       return false;
     }
-    var rol = await VisitasService().getRolUsuario(eid, userId);
-    if (rol == null && isDeveloperUser(userData, empresaId: eid)) {
-      rol = kVisitasRolJefe;
-    }
+    // Gerencia entra por su cargo aunque no tenga el rol asignado.
+    final rol = await VisitasService().rolVisitasDeUsuario(
+      empresaId: eid,
+      userId: userId,
+      userData: userData,
+    );
     if (rol == null) {
       _avisar(context, 'No tienes un rol asignado en Visitas.');
       return false;

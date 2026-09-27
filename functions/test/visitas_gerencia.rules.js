@@ -92,6 +92,17 @@ test.before(async () => {
       setDoc(doc(db, "TBL_USUARIOS/jefe"), miembro("Jefe")),
       setDoc(doc(db, "TBL_USUARIOS/prof"), miembro("Profesional")),
       setDoc(doc(db, "TBL_USUARIOS/otro"), miembro("Otro")),
+      // Gerencia por cargo, sin rol en TBL_VISITAS_ROLES (27 sep 2026).
+      setDoc(doc(db, "TBL_USUARIOS/oscar"), {
+        ...miembro("Oscar"), cargo: "Gerencia", area: "Gerencia",
+      }),
+      setDoc(doc(db, "TBL_USUARIOS/sub"), {
+        ...miembro("Sub"), cargo: "Subgerente administrativo",
+      }),
+      setDoc(doc(db, "TBL_USUARIOS/multi"), {
+        ...miembro("Multi"), cargo: "Gerente",
+        empresasDetalle: {EMP_A: {cargoNombre: "Analista"}},
+      }),
       setDoc(doc(db, "TBL_VISITAS_ROLES/EMP_A_ger"), {
         empresaId: "EMP_A", userId: "ger", rol: "gerencia", areaId: "",
       }),
@@ -200,4 +211,30 @@ test("evidencias adicionales: sí antes de firmar, no después", async () => {
   await assertFails(updateDoc(doc(db, "TBL_VISITAS/firmada"), {
     evidenciasAdicionales: fotos,
   }));
+});
+
+test("Gerencia por cargo, sin rol asignado", async () => {
+  const todas = (quien) => getDocs(query(
+    collection(auth(quien), "TBL_VISITAS"),
+    where("empresaId", "==", "EMP_A"),
+  ));
+  await assertSucceeds(todas("oscar"));
+  await assertSucceeds(setDoc(doc(auth("oscar"), "TBL_VISITAS_UBICACIONES/EMP_A_C9"), {
+    empresaId: "EMP_A", centroId: "C9", centroNombre: "Chocontá",
+    lat: 5.1, lng: -73.6, radioMetros: 150,
+  }));
+  await assertSucceeds(setDoc(doc(auth("oscar"), "TBL_VISITAS_FORMATOS/F9"), {
+    ...formato, areaId: "EMP_A_sst", estado: "borrador",
+  }));
+  // Lo que antes solo leía quien tenía rol: ubicaciones, grupos y roles.
+  for (const col of ["TBL_VISITAS_UBICACIONES", "TBL_VISITAS_GRUPOS",
+    "TBL_VISITAS_ROLES"]) {
+    await assertSucceeds(getDocs(query(
+      collection(auth("oscar"), col),
+      where("empresaId", "==", "EMP_A"),
+    )));
+  }
+  // Subgerente no; y el cargo de la empresa manda sobre el de la raíz.
+  await assertFails(todas("sub"));
+  await assertFails(todas("multi"));
 });

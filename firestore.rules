@@ -113,15 +113,44 @@ service cloud.firestore {
     function administraVisitas(empresaId) {
       return belongsToCompany(empresaId)
         && (isDeveloper() || isDeveloperIn(empresaId)
-          || hasVisitasRole(empresaId, ['jefe', 'gerencia']));
+          || hasVisitasRole(empresaId, ['jefe', 'gerencia'])
+          || esGerenciaPorFicha(empresaId));
     }
 
     // Gerencia (26 sep 2026): "es el jefe de todos, puede ver absolutamente
     // todo y hacer todos los formatos". En Visitas tiene el alcance de
     // Desarrollo: todas las áreas y el maestro de ubicaciones. El rol lo da
     // Desarrollo; Gerencia no se nombra a sí misma ni a otra Gerencia.
+    // 27 sep 2026: también por la ficha, sin rol asignado. Quien tiene cargo
+    // de Gerencia ("Gerencia", "Gerente general"…) o el rol de la app
+    // gerencia / gerente es Gerencia en Visitas. Espejo de
+    // `resolverRolVisitas` y `VisitasService.cargoDeFicha`: el cargo es el
+    // primero con texto entre cargoNombre y cargo de la empresa, y luego los
+    // de la raíz. Va siempre al final de los `||`: es lo más caro y las
+    // reglas tienen un tope de 1000 expresiones por petición.
     function esGerenciaVisitas(empresaId) {
-      return hasVisitasRole(empresaId, ['gerencia']);
+      return hasVisitasRole(empresaId, ['gerencia'])
+        || (belongsToCompany(empresaId) && esGerenciaPorFicha(empresaId));
+    }
+
+    function esCargoGerencia(valor) {
+      return valor is string
+        && valor.trim().lower().matches('(gerente|gerencia).*');
+    }
+
+    function primerTexto(a, b) {
+      return a is string && a.trim().size() > 0 ? a : b;
+    }
+
+    function esGerenciaPorFicha(empresaId) {
+      let u = currentUser();
+      let d = u.get('empresasDetalle', {}).get(empresaId, {});
+      return esCargoGerencia(primerTexto(d.get('cargoNombre', ''),
+          primerTexto(d.get('cargo', ''),
+            primerTexto(u.get('cargoNombre', ''), u.get('cargo', '')))))
+        || d.get('roleKey', '') in ['gerencia', 'gerente']
+        || u.get('roleKey', '') in ['gerencia', 'gerente']
+        || u.get('role', '') in ['gerencia', 'gerente'];
     }
 
     function areaVisitasUsuario(empresaId, userId) {
@@ -133,10 +162,10 @@ service cloud.firestore {
     function administraVisitasArea(empresaId, areaId) {
       return belongsToCompany(empresaId)
         && (isDeveloper() || isDeveloperIn(empresaId)
-          || esGerenciaVisitas(empresaId)
           || (areaId is string && areaId.size() > 0
             && hasVisitasRole(empresaId, ['jefe'])
-            && areaVisitasUsuario(empresaId, request.auth.token.userDocId) == areaId));
+            && areaVisitasUsuario(empresaId, request.auth.token.userDocId) == areaId)
+          || esGerenciaVisitas(empresaId));
     }
 
     function participaEnVisitas(empresaId) {
@@ -342,37 +371,37 @@ service cloud.firestore {
         && request.resource.data.rol in ['jefe', 'profesional', 'consulta', 'firmante', 'gerencia']
         && request.resource.data.areaId is string
         && (isDeveloper() || isDeveloperIn(request.resource.data.empresaId)
-          || (request.resource.data.rol != 'gerencia'
-            && request.resource.data.userId != request.auth.token.userDocId
-            && esGerenciaVisitas(request.resource.data.empresaId))
           || (request.resource.data.rol == 'profesional'
             && administraVisitasArea(request.resource.data.empresaId,
-              request.resource.data.areaId)));
+              request.resource.data.areaId))
+          || (request.resource.data.rol != 'gerencia'
+            && request.resource.data.userId != request.auth.token.userDocId
+            && esGerenciaVisitas(request.resource.data.empresaId)));
       allow update: if resource.data.empresaId == request.resource.data.empresaId
         && resource.data.userId == request.resource.data.userId
         && belongsToCompany(resource.data.empresaId)
         && request.resource.data.rol in ['jefe', 'profesional', 'consulta', 'firmante', 'gerencia']
         && request.resource.data.areaId is string
         && (isDeveloper() || isDeveloperIn(resource.data.empresaId)
-          || (resource.data.rol != 'gerencia'
-            && request.resource.data.rol != 'gerencia'
-            && resource.data.userId != request.auth.token.userDocId
-            && esGerenciaVisitas(resource.data.empresaId))
           || (resource.data.rol == 'profesional'
             && request.resource.data.rol == 'profesional'
             && resource.data.areaId == request.resource.data.areaId
             && resource.data.userId != request.auth.token.userDocId
             && administraVisitasArea(resource.data.empresaId,
-              resource.data.areaId)));
+              resource.data.areaId))
+          || (resource.data.rol != 'gerencia'
+            && request.resource.data.rol != 'gerencia'
+            && resource.data.userId != request.auth.token.userDocId
+            && esGerenciaVisitas(resource.data.empresaId)));
       allow delete: if belongsToCompany(resource.data.empresaId)
         && (isDeveloper() || isDeveloperIn(resource.data.empresaId)
-          || (resource.data.rol != 'gerencia'
-            && resource.data.userId != request.auth.token.userDocId
-            && esGerenciaVisitas(resource.data.empresaId))
           || (resource.data.rol == 'profesional'
             && resource.data.userId != request.auth.token.userDocId
             && administraVisitasArea(resource.data.empresaId,
-              resource.data.areaId)));
+              resource.data.areaId))
+          || (resource.data.rol != 'gerencia'
+            && resource.data.userId != request.auth.token.userDocId
+            && esGerenciaVisitas(resource.data.empresaId)));
     }
 
     // Grupos de profesionales con sus establecimientos (25 sep 2026). Los
@@ -399,7 +428,8 @@ service cloud.firestore {
           || hasVisitasRole(resource.data.empresaId, ['consulta', 'gerencia'])
           || (hasVisitasRole(resource.data.empresaId, ['jefe', 'profesional'])
             && resource.data.areaId == areaVisitasUsuario(
-              resource.data.empresaId, request.auth.token.userDocId)));
+              resource.data.empresaId, request.auth.token.userDocId))
+          || esGerenciaPorFicha(resource.data.empresaId));
       allow create: if administraVisitasArea(request.resource.data.empresaId,
           request.resource.data.areaId);
       allow update: if resource.data.empresaId == request.resource.data.empresaId

@@ -92,6 +92,33 @@ const Map<String, String> kVisitasRolesLabel = {
 bool visitasRolRequiereArea(String? rol) =>
     rol == kVisitasRolJefe || rol == kVisitasRolProfesional;
 
+/// El cargo es de Gerencia: "Gerencia", "Gerencia general", "Gerente…". Un
+/// subgerente o un "director de gerencia" no: es el jefe de todos.
+/// Mismo criterio que `esCargoGerencia` en `firestore.rules`.
+bool esCargoGerenciaVisitas(String cargo) {
+  final c = cargo.trim().toLowerCase();
+  return c.startsWith('gerente') || c.startsWith('gerencia');
+}
+
+/// El rol con que se entra a Visitas (27 sep 2026). Quien tiene cargo de
+/// Gerencia (o el rol de la app `gerencia` / `gerente`) entra como Gerencia
+/// aunque en Roles y permisos no se le haya asignado: "a don Oscar no le
+/// sale nada" era justo eso, que el rol dependía de que alguien lo diera.
+/// Si no, el rol guardado; y Desarrollo sin rol entra como jefe.
+String? resolverRolVisitas({
+  required String? rolGuardado,
+  required bool esDesarrollador,
+  String cargo = '',
+  String rolApp = '',
+}) {
+  final app = rolApp.trim().toLowerCase();
+  if (esCargoGerenciaVisitas(cargo) || app == 'gerencia' || app == 'gerente') {
+    return kVisitasRolGerencia;
+  }
+  if (rolGuardado != null) return rolGuardado;
+  return esDesarrollador ? kVisitasRolJefe : null;
+}
+
 /// Quien ve y administra todas las áreas: Desarrollo y Gerencia. Es lo que
 /// las pantallas llaman "todo acceso" y lo mismo que exigen las reglas.
 bool visitasTodoAcceso({required String? rol, required bool esDesarrollador}) =>

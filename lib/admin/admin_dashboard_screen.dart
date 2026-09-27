@@ -6016,6 +6016,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     role: value,
                   ),
                 ),
+                // Quien tiene cargo de Gerencia entra a Visitas como Gerencia
+                // sin importar el rol de esta lista (27 sep 2026).
+                if (module.key == 'visitas' &&
+                    currentRole != kVisitasRolGerencia &&
+                    esCargoGerenciaVisitas(
+                      VisitasService.cargoDeFicha(userData, empresaId),
+                    ))
+                  const Padding(
+                    padding: EdgeInsets.only(top: 6),
+                    child: Text(
+                      'Por su cargo entra a Visitas como Gerencia: ve y '
+                      'administra todas las áreas.',
+                      style: TextStyle(
+                        color: Color(0xFF9D174D),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
               ] else if (module.key == 'tareas') ...[
                 _matrixTaskPermissionToggle(
                   label: 'Crear en todas las áreas',

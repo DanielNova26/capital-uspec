@@ -7,6 +7,7 @@ import 'package:todo/visitas/visitas_formato_sst.dart';
 import 'package:todo/visitas/visitas_informe_pdf.dart';
 import 'package:todo/visitas/visitas_marca_agua.dart';
 import 'package:todo/visitas/visitas_models.dart';
+import 'package:todo/visitas/visitas_service.dart';
 
 /// 26 sep 2026: formatos como Google Forms (tipos de formulario, tablas con
 /// escala y filas fijas), Gerencia con el alcance de Desarrollo, evidencias
@@ -185,6 +186,70 @@ void main() {
           isFalse,
         );
       }
+    });
+
+    test('el cargo de Gerencia basta: no hace falta asignar el rol', () {
+      // Oscar: cargo "Gerencia" y en Roles y permisos quedó como jefe.
+      expect(
+        resolverRolVisitas(
+          rolGuardado: kVisitasRolJefe,
+          esDesarrollador: false,
+          cargo: 'Gerencia',
+        ),
+        kVisitasRolGerencia,
+      );
+      expect(
+        resolverRolVisitas(
+          rolGuardado: null,
+          esDesarrollador: false,
+          cargo: 'Gerente General',
+        ),
+        kVisitasRolGerencia,
+      );
+      expect(
+        resolverRolVisitas(
+          rolGuardado: null,
+          esDesarrollador: false,
+          rolApp: 'gerencia',
+        ),
+        kVisitasRolGerencia,
+      );
+      // Un subgerente o un director no.
+      expect(esCargoGerenciaVisitas('Subgerente administrativo'), isFalse);
+      expect(esCargoGerenciaVisitas('Director de gerencia'), isFalse);
+      expect(
+        resolverRolVisitas(
+          rolGuardado: kVisitasRolProfesional,
+          esDesarrollador: false,
+          cargo: 'Nutricionista',
+        ),
+        kVisitasRolProfesional,
+      );
+      // Desarrollo sin rol sigue entrando como jefe.
+      expect(
+        resolverRolVisitas(rolGuardado: null, esDesarrollador: true),
+        kVisitasRolJefe,
+      );
+      expect(
+        resolverRolVisitas(rolGuardado: null, esDesarrollador: false),
+        isNull,
+      );
+    });
+
+    test('el cargo sale de la ficha de la empresa y luego de la raíz', () {
+      expect(
+        VisitasService.cargoDeFicha({
+          'cargo': 'Gerente',
+          'empresasDetalle': {
+            'e': {'cargoNombre': 'Analista'},
+          },
+        }, 'e'),
+        'Analista',
+      );
+      expect(
+        VisitasService.cargoDeFicha({'cargo': 'Gerencia'}, 'e'),
+        'Gerencia',
+      );
     });
 
     test('Gerencia no ejecuta visitas: eso sigue siendo del profesional', () {

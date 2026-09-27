@@ -176,6 +176,43 @@ class VisitasService {
     return kVisitasRolesLabel.containsKey(rol) ? rol : null;
   }
 
+  /// Rol con que la persona entra a Visitas: el guardado, salvo que su cargo
+  /// (o su rol en la app) sea de Gerencia, que entra como Gerencia sin que
+  /// nadie tenga que asignárselo (27 sep 2026). Mismo criterio que
+  /// `esGerenciaPorFicha` en las reglas.
+  Future<String?> rolVisitasDeUsuario({
+    required String empresaId,
+    required String userId,
+    required Map<String, dynamic> userData,
+  }) async {
+    String? guardado;
+    try {
+      guardado = await getRolUsuario(empresaId, userId);
+    } catch (_) {}
+    return resolverRolVisitas(
+      rolGuardado: guardado,
+      esDesarrollador: isDeveloperUser(userData, empresaId: empresaId),
+      cargo: cargoDeFicha(userData, empresaId),
+      rolApp: resolveScopedRoleKey(userData, empresaId: empresaId),
+    );
+  }
+
+  /// Cargo de la ficha en la empresa, con los mismos campos que muestra
+  /// Administración (`cargoNombre` o `cargo`, por empresa y en la raíz).
+  static String cargoDeFicha(Map<String, dynamic> userData, String empresaId) {
+    final scoped = getUserCompanyDetail(userData, empresaId) ?? const {};
+    for (final v in [
+      scoped['cargoNombre'],
+      scoped['cargo'],
+      userData['cargoNombre'],
+      userData['cargo'],
+    ]) {
+      final t = (v ?? '').toString().trim();
+      if (t.isNotEmpty) return t;
+    }
+    return '';
+  }
+
   Future<void> guardarRol({
     required String empresaId,
     required String userId,
@@ -788,12 +825,18 @@ class VisitasService {
     if (areaJefe != v.areaId) {
       // Desarrollo y Gerencia administran todas las áreas; Firestore decide
       // esa excepción.
-      final rolActor = await getRolUsuario(v.empresaId, v.asignadoPorId);
-      final actor = rolActor == kVisitasRolGerencia
-          ? null
-          : await _db.collection('TBL_USUARIOS').doc(v.asignadoPorId).get();
+      final actor = await _db
+          .collection('TBL_USUARIOS')
+          .doc(v.asignadoPorId)
+          .get();
+      final datosActor = actor.data() ?? const <String, dynamic>{};
+      final rolActor = await rolVisitasDeUsuario(
+        empresaId: v.empresaId,
+        userId: v.asignadoPorId,
+        userData: datosActor,
+      );
       if (rolActor != kVisitasRolGerencia &&
-          !isDeveloperUser(actor?.data() ?? {}, empresaId: v.empresaId)) {
+          !isDeveloperUser(datosActor, empresaId: v.empresaId)) {
         throw const VisitasException(
           'Solo la jefatura de esta área puede programar la visita.',
         );

@@ -6,6 +6,36 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Visitas: Gerencia por cargo, sin tener que asignar el rol — 27 sep 2026 (Claude)
+
+Caso: tras publicar, en Admin › Roles y permisos › Visitas no aparecía
+"Gerencia" y a Oscar seguía sin salirle nada. La lista sale del código, así
+que lo publicado no traía la rama; pero además el rol dependía de que alguien
+se lo diera.
+
+- Quien tiene cargo de Gerencia ("Gerencia", "Gerente general"…, no
+  "Subgerente") o el rol de la app `gerencia` / `gerente` entra a Visitas
+  como Gerencia aunque su rol guardado sea otro o ninguno
+  (`resolverRolVisitas`, `VisitasService.rolVisitasDeUsuario`). El cargo es el
+  primero con texto entre `cargoNombre` y `cargo` de la empresa y luego los de
+  la raíz, como lo muestra Administración (`cargoDeFicha`).
+- Reglas: `esGerenciaPorFicha` con el mismo criterio, al final de cada `||`
+  (el primer intento pasaba el tope de 1000 expresiones y le negaba a un jefe
+  asignar profesionales; el emulador lo pilló). También entra en
+  `administraVisitas`, así Oscar lee ubicaciones, grupos y roles.
+- `visitasEliminarFormato` / `visitasEliminarPrueba` lo reconocen igual.
+- Admin muestra en la fila de Visitas "Por su cargo entra a Visitas como
+  Gerencia".
+- Versión 2.6.2 (16): en el menú lateral se ve si el navegador ya carga la
+  build nueva.
+- Ojo, ya existía: `TBL_USUARIOS` cae en el comodín de las reglas, así que
+  cualquiera con sesión puede editar cualquier ficha (hasta
+  `desarrollador: true`). El cargo hereda esa debilidad; no la agrava.
+- Pruebas: Dart 118 de Visitas; reglas 41 verdes (2 omitidas de antes),
+  con Gerencia por cargo, subgerente denegado y cargo de empresa sobre raíz.
+
+---
+
 ## Visitas: formatos como Google Forms / Excel, acta fija, anexos, Gerencia y consolidado por fechas — 26 sep 2026 (Claude)
 
 Pedido del módulo de Visitas, punto por punto.
