@@ -46,6 +46,9 @@ import 'dian_tokens_admin_panel.dart';
 import 'security_admin_panel.dart';
 import 'whatsapp_admin_panel.dart';
 import 'migrations/admin_migration_service.dart';
+import 'multiempresa_admin_panel.dart';
+import 'multiempresa_sync_service.dart';
+import '../core/multiempresa_sync.dart';
 import '../utils/user_company.dart';
 import '../widgets/user_avatar.dart';
 import '../core/user_directory.dart';
@@ -124,6 +127,7 @@ const List<InternalModuleTabItem> _kAdminModuleTabs = [
   InternalModuleTabItem(label: 'Salud usuarios', icon: Icons.health_and_safety),
   InternalModuleTabItem(label: 'Salud cargos', icon: Icons.badge),
   InternalModuleTabItem(label: 'Membresía', icon: Icons.apartment),
+  InternalModuleTabItem(label: 'Multiempresa', icon: Icons.hub_outlined),
 ];
 
 class AdminDashboardScreen extends StatefulWidget {
@@ -166,6 +170,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   final _companyTransition = CompanyTransitionService(
     db: FirebaseFirestore.instance,
   );
+  final _multiempresa = MultiempresaSyncService(db: FirebaseFirestore.instance);
 
   late TabController _tabController;
   bool _loading = true;
@@ -3746,6 +3751,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       ),
       Tab(icon: Icon(Icons.badge, size: 20), text: 'Salud cargos'),
       Tab(icon: Icon(Icons.apartment, size: 20), text: 'Membresía'),
+      Tab(icon: Icon(Icons.hub_outlined, size: 20), text: 'Multiempresa'),
     ];
   }
 
@@ -3776,6 +3782,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       _tabSaludUsuarios(),
       _tabSaludCargos(),
       _tabMembresia(),
+      AdminMultiempresaPanel(
+        userId: widget.userId,
+        empresaId: _empresaId ?? widget.empresaId,
+        empresas: _empresas,
+      ),
     ];
   }
 
@@ -14198,20 +14209,33 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
     try {
       final ref = userDoc.reference;
+      var detalleAlta = '';
       if (add) {
-        await ref.set({
-          'empresas': FieldValue.arrayUnion([empresaId]),
-          'empresasDetalle': {
-            empresaId: {'empresaNombre': _empresaNombre(empresaId)},
-          },
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+        // Entra con su puesto: área, cargo y centros de su empresa principal
+        // traducidos al catálogo de la nueva. Con el bloque vacío de antes,
+        // las pantallas de la nueva empresa le mostraban el cargo de la otra.
+        final plan = await _multiempresa.vincularPersona(
+          cedula: userDoc.id,
+          empresaId: empresaId,
+          actorId: widget.userId,
+          nombresEmpresa: {for (final e in _empresas) e.empresaId: e.nombre},
+        );
+        final ajuste = plan.ajustes.where((a) => a.empresaId == empresaId);
+        final cargo = ajuste.isEmpty
+            ? ''
+            : (ajuste.first.usuario['cargo'] ?? '').toString();
+        if (cargo.isNotEmpty) detalleAlta = ' como $cargo';
+        if (plan.nuevas.isNotEmpty) {
+          detalleAlta +=
+              ' (${plan.nuevas.length} nuevo(s) en su catálogo: '
+              '${plan.nuevas.map((n) => n.nombre).join(', ')})';
+        }
       } else {
         await ref.update(_buildScopedUserReset(data, empresaId));
       }
       _snack(
         add
-            ? '$nombre agregado a ${_empresaNombre(empresaId)}'
+            ? '$nombre agregado a ${_empresaNombre(empresaId)}$detalleAlta'
             : '$nombre quitado de ${_empresaNombre(empresaId)}',
       );
       await _loadMembresiaUsers();
@@ -14628,7 +14652,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           : _safe(d['primerApellido']),
     );
     final correoCtrl = TextEditingController(text: _safe(d['correo']));
-    final cargoCtrl = TextEditingController(text: _safe(d['cargo']));
+    // El cargo es de la empresa activa, no de la persona: se lee y se guarda
+    // en su bloque. Leer la raíz aquí mostraba (y luego guardaba) el cargo de
+    // la empresa principal en todas las demás.
+    final empresaCargo = (_empresaId ?? '').trim();
+    // Membresía lista a gente de todas las empresas. A quien no pertenece a
+    // la activa no se le escribe cargo aquí: crearle el bloque sería darle
+    // una membresía por la puerta de atrás.
+    final editaCargo =
+        empresaCargo.isEmpty || userBelongsToEmpresa(d, empresaCargo);
+    final detalleEmpresa = getUserCompanyDetail(d, empresaCargo);
+    final cargoInicial = empresaCargo.isEmpty
+        ? _safe(d['cargo'])
+        : (_safe(detalleEmpresa?['cargo']).isNotEmpty
+              ? _safe(detalleEmpresa?['cargo'])
+              : (raizEsDeEmpresa(d, empresaCargo) ? _safe(d['cargo']) : ''));
+    final cargoCtrl = TextEditingController(text: cargoInicial);
 
     InputDecoration deco(String label) => InputDecoration(
       labelText: label,
@@ -14678,7 +14717,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               const SizedBox(height: 10),
               TextField(
                 controller: cargoCtrl,
-                decoration: deco('Cargo'),
+                enabled: editaCargo,
+                decoration:
+                    deco(
+                      empresaCargo.isEmpty
+                          ? 'Cargo'
+                          : 'Cargo en ${_empresaNombre(empresaCargo)}',
+                    ).copyWith(
+                      helperText: editaCargo
+                          ? 'Solo cambia en esta empresa. Para igualarlo en '
+                                'las demás usa Admin › Multiempresa.'
+                          : 'No pertenece a esta empresa: su cargo se edita '
+                                'desde una de las suyas.',
+                      helperMaxLines: 2,
+                    ),
                 style: const TextStyle(fontFamily: kArial),
               ),
             ],
@@ -14720,24 +14772,55 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         'primerNombre': nombres,
         'primerApellido': apellidos,
         'correo': correo,
-        'cargo': cargo,
         'updatedAt': FieldValue.serverTimestamp(),
       };
       if (full.isNotEmpty) {
         updates['nombre'] = full;
         updates['nombreCompleto'] = full;
       }
+
+      // Cargo: solo si cambió, en el bloque de la empresa activa y enlazado
+      // a su catálogo. La raíz solo si esa empresa es la principal.
+      final cambiaCargo = editaCargo && cargo != cargoInicial;
+      final cargoCampos = <String, dynamic>{};
+      if (cambiaCargo) {
+        final claveNueva = claveCatalogo(cargo);
+        final item = _cargos
+            .where(
+              (c) =>
+                  c.empresaId == empresaCargo &&
+                  claveCatalogo(c.nombre) == claveNueva,
+            )
+            .firstOrNull;
+        cargoCampos['cargo'] = item?.nombre ?? cargo;
+        cargoCampos['cargoId'] = item?.cargoId ?? '';
+        if (empresaCargo.isEmpty) {
+          updates.addAll(cargoCampos);
+        } else {
+          cargoCampos.forEach((k, v) {
+            updates['empresasDetalle.$empresaCargo.$k'] = v;
+            if (_safe(d['empresaId']) == empresaCargo) updates[k] = v;
+          });
+        }
+      }
       await userDoc.reference.update(updates);
 
-      // Espejo en la estructura (fuente de fallback de nombre/cargo del directorio).
-      if (full.isNotEmpty || cargo.isNotEmpty) {
-        await db
+      // Espejo en la estructura (fuente de fallback de nombre/cargo del
+      // directorio), con la misma regla: el cargo va al bloque de la empresa.
+      if (full.isNotEmpty || cargoCampos.isNotEmpty) {
+        final orgRef = db
             .collection('TBL_ESTRUCTURA_ORGANIZACIONAL')
-            .doc(userDoc.id)
-            .set({
-              if (full.isNotEmpty) 'nombre': full,
-              if (cargo.isNotEmpty) 'cargo': cargo,
-            }, SetOptions(merge: true));
+            .doc(userDoc.id);
+        final org = await orgRef.get();
+        final orgPrincipal = _safe(org.data()?['empresaId']);
+        await orgRef.set({
+          if (full.isNotEmpty) 'nombre': full,
+          if (cargoCampos.isNotEmpty && empresaCargo.isNotEmpty)
+            'empresasDetalle': {empresaCargo: cargoCampos},
+          if (cargoCampos.isNotEmpty &&
+              (empresaCargo.isEmpty || orgPrincipal == empresaCargo))
+            ...cargoCampos,
+        }, SetOptions(merge: true));
       }
 
       // Invalida la caché para que el nombre corregido se vea de inmediato.
