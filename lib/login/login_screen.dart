@@ -246,99 +246,45 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // ✅ helpers para leer variantes de campos desde empresasDetalle
-  String _pickStr(Map<String, dynamic> m, List<String> keys) {
-    for (final k in keys) {
-      final v = m[k];
-      if (v == null) continue;
-      final s = v.toString().trim();
-      if (s.isNotEmpty) return s;
-    }
-    return '';
-  }
-
-  /// ✅ AJUSTE CLAVE:
-  /// Al seleccionar empresa, además de guardar empresaId/empresaNombre,
-  /// copiamos a nivel raíz areaId/cargoId/centroId/jefeId... desde empresasDetalle[empresaId]
+  /// Recuerda la empresa elegida al entrar, para proponerla la próxima vez.
+  ///
+  /// Se guarda en `ultimaEmpresaId`, NO en `empresaId`. La raíz del usuario
+  /// es la copia de su empresa PRINCIPAL (la que administra Talento Humano):
+  /// antes cada inicio de sesión la volvía la principal y le copiaba encima
+  /// solo parte del puesto de esa empresa, así que la raíz terminaba con el
+  /// área de una empresa y el cargo de otra, y cualquier pantalla que la leía
+  /// mostraba a la persona con un cargo que no era. Los módulos leen el
+  /// puesto del bloque `empresasDetalle[empresa activa]`.
   Future<void> _persistSelectedEmpresa(String userId, String empresaId) async {
     try {
       final db = FirebaseFirestore.instance;
 
-      // 1) nombre oficial desde TBL_EMPRESAS (si existe)
       String? empresaNombre;
       try {
         final empDoc = await db.collection('TBL_EMPRESAS').doc(empresaId).get();
-        final data = empDoc.data();
-        final n = (data?['nombre'] as String?)?.trim();
+        final n = (empDoc.data()?['nombre'] as String?)?.trim();
         if (n != null && n.isNotEmpty) empresaNombre = n;
       } catch (_) {}
 
-      // 2) leer usuario para extraer empresasDetalle
       final userRef = db.collection('TBL_USUARIOS').doc(userId);
-      final userSnap = await userRef.get();
-      final userData = userSnap.data() ?? {};
+      final userData = (await userRef.get()).data() ?? const {};
+      final sinPrincipal = (userData['empresaId'] ?? '')
+          .toString()
+          .trim()
+          .isEmpty;
 
-      final empresasDetalle = userData['empresasDetalle'];
-      Map<String, dynamic>? det;
-      if (empresasDetalle is Map<String, dynamic>) {
-        final raw = empresasDetalle[empresaId];
-        if (raw is Map<String, dynamic>) det = raw;
-      }
-
-      final update = <String, dynamic>{
-        'empresaId': empresaId,
-        if (empresaNombre != null && empresaNombre.isNotEmpty)
-          'empresaNombre': empresaNombre,
+      await userRef.set({
+        'ultimaEmpresaId': empresaId,
+        if (empresaNombre != null) 'ultimaEmpresaNombre': empresaNombre,
+        // Solo quien todavía no tiene empresa principal la recibe aquí.
+        if (sinPrincipal) ...{
+          'empresaId': empresaId,
+          if (empresaNombre != null) 'empresaNombre': empresaNombre,
+        },
         'updatedAt': FieldValue.serverTimestamp(),
-      };
-
-      // 3) si existe detalle para esa empresa, “sincronizamos” top-level (lo que usa CreateTask)
-      if (det != null) {
-        final areaId = _pickStr(det, const [
-          'areaId',
-          'area_id',
-          'departamentoId',
-          'departamento_id',
-        ]);
-        final area = _pickStr(det, const [
-          'area',
-          'areaNombre',
-          'area_nombre',
-          'departamento',
-        ]);
-        final cargoId = _pickStr(det, const ['cargoId', 'cargo_id']);
-        final cargo = _pickStr(det, const ['cargo']);
-        final centroId = _pickStr(det, const [
-          'centroId',
-          'centro_id',
-          'centro',
-        ]);
-        final centroCostos = _pickStr(det, const [
-          'centroCostos',
-          'centro_costos',
-          'centro_costos_nombre',
-        ]);
-        final jefeId = _pickStr(det, const ['jefeId', 'jefe_id', 'jefe_uid']);
-        final jefeNombre = _pickStr(det, const ['jefeNombre', 'jefe_nombre']);
-        final cargoJefe = _pickStr(det, const ['cargoJefe']);
-
-        if (areaId.isNotEmpty) update['areaId'] = areaId;
-        if (area.isNotEmpty) update['area'] = area;
-
-        if (cargoId.isNotEmpty) update['cargoId'] = cargoId;
-        if (cargo.isNotEmpty) update['cargo'] = cargo;
-
-        if (centroId.isNotEmpty) update['centroId'] = centroId;
-        if (centroCostos.isNotEmpty) update['centroCostos'] = centroCostos;
-
-        if (jefeId.isNotEmpty) update['jefeId'] = jefeId;
-        if (jefeNombre.isNotEmpty) update['jefeNombre'] = jefeNombre;
-        if (cargoJefe.isNotEmpty) update['cargoJefe'] = cargoJefe;
-      }
-
-      await userRef.set(update, SetOptions(merge: true));
+      }, SetOptions(merge: true));
     } catch (e) {
-      debugPrint('No se pudo actualizar la empresa seleccionada: $e');
+      debugPrint('No se pudo recordar la empresa seleccionada: $e');
     }
   }
 
@@ -776,7 +722,8 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      final storedEmpresaId = (data['empresaId'] as String?)?.trim();
+      final storedEmpresaId =
+          ((data['ultimaEmpresaId'] ?? data['empresaId']) as String?)?.trim();
       if (uniqueEmpresas.length == 1) {
         selectedEmpresaId = uniqueEmpresas.first;
       } else {

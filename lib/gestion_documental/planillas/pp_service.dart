@@ -4547,9 +4547,15 @@ class PpService {
           .toString()
           .trim();
       final fullName = '$nombres $apellidos'.trim();
-      final cargo = ((scoped?['cargo'] ?? data?['cargo']) ?? '')
-          .toString()
-          .trim();
+      // El cargo que firma es el de ESTA empresa; la raíz es de la principal.
+      final cargo = data == null
+          ? ''
+          : resolveScopedStringWithFallbacks(
+              data,
+              empresaId,
+              const ['cargo'],
+              const ['cargo'],
+            ).trim();
       final urlFirma = ((scoped?['urlFirma'] ?? data?['urlFirma']) ?? '')
           .toString()
           .trim();

@@ -16,6 +16,11 @@ Map<String, String> mergeTaskCargoCatalog({
   required String areaId,
   required String empresaId,
   String areaNombre = '',
+
+  /// Todas las variantes de id con las que existe esta misma área
+  /// ([AreaOpcion.ids]). Un cargo enlazado a otra variante sigue siendo del
+  /// área.
+  Set<String> areaIds = const {},
 }) {
   final result = Map<String, String>.from(structureCargos);
   final areaKey = _areaScopeKey(areaNombre);
@@ -34,7 +39,9 @@ Map<String, String> mergeTaskCargoCatalog({
     final cargoArea = (cargo['areaId'] ?? '').toString().trim();
     final cargoAreaNombre = (cargo['areaNombre'] ?? cargo['area'] ?? '')
         .toString();
-    final matchesById = cargoArea.isNotEmpty && cargoArea == areaIdTrim;
+    final matchesById =
+        cargoArea.isNotEmpty &&
+        (cargoArea == areaIdTrim || areaIds.contains(cargoArea));
     final matchesByName =
         areaKey.isNotEmpty && _areaScopeKey(cargoAreaNombre) == areaKey;
     if (!matchesById && !matchesByName) continue;

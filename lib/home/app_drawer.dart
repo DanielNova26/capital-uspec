@@ -204,12 +204,16 @@ class AppDrawer extends StatelessWidget {
           .get();
       final nombre = (empDoc.data()?['nombre'] as String?)?.trim();
 
+      // Se recuerda como la última elegida, sin tocar la empresa principal:
+      // cambiar `empresaId` aquí dejaba la raíz marcada como de esta empresa
+      // con el cargo y el área de la otra (ver LoginScreen).
       await FirebaseFirestore.instance
           .collection('TBL_USUARIOS')
           .doc(userId)
           .set({
-            'empresaId': empresaId,
-            if (nombre != null && nombre.isNotEmpty) 'empresaNombre': nombre,
+            'ultimaEmpresaId': empresaId,
+            if (nombre != null && nombre.isNotEmpty)
+              'ultimaEmpresaNombre': nombre,
             'updatedAt': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
     } catch (_) {}
@@ -278,9 +282,17 @@ class AppDrawer extends StatelessWidget {
                     const ['cargo'],
                     const ['cargo'],
                   ).trim();
+            // Respaldo en la estructura, también de la empresa activa.
             final cargo = cargoScoped.isNotEmpty
                 ? cargoScoped
-                : ((estruct?['cargo'] as String?) ?? '').trim();
+                : (estruct == null
+                      ? ''
+                      : resolveScopedStringWithFallbacks(
+                          estruct,
+                          scopeEmpresa,
+                          const ['cargo'],
+                          const ['cargo'],
+                        ).trim());
 
             // Foto
             final fotoUrl =
@@ -290,7 +302,10 @@ class AppDrawer extends StatelessWidget {
                     .trim();
 
             // Empresa actual y empresas autorizadas.
-            final empresaActual = (user?['empresaId'] as String? ?? '').trim();
+            final empresaActual =
+                ((user?['ultimaEmpresaId'] ?? user?['empresaId']) as String? ??
+                        '')
+                    .trim();
             final activeEmpresa = (scopeEmpresa?.trim().isNotEmpty ?? false)
                 ? scopeEmpresa!.trim()
                 : empresaActual;

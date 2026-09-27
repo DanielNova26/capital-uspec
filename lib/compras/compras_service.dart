@@ -13,6 +13,7 @@ import 'compras_catalog_logic.dart';
 import 'abastecimiento_models.dart';
 import 'abastecimiento_recepcion_sync.dart';
 import 'compras_models.dart';
+import '../utils/user_company.dart' show raizEsDeEmpresa;
 import 'compras_recepcion_logic.dart';
 import 'compras_req_engine.dart';
 import 'compras_validation.dart';
@@ -2141,6 +2142,15 @@ class ComprasService {
         final scopedRol = _firstNormalizedComprasRol(detail);
         if (scopedRol != null) return scopedRol;
       }
+    }
+    // El cargo de la raíz es de la empresa principal: no deduce el rol de
+    // Compras en otra empresa (los roles de la raíz sí siguen valiendo).
+    if (!raizEsDeEmpresa(data, empresaId)) {
+      return _firstNormalizedComprasRol(
+        Map<String, dynamic>.from(data)
+          ..remove('cargo')
+          ..remove('cargoNombre'),
+      );
     }
     return _firstNormalizedComprasRol(data);
   }

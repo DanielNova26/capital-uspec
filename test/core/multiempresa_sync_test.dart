@@ -308,6 +308,34 @@ void main() {
       expect(d.detalle, contains('Centro de operación'));
     });
 
+    test('raíz pisada con el cargo de otra empresa', () {
+      final usuario = _usuario(
+        raiz: const {'cargo': 'Coordinador', 'cargoId': '${_b}_coordinador'},
+        detalle: {_a: _bloqueA(), _b: _bloqueBSano()},
+      );
+      final p = analizarPersona(
+        cedula: '111',
+        usuario: usuario,
+        catalogos: _catalogos(),
+      );
+      expect(_tipos(p, empresa: _a), {TipoDescuadre.raizDesalineada});
+      // Sincronizar con la principal de referencia repara la raíz.
+      final plan = planearSincronizacion(
+        persona: p,
+        usuario: usuario,
+        referenciaId: _a,
+        destinos: const [_a, _b],
+        catalogos: _catalogos(),
+      );
+      final despues = analizarPersona(
+        cedula: '111',
+        usuario: _aplicar(usuario, plan),
+        catalogos: _catalogos(),
+      );
+      expect(despues.descuadres, isEmpty);
+      expect(_aplicar(usuario, plan)['cargo'], 'Auxiliar de Cocina');
+    });
+
     test('estructura organizacional con otro cargo', () {
       final p = analizarPersona(
         cedula: '111',

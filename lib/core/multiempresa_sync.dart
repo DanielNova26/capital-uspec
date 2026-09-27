@@ -65,18 +65,6 @@ String idCatalogo(String empresaId, String base) {
   return '${empresaId.trim()}_${slug.isEmpty ? 'item' : slug}';
 }
 
-/// ¿Los datos raíz del usuario pertenecen a [empresaId]?
-///
-/// Mismo criterio de Interventoría (`puedeUsarDatosRaizInterventoria`): la
-/// raíz es de la empresa principal. Sin principal escrita, solo vale si la
-/// persona tiene una única empresa.
-bool raizEsDeEmpresa(Map<String, dynamic> data, String empresaId) {
-  final principal = normalizeEmpresaId(data['empresaId']?.toString());
-  if (principal != null) return principal == empresaId;
-  final empresas = extractUserEmpresaIds(data);
-  return empresas.length == 1 && empresas.single == empresaId;
-}
-
 // ─── Catálogo por empresa ────────────────────────────────────────────────────
 
 /// Un área, cargo o centro de una empresa.
@@ -403,6 +391,7 @@ enum TipoDescuadre {
   sinEnlace,
   nombreDesactualizado,
   estructuraDesalineada,
+  raizDesalineada,
   areaDistinta,
   cargoDistinto,
 }
@@ -417,6 +406,7 @@ extension TipoDescuadreX on TipoDescuadre {
     TipoDescuadre.sinEnlace => 'Sin enlace al catálogo',
     TipoDescuadre.nombreDesactualizado => 'Nombre desactualizado',
     TipoDescuadre.estructuraDesalineada => 'Estructura distinta',
+    TipoDescuadre.raizDesalineada => 'Datos generales de otra empresa',
     TipoDescuadre.areaDistinta => 'Área distinta entre empresas',
     TipoDescuadre.cargoDistinto => 'Cargo distinto entre empresas',
   };
@@ -703,6 +693,9 @@ Map<String, dynamic>? bloqueEstructura(
   if (estructura == null) return null;
   final detail = getUserCompanyDetail(estructura, empresaId);
   if (detail != null) return detail;
+  // Una estructura sin ninguna empresa escrita no se toma como bloque de
+  // nadie: compararla contra cada empresa daría descuadres falsos.
+  if (extractUserEmpresaIds(estructura).isEmpty) return null;
   return raizEsDeEmpresa(estructura, empresaId) ? estructura : null;
 }
 
@@ -811,6 +804,36 @@ PersonaMultiempresa analizarPersona({
       descuadres.addAll(
         _descuadresDelPuesto(puesto, bloqueOrg, nombreDe(empresaId)),
       );
+      // La raíz es la copia de la principal. Antes cada inicio de sesión la
+      // pisaba con parte del puesto de la empresa elegida, y quedó con el
+      // cargo o el área de otra empresa: las pantallas que aún la leen
+      // muestran a la persona con ese puesto.
+      if (puesto.esPrincipal && detalle != null) {
+        final distintos = <String>[];
+        for (final (etiqueta, nombres) in [
+          ('área', _kAreaNombre),
+          ('cargo', _kCargoNombre),
+        ]) {
+          final propio = _texto(detalle, nombres);
+          final raiz = _texto(usuario, nombres);
+          if (propio.isNotEmpty &&
+              raiz.isNotEmpty &&
+              claveCatalogo(propio) != claveCatalogo(raiz)) {
+            distintos.add('$etiqueta "$raiz" (en la empresa es "$propio")');
+          }
+        }
+        if (distintos.isNotEmpty) {
+          descuadres.add(
+            Descuadre(
+              tipo: TipoDescuadre.raizDesalineada,
+              empresaId: empresaId,
+              detalle:
+                  'Los datos generales de la persona dicen '
+                  '${distintos.join(' y ')}.',
+            ),
+          );
+        }
+      }
     }
   }
 

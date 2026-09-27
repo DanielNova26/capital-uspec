@@ -785,16 +785,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     final d = userDoc.data();
     final scoped = getUserCompanyDetail(d, empresaId);
     final nombre = _userName(d, userDoc.id);
+    // Centro, área y cargo de ESTA empresa. Precargar los de la raíz (que son
+    // de la principal) hacía que al guardar quedaran copiados aquí.
+    final enEmpresa = mergeCompanyScopedData(d, empresaId);
 
-    String? centroId = _safe(scoped?['centroId']).isEmpty
-        ? (_safe(d['centroId']).isEmpty ? null : _safe(d['centroId']))
-        : _safe(scoped?['centroId']);
-    String? areaId = _safe(scoped?['areaId']).isEmpty
-        ? (_safe(d['areaId']).isEmpty ? null : _safe(d['areaId']))
-        : _safe(scoped?['areaId']);
-    String cargoNombre = _safe(scoped?['cargo']).isNotEmpty
-        ? _safe(scoped?['cargo'])
-        : _safe(d['cargo']);
+    String? centroId = _safe(enEmpresa['centroId']).isEmpty
+        ? null
+        : _safe(enEmpresa['centroId']);
+    String? areaId = _safe(enEmpresa['areaId']).isEmpty
+        ? null
+        : _safe(enEmpresa['areaId']);
+    final areaNombreUsuario = _safe(enEmpresa['areaNombre']).isNotEmpty
+        ? _safe(enEmpresa['areaNombre'])
+        : _safe(enEmpresa['area']);
+    String cargoNombre = _safe(enEmpresa['cargo']);
     String rolDocumental = _safe(scoped?['rolDocumental']).isNotEmpty
         ? _safe(scoped?['rolDocumental']).toLowerCase()
         : (_safe(d['rolDocumental']).isEmpty
@@ -810,10 +814,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         .where((c) => c.centroId == centroId)
         .cast<CentroCostoItem?>()
         .firstWhere((x) => x != null, orElse: () => null);
-    AreaItem? areaSel = _areas
-        .where((a) => a.areaId == areaId)
-        .cast<AreaItem?>()
-        .firstWhere((x) => x != null, orElse: () => null);
+    // El área guardada puede ser cualquier variante de id o solo el nombre:
+    // se resuelve por el catálogo agrupado (Regla 3).
+    final areaCatalogo = AreaCatalogo.desde(
+      _areas.map((a) => (id: a.areaId, nombre: a.nombre)),
+      empresaId: empresaId,
+    );
+    Set<String> idsDeArea(String? id) =>
+        areaCatalogo.opciones.where((o) => o.contiene(id)).firstOrNull?.ids ??
+        {if ((id ?? '').isNotEmpty) id!};
+    final opcionUsuario = areaCatalogo.opciones
+        .where((o) => o.contiene(areaId) || o.contiene(areaNombreUsuario))
+        .firstOrNull;
+    AreaItem? areaSel = opcionUsuario == null
+        ? null
+        : _areas.where((a) => a.areaId == opcionUsuario.id).firstOrNull ??
+              _areas
+                  .where((a) => opcionUsuario.ids.contains(a.areaId))
+                  .firstOrNull;
 
     await showDialog(
       context: context,
@@ -1013,7 +1031,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       if (!c.enabled) return false;
                       if (areaSel != null &&
                           (c.areaId ?? '').isNotEmpty &&
-                          c.areaId != areaSel!.areaId) {
+                          !idsDeArea(areaSel!.areaId).contains(c.areaId)) {
                         return false;
                       }
                       return c.nombre.trim().toLowerCase() ==
@@ -4528,17 +4546,28 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     String? areaId,
     bool soloActivos = false,
   }) {
+    // Áreas con todas sus variantes de id: la persona puede tener guardada
+    // la misma área con otro id (Regla 3: nada de comparar con ==).
+    final areas = AreaCatalogo.desde(
+      _areas.map((a) => (id: a.areaId, nombre: a.nombre)),
+      empresaId: _empresaId,
+    );
     return users.where((u) {
       final d = u.data();
       // El retiro vive en el bloque de la empresa: el `estado` raíz solo
       // gobierna el login y no dice nada del vínculo laboral.
       if (soloActivos && !isPersonaActivaEnEmpresa(d, _empresaId)) return false;
-      final scoped = getUserCompanyDetail(d, _empresaId);
-      final uAreaId = _safe(scoped?['areaId']).isNotEmpty
-          ? _safe(scoped?['areaId'])
-          : _safe(d['areaId']);
+      // La persona en la empresa activa: la raíz es de su empresa principal.
+      final enEmpresa = mergeCompanyScopedData(d, _empresaId);
+      final uAreaId = _safe(enEmpresa['areaId']);
+      final uAreaNombre = _safe(enEmpresa['areaNombre']).isNotEmpty
+          ? _safe(enEmpresa['areaNombre'])
+          : _safe(enEmpresa['area']);
 
-      if (areaId != null && areaId.isNotEmpty && uAreaId != areaId) {
+      if (areaId != null &&
+          areaId.isNotEmpty &&
+          !areas.coincide(filtro: areaId, valor: uAreaId) &&
+          !areas.coincide(filtro: areaId, valor: uAreaNombre)) {
         return false;
       }
 
@@ -4546,16 +4575,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       final q = search.toLowerCase();
       final name = _userName(d, u.id).toLowerCase();
       final ced = _safe(d['cedula']).toLowerCase();
-      final cargo =
-          (_safe(scoped?['cargo']).isNotEmpty
-                  ? _safe(scoped?['cargo'])
-                  : _safe(d['cargo']))
-              .toLowerCase();
-      final areaNombre =
-          (_safe(scoped?['areaNombre']).isNotEmpty
-                  ? _safe(scoped?['areaNombre'])
-                  : _safe(d['areaNombre']))
-              .toLowerCase();
+      final cargo = _safe(enEmpresa['cargo']).toLowerCase();
+      final areaNombre = uAreaNombre.toLowerCase();
       return name.contains(q) ||
           ced.contains(q) ||
           u.id.toLowerCase().contains(q) ||
@@ -4721,28 +4742,26 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     return parts.isEmpty ? 'Sin cargo/área' : parts.join(' · ');
   }
 
+  // Cargo y área de la empresa indicada: la raíz solo cuenta si es de ella
+  // (ver kCamposPuesto en utils/user_company).
   String _userCargoText(Map<String, dynamic> data, String empresaId) {
-    final scoped = getUserCompanyDetail(data, empresaId);
-    final cargo = _safe(scoped?['cargoNombre']).isNotEmpty
-        ? _safe(scoped?['cargoNombre'])
-        : _safe(scoped?['cargo']).isNotEmpty
-        ? _safe(scoped?['cargo'])
-        : _safe(data['cargoNombre']).isNotEmpty
-        ? _safe(data['cargoNombre'])
-        : _safe(data['cargo']);
+    final cargo = resolveScopedStringWithFallbacks(
+      data,
+      empresaId,
+      const ['cargoNombre', 'cargo'],
+      const ['cargoNombre', 'cargo'],
+    ).trim();
     return cargo.isEmpty ? 'Sin cargo' : cargo;
   }
 
   String _userAreaText(Map<String, dynamic> data, String empresaId) {
-    final scoped = getUserCompanyDetail(data, empresaId);
-    final area = _safe(scoped?['areaNombre']).isNotEmpty
-        ? _safe(scoped?['areaNombre'])
-        : (_safe(scoped?['area']).isNotEmpty
-              ? _safe(scoped?['area'])
-              : (_safe(data['areaNombre']).isNotEmpty
-                    ? _safe(data['areaNombre'])
-                    : _safe(data['area'])));
-    return area.isEmpty ? 'Sin área' : area;
+    final area = resolveScopedStringWithFallbacks(
+      data,
+      empresaId,
+      const ['areaNombre', 'area'],
+      const ['areaNombre', 'area'],
+    ).trim();
+    return area.isEmpty ? 'Sin área' : areaNombreLegible(id: area);
   }
 
   String _visibleAppsSummary(Map<String, dynamic> data, String empresaId) {

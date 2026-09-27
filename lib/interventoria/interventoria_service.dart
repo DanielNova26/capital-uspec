@@ -8,6 +8,7 @@ import 'package:excel/excel.dart' as xl;
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:intl/intl.dart';
 
+import '../core/area_directory.dart';
 import '../core/festivos_colombia.dart';
 import '../core/task_origen.dart';
 import '../services/org_service.dart';
@@ -3523,9 +3524,27 @@ class InterventoriaService {
     String areaId,
   ) async {
     if (areaId.trim().isEmpty) return null;
+    // La misma área existe con varias variantes de id: se reconoce por el
+    // catálogo agrupado, no comparando ids a secas (Regla 3).
+    final areasSnap = await _db
+        .collection('TBL_AREAS')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+    final catalogo = AreaCatalogo.desde([
+      for (final d in areasSnap.docs)
+        (
+          id: (d.data()['areaId'] ?? d.id).toString(),
+          nombre: d.data()['nombre']?.toString(),
+        ),
+    ], empresaId: empresaId);
+    final opcion = catalogo.opciones
+        .where((o) => o.contiene(areaId))
+        .firstOrNull;
     final director = resolverDirectorDeArea(
       await _usuariosDeEmpresa(empresaId),
-      esDelArea: (user) => user.areaId == areaId,
+      esDelArea: (user) => opcion == null
+          ? user.areaId == areaId.trim()
+          : opcion.contiene(user.areaId),
     );
     if (director == null) return null;
     return <String, dynamic>{

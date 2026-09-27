@@ -74,6 +74,15 @@ class EmpresaResolver {
       );
     }
 
+    // La raíz es de la empresa principal: para otra empresa no hay respaldo.
+    if (!raizEsDeEmpresa(userData, empresaId)) {
+      return EmpresaDetailResolution(
+        empresaId: empresaId,
+        detail: null,
+        isLegacyFallback: false,
+      );
+    }
+
     final legacy = <String, dynamic>{};
     const legacyKeys = <String>[
       'empresaId',

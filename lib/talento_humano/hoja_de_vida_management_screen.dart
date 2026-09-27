@@ -9,6 +9,7 @@ import 'carnet_pdf.dart';
 import 'carnet_qr.dart';
 import 'hoja_de_vida_pdf.dart';
 import '../services/task_service.dart';
+import '../core/area_directory.dart';
 import '../utils/doc_preview.dart';
 import '../utils/user_company.dart';
 import '../widgets/user_avatar.dart';
@@ -230,28 +231,40 @@ class _HojaDeVidaManagementScreenState
                   }).toList();
                 }
 
-                // Filtrar por área (campo areaNombre en TBL_USUARIOS)
+                // Área y cargo de la persona EN esta empresa: la raíz es de
+                // su empresa principal. El área se compara por nombre
+                // normalizado (Regla 3), no con ==.
                 if (_filtroArea != null) {
                   docs = docs.where((d) {
-                    final area =
-                        (d.data()['areaNombre'] ?? d.data()['area'] ?? '')
-                            as String;
-                    return area == _filtroArea;
+                    final s = mergeCompanyScopedData(
+                      d.data(),
+                      widget.empresaId,
+                    );
+                    final area = (s['areaNombre'] ?? s['area'] ?? '')
+                        .toString();
+                    return areaClave(area) == areaClave(_filtroArea!);
                   }).toList();
                 }
 
                 // Filtrar por cargo
                 if (_filtroCargo != null) {
                   docs = docs.where((d) {
-                    final cargo = (d.data()['cargo'] ?? '') as String;
-                    return cargo == _filtroCargo;
+                    final s = mergeCompanyScopedData(
+                      d.data(),
+                      widget.empresaId,
+                    );
+                    return areaClave((s['cargo'] ?? '').toString()) ==
+                        areaClave(_filtroCargo!);
                   }).toList();
                 }
 
                 // Filtrar por búsqueda libre
                 if (_search.isNotEmpty) {
                   docs = docs.where((d) {
-                    final data = d.data();
+                    final data = mergeCompanyScopedData(
+                      d.data(),
+                      widget.empresaId,
+                    );
                     final nombre =
                         '${data['primerNombre'] ?? ''} ${data['primerApellido'] ?? ''}'
                             .toLowerCase();
@@ -430,7 +443,8 @@ class _EmpleadoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final data = doc.data();
+    // Cargo y área de esta empresa, no los de la principal.
+    final data = mergeCompanyScopedData(doc.data(), empresaId);
     final nombre =
         '${data['primerNombre'] ?? ''} ${data['segundoNombre'] ?? ''} '
                 '${data['primerApellido'] ?? ''} ${data['segundoApellido'] ?? ''}'
@@ -692,7 +706,10 @@ class _HojaDeVidaViewerScreenState extends State<HojaDeVidaViewerScreen> {
     if (!mounted) return;
     setState(() {
       _data = hv;
-      _orgData = org;
+      // La estructura también en esta empresa (su raíz es de la principal).
+      _orgData = org == null || widget.empresaId.trim().isEmpty
+          ? org
+          : mergeCompanyScopedData(org, widget.empresaId);
       _reviewerNombre = rNombre.isEmpty ? widget.reviewerUserId : rNombre;
       _loading = false;
     });

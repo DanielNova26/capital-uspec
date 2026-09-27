@@ -103,6 +103,12 @@ test.before(async () => {
         ...miembro("Multi"), cargo: "Gerente",
         empresasDetalle: {EMP_A: {cargoNombre: "Analista"}},
       }),
+      // Gerente en su empresa principal (EMP_B), sin cargo propio en EMP_A:
+      // la raíz es de EMP_B y no le da Gerencia en EMP_A.
+      setDoc(doc(db, "TBL_USUARIOS/gerb"), {
+        nombre: "Gerente B", empresas: ["EMP_A", "EMP_B"], empresaId: "EMP_B",
+        cargo: "Gerente general", empresasDetalle: {EMP_A: {}},
+      }),
       setDoc(doc(db, "TBL_VISITAS_ROLES/EMP_A_ger"), {
         empresaId: "EMP_A", userId: "ger", rol: "gerencia", areaId: "",
       }),
@@ -237,4 +243,6 @@ test("Gerencia por cargo, sin rol asignado", async () => {
   // Subgerente no; y el cargo de la empresa manda sobre el de la raíz.
   await assertFails(todas("sub"));
   await assertFails(todas("multi"));
+  // El cargo de la raíz es de su empresa principal, no de esta.
+  await assertFails(todas("gerb"));
 });

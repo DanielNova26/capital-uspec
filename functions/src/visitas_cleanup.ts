@@ -34,7 +34,11 @@ function isGerenciaPorFicha(
 ): boolean {
   const scoped = data.empresasDetalle?.[empresaId] || {};
   const texto = (v: unknown) => (typeof v === "string" ? v.trim() : "");
-  const cargo = [scoped.cargoNombre, scoped.cargo, data.cargoNombre, data.cargo]
+  // La raíz es de la empresa principal: su cargo no cuenta en otra empresa.
+  // Espejo de `raizEsDeEmpresa` en las reglas y en la app.
+  const principal = texto(data.empresaId);
+  const raiz = principal === "" || principal === empresaId ? data : {};
+  const cargo = [scoped.cargoNombre, scoped.cargo, raiz.cargoNombre, raiz.cargo]
     .map(texto).find((v) => v.length > 0) || "";
   const roles = [scoped.roleKey, data.roleKey, data.role]
     .map((v) => texto(v).toLowerCase());

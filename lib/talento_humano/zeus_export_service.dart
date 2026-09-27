@@ -3,6 +3,8 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:excel/excel.dart';
 
+import '../utils/user_company.dart';
+
 class ZeusExportFilter {
   final String estado;
   final String area;
@@ -118,12 +120,15 @@ class ZeusExportService {
       final cedula = _first([data['cedula'], user.id]);
       final org = orgDocs[cedula] ?? orgDocs['${empresaId}_$cedula'];
       final detail = _empresaDetail(data, empresaId);
+      // Usuario y estructura vistos en ESTA empresa: la raíz de los dos es
+      // la copia de la empresa principal, y el archivo de nómina de una razón
+      // social salía con el cargo, el área y el centro de la otra.
       final bundle = ZeusEmployeeBundle(
         userId: user.id,
         cedula: cedula,
-        user: data,
+        user: mergeCompanyScopedData(data, empresaId),
         hv: hv,
-        org: org ?? const {},
+        org: org == null ? const {} : mergeCompanyScopedData(org, empresaId),
         empresaDetail: detail,
         zeusData: zeusDataByCedula[cedula] ?? const {},
       );

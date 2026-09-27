@@ -207,7 +207,11 @@ class _FirstTimeScreenState extends State<FirstTimeScreen> {
     final payload = <String, dynamic>{
       'usuario': cedula,
       'cedula': cedula,
-      'empresaId': empresaId,
+      // La empresa principal solo se pone si no hay una: elegir empresa al
+      // entrar no la cambia (ver LoginScreen._persistSelectedEmpresa).
+      if ((data['empresaId'] ?? '').toString().trim().isEmpty)
+        'empresaId': empresaId,
+      'ultimaEmpresaId': empresaId,
       'updatedAt': FieldValue.serverTimestamp(),
       if ((data['role'] ?? '').toString().trim().isEmpty) 'role': 'usuario',
     };
@@ -280,7 +284,8 @@ class _FirstTimeScreenState extends State<FirstTimeScreen> {
       final empresaIds = extractUserEmpresaIds(data);
       final selectedEmpresaId = await _selectEmpresaId(
         empresaIds,
-        preselectedId: (data['empresaId'] as String?)?.trim(),
+        preselectedId:
+            ((data['ultimaEmpresaId'] ?? data['empresaId']) as String?)?.trim(),
       );
       if (selectedEmpresaId == null || selectedEmpresaId.isEmpty) {
         setState(() {

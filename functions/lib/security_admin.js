@@ -150,8 +150,12 @@ function userName(data, fallback) {
 }
 function scopedText(data, empresaId, fields) {
     const scoped = companyDetail(data, empresaId);
+    // La raíz es la copia de la empresa principal: el área y el cargo de otra
+    // empresa no se completan con ella (raizEsDeEmpresa en la app).
+    const principal = clean(data.empresaId, 120);
+    const raiz = principal === "" || principal === empresaId ? data : {};
     for (const field of fields) {
-        const value = clean(scoped?.[field] ?? data[field], 240);
+        const value = clean(scoped?.[field] ?? raiz[field], 240);
         if (value)
             return value;
     }

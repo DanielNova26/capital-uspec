@@ -284,17 +284,97 @@ Map<String, dynamic>? getUserCompanyDetail(
   return null;
 }
 
+/// Campos del PUESTO de una persona: área, cargo, centros y jefe. Dependen
+/// de la empresa, a diferencia del nombre, la foto o el correo.
+///
+/// Una misma cédula puede ser Auxiliar de cocina en una razón social y
+/// Coordinadora en otra. La raíz del documento es la copia de la empresa
+/// principal, así que estos campos solo se leen de la raíz cuando la empresa
+/// que se mira ES la principal (ver [raizEsDeEmpresa]). Leerlos de la raíz
+/// para cualquier empresa era lo que hacía salir a la persona con el cargo de
+/// otra empresa.
+const Set<String> kCamposPuesto = {
+  'areaId',
+  'area_id',
+  'area',
+  'areaNombre',
+  'area_nombre',
+  'departamento',
+  'departamentoId',
+  'departamento_id',
+  'departamentoNombre',
+  'cargoId',
+  'cargo_id',
+  'cargo',
+  'cargoNombre',
+  'cargo_nombre',
+  'puesto',
+  'centroId',
+  'centro_id',
+  'centro',
+  'centroCodigo',
+  'centro_codigo',
+  'centroCostos',
+  'centro_costos',
+  'centro_costos_nombre',
+  'centro_nombre',
+  'centrosOperacionIds',
+  'centrosOperacionNombres',
+  'centroOperacionId',
+  'centroOperacion',
+  'centrosTrabajoIds',
+  'centrosTrabajoNombres',
+  'centroTrabajoId',
+  'centroTrabajo',
+  'jefeId',
+  'jefe_id',
+  'jefe_uid',
+  'jefeNombre',
+  'jefe_nombre',
+  'cargoJefe',
+  'jefe_directo',
+  'jefe_directo_id',
+  'jefe_cargo',
+  'jefe_cargo_desc',
+  'gruposInterventoria',
+};
+
+/// ¿Los datos raíz del documento pertenecen a [empresaId]?
+///
+/// La raíz es la copia de la empresa principal (`empresaId` raíz). Sin
+/// principal escrita, vale si la persona tiene una única empresa, o ninguna
+/// (registro antiguo: la raíz es lo único que hay). Es el mismo criterio de
+/// Interventoría (`puedeUsarDatosRaizInterventoria`).
+bool raizEsDeEmpresa(Map<String, dynamic> data, String? empresaId) {
+  final empresa = normalizeEmpresaId(empresaId);
+  if (empresa == null) return true;
+  final principal = normalizeEmpresaId(data['empresaId']?.toString());
+  if (principal != null) return principal == empresa;
+  final empresas = extractUserEmpresaIds(data);
+  if (empresas.isEmpty) return true;
+  return empresas.length == 1 && empresas.single == empresa;
+}
+
+/// ¿Se puede leer [key] de la raíz para [empresaId]?
+bool _raizSirve(Map<String, dynamic> data, String? empresaId, String key) =>
+    !kCamposPuesto.contains(key) || raizEsDeEmpresa(data, empresaId);
+
 /// Combina un registro global con el bloque específico de la empresa activa.
-/// Los valores de `empresasDetalle[empresaId]` tienen prioridad, pero los
-/// campos globales se conservan como fallback para datos legacy.
+///
+/// Los valores de `empresasDetalle[empresaId]` tienen prioridad y los campos
+/// globales se conservan como respaldo para datos legacy, SALVO los del
+/// puesto ([kCamposPuesto]) cuando la raíz es de otra empresa: esos se quitan
+/// para que la persona no aparezca en esta empresa con el cargo de la otra.
 Map<String, dynamic> mergeCompanyScopedData(
   Map<String, dynamic> data,
   String? empresaId,
 ) {
   final detail = getUserCompanyDetail(data, empresaId);
-  return detail == null
-      ? Map<String, dynamic>.from(data)
-      : {...data, ...detail};
+  final base = Map<String, dynamic>.from(data);
+  if (!raizEsDeEmpresa(data, empresaId)) {
+    base.removeWhere((key, _) => kCamposPuesto.contains(key));
+  }
+  return detail == null ? base : {...base, ...detail};
 }
 
 dynamic getScopedField(
@@ -308,7 +388,10 @@ dynamic getScopedField(
     final value = detail[key];
     if (value != null) return value;
   }
-  if (data.containsKey(fallbackKey)) return data[fallbackKey];
+  if (data.containsKey(fallbackKey) &&
+      _raizSirve(data, empresaId, fallbackKey)) {
+    return data[fallbackKey];
+  }
   return null;
 }
 
@@ -336,6 +419,7 @@ String resolveScopedStringWithFallbacks(
   }
 
   for (final key in fallbackKeys) {
+    if (!_raizSirve(data, empresaId, key)) continue;
     final value = data[key];
     if (value != null && value.toString().trim().isNotEmpty) {
       return value.toString();

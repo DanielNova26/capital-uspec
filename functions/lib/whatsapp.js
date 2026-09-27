@@ -379,6 +379,15 @@ function belongsToEmpresa(user, empresaId) {
     }
     return text(user.empresaId || user.empresa) === empresaId;
 }
+/**
+ * ¿La raíz del usuario es de [empresaId]? La raíz es la copia de la empresa
+ * principal; sin principal escrita, vale. Espejo de `raizEsDeEmpresa` en
+ * lib/utils/user_company.dart.
+ */
+function raizEsDeEmpresa(user, empresaId) {
+    const principal = text(user.empresaId);
+    return principal === "" || principal === empresaId;
+}
 function companyDetail(user, empresaId) {
     const detail = user.empresasDetalle;
     if (!detail || typeof detail !== "object" || Array.isArray(detail)) {
@@ -1707,7 +1716,9 @@ exports.whatsappAdminDirectorio = functions
                 nombre,
                 telefono,
                 email: firstText(cv.email, root.email, root.correo, root.mail),
-                cargo: firstText(scoped?.cargo, root.cargo, root.cargoNombre),
+                // El cargo de la raíz es de la empresa principal: en otra empresa
+                // solo cuenta el de su bloque (raizEsDeEmpresa en la app).
+                cargo: firstText(scoped?.cargo, raizEsDeEmpresa(root, caller.empresaId) ? root.cargo : "", raizEsDeEmpresa(root, caller.empresaId) ? root.cargoNombre : ""),
                 tieneTelefonoValido: telefono.length >= 8 && telefono.length <= 15,
             }];
     });

@@ -52,10 +52,6 @@ class FacturacionService {
       doc = byCedula.docs.first;
     }
     final data = doc.data()!;
-    final detalle = data['empresasDetalle'];
-    final emp = detalle is Map && detalle[empresaId] is Map
-        ? detalle[empresaId] as Map
-        : const <String, dynamic>{};
     final resolved = resolveFacUserInfoFromData(data, empresaId);
     final role = resolved.rol;
     String estId = resolved.establecimientoId ?? '';
@@ -63,9 +59,14 @@ class FacturacionService {
     // Fallback: si no hay establecimientoFacId, derivarlo de centroCostos.
     // centroCostos puede almacenar el nombre o el centroId del centro.
     if (estId.isEmpty && role == kRolEstablecimiento) {
-      final ccVal = ((emp['centroCostos'] ?? data['centroCostos']) ?? '')
-          .toString()
-          .trim();
+      // El centro de ESTA empresa: el de la raíz es de la principal y se
+      // quedaba guardado como establecimiento de la otra.
+      final ccVal = resolveScopedStringWithFallbacks(
+        data,
+        empresaId,
+        const ['centroCostos'],
+        const ['centroCostos'],
+      ).trim();
       if (ccVal.isNotEmpty) {
         try {
           final centrosSnap = await _db

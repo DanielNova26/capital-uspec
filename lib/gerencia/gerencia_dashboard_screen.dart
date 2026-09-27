@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:todo/theme/app_typography.dart';
 import 'package:todo/state/empresa_scope.dart';
 import 'package:todo/utils/task_status.dart';
+import 'package:todo/utils/user_company.dart';
 import 'package:todo/home/widgets/home_shared_widgets.dart';
 import 'package:todo/widgets/empty_state_widget.dart';
 import 'package:todo/widgets/skeleton_loader.dart';
@@ -630,7 +631,19 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         ((user['nombres'] ?? user['primerNombre'] ?? '') as String).trim() +
         ' ' +
         ((user['apellidos'] ?? user['primerApellido'] ?? '') as String).trim();
-    final cargo = (user['cargo'] ?? 'Gerencia').toString();
+    // El cargo de la empresa que se está viendo; con "Todas mis empresas",
+    // el de la principal.
+    final empresaCargo =
+        _empresaActiva == null || _empresaActiva == kTodasEmpresasValue
+        ? (user['empresaId'] ?? '').toString()
+        : _empresaActiva!;
+    final cargoEmpresa = resolveScopedStringWithFallbacks(
+      user,
+      empresaCargo,
+      const ['cargo'],
+      const ['cargo'],
+    ).trim();
+    final cargo = cargoEmpresa.isEmpty ? 'Gerencia' : cargoEmpresa;
 
     final empresaLabel = _empresaActiva == null
         ? ''

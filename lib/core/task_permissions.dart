@@ -95,10 +95,17 @@ bool canCreateTasksAcrossAreas(
     return true;
   }
 
+  // El cargo de ESTA empresa: ser gerente en otra razón social no da acceso
+  // a todas las áreas aquí.
   final cargo = _taskPermissionKey(
     cargoNombre.trim().isNotEmpty
         ? cargoNombre
-        : (userData['cargo'] ?? '').toString(),
+        : resolveScopedStringWithFallbacks(
+            userData,
+            empresaId,
+            const ['cargo'],
+            const ['cargo'],
+          ),
   );
   return cargo == 'desarrollador' ||
       cargo.contains('gerent') ||
@@ -190,11 +197,16 @@ bool canViewTaskTeam(
     const ['cargo', 'rol', 'role'],
     const ['cargo', 'rol', 'role'],
   );
+  // La estructura también se mira en la empresa activa: coordinar en una
+  // empresa no convierte a la persona en jefe de equipo en la otra.
+  final estructura = structureData == null
+      ? null
+      : mergeCompanyScopedData(structureData, empresaId);
   return looksLikeTeamLead(role) ||
       looksLikeTeamLead(cargo) ||
-      looksLikeTeamLead(structureData?['cargo']) ||
-      looksLikeTeamLead(structureData?['rol']) ||
-      looksLikeTeamLead(structureData?['role']) ||
-      looksLikeTeamLead(structureData?['puesto']) ||
-      looksLikeTeamLead(structureData?['nivel']);
+      looksLikeTeamLead(estructura?['cargo']) ||
+      looksLikeTeamLead(estructura?['rol']) ||
+      looksLikeTeamLead(estructura?['role']) ||
+      looksLikeTeamLead(estructura?['puesto']) ||
+      looksLikeTeamLead(estructura?['nivel']);
 }

@@ -39,6 +39,7 @@ import 'gd_formato_plantilla.dart';
 import 'gd_library_logic.dart';
 import '../core/user_directory.dart';
 import '../services/task_service.dart';
+import '../utils/user_company.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Excepción de negocio del módulo
@@ -1890,7 +1891,13 @@ class GdService {
     }
 
     final nombre = _resolveNombreUsuario(userId, data);
-    final cargo = ((scoped?['cargo'] ?? data['cargo']) ?? '').toString().trim();
+    // El cargo que firma es el de ESTA empresa; la raíz es de la principal.
+    final cargo = resolveScopedStringWithFallbacks(
+      data,
+      empresaId,
+      const ['cargo'],
+      const ['cargo'],
+    ).trim();
     final urlFirma = ((scoped?['urlFirma'] ?? data['urlFirma']) ?? '')
         .toString()
         .trim();

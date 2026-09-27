@@ -199,13 +199,19 @@ class VisitasService {
 
   /// Cargo de la ficha en la empresa, con los mismos campos que muestra
   /// Administración (`cargoNombre` o `cargo`, por empresa y en la raíz).
+  ///
+  /// La raíz solo cuenta si es de esta empresa (la principal): ser Gerente en
+  /// una razón social no hace a la persona Gerencia en Visitas de la otra.
   static String cargoDeFicha(Map<String, dynamic> userData, String empresaId) {
     final scoped = getUserCompanyDetail(userData, empresaId) ?? const {};
+    final raiz = raizEsDeEmpresa(userData, empresaId)
+        ? userData
+        : const <String, dynamic>{};
     for (final v in [
       scoped['cargoNombre'],
       scoped['cargo'],
-      userData['cargoNombre'],
-      userData['cargo'],
+      raiz['cargoNombre'],
+      raiz['cargo'],
     ]) {
       final t = (v ?? '').toString().trim();
       if (t.isNotEmpty) return t;
@@ -525,8 +531,7 @@ class VisitasService {
       final d = await _db.collection('TBL_USUARIOS').doc(userId).get();
       final data = d.data();
       if (data == null) return '';
-      final scoped = getUserCompanyDetail(data, empresaId) ?? const {};
-      return (scoped['cargo'] ?? data['cargo'] ?? '').toString().trim();
+      return cargoDeFicha(data, empresaId);
     } catch (_) {
       return '';
     }
