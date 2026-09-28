@@ -67,3 +67,12 @@ Solo Codex hace:
 - git add
 - git commit
 - git push
+
+## Git: siempre en `main`, nunca en ramas
+Regla del usuario (28 sep 2026), para no enredarnos entre Codex y Claude:
+todo el trabajo va directo a `main`. No se crean ramas.
+
+- Antes de empezar: `git pull origin main`.
+- Al terminar: commit y `git push origin main`.
+- Si el push se rechaza porque `main` avanzó: `git pull --no-rebase origin main`,
+  resolver, volver a correr las pruebas y subir. Nunca push forzado.
