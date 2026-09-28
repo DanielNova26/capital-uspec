@@ -1729,6 +1729,260 @@ PlanCatalogo planearEnvioCatalogo({
   );
 }
 
+// ─── Traslado de personal entre dos empresas ─────────────────────────────────
+
+/// Dónde debe quedar una persona al trasladar personal de una empresa
+/// (la antigua, el origen) a otra (la nueva, el destino).
+enum DestinoTraslado {
+  /// Solo en la nueva: la antigua queda apagada.
+  soloNueva,
+
+  /// En las dos, activa en ambas.
+  ambas,
+
+  /// Solo en la antigua: no pasa, o si ya estaba en la nueva, allá se apaga.
+  soloAntigua,
+}
+
+/// Valor que el servicio cambia por la hora del servidor.
+const Object kAhora = _Marca('ahora');
+
+/// Valor que el servicio cambia por "borrar el campo".
+const Object kBorrar = _Marca('borrar');
+
+class _Marca {
+  final String nombre;
+  const _Marca(this.nombre);
+  @override
+  String toString() => '<$nombre>';
+}
+
+/// Cómo está hoy la persona respecto a [origenId] y [destinoId]. Una empresa
+/// apagada cuenta como "no está" (una retirada en Talento Humano sí está: el
+/// retiro no lo decide el traslado).
+DestinoTraslado situacionTraslado(
+  PersonaMultiempresa p,
+  String origenId,
+  String destinoId,
+) {
+  final o = p.puesto(origenId);
+  final d = p.puesto(destinoId);
+  final enOrigen = o != null && o.estado != EstadoMembresia.apagada;
+  final enDestino = d != null && d.estado != EstadoMembresia.apagada;
+  if (enOrigen && enDestino) return DestinoTraslado.ambas;
+  if (enDestino) return DestinoTraslado.soloNueva;
+  return DestinoTraslado.soloAntigua;
+}
+
+/// Lo que hay que escribir para dejar a una persona en [DestinoTraslado].
+class PlanTraslado {
+  final String cedula;
+  final DestinoTraslado decision;
+
+  /// Área, cargo y centros que se llevan de la antigua a la nueva (vacío si
+  /// no entra a la nueva o si ya estaba activa allá).
+  final PlanPersona puesto;
+
+  /// Campos adicionales de `TBL_USUARIOS` (rutas con punto). Los valores
+  /// [kAhora] y [kBorrar] los traduce el servicio.
+  final Map<String, Object?> usuario;
+
+  /// Igual, para `TBL_ESTRUCTURA_ORGANIZACIONAL` (solo si existe).
+  final Map<String, Object?> estructura;
+
+  /// Nueva empresa principal, si cambia.
+  final String? nuevaPrincipal;
+
+  const PlanTraslado({
+    required this.cedula,
+    required this.decision,
+    required this.puesto,
+    this.usuario = const {},
+    this.estructura = const {},
+    this.nuevaPrincipal,
+  });
+
+  bool get vacio => puesto.vacio && usuario.isEmpty && estructura.isEmpty;
+}
+
+/// Planea dejar a la persona [decision] respecto a [origenId] (la antigua) y
+/// [destinoId] (la nueva).
+///
+/// - Quien ENTRA a la nueva (no estaba o estaba apagada) se lleva el área,
+///   el cargo y los centros de la antigua, traducidos al catálogo de la nueva
+///   (ver [planearSincronizacion]); quien ya estaba activo allá conserva su
+///   puesto.
+/// - La empresa que se deja se APAGA (`activo: false`, `trasladadoA`), no se
+///   borra: la persona deja de salir en sus listados pero conserva lo que
+///   registró allí. No es un retiro: `estadoLaboral` no se toca.
+/// - La principal pasa a la nueva si queda solo en la nueva, y a la antigua
+///   si queda solo en la antigua; en las dos, no cambia. Al cambiar, la raíz
+///   pasa a ser la copia exacta del puesto de la nueva principal.
+/// - Módulos: quien entra a la nueva lleva los de la antigua (sin los de
+///   Administración) si [CamposSincronizacion.modulos]; los de cada empresa
+///   quedan fijados (ver `planearAppsPorEmpresa`).
+PlanTraslado planearTraslado({
+  required PersonaMultiempresa persona,
+  required Map<String, dynamic> usuario,
+  Map<String, dynamic>? estructura,
+  required String origenId,
+  required String destinoId,
+  required DestinoTraslado decision,
+  required Map<String, CatalogoEmpresa> catalogos,
+  CamposSincronizacion campos = const CamposSincronizacion(),
+  Map<String, String> nombresEmpresa = const {},
+}) {
+  final sinPuesto = PlanPersona(
+    cedula: persona.cedula,
+    referenciaId: origenId,
+    ajustes: const [],
+    nuevas: const [],
+    avisos: const [],
+  );
+  final o = persona.puesto(origenId);
+  if (origenId == destinoId || o == null) {
+    return PlanTraslado(
+      cedula: persona.cedula,
+      decision: decision,
+      puesto: sinPuesto,
+    );
+  }
+  final d = persona.puesto(destinoId);
+  final origenApagado = o.estado == EstadoMembresia.apagada;
+  final destinoActivo = d != null && d.estado != EstadoMembresia.apagada;
+  final quedaEnNueva = decision != DestinoTraslado.soloAntigua;
+  final quedaEnAntigua = decision != DestinoTraslado.soloNueva;
+  final entraANueva = quedaEnNueva && !destinoActivo;
+
+  final puesto = entraANueva
+      ? planearSincronizacion(
+          persona: persona,
+          usuario: usuario,
+          estructura: estructura,
+          referenciaId: origenId,
+          destinos: {destinoId},
+          catalogos: catalogos,
+          campos: CamposSincronizacion(
+            area: campos.area,
+            cargo: campos.cargo,
+            centros: campos.centros,
+            modulos: false,
+          ),
+          nombresEmpresa: nombresEmpresa,
+        )
+      : sinPuesto;
+
+  final usr = <String, Object?>{};
+  final org = <String, Object?>{};
+  void membresia(String empresa, {required bool activa, String? hacia}) {
+    final valores = <String, Object?>{
+      'activo': activa,
+      'trasladadoA': activa ? kBorrar : hacia,
+      'trasladadoAt': activa ? kBorrar : kAhora,
+      if (activa) 'reactivadoAt': kAhora,
+    };
+    valores.forEach((k, v) {
+      usr['empresasDetalle.$empresa.$k'] = v;
+      if (estructura != null) org['empresasDetalle.$empresa.$k'] = v;
+    });
+  }
+
+  // La antigua.
+  if (!quedaEnAntigua && !origenApagado) {
+    membresia(origenId, activa: false, hacia: destinoId);
+  } else if (quedaEnAntigua && origenApagado) {
+    membresia(origenId, activa: true);
+  }
+  // La nueva.
+  if (quedaEnNueva && d != null && !destinoActivo) {
+    membresia(destinoId, activa: true);
+  } else if (!quedaEnNueva && destinoActivo) {
+    membresia(destinoId, activa: false, hacia: origenId);
+  }
+
+  // Empresa principal.
+  final principal = persona.empresaPrincipal;
+  String? nueva;
+  switch (decision) {
+    case DestinoTraslado.soloNueva:
+      if (principal.isEmpty || principal == origenId) nueva = destinoId;
+    case DestinoTraslado.soloAntigua:
+      if (principal.isEmpty || principal == destinoId) nueva = origenId;
+    case DestinoTraslado.ambas:
+      if (principal.isEmpty) nueva = origenId;
+  }
+  if (nueva == principal) nueva = null;
+
+  if (nueva != null) {
+    final empresaNueva = nueva;
+    usr['empresaId'] = empresaNueva;
+    usr['empresaNombre'] = nombresEmpresa[empresaNueva] ?? empresaNueva;
+    // La raíz queda como copia exacta del puesto de la nueva principal: lo
+    // que ese puesto no tenga se borra, para que no quede nada de la otra.
+    Map<String, dynamic> bloqueFinal(
+      Map<String, dynamic> doc,
+      Map<String, dynamic> Function(AjusteEmpresa) cambios,
+    ) {
+      final base = Map<String, dynamic>.from(
+        getUserCompanyDetail(doc, empresaNueva) ?? const {},
+      );
+      for (final a in puesto.ajustes) {
+        if (a.empresaId == empresaNueva) base.addAll(cambios(a));
+      }
+      return base;
+    }
+
+    final bloque = bloqueFinal(usuario, (a) => a.usuario);
+    for (final k in kCamposPuesto) {
+      if (bloque.containsKey(k)) {
+        usr[k] = bloque[k];
+      } else if (usuario.containsKey(k)) {
+        usr[k] = kBorrar;
+      }
+    }
+    if (estructura != null) {
+      org['empresaId'] = empresaNueva;
+      final bloqueOrg = bloqueFinal(estructura, (a) => a.estructura);
+      for (final k in kCamposPuesto) {
+        if (bloqueOrg.containsKey(k)) {
+          org[k] = bloqueOrg[k];
+        } else if (estructura.containsKey(k)) {
+          org[k] = kBorrar;
+        }
+      }
+    }
+  }
+
+  // Módulos: la nueva entra con los de la antigua (o sin ninguno, si no se
+  // pidieron) y todas las empresas de la persona quedan fijadas.
+  final cambiosApps = <String, Iterable<String>>{};
+  if (entraANueva && d == null) {
+    cambiosApps[destinoId] = campos.modulos
+        ? [
+            for (final app in extractUserApps(usuario, empresaId: origenId))
+              if (!kAppCatalog.any(
+                (m) => m.soloAdmin && appIdsEquivalent(m.appId, app),
+              ))
+                app,
+          ]
+        : const <String>[];
+  }
+  if (usr.isNotEmpty || !puesto.vacio) {
+    usr.addAll(
+      planearAppsPorEmpresa(usuario, cambios: cambiosApps).comoRutas(),
+    );
+  }
+
+  return PlanTraslado(
+    cedula: persona.cedula,
+    decision: decision,
+    puesto: puesto,
+    usuario: usr,
+    estructura: org,
+    nuevaPrincipal: nueva,
+  );
+}
+
 String _sinTildes(String s) {
   const origen = 'áéíóúÁÉÍÓÚäëïöüÄËÏÖÜñÑçÇàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛãõÃÕ';
   const destino = 'aeiouAEIOUaeiouAEIOUnNcCaeiouAEIOUaeiouAEIOUaoAO';

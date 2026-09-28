@@ -129,6 +129,45 @@ void main() {
     );
   });
 
+  group('empresa apagada por un traslado', () {
+    Map<String, dynamic> trasladada() => {
+      ..._persona(),
+      'empresaId': 'B',
+      'ultimaEmpresaId': 'A',
+      'empresasDetalle': {
+        'A': {'cargo': 'Gerente general', 'activo': false, 'trasladadoA': 'B'},
+        'B': {'cargo': 'Auxiliar de cocina', 'activo': true},
+      },
+    };
+
+    test('no se ofrece para entrar, pero sigue siendo membresía', () {
+      expect(empresasSeleccionables(trasladada()), ['B']);
+      expect(extractUserEmpresaIds(trasladada()), ['A', 'B']);
+    });
+
+    test('una sesión guardada en la apagada cae a la abierta', () {
+      expect(
+        resolveValidEmpresaId(
+          data: trasladada(),
+          selectedEmpresaId: 'A',
+          preferredEmpresaId: 'A',
+        ),
+        'B',
+      );
+    });
+
+    test('si todas están apagadas no deja a nadie sin empresa', () {
+      final todas = {
+        ...trasladada(),
+        'empresasDetalle': {
+          'A': {'activo': false},
+          'B': {'activo': false},
+        },
+      };
+      expect(empresasSeleccionables(todas), ['A', 'B']);
+    });
+  });
+
   test('ser Gerente en A no da todas las áreas en B', () {
     expect(canCreateTasksAcrossAreas(_persona(), empresaId: 'A'), isTrue);
     expect(canCreateTasksAcrossAreas(_persona(), empresaId: 'B'), isFalse);

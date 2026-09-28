@@ -9,6 +9,9 @@
 //   * Agregar personas a otra empresa con su cargo y área, sin trasladar a
 //     todo el personal.
 //   * Enviar el catálogo (áreas, cargos, centros) de una empresa a otra.
+//   * Traslado de personal: por persona o con filtros, quién queda solo en
+//     la empresa nueva, en las dos o solo en la antigua (pantalla aparte,
+//     `multiempresa_traslado_screen.dart`).
 //
 // La lógica vive en `core/multiempresa_sync.dart`; aquí solo se muestra y se
 // confirma. Web y móvil comparten todo salvo el detalle por empresa: en
@@ -25,6 +28,7 @@ import '../utils/user_company.dart';
 import '../widgets/user_avatar.dart';
 import 'admin_repository.dart';
 import 'multiempresa_sync_service.dart';
+import 'multiempresa_traslado_screen.dart';
 
 const String _kFont = 'Arial';
 const Color _kAccent = Color(0xFF3B82F6);
@@ -257,6 +261,8 @@ class _AdminMultiempresaPanelState extends State<AdminMultiempresaPanel> {
         if (_datos != null) ...[
           _resumen(),
           const SizedBox(height: 12),
+          _tarjetaTraslado(),
+          const SizedBox(height: 12),
           _tarjetaCatalogo(),
           const SizedBox(height: 12),
           _tarjetaModulos(),
@@ -425,6 +431,101 @@ class _AdminMultiempresaPanelState extends State<AdminMultiempresaPanel> {
         dato('${_personas.length}', 'personas en total', _kMuted, _Vista.todas),
       ],
     );
+  }
+
+  // ─── Traslado de personal ─────────────────────────────────────────────────
+
+  Widget _tarjetaTraslado() {
+    final ancho = MediaQuery.sizeOf(context).width >= 760;
+    final texto = Text(
+      ancho
+          ? 'Pasa personal de una empresa a otra decidiendo por persona, o '
+                'en lote con filtros de área, cargo y centro, si queda solo '
+                'en la nueva, en las dos o solo en la antigua. Lleva su área, '
+                'cargo, centros y módulos.'
+          : 'Quién queda solo en la nueva, en las dos o solo en la antigua.',
+      style: _estilo(12, color: _kMuted),
+    );
+    final boton = FilledButton.icon(
+      onPressed: _ocupado || widget.empresas.length < 2
+          ? null
+          : _abrirTraslado,
+      icon: const Icon(Icons.move_up_rounded),
+      label: const Text('Trasladar personal'),
+    );
+    return Card(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: _kBorder),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: ancho
+            ? Row(
+                children: [
+                  const Icon(Icons.move_up_rounded, color: _kAccent),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Traslado de personal',
+                          style: _estilo(14, weight: FontWeight.w900),
+                        ),
+                        const SizedBox(height: 2),
+                        texto,
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  boton,
+                ],
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.move_up_rounded, color: _kAccent),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Traslado de personal',
+                          style: _estilo(13.5, weight: FontWeight.w900),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  texto,
+                  const SizedBox(height: 10),
+                  SizedBox(width: double.infinity, child: boton),
+                ],
+              ),
+      ),
+    );
+  }
+
+  Future<void> _abrirTraslado() async {
+    final datos = _datos;
+    if (datos == null) return;
+    final resultado = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => MultiempresaTrasladoScreen(
+          userId: widget.userId,
+          empresas: widget.empresas,
+          datos: datos,
+          personas: _personas,
+          nombres: _nombres,
+          servicio: _svc,
+          origenInicial: widget.empresaId,
+        ),
+      ),
+    );
+    if (resultado == null || !mounted) return;
+    _snack(resultado);
+    await _cargar();
   }
 
   // ─── Módulos por empresa ──────────────────────────────────────────────────

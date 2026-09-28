@@ -129,6 +129,9 @@ class _OrganizationalStructureScreenState
 
   /// Caché de datos de TBL_USUARIOS, keyed por cédula.
   Map<String, _UserInfo> _userCache = {};
+
+  /// Cédulas con esta empresa apagada en TBL_USUARIOS (trasladadas).
+  Set<String> _apagados = {};
   CargoHierarchyIndex _hierarchy = CargoHierarchyIndex.empty();
 
   /// Docs actuales del stream (para export).
@@ -203,12 +206,23 @@ class _OrganizationalStructureScreenState
     return mergeCompanyScopedData(raw, widget.empresaId);
   }
 
-  bool _orgBelongsToCompany(Map<String, dynamic> raw) {
-    return matchesEmpresaScope(
+  /// Quien se trasladó a otra empresa queda con esta empresa apagada
+  /// (`empresasDetalle.{empresa}.activo: false`): sigue en `empresas` para
+  /// conservar su historial, pero ya no es personal de aquí. No es un retiro,
+  /// así que tampoco sale en el filtro de inactivos.
+  bool _orgBelongsToCompany(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final raw = doc.data() ?? const <String, dynamic>{};
+    if (!matchesEmpresaScope(
       raw,
       widget.empresaId,
       allowLegacyWithoutEmpresa: false,
-    );
+    )) {
+      return false;
+    }
+    if (getUserCompanyDetail(raw, widget.empresaId)?['activo'] == false) {
+      return false;
+    }
+    return !_apagados.contains(_orgCedula(doc));
   }
 
   Future<void> _loadUserCache() async {
@@ -232,6 +246,7 @@ class _OrganizationalStructureScreenState
     }
 
     final cache = <String, _UserInfo>{};
+    final apagados = <String>{};
     for (final doc in allDocs) {
       final data = doc.data();
 
@@ -240,6 +255,11 @@ class _OrganizationalStructureScreenState
           ((data['empresasDetalle'] as Map<String, dynamic>?)?[widget.empresaId]
               as Map<String, dynamic>?) ??
           {};
+      if (detalle['activo'] == false) {
+        apagados.add(doc.id);
+        final ced = (data['cedula'] as String?)?.trim() ?? '';
+        if (ced.isNotEmpty) apagados.add(ced);
+      }
 
       // Helper: lee campo de detalle primero, luego raíz
       String _r(String key) {
@@ -308,7 +328,12 @@ class _OrganizationalStructureScreenState
       if (cedula.isNotEmpty && cedula != doc.id) cache[cedula] = info;
     }
 
-    if (mounted) setState(() => _userCache = cache);
+    if (mounted) {
+      setState(() {
+        _userCache = cache;
+        _apagados = apagados;
+      });
+    }
   }
 
   // ── Helpers de nombre ─────────────────────────────────────────────────────
@@ -1106,6 +1131,12 @@ class _OrganizationalStructureScreenState
     final userMap = <String, Map<String, dynamic>>{};
     final userDocIds = <String>{}; // solo IDs canónicos de documento
     for (final d in [...usrSnap1.docs, ...usrSnap2.docs]) {
+      // Con esta empresa apagada (trasladada a otra) ya no ocupa cargos ni
+      // áreas aquí: se queda fuera de los ocupantes que se recalculan.
+      if (getUserCompanyDetail(d.data(), widget.empresaId)?['activo'] ==
+          false) {
+        continue;
+      }
       if (userDocIds.add(d.id)) {
         userMap[d.id] = d.data();
         final ced = (d.data()['cedula'] as String?)?.trim() ?? '';
@@ -3070,7 +3101,7 @@ class _OrganizationalStructureScreenState
                   // Personal completo de la empresa (sin filtros de vista):
                   // lo usa el selector de jefe directo del formulario.
                   _companyDocs = snap.data!.docs
-                      .where((d) => _orgBelongsToCompany(d.data()))
+                      .where(_orgBelongsToCompany)
                       .toList();
                   final docs =
                       _companyDocs.where((d) {

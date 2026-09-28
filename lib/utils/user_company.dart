@@ -391,12 +391,31 @@ bool userHasApp(Map<String, dynamic> data, String? appId, {String? empresaId}) {
   return false;
 }
 
+/// Empresas en las que la persona puede entrar: sus membresías menos las
+/// apagadas por un traslado (`empresasDetalle.{empresa}.activo: false`).
+///
+/// Una empresa apagada se queda en `empresas` para conservar lo que la
+/// persona registró allí, pero ya no se ofrece al iniciar sesión ni al
+/// cambiar de empresa: quien pasó "solo a la nueva" no debe seguir entrando
+/// a la antigua. Si todas están apagadas se devuelven todas; cortar el
+/// acceso es trabajo del interruptor global `activo`, no de esta lista.
+List<String> empresasSeleccionables(Map<String, dynamic> data) {
+  final todas = extractUserEmpresaIds(data);
+  final abiertas = [
+    for (final e in todas)
+      if (getUserCompanyDetail(data, e)?['activo'] != false) e,
+  ];
+  return abiertas.isEmpty ? todas : abiertas;
+}
+
 String? resolveValidEmpresaId({
   required Map<String, dynamic> data,
   String? selectedEmpresaId,
   String? preferredEmpresaId,
 }) {
-  final allowedIds = extractUserEmpresaIds(data);
+  // Una sesión guardada en una empresa que después se apagó cae a una que
+  // siga abierta.
+  final allowedIds = empresasSeleccionables(data);
   if (allowedIds.isEmpty) return null;
 
   final selected = normalizeEmpresaId(selectedEmpresaId);

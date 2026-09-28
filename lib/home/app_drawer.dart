@@ -311,7 +311,7 @@ class AppDrawer extends StatelessWidget {
                 : empresaActual;
             final empresas = user == null
                 ? <String>[]
-                : extractUserEmpresaIds(user);
+                : empresasSeleccionables(user);
             final canChangeEmpresa = empresas.length >= 2;
             final showTeamPanel = _shouldShowTeamPanel(
               user: user,

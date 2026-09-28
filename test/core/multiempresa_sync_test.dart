@@ -128,7 +128,166 @@ Map<String, dynamic> _aplicar(Map<String, dynamic> usuario, PlanPersona plan) {
   return out;
 }
 
+/// Aplica un traslado en memoria: el puesto y luego los campos con punto.
+Map<String, dynamic> _aplicarTraslado(
+  Map<String, dynamic> usuario,
+  PlanTraslado plan,
+) {
+  final out = _aplicar(usuario, plan.puesto);
+  final detalle = Map<String, dynamic>.from(out['empresasDetalle'] as Map);
+  plan.usuario.forEach((ruta, valor) {
+    final partes = ruta.split('.');
+    if (identical(valor, kAhora)) valor = 'ahora';
+    if (partes.length == 3 && partes.first == 'empresasDetalle') {
+      final bloque = Map<String, dynamic>.from(
+        (detalle[partes[1]] as Map?) ?? const {},
+      );
+      if (identical(valor, kBorrar)) {
+        bloque.remove(partes[2]);
+      } else {
+        bloque[partes[2]] = valor;
+      }
+      detalle[partes[1]] = bloque;
+    } else if (identical(valor, kBorrar)) {
+      out.remove(ruta);
+    } else {
+      out[ruta] = valor;
+    }
+  });
+  out['empresasDetalle'] = detalle;
+  return out;
+}
+
 void main() {
+  group('traslado de personal', () {
+    // Persona de A (principal) que todavía no está en B.
+    Map<String, dynamic> soloEnA() => _usuario(
+      empresas: const [_a],
+      raiz: const {
+        'apps': ['tareasdashboard', 'comprasdashboard', 'admindashboard'],
+      },
+      detalle: {_a: _bloqueA()},
+    );
+
+    PlanTraslado trasladar(
+      Map<String, dynamic> usuario,
+      DestinoTraslado decision, {
+      Map<String, CatalogoEmpresa>? catalogos,
+    }) {
+      final cats = catalogos ?? _catalogos();
+      final persona = analizarPersona(
+        cedula: '111',
+        usuario: usuario,
+        catalogos: cats,
+      );
+      return planearTraslado(
+        persona: persona,
+        usuario: usuario,
+        origenId: _a,
+        destinoId: _b,
+        decision: decision,
+        catalogos: cats,
+        nombresEmpresa: const {_b: 'Empresa B'},
+      );
+    }
+
+    PersonaMultiempresa despues(Map<String, dynamic> u, PlanTraslado plan) =>
+        analizarPersona(
+          cedula: '111',
+          usuario: _aplicarTraslado(u, plan),
+          catalogos: _catalogos(),
+        );
+
+    test('solo en la nueva: entra a B con su puesto y A queda apagada', () {
+      final u = soloEnA();
+      final plan = trasladar(u, DestinoTraslado.soloNueva);
+      expect(plan.nuevaPrincipal, _b);
+      final p = despues(u, plan);
+      expect(situacionTraslado(p, _a, _b), DestinoTraslado.soloNueva);
+      expect(p.puesto(_a)!.estado, EstadoMembresia.apagada);
+      expect(p.puesto(_b)!.estado, EstadoMembresia.activa);
+      expect(p.puesto(_b)!.cargo.entrada?.id, '${_b}_auxiliar_cocina');
+      expect(p.empresaPrincipal, _b);
+      // La raíz es ahora la copia de B, no de A.
+      final raiz = _aplicarTraslado(u, plan);
+      expect(raiz['cargoId'], '${_b}_auxiliar_cocina');
+      expect(raiz['centroId'], '${_b}_2001');
+      expect(raiz['empresaNombre'], 'Empresa B');
+      // Módulos: B lleva los de A sin Administración.
+      expect(raiz['appsPorEmpresa'], isTrue);
+      expect(
+        (raiz['empresasDetalle'] as Map)[_b]['apps'],
+        ['comprasdashboard', 'tareasdashboard'],
+      );
+      expect(p.descuadres, isEmpty);
+    });
+
+    test('en las dos: entra a B, A sigue activa y la principal no cambia', () {
+      final u = soloEnA();
+      final plan = trasladar(u, DestinoTraslado.ambas);
+      expect(plan.nuevaPrincipal, isNull);
+      final p = despues(u, plan);
+      expect(situacionTraslado(p, _a, _b), DestinoTraslado.ambas);
+      expect(p.empresaPrincipal, _a);
+      expect(p.descuadres, isEmpty);
+    });
+
+    test('solo en la antigua: si ya estaba en B, allá queda apagada', () {
+      final u = _usuario(detalle: {_a: _bloqueA(), _b: _bloqueBSano()});
+      final plan = trasladar(u, DestinoTraslado.soloAntigua);
+      expect(plan.puesto.vacio, isTrue);
+      final p = despues(u, plan);
+      expect(situacionTraslado(p, _a, _b), DestinoTraslado.soloAntigua);
+      expect(p.puesto(_b)!.estado, EstadoMembresia.apagada);
+      expect(
+        (_aplicarTraslado(u, plan)['empresasDetalle'] as Map)[_b]['trasladadoA'],
+        _a,
+      );
+    });
+
+    test('corrige un traslado anterior: vuelve a A y apaga B', () {
+      // Quedó solo en B (A apagada, B principal) y debía quedarse en A.
+      final u = _usuario(
+        raiz: const {'empresaId': _b},
+        detalle: {
+          _a: {..._bloqueA(), 'activo': false, 'trasladadoA': _b},
+          _b: _bloqueBSano(),
+        },
+      );
+      final plan = trasladar(u, DestinoTraslado.soloAntigua);
+      expect(plan.nuevaPrincipal, _a);
+      final r = _aplicarTraslado(u, plan);
+      final p = analizarPersona(
+        cedula: '111',
+        usuario: r,
+        catalogos: _catalogos(),
+      );
+      expect(p.puesto(_a)!.estado, EstadoMembresia.activa);
+      expect(p.puesto(_b)!.estado, EstadoMembresia.apagada);
+      expect((r['empresasDetalle'] as Map)[_a].containsKey('trasladadoA'), false);
+      expect(r['cargoId'], '${_a}_auxiliar_cocina');
+    });
+
+    test('quien ya estaba activo en B conserva su puesto de allá', () {
+      final bloqueB = {
+        ..._bloqueBSano(),
+        'cargoId': '${_b}_coordinador',
+        'cargo': 'Coordinador',
+      };
+      final u = _usuario(detalle: {_a: _bloqueA(), _b: bloqueB});
+      final plan = trasladar(u, DestinoTraslado.soloNueva);
+      expect(plan.puesto.vacio, isTrue);
+      final r = _aplicarTraslado(u, plan);
+      expect(r['cargo'], 'Coordinador');
+      expect((r['empresasDetalle'] as Map)[_a]['activo'], isFalse);
+    });
+
+    test('sin cambios no escribe nada', () {
+      final u = _usuario(detalle: {_a: _bloqueA(), _b: _bloqueBSano()});
+      expect(trasladar(u, DestinoTraslado.ambas).vacio, isTrue);
+    });
+  });
+
   group('idCatalogo', () {
     test('usa la forma {empresa}_{slug} sin tildes', () {
       expect(idCatalogo(_b, 'Gestión Humana'), '${_b}_gestion_humana');

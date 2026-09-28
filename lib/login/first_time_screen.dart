@@ -281,7 +281,7 @@ class _FirstTimeScreenState extends State<FirstTimeScreen> {
       }
 
       final data = userDoc.data() ?? <String, dynamic>{};
-      final empresaIds = extractUserEmpresaIds(data);
+      final empresaIds = empresasSeleccionables(data);
       final selectedEmpresaId = await _selectEmpresaId(
         empresaIds,
         preselectedId:

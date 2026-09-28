@@ -295,8 +295,15 @@ class MultiempresaSyncService {
     required String actorId,
     String accion = 'multiempresaSincronizarPersona',
     bool crearCatalogo = true,
+
+    /// Campos adicionales con punto para `TBL_USUARIOS` y para la
+    /// estructura (traslados: activar/apagar empresas, empresa principal).
+    /// [kAhora] y [kBorrar] se traducen aquí.
+    Map<String, Object?> extraUsuario = const {},
+    Map<String, Object?> extraEstructura = const {},
+    Map<String, Object?> extraLog = const {},
   }) async {
-    if (plan.vacio) return;
+    if (plan.vacio && extraUsuario.isEmpty && extraEstructura.isEmpty) return;
     final cedula = plan.cedula;
     final principal = normalizeEmpresaId(usuario['empresaId']?.toString());
     final orgPrincipal = normalizeEmpresaId(
@@ -400,6 +407,15 @@ class MultiempresaSyncService {
         planearAppsPorEmpresa(usuario, cambios: modulos).comoRutas(),
       );
     }
+    Object? traducir(Object? v) => identical(v, kAhora)
+        ? FieldValue.serverTimestamp()
+        : identical(v, kBorrar)
+        ? FieldValue.delete()
+        : v;
+    extraUsuario.forEach((k, v) => userUpdate[k] = traducir(v));
+    if (estructura != null) {
+      extraEstructura.forEach((k, v) => orgUpdate[k] = traducir(v));
+    }
     batch.update(_db.collection(_usuarios).doc(cedula), userUpdate);
 
     if (estructura != null && (orgUpdate.isNotEmpty || vinculadas.isNotEmpty)) {
@@ -426,6 +442,7 @@ class MultiempresaSyncService {
         ],
         'vinculadas': vinculadas,
         'catalogoCreado': [for (final n in plan.nuevas) n.id],
+        ...extraLog,
       },
       'createdAt': FieldValue.serverTimestamp(),
     });
@@ -493,6 +510,69 @@ class MultiempresaSyncService {
       personas: personas,
       empresasTocadas: empresas,
       entradasCreadas: creadas,
+      errores: errores,
+    );
+  }
+
+  /// Aplica traslados, una persona por lote (todo o nada por persona). El
+  /// catálogo que haga falta en la empresa nueva se crea primero y completo.
+  Future<ResultadoSincronizacion> aplicarTraslados({
+    required List<PlanTraslado> planes,
+    required MultiempresaDatos datos,
+    required String actorId,
+    required String origenId,
+    required String destinoId,
+    void Function(int hechas, int total)? onProgreso,
+  }) async {
+    final pendientes = planes.where((p) => !p.vacio).toList();
+    final nuevas = <String, EntradaNueva>{
+      for (final p in pendientes)
+        for (final n in p.puesto.nuevas) '${n.tipo.coleccion}/${n.id}': n,
+    };
+    if (nuevas.isNotEmpty) {
+      await enviarCatalogo(
+        PlanCatalogo(
+          origenId: origenId,
+          destinoId: destinoId,
+          nuevas: nuevas.values.toList(),
+          yaExistian: 0,
+          cargosConAreaDistinta: const [],
+        ),
+        actorId: actorId,
+      );
+    }
+    var personas = 0;
+    final errores = <String>[];
+    for (var i = 0; i < pendientes.length; i++) {
+      final plan = pendientes[i];
+      try {
+        await aplicarPlan(
+          plan: plan.puesto,
+          usuario: datos.usuarios[plan.cedula] ?? const {},
+          estructura: datos.estructuras[plan.cedula],
+          actorId: actorId,
+          accion: 'multiempresaTraslado',
+          crearCatalogo: false,
+          extraUsuario: plan.usuario,
+          extraEstructura: plan.estructura,
+          extraLog: {
+            'origen': origenId,
+            'destino': destinoId,
+            'decision': plan.decision.name,
+            if (plan.nuevaPrincipal != null)
+              'nuevaPrincipal': plan.nuevaPrincipal,
+          },
+        );
+        personas++;
+      } catch (e) {
+        errores.add('${plan.cedula}: $e');
+      }
+      onProgreso?.call(i + 1, pendientes.length);
+    }
+    return ResultadoSincronizacion(
+      personas: personas,
+      empresasTocadas: personas,
+      entradasCreadas: nuevas.length,
       errores: errores,
     );
   }

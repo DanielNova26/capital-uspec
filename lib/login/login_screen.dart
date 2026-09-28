@@ -713,7 +713,8 @@ class _LoginScreenState extends State<LoginScreen> {
       final needsChange = secureLogin.needsPasswordChange;
       final docId = docSnapshot.id;
 
-      final uniqueEmpresas = extractUserEmpresaIds(data);
+      // Sin las empresas apagadas por un traslado.
+      final uniqueEmpresas = empresasSeleccionables(data);
       if (uniqueEmpresas.isEmpty) {
         setState(() {
           _errorMessage = 'No se encontró empresa asociada al usuario';
