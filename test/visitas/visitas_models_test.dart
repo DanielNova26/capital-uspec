@@ -208,11 +208,12 @@ void main() {
   });
 
   group('cuándo se puede iniciar', () {
-    test('el día programado sí, el día anterior no', () {
+    test('solo el día programado: ni antes ni después', () {
       final v = visita(estado: kVisitaProgramada, iniciada: false);
       expect(visitaSePuedeIniciar(v, DateTime(2026, 9, 10, 7)), isTrue);
       expect(visitaSePuedeIniciar(v, DateTime(2026, 9, 9, 23)), isFalse);
-      expect(visitaSePuedeIniciar(v, DateTime(2026, 9, 12)), isTrue);
+      // 28 sep 2026: pasado el día se pide cambio de fecha al jefe.
+      expect(visitaSePuedeIniciar(v, DateTime(2026, 9, 12)), isFalse);
     });
 
     test('una en curso o terminada no se vuelve a iniciar', () {

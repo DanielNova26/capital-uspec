@@ -146,8 +146,18 @@ bool visitasPuedeFirmarComoEstablecimiento({
     visita.firmanteEstablecimientoId.isNotEmpty &&
     visita.firmanteEstablecimientoId == userId &&
     visita.firmaEstablecimiento == null;
+
+/// El consolidado (28 sep 2026): el director ve el de su departamento y el
+/// profesional el de sus propias actas; Gerencia, Desarrollo y Consulta, el
+/// del departamento que elijan.
 bool visitasPuedeVerConsolidado(String? rol) =>
-    _administra(rol) || rol == kVisitasRolConsulta;
+    _administra(rol) ||
+    rol == kVisitasRolConsulta ||
+    rol == kVisitasRolProfesional;
+
+/// Aprobar o rechazar un cambio de fecha: quien programa (el jefe del
+/// departamento, Gerencia y Desarrollo).
+bool visitasPuedeResponderSolicitud(String? rol) => _administra(rol);
 
 /// Reprogramar: solo el jefe, y solo una visita todavía programada.
 ///
@@ -807,6 +817,8 @@ class VisitaFormato {
 
   VisitaFormato copyWith({
     String? id,
+    String? areaId,
+    String? areaNombre,
     String? nombre,
     String? estado,
     bool? predeterminado,
@@ -822,8 +834,8 @@ class VisitaFormato {
   }) => VisitaFormato(
     id: id ?? this.id,
     empresaId: empresaId,
-    areaId: areaId,
-    areaNombre: areaNombre,
+    areaId: areaId ?? this.areaId,
+    areaNombre: areaNombre ?? this.areaNombre,
     nombre: nombre ?? this.nombre,
     version: version ?? this.version,
     estado: estado ?? this.estado,
@@ -1265,6 +1277,112 @@ class VisitaReprogramacion {
       );
 }
 
+// ── Solicitud de cambio de fecha (28 sep 2026) ─────────────────────────────
+//
+// "Permitir solicitar cambio de fecha a su jefe inmediato". El profesional ya
+// no mueve la visita: la pide, con el motivo, y el jefe la aprueba o la
+// rechaza. Una sola solicitud a la vez por visita; la última queda guardada
+// con su respuesta.
+
+const String kSolicitudPendiente = 'pendiente';
+const String kSolicitudAprobada = 'aprobada';
+const String kSolicitudRechazada = 'rechazada';
+
+class VisitaSolicitudFecha {
+  /// La fecha que pide el profesional (solo el día).
+  final DateTime fecha;
+  final String motivo;
+  final String porId;
+  final String porNombre;
+  final String estado;
+  final Timestamp? at;
+
+  /// Lo que contesta el jefe; al rechazar dice por qué.
+  final String respuesta;
+  final String respondidaPorId;
+  final String respondidaPorNombre;
+
+  const VisitaSolicitudFecha({
+    required this.fecha,
+    required this.motivo,
+    required this.porId,
+    required this.porNombre,
+    this.estado = kSolicitudPendiente,
+    this.at,
+    this.respuesta = '',
+    this.respondidaPorId = '',
+    this.respondidaPorNombre = '',
+  });
+
+  bool get pendiente => estado == kSolicitudPendiente;
+
+  Map<String, dynamic> toMap() => {
+    'fecha': Timestamp.fromDate(fecha),
+    'motivo': motivo,
+    'porId': porId,
+    'porNombre': porNombre,
+    'estado': estado,
+    'at': at ?? Timestamp.now(),
+    'respuesta': respuesta,
+    'respondidaPorId': respondidaPorId,
+    'respondidaPorNombre': respondidaPorNombre,
+  };
+
+  factory VisitaSolicitudFecha.fromMap(Map<String, dynamic> d) =>
+      VisitaSolicitudFecha(
+        fecha: _fecha(d['fecha']),
+        motivo: (d['motivo'] ?? '').toString(),
+        porId: (d['porId'] ?? '').toString(),
+        porNombre: (d['porNombre'] ?? '').toString(),
+        estado: (d['estado'] ?? kSolicitudPendiente).toString(),
+        at: d['at'] is Timestamp ? d['at'] as Timestamp : null,
+        respuesta: (d['respuesta'] ?? '').toString(),
+        respondidaPorId: (d['respondidaPorId'] ?? '').toString(),
+        respondidaPorNombre: (d['respondidaPorNombre'] ?? '').toString(),
+      );
+
+  VisitaSolicitudFecha respondida({
+    required bool aprobada,
+    required String porId,
+    required String porNombre,
+    String respuesta = '',
+  }) => VisitaSolicitudFecha(
+    fecha: fecha,
+    motivo: motivo,
+    porId: this.porId,
+    porNombre: this.porNombre,
+    estado: aprobada ? kSolicitudAprobada : kSolicitudRechazada,
+    at: at,
+    respuesta: respuesta,
+    respondidaPorId: porId,
+    respondidaPorNombre: porNombre,
+  );
+}
+
+/// Qué impide pedir el cambio de fecha. Null = se puede.
+String? validarSolicitudFecha(
+  VisitaProfesional v, {
+  required DateTime fecha,
+  required String motivo,
+  required DateTime hoy,
+}) {
+  if (v.estado != kVisitaProgramada && v.estado != kVisitaEnCurso) {
+    return 'Solo se pide cambio de fecha de una visita programada o en curso.';
+  }
+  if (v.solicitudFecha?.pendiente == true) {
+    return 'Ya hay una solicitud esperando respuesta de tu jefe.';
+  }
+  if (_soloDia(fecha).isBefore(_soloDia(hoy))) {
+    return 'La nueva fecha no puede ser anterior a hoy.';
+  }
+  if (_soloDia(fecha) == _soloDia(v.fechaProgramada) &&
+      v.estado == kVisitaProgramada) {
+    return 'Esa ya es la fecha de la visita.';
+  }
+  if (motivo.trim().isEmpty) return 'Escribe el motivo del cambio.';
+  return null;
+}
+
 DateTime _fecha(Object? raw) => raw is Timestamp
     ? raw.toDate()
     : DateTime.tryParse(raw?.toString() ?? '') ?? DateTime(2000);
@@ -1420,18 +1538,25 @@ class VerificacionUbicacion {
 /// GPS se descuenta de la distancia: si el teléfono dice "±40 m" y la
 /// referencia está a 170 m con radio 150, la persona bien puede estar
 /// adentro. Se bloquea solo cuando ni con esa tolerancia alcanza.
+///
+/// Desde el 28 sep 2026 vale también para cerrar ([accion] `cerrar`): "no
+/// puede estar en una ubicación diferente". El acta se abre y se cierra en el
+/// establecimiento.
 VerificacionUbicacion verificarUbicacionInicio({
   required VisitaUbicacion? referencia,
   required double? lat,
   required double? lng,
   double? precisionMetros,
+  String accion = 'iniciar',
 }) {
+  final cerrar = accion == 'cerrar';
   if (lat == null || lng == null) {
-    return const VerificacionUbicacion(
+    return VerificacionUbicacion(
       permitido: false,
       motivo:
           'No se pudo obtener la ubicación del dispositivo. Activa el GPS y '
-          'dale permiso a la aplicación: sin ubicación la visita no se inicia.',
+          'dale permiso a la aplicación: sin ubicación la visita no se '
+          '${cerrar ? 'cierra' : 'inicia'}.',
     );
   }
   if (referencia == null) {
@@ -1451,7 +1576,7 @@ VerificacionUbicacion verificarUbicacionInicio({
       motivo:
           'Estás a ${d.round()} m de ${referencia.subcentroNombre.isEmpty ? referencia.centroNombre : '${referencia.centroNombre} ${referencia.subcentroNombre}'} '
           'y el radio permitido es ${referencia.radioMetros.round()} m. '
-          'Acércate al establecimiento para iniciar.',
+          '${cerrar ? 'La visita se cierra en el establecimiento: vuelve a él para cerrarla.' : 'Acércate al establecimiento para iniciar.'}',
     );
   }
   return VerificacionUbicacion(permitido: true, distancia: d);
@@ -1572,9 +1697,11 @@ RegistroVisitaResultado resolverRegistroVisita({
     );
     if (v.estado == kVisitaEnCurso || visitaSePuedeIniciar(v, ahora)) {
       listas.add(item);
-    } else {
+    } else if (_soloDia(ahora).isBefore(_soloDia(v.fechaProgramada))) {
       despues.add(item);
     }
+    // Una programada de un día que ya pasó no se ofrece: se pide cambio de
+    // fecha (28 sep 2026).
   }
   listas.sort(
     (a, b) => a.visita.fechaProgramada.compareTo(b.visita.fechaProgramada),
@@ -1588,6 +1715,40 @@ RegistroVisitaResultado resolverRegistroVisita({
     ubicacionActual: actual,
     masCercana: actual == null ? cercana : null,
     distanciaMasCercana: actual == null ? dCercana : null,
+  );
+}
+
+/// Lo que el profesional elige en "Registro de visita" (28 sep 2026: "el
+/// supervisor debe seleccionar la visita"): las de hoy por iniciar, las que
+/// tiene en curso y las que pasaron sin hacerse, que solo se pueden pedir
+/// para otra fecha. Cada lista en orden de fecha y luego de establecimiento.
+({
+  List<VisitaProfesional> hoy,
+  List<VisitaProfesional> enCurso,
+  List<VisitaProfesional> vencidas,
+})
+visitasParaRegistro(Iterable<VisitaProfesional> visitas, DateTime ahora) {
+  int orden(VisitaProfesional a, VisitaProfesional b) {
+    final f = a.fechaProgramada.compareTo(b.fechaProgramada);
+    return f != 0 ? f : a.establecimiento.compareTo(b.establecimiento);
+  }
+
+  final hoy = <VisitaProfesional>[];
+  final enCurso = <VisitaProfesional>[];
+  final vencidas = <VisitaProfesional>[];
+  for (final v in visitas) {
+    if (v.estado == kVisitaEnCurso) {
+      enCurso.add(v);
+    } else if (visitaSePuedeIniciar(v, ahora)) {
+      hoy.add(v);
+    } else if (visitaVencida(v, ahora)) {
+      vencidas.add(v);
+    }
+  }
+  return (
+    hoy: hoy..sort(orden),
+    enCurso: enCurso..sort(orden),
+    vencidas: vencidas..sort(orden),
   );
 }
 
@@ -1648,6 +1809,9 @@ class VisitaProfesional {
   /// anexos junto con las de cada ítem.
   final List<VisitaEvidencia> evidenciasAdicionales;
 
+  /// La última solicitud de cambio de fecha del profesional (28 sep 2026).
+  final VisitaSolicitudFecha? solicitudFecha;
+
   const VisitaProfesional({
     this.id = '',
     required this.empresaId,
@@ -1682,7 +1846,12 @@ class VisitaProfesional {
     this.firmanteEstablecimientoId = '',
     this.reprogramaciones = const [],
     this.evidenciasAdicionales = const [],
+    this.solicitudFecha,
   });
+
+  /// Desde el 28 sep 2026 la visita se programa sin formato: el profesional
+  /// lo elige al iniciarla. Las programadas antes lo traen desde el inicio.
+  bool get tieneFormato => formatoId.isNotEmpty || formatoAsignado != null;
 
   String get establecimiento =>
       subcentroNombre.isEmpty ? centroNombre : '$centroNombre $subcentroNombre';
@@ -1734,6 +1903,7 @@ class VisitaProfesional {
     'evidenciasAdicionales': evidenciasAdicionales
         .map((e) => e.toMap())
         .toList(),
+    if (solicitudFecha != null) 'solicitudCambioFecha': solicitudFecha!.toMap(),
   };
 
   factory VisitaProfesional.fromMap(String id, Map<String, dynamic> d) {
@@ -1820,6 +1990,11 @@ class VisitaProfesional {
         for (final e in (d['evidenciasAdicionales'] as List? ?? const []))
           if (e is Map) VisitaEvidencia.fromMap(Map<String, dynamic>.from(e)),
       ],
+      solicitudFecha: d['solicitudCambioFecha'] is Map
+          ? VisitaSolicitudFecha.fromMap(
+              Map<String, dynamic>.from(d['solicitudCambioFecha'] as Map),
+            )
+          : null,
     );
   }
 }
@@ -2072,17 +2247,51 @@ String descripcionTareaHallazgo(VisitaProfesional v, VisitaHallazgo h) {
 DateTime fechaLimiteHallazgo(DateTime cierre) =>
     cierre.add(const Duration(days: 5));
 
-/// Solo se puede iniciar el día programado o después. Iniciarla antes
-/// dejaría una marca de hora que no corresponde a la programación.
+/// Se inicia el día programado y solo ese día (28 sep 2026: "la visita debe
+/// terminarse el mismo día, no permitir enviar con fechas diferentes").
+/// Antes no, porque la marca de hora no correspondería a la programación; y
+/// después tampoco: si el día pasó, el profesional pide el cambio de fecha a
+/// su jefe. Una visita de prueba se puede iniciar ese día o después.
 bool visitaSePuedeIniciar(VisitaProfesional v, DateTime ahora) {
   if (v.estado != kVisitaProgramada) return false;
-  final dia = DateTime(
-    v.fechaProgramada.year,
-    v.fechaProgramada.month,
-    v.fechaProgramada.day,
-  );
-  return !ahora.isBefore(dia);
+  final dia = _soloDia(v.fechaProgramada);
+  if (v.esPrueba) return !ahora.isBefore(dia);
+  return _soloDia(ahora) == dia;
 }
+
+/// Por qué no se puede iniciar hoy, en palabras. Null = se puede.
+String? motivoNoIniciaHoy(VisitaProfesional v, DateTime ahora) {
+  if (v.estado != kVisitaProgramada || visitaSePuedeIniciar(v, ahora)) {
+    return null;
+  }
+  final dia = _soloDia(v.fechaProgramada);
+  final fecha = _ddmmaaaa(dia);
+  return _soloDia(ahora).isBefore(dia)
+      ? 'Esta visita es para el $fecha: se inicia ese día.'
+      : 'Esta visita era para el $fecha y ya pasó. Solo se hace el día '
+            'programado: pídele a tu jefe inmediato el cambio de fecha.';
+}
+
+/// Por qué no se puede cerrar hoy (28 sep 2026). Se cierra el mismo día en
+/// que se inició, que es el día programado. Null = se puede. Las pruebas no
+/// tienen esta restricción.
+String? motivoNoCierraHoy(VisitaProfesional v, DateTime ahora) {
+  if (v.esPrueba || v.estado != kVisitaEnCurso) return null;
+  final hoy = _soloDia(ahora);
+  final inicio = v.inicio?.at.toDate().toLocal();
+  final diaInicio = inicio == null
+      ? _soloDia(v.fechaProgramada)
+      : _soloDia(inicio);
+  if (hoy == diaInicio && hoy == _soloDia(v.fechaProgramada)) return null;
+  return 'La visita se inició el ${_ddmmaaaa(diaInicio)} y debía cerrarse '
+      'ese mismo día. Pídele a tu jefe inmediato el cambio de fecha: si lo '
+      'aprueba, la vuelves a iniciar en el establecimiento y conservas lo '
+      'que ya respondiste (las firmas se hacen de nuevo).';
+}
+
+String _ddmmaaaa(DateTime d) =>
+    '${d.day.toString().padLeft(2, '0')}/'
+    '${d.month.toString().padLeft(2, '0')}/${d.year}';
 
 /// Una visita programada que ya pasó de fecha y nadie inició.
 bool visitaVencida(VisitaProfesional v, DateTime ahora) {
@@ -2652,6 +2861,36 @@ VisitaFormato? formatoPropuesto(
       delCargo.firstOrNull ??
       candidatos.where((f) => f.predeterminado).firstOrNull ??
       candidatos.first;
+}
+
+/// Formatos que el profesional puede diligenciar en una visita (28 sep 2026:
+/// "el formato no es necesario al programar; el profesional selecciona el
+/// formato a diligenciar al momento de la visita"). Los usables del
+/// departamento de la visita —con el id tal cual, como lo comparan las
+/// reglas— que aplican a su cargo; los borradores solo en visitas de prueba.
+/// Primero el que se propondría ([formatoPropuesto]) y luego por nombre.
+List<VisitaFormato> formatosParaVisita(
+  List<VisitaFormato> formatos, {
+  required VisitaProfesional visita,
+  String cargo = '',
+}) {
+  final lista = [
+    for (final f in formatos)
+      if (f.usable &&
+          f.empresaId == visita.empresaId &&
+          f.areaId == visita.areaId &&
+          (visita.esPrueba || !f.esBorrador) &&
+          formatoAplicaACargo(f, cargo))
+        f,
+  ]..sort((a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()));
+  final propuesto = formatoPropuesto(
+    lista,
+    areaId: visita.areaId,
+    cargo: cargo,
+    permitirBorrador: visita.esPrueba,
+  );
+  if (propuesto == null) return lista;
+  return [propuesto, ...lista.where((f) => f.id != propuesto.id)];
 }
 
 // ── Programar varias fechas (25 sep 2026) ───────────────────────────────────

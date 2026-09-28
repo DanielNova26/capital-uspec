@@ -5,13 +5,14 @@ import 'package:todo/visitas/visitas_formato_sst.dart';
 import 'package:todo/visitas/visitas_models.dart';
 import 'package:todo/visitas/visitas_service.dart';
 
-/// El editor solo le pide al servicio los cargos de la empresa.
+/// El editor solo le pide al servicio los cargos del departamento.
 class _SvcFalso implements VisitasService {
   @override
-  Future<List<String>> cargosDeEmpresa(String empresaId) async => const [
-    'Nutricionista',
-    'Profesional de calidad',
-  ];
+  Future<List<String>> cargosDeArea(
+    String empresaId, {
+    required String areaId,
+    String areaNombre = '',
+  }) async => const ['Nutricionista', 'Profesional de calidad'];
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

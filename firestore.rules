@@ -432,9 +432,15 @@ service cloud.firestore {
           || esGerenciaPorFicha(resource.data.empresaId));
       allow create: if administraVisitasArea(request.resource.data.empresaId,
           request.resource.data.areaId);
+      // 28 sep 2026: un formato se puede pasar a otro departamento ("SST /
+      // HSE" no es un departamento: el de SST lo lleva Talento Humano). Hay
+      // que administrar los dos, así que en la práctica solo Desarrollo y
+      // Gerencia lo mueven; el jefe sigue en el suyo.
       allow update: if resource.data.empresaId == request.resource.data.empresaId
-        && resource.data.areaId == request.resource.data.areaId
-        && administraVisitasArea(resource.data.empresaId, resource.data.areaId);
+        && administraVisitasArea(resource.data.empresaId, resource.data.areaId)
+        && (resource.data.areaId == request.resource.data.areaId
+          || administraVisitasArea(resource.data.empresaId,
+            request.resource.data.areaId));
       allow delete: if false;
     }
 
@@ -459,34 +465,54 @@ service cloud.firestore {
         && request.resource.data.asignadoPorId == request.auth.token.userDocId
         && request.resource.data.estado == 'programada'
         && asignacionVisitaValida();
-      // 17 sep 2026: reprogramar (jefe cualquiera, profesional la suya),
-      // encabezado del formato al iniciar, tablas y firmas mientras está en
-      // curso. Las firmas van con la visita en curso y NO en el cierre: el
-      // cierre solo cambia estado, fin y resultado, así una firma nunca se
-      // estampa "al cerrar" sin que el profesional la haya visto antes.
+      // 17 sep 2026: reprogramar, encabezado del formato al iniciar, tablas y
+      // firmas mientras está en curso. Las firmas van con la visita en curso
+      // y NO en el cierre: el cierre solo cambia estado, fin y resultado, así
+      // una firma nunca se estampa "al cerrar" sin que el profesional la
+      // haya visto antes.
+      // 28 sep 2026: la visita se programa sin formato y el profesional lo
+      // fija al iniciarla; se inicia y se cierra el día programado; el
+      // profesional ya no reprograma: pide el cambio de fecha y el jefe lo
+      // aprueba o lo rechaza.
       allow update: if resource.data.empresaId == request.resource.data.empresaId
         && resource.data.profesionalId == request.resource.data.profesionalId
         // Lo barato primero (estado, dueño): `administraVisitas` y
         // `hasVisitasRole` hacen get() y cuentan contra el tope de
         // expresiones; con el orden anterior un rechazo llegaba al límite.
         && (
-          (resource.data.estado == 'programada'
-            && (
-              (request.resource.data.estado == 'cancelada'
-                && request.resource.data.diff(resource.data).affectedKeys()
-                  .hasOnly(['estado', 'motivoCancelacion', 'updatedAt']))
-              || esReprogramacionDeVisita()
-            )
+          ((
+            (resource.data.estado == 'programada'
+              && (
+                (request.resource.data.estado == 'cancelada'
+                  && request.resource.data.diff(resource.data).affectedKeys()
+                    .hasOnly(['estado', 'motivoCancelacion', 'updatedAt']))
+                || esReprogramacionDeVisita()
+                || esRespuestaDeSolicitudFecha()
+              ))
+            || (resource.data.estado == 'en_curso'
+              && (esRespuestaDeSolicitudFecha()
+                || esAprobacionDeFechaEnCurso()))
+          )
             && administraVisitasArea(resource.data.empresaId, resource.data.areaId))
           || (resource.data.profesionalId == request.auth.token.userDocId
             && hasVisitasRole(resource.data.empresaId, ['profesional'])
             && (
-              (resource.data.estado == 'programada' && esReprogramacionDeVisita())
+              ((resource.data.estado == 'programada'
+                  || resource.data.estado == 'en_curso')
+                && esSolicitudFechaDelProfesional())
               || (resource.data.estado == 'programada'
                 && request.resource.data.estado == 'en_curso'
-                && request.resource.data.diff(resource.data).affectedKeys()
-                  .hasOnly(['estado', 'inicio', 'responsableEstablecimiento',
-                    'ciudad', 'cargoProfesional', 'updatedAt']))
+                && enElDiaDeLaVisita()
+                && request.resource.data.get('formatoId', '') != ''
+                && (request.resource.data.diff(resource.data).affectedKeys()
+                    .hasOnly(['estado', 'inicio', 'responsableEstablecimiento',
+                      'ciudad', 'cargoProfesional', 'updatedAt'])
+                  || (resource.data.get('formatoId', '') == ''
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                      .hasOnly(['estado', 'inicio', 'responsableEstablecimiento',
+                        'ciudad', 'cargoProfesional', 'formatoId',
+                        'formatoNombre', 'formatoAsignado', 'updatedAt'])
+                    && formatoDeVisitaValido(request.resource.data))))
               || (resource.data.estado == 'en_curso'
                 && request.resource.data.estado == 'en_curso'
                 && request.resource.data.diff(resource.data).affectedKeys()
@@ -498,6 +524,7 @@ service cloud.firestore {
                 && firmaVisitaSinCambiosDeContenido())
               || (resource.data.estado == 'en_curso'
                 && request.resource.data.estado == 'terminada'
+                && enElDiaDeLaVisita()
                 && request.resource.data.cerradaPor == request.auth.token.userDocId
                 && request.resource.data.diff(resource.data).affectedKeys()
                   .hasOnly(['estado', 'fin', 'cumplimiento', 'tareasCreadas',
@@ -524,12 +551,29 @@ service cloud.firestore {
         && resource.data.firmanteEstablecimientoId == request.auth.token.userDocId;
     }
 
+    // Al programar: el profesional tiene el rol en el departamento de la
+    // visita. Desde el 28 sep 2026 va sin formato (lo elige el profesional
+    // al iniciar); una app vieja que todavía lo mande sigue pasando si la
+    // copia coincide con el formato guardado.
     function asignacionVisitaValida() {
       let v = request.resource.data;
-      let formato = /databases/$(database)/documents/TBL_VISITAS_FORMATOS/$(v.formatoId);
       let profesional = /databases/$(database)/documents/TBL_VISITAS_ROLES/$(v.empresaId + '_' + v.profesionalId);
-      return v.formatoId is string && v.profesionalId is string
-        && v.esPrueba is bool && v.formatoAsignado is map
+      return v.profesionalId is string && v.esPrueba is bool
+        && ((v.get('formatoId', '') == '' && v.get('formatoAsignado', null) == null)
+          || formatoDeVisitaValido(v))
+        && ((exists(profesional)
+          && get(profesional).data.rol == 'profesional'
+          && areaVisitasUsuario(v.empresaId, v.profesionalId) == v.areaId)
+          || (v.esPrueba && v.profesionalId == request.auth.token.userDocId));
+    }
+
+    // La copia del formato que lleva la visita es la del formato guardado,
+    // de su empresa y de su departamento, y vigente (un borrador solo en
+    // pruebas).
+    function formatoDeVisitaValido(v) {
+      let formato = /databases/$(database)/documents/TBL_VISITAS_FORMATOS/$(v.formatoId);
+      return v.formatoId is string && v.formatoId.size() > 0
+        && v.formatoAsignado is map
         && exists(formato)
         && get(formato).data.empresaId == v.empresaId
         && get(formato).data.estado != 'retirado'
@@ -540,11 +584,53 @@ service cloud.firestore {
         && v.formatoAsignado.items == get(formato).data.items
         && v.formatoAsignado.partes == get(formato).data.partes
         && v.formatoAsignado.tablas == get(formato).data.tablas
-        && (v.esPrueba || get(formato).data.estado == 'vigente')
-        && ((exists(profesional)
-          && get(profesional).data.rol == 'profesional'
-          && areaVisitasUsuario(v.empresaId, v.profesionalId) == v.areaId)
-          || (v.esPrueba && v.profesionalId == request.auth.token.userDocId));
+        && (v.get('esPrueba', false) == true || get(formato).data.estado == 'vigente');
+    }
+
+    // La visita se inicia y se cierra el día programado (28 sep 2026: "debe
+    // terminarse el mismo día"). `fechaProgramada` es la medianoche local del
+    // día, así que el día va de ahí a 24 horas después. Las pruebas no.
+    function enElDiaDeLaVisita() {
+      return resource.data.get('esPrueba', false) == true
+        || (request.time >= resource.data.fechaProgramada
+          && request.time < resource.data.fechaProgramada + duration.value(1, 'd'));
+    }
+
+    // El profesional pide el cambio de fecha: solo escribe la solicitud,
+    // pendiente y a su nombre, y no si ya hay otra esperando respuesta.
+    function esSolicitudFechaDelProfesional() {
+      let s = request.resource.data.get('solicitudCambioFecha', null);
+      return request.resource.data.estado == resource.data.estado
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['solicitudCambioFecha', 'updatedAt'])
+        && s is map
+        && s.get('estado', '') == 'pendiente'
+        && s.get('porId', '') == request.auth.token.userDocId
+        && s.get('fecha', null) is timestamp
+        && resource.data.get('solicitudCambioFecha', {}).get('estado', '') != 'pendiente';
+    }
+
+    // El jefe la rechaza (o la responde) sin mover nada más.
+    function esRespuestaDeSolicitudFecha() {
+      return request.resource.data.estado == resource.data.estado
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['solicitudCambioFecha', 'updatedAt'])
+        && resource.data.get('solicitudCambioFecha', {}).get('estado', '') == 'pendiente';
+    }
+
+    // El jefe aprueba el cambio de una visita que se inició y no se cerró
+    // ese día: vuelve a programada en la fecha nueva, sin inicio ni firmas;
+    // las respuestas se conservan.
+    function esAprobacionDeFechaEnCurso() {
+      return request.resource.data.estado == 'programada'
+        && resource.data.get('solicitudCambioFecha', {}).get('estado', '') == 'pendiente'
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['estado', 'fechaProgramada', 'reprogramaciones',
+            'solicitudCambioFecha', 'inicio', 'firmaProfesional',
+            'firmaEstablecimiento', 'firmanteEstablecimientoId', 'updatedAt'])
+        && request.resource.data.get('inicio', null) == null
+        && request.resource.data.get('firmaProfesional', null) == null
+        && request.resource.data.get('firmaEstablecimiento', null) == null;
     }
 
     // La primera firma solo se agrega cuando ya se guardó el contenido.
@@ -576,11 +662,13 @@ service cloud.firestore {
     }
 
     // Reprogramar solo mueve la fecha y añade al historial; el estado sigue
-    // en 'programada'.
+    // en 'programada'. Si el profesional había pedido el cambio, queda
+    // resuelto en la misma escritura.
     function esReprogramacionDeVisita() {
       return request.resource.data.estado == 'programada'
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['fechaProgramada', 'reprogramaciones', 'updatedAt']);
+          .hasOnly(['fechaProgramada', 'reprogramaciones',
+            'solicitudCambioFecha', 'updatedAt']);
     }
 
     // Maestro de ubicaciones de los establecimientos: lo lee cualquiera

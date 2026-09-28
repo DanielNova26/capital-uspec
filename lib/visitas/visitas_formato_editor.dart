@@ -106,9 +106,6 @@ class _VisitaFormatoEditorScreenState extends State<VisitaFormatoEditorScreen> {
     super.initState();
     final f = widget.formato;
     _cargos = {...f.cargos};
-    widget.svc.cargosDeEmpresa(f.empresaId).then((c) {
-      if (mounted) setState(() => _cargosEmpresa = c);
-    });
     _nombre = _ctrl(f.nombre);
     _areaNombre = _ctrl(f.areaNombre);
     _codigo = _ctrl(f.codigo);
@@ -123,6 +120,23 @@ class _VisitaFormatoEditorScreenState extends State<VisitaFormatoEditorScreen> {
     _partes = [for (final p in f.partes) _ParteEdit.de(p, _marcar)];
     // Un formato recién importado todavía no está guardado.
     _sucio = f.id.isEmpty && (f.items.isNotEmpty || f.tablas.isNotEmpty);
+    _cargarCargos();
+  }
+
+  /// Cargos del departamento elegido (28 sep 2026: "los cargos deben
+  /// depender del área seleccionada previamente").
+  Future<void> _cargarCargos() async {
+    final area = _areaId;
+    if (area.isEmpty) {
+      if (_cargosEmpresa.isNotEmpty) setState(() => _cargosEmpresa = const []);
+      return;
+    }
+    final c = await widget.svc.cargosDeArea(
+      widget.formato.empresaId,
+      areaId: area,
+      areaNombre: widget.areas[area] ?? widget.formato.areaNombre,
+    );
+    if (mounted && area == _areaId) setState(() => _cargosEmpresa = c);
   }
 
   TextEditingController _ctrl(String texto) =>
@@ -184,7 +198,13 @@ class _VisitaFormatoEditorScreenState extends State<VisitaFormatoEditorScreen> {
       id: widget.formato.id,
       empresaId: widget.formato.empresaId,
       areaId: areaId,
-      areaNombre: widget.areas[areaId] ?? _areaNombre.text.trim(),
+      // Si no cambió de departamento se conserva el nombre guardado (la
+      // lista puede traerlo marcado "no es un departamento").
+      areaNombre:
+          areaId == widget.formato.areaId &&
+              widget.formato.areaNombre.isNotEmpty
+          ? widget.formato.areaNombre
+          : (widget.areas[areaId] ?? _areaNombre.text.trim()),
       nombre: _nombre.text.trim(),
       estado: _estado,
       predeterminado: _estado != kFormatoRetirado && _predeterminado,
@@ -704,12 +724,21 @@ class _VisitaFormatoEditorScreenState extends State<VisitaFormatoEditorScreen> {
                   ),
                 ),
                 const SizedBox(height: 10),
-                if (f.areaId.isEmpty && widget.areas.isNotEmpty)
+                // Departamento (28 sep 2026): Desarrollo y Gerencia lo eligen
+                // también en un formato ya creado, para pasarlo al que lo
+                // diligencia; el director trabaja en el suyo.
+                if (widget.areas.isNotEmpty &&
+                    (f.areaId.isEmpty || widget.areaFija.isEmpty))
                   DropdownButtonFormField<String>(
-                    initialValue: _areaId.isEmpty ? null : _areaId,
+                    initialValue: widget.areas.containsKey(_areaId)
+                        ? _areaId
+                        : null,
                     isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Área del formato',
+                    decoration: InputDecoration(
+                      labelText: 'Departamento del formato',
+                      helperText: f.areaId.isNotEmpty && _areaId != f.areaId
+                          ? 'Al guardar, el formato pasa a este departamento.'
+                          : null,
                     ),
                     items: [
                       for (final e in widget.areas.entries)
@@ -717,18 +746,23 @@ class _VisitaFormatoEditorScreenState extends State<VisitaFormatoEditorScreen> {
                     ],
                     onChanged: widget.areaFija.isNotEmpty
                         ? null
-                        : (value) => setState(() {
-                            _areaId = value ?? '';
-                            _sucio = true;
-                          }),
+                        : (value) {
+                            setState(() {
+                              _areaId = value ?? '';
+                              _sucio = true;
+                              // Los cargos son del departamento: al cambiarlo
+                              // no se quedan los del anterior.
+                              _cargos.clear();
+                            });
+                            _cargarCargos();
+                          },
                   )
                 else
                   TextField(
                     controller: _areaNombre,
-                    enabled: f.areaId.isEmpty,
+                    enabled: false,
                     decoration: const InputDecoration(
-                      labelText:
-                          'Área (Calidad, HSE, Mantenimiento, Nutrición…)',
+                      labelText: 'Departamento',
                     ),
                   ),
                 const SizedBox(height: 10),
@@ -802,10 +836,21 @@ class _VisitaFormatoEditorScreenState extends State<VisitaFormatoEditorScreen> {
         style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w800),
       ),
       const Text(
-        'Sin cargos, el formato aplica a todo el área. Con cargos, al '
-        'programar se propone a quien tenga uno de ellos.',
+        'Sin cargos, el formato aplica a todo el departamento. Con cargos, '
+        'solo lo ven al iniciar la visita quienes tengan uno de ellos.',
         style: TextStyle(fontSize: 12, color: Colors.black54),
       ),
+      if (_areaId.isEmpty)
+        const Text(
+          'Elige primero el departamento: los cargos salen de ahí.',
+          style: TextStyle(fontSize: 12, color: Color(0xFFB45309)),
+        )
+      else if (_cargosEmpresa.isEmpty)
+        const Text(
+          'El departamento no tiene cargos en el maestro de cargos ni en las '
+          'fichas del personal.',
+          style: TextStyle(fontSize: 12, color: Color(0xFFB45309)),
+        ),
       const SizedBox(height: 6),
       Wrap(
         spacing: 6,
@@ -819,7 +864,7 @@ class _VisitaFormatoEditorScreenState extends State<VisitaFormatoEditorScreen> {
                 _sucio = true;
               }),
             ),
-          if (_cargos.isEmpty) const Chip(label: Text('Todo el área')),
+          if (_cargos.isEmpty) const Chip(label: Text('Todo el departamento')),
         ],
       ),
       const SizedBox(height: 6),

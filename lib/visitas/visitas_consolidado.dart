@@ -1,17 +1,17 @@
 // lib/visitas/visitas_consolidado.dart
 //
 // Consolidado de visitas (26 sep 2026): "un informe consolidado según las
-// fechas que se asignen; al final es una agrupación del mismo, un combinado,
-// y que se pueda hacer de colores para saber cuál es cuál".
+// fechas que se asignen".
 //
 //  - Periodo libre (desde / hasta) con atajos: este mes, el anterior, los
 //    últimos 7 o 30 días, el año.
-//  - Una o varias áreas a la vez; cada área tiene su color y lo conserva en
-//    la pantalla, las tablas, la gráfica y el PDF.
-//  - El PDF puede llevar detrás las actas completas del periodo, cada una
-//    con la franja del color de su área.
+//  - El PDF puede llevar detrás las actas completas del periodo.
 //
-// Jefe: su área. Gerencia, Desarrollo y Consulta: todas.
+// 28 sep 2026 (documento "Cambios módulo visitas"): "no combinar informe por
+// áreas". Es de un departamento a la vez:
+//  - Director (jefe): el de su departamento, solo sus actas.
+//  - Profesional (supervisor): solo sus propias actas.
+//  - Gerencia, Desarrollo y Consulta: eligen el departamento.
 
 import 'package:flutter/material.dart';
 
@@ -40,8 +40,11 @@ class VisitasConsolidadoTab extends StatefulWidget {
   final String userId;
   final String nombreUsuario;
 
-  /// Ve todas las áreas (Gerencia, Desarrollo, Consulta).
+  /// Elige el departamento (Gerencia, Desarrollo, Consulta).
   final bool todasLasAreas;
+
+  /// El profesional ve solo sus propias actas.
+  final bool soloPropias;
 
   /// Nombre de la empresa para el encabezado del PDF.
   final Future<String> Function() nombreEmpresa;
@@ -53,6 +56,7 @@ class VisitasConsolidadoTab extends StatefulWidget {
     required this.userId,
     required this.todasLasAreas,
     required this.nombreEmpresa,
+    this.soloPropias = false,
     this.nombreUsuario = '',
   });
 
@@ -68,7 +72,11 @@ class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
   late DateTime _desde;
   late DateTime _hasta;
   _Atajo _atajo = _Atajo.mes;
-  final Set<String> _areas = {};
+
+  /// El departamento elegido (Gerencia, Desarrollo, Consulta). Vacío = el
+  /// primero que tenga visitas.
+  String _area = '';
+  Map<String, String> _departamentos = const {};
   bool _incluirActas = false;
   bool _conFotos = false;
   bool _ocupado = false;
@@ -86,12 +94,18 @@ class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
               .asyncExpand(crear);
     // Memoizadas: recrear la stream en cada build dispara el "INTERNAL
     // ASSERTION FAILED" de Firestore en web.
-    _visitas = porArea(
-      (a) => widget.svc.streamVisitas(widget.empresaId, areaId: a),
-    );
+    _visitas = widget.soloPropias
+        ? widget.svc.streamVisitas(
+            widget.empresaId,
+            profesionalId: widget.userId,
+          )
+        : porArea((a) => widget.svc.streamVisitas(widget.empresaId, areaId: a));
     _formatos = porArea(
       (a) => widget.svc.streamFormatos(widget.empresaId, areaId: a),
     );
+    widget.svc.areasDeEmpresa(widget.empresaId).then((a) {
+      if (mounted) setState(() => _departamentos = a);
+    }, onError: (_) {});
   }
 
   void _aplicar(_Atajo a) {
@@ -152,51 +166,70 @@ class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
               return const Center(child: CircularProgressIndicator());
             }
             final todas = vSnap.data!;
-            // Todas las áreas que la persona puede ver, en orden alfabético:
-            // de ahí sale el color de cada una, así no cambia al filtrar.
-            final nombres = <String, String>{
-              for (final f in formatos) f.areaId: f.areaNombre,
-              for (final v in todas) v.areaId: v.areaNombre,
-            }..removeWhere((k, _) => k.isEmpty);
+            // Los departamentos que tienen visitas, con el nombre del
+            // maestro de la empresa si está.
+            final nombres = <String, String>{};
+            for (final v in todas) {
+              if (v.areaId.isEmpty) continue;
+              nombres.putIfAbsent(
+                v.areaId,
+                () =>
+                    _departamentos[v.areaId] ??
+                    (v.areaNombre.isEmpty ? 'Sin departamento' : v.areaNombre),
+              );
+            }
             final areaIds = nombres.keys.toList()
               ..sort(
                 (a, b) => nombres[a]!.toLowerCase().compareTo(
                   nombres[b]!.toLowerCase(),
                 ),
               );
-            final colores = indiceColorAreas(areaIds);
-            final elegidas = _areas.where(nombres.containsKey).toSet();
+            // Un solo departamento a la vez ("no combinar informe por
+            // áreas"). Al director y al profesional ya les llega filtrado.
+            final area = !widget.todasLasAreas
+                ? ''
+                : (nombres.containsKey(_area)
+                      ? _area
+                      : (areaIds.firstOrNull ?? ''));
             final delPeriodo = [
               for (final v in todas)
                 if (visitaEnRango(v, _desde, _hasta) &&
-                    (elegidas.isEmpty || elegidas.contains(v.areaId)))
+                    (area.isEmpty || v.areaId == area))
                   v,
             ];
             final c = consolidarMes(
               delPeriodo,
               formatos: {for (final f in formatos) f.id: f},
-              separarPorArea: true,
             );
-            final varias = c.porArea.length > 1;
-            final titulo = elegidas.isEmpty
-                ? (areaIds.length == 1
+            final nombreArea = area.isNotEmpty
+                ? nombres[area]!
+                : (areaIds.length == 1
                       ? nombres[areaIds.single]!
-                      : 'Todas las áreas')
-                : [
-                    for (final a in areaIds)
-                      if (elegidas.contains(a)) nombres[a],
-                  ].join(', ');
+                      : 'Sin visitas todavía');
+            final titulo = widget.soloPropias
+                ? '$nombreArea · actas de ${widget.nombreUsuario}'
+                : nombreArea;
+            final colores = indiceColorAreas([
+              if (area.isNotEmpty) area else ...areaIds,
+            ]);
             final ancho = MediaQuery.of(context).size.width;
-            Color colorDe(String areaId) =>
-                Color(colorAreaVisitas(colores, areaId));
             return ListView(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
               children: [
                 _periodo(),
-                if (areaIds.length > 1) ...[
-                  const SizedBox(height: 8),
-                  _chipsAreas(areaIds, nombres, colorDe),
-                ],
+                const SizedBox(height: 10),
+                if (widget.todasLasAreas && areaIds.length > 1)
+                  _selectorDepartamento(area, areaIds, nombres)
+                else
+                  Text(
+                    widget.soloPropias
+                        ? 'Tus actas · $nombreArea'
+                        : 'Departamento: $nombreArea',
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
                 const SizedBox(height: 12),
                 Wrap(
                   spacing: 8,
@@ -231,11 +264,6 @@ class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
                 ),
                 const SizedBox(height: 12),
                 _opcionesPdf(c, titulo, delPeriodo, formatos, colores),
-                if (varias) ...[
-                  const SizedBox(height: 16),
-                  _titulo('Por área'),
-                  for (final a in c.porArea) _filaArea(a, colorDe(a.areaId)),
-                ],
                 const SizedBox(height: 16),
                 _titulo('Por establecimiento (peores primero)'),
                 const SizedBox(height: 6),
@@ -250,7 +278,6 @@ class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
                     tabla: DataTable(
                       columns: const [
                         DataColumn(label: Text('Establecimiento')),
-                        DataColumn(label: Text('Área')),
                         DataColumn(label: Text('Visitas'), numeric: true),
                         DataColumn(label: Text('Cumplimiento'), numeric: true),
                         DataColumn(label: Text('Hallazgos'), numeric: true),
@@ -258,23 +285,8 @@ class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
                       rows: [
                         for (final e in c.porEstablecimiento)
                           DataRow(
-                            color: WidgetStateProperty.all(
-                              varias
-                                  ? colorDe(e.areaId).withValues(alpha: .07)
-                                  : null,
-                            ),
                             cells: [
                               DataCell(Text(e.nombre)),
-                              DataCell(
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    _Punto(colorDe(e.areaId)),
-                                    const SizedBox(width: 6),
-                                    Text(e.areaNombre),
-                                  ],
-                                ),
-                              ),
                               DataCell(Text('${e.visitas}')),
                               DataCell(
                                 Text(
@@ -297,17 +309,8 @@ class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
                     etiqueta: 'establecimientos',
                     itemBuilder: (context, e, _) => Card(
                       margin: const EdgeInsets.only(bottom: 6),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        side: BorderSide(
-                          color: varias
-                              ? colorDe(e.areaId).withValues(alpha: .6)
-                              : Colors.transparent,
-                        ),
-                      ),
                       child: ListTile(
                         dense: true,
-                        leading: _Punto(colorDe(e.areaId), grande: true),
                         title: Text(
                           e.nombre,
                           style: const TextStyle(
@@ -316,8 +319,7 @@ class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
                           ),
                         ),
                         subtitle: Text(
-                          '${e.areaNombre} · ${e.visitas} visita(s) · '
-                          '${e.hallazgos} hallazgo(s)',
+                          '${e.visitas} visita(s) · ${e.hallazgos} hallazgo(s)',
                           style: const TextStyle(
                             fontFamily: _kFont,
                             fontSize: 12,
@@ -376,6 +378,33 @@ class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
     style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w800),
   );
 
+  /// Un departamento a la vez (28 sep 2026).
+  Widget _selectorDepartamento(
+    String area,
+    List<String> areaIds,
+    Map<String, String> nombres,
+  ) => Align(
+    alignment: Alignment.centerLeft,
+    child: SizedBox(
+      width: 340,
+      child: DropdownButtonFormField<String>(
+        key: ValueKey('dep-$area'),
+        initialValue: area.isEmpty ? null : area,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: 'Departamento',
+          isDense: true,
+          border: OutlineInputBorder(),
+        ),
+        items: [
+          for (final a in areaIds)
+            DropdownMenuItem(value: a, child: Text(nombres[a]!)),
+        ],
+        onChanged: (v) => setState(() => _area = v ?? ''),
+      ),
+    ),
+  );
+
   Widget _periodo() {
     const etiquetas = {
       _Atajo.mes: 'Este mes',
@@ -431,103 +460,6 @@ class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
     );
   }
 
-  Widget _chipsAreas(
-    List<String> areaIds,
-    Map<String, String> nombres,
-    Color Function(String) colorDe,
-  ) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      const Text(
-        'Áreas (combina las que quieras; cada una con su color)',
-        style: TextStyle(fontSize: 12, color: Colors.black54),
-      ),
-      const SizedBox(height: 4),
-      Wrap(
-        spacing: 6,
-        runSpacing: 6,
-        children: [
-          FilterChip(
-            label: const Text('Todas'),
-            selected: _areas.isEmpty,
-            onSelected: (_) => setState(_areas.clear),
-          ),
-          for (final a in areaIds)
-            FilterChip(
-              avatar: _Punto(colorDe(a)),
-              label: Text(nombres[a]!),
-              selected: _areas.contains(a),
-              selectedColor: colorDe(a).withValues(alpha: .18),
-              side: BorderSide(color: colorDe(a).withValues(alpha: .6)),
-              onSelected: (s) => setState(() {
-                if (s) {
-                  _areas.add(a);
-                } else {
-                  _areas.remove(a);
-                }
-              }),
-            ),
-        ],
-      ),
-    ],
-  );
-
-  Widget _filaArea(ConsolidadoArea a, Color color) => Card(
-    margin: const EdgeInsets.only(top: 6),
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(10),
-      side: BorderSide(color: color.withValues(alpha: .6)),
-    ),
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              _Punto(color, grande: true),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  a.nombre,
-                  style: const TextStyle(
-                    fontFamily: _kFont,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-              Text(
-                a.promedio == null ? '—' : '${a.promedio}%',
-                style: TextStyle(
-                  fontFamily: _kFont,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 16,
-                  color: _colorCumplimiento(a.promedio),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: LinearProgressIndicator(
-              minHeight: 8,
-              value: (a.promedio ?? 0) / 100,
-              color: color,
-              backgroundColor: color.withValues(alpha: .12),
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '${a.terminadas} terminada(s) · ${a.programadas} sin realizar · '
-            '${a.canceladas} cancelada(s) · ${a.hallazgos} hallazgo(s)',
-            style: const TextStyle(fontSize: 12, color: Colors.black54),
-          ),
-        ],
-      ),
-    ),
-  );
-
   Widget _opcionesPdf(
     ConsolidadoMensual c,
     String titulo,
@@ -544,10 +476,9 @@ class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
         children: [
           SwitchListTile.adaptive(
             contentPadding: EdgeInsets.zero,
-            title: const Text('Incluir las actas completas (combinado)'),
+            title: const Text('Incluir las actas completas'),
             subtitle: const Text(
-              'Detrás del resumen van las actas del periodo, cada una con la '
-              'franja del color de su área.',
+              'Detrás del resumen van las actas terminadas del periodo.',
               style: TextStyle(fontSize: 12),
             ),
             value: _incluirActas,
@@ -640,19 +571,6 @@ class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
       if (mounted) setState(() => _ocupado = false);
     }
   }
-}
-
-class _Punto extends StatelessWidget {
-  final Color color;
-  final bool grande;
-  const _Punto(this.color, {this.grande = false});
-
-  @override
-  Widget build(BuildContext context) => Container(
-    width: grande ? 14 : 10,
-    height: grande ? 14 : 10,
-    decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-  );
 }
 
 class _Kpi extends StatelessWidget {

@@ -6,6 +6,101 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Visitas: documento "Cambios módulo visitas" — 28 sep 2026 (Claude)
+
+Revisión punto por punto del documento que envió la dirección. Versión 2.6.3
+(17).
+
+### Cronograma
+- El filtro de todo acceso dice **Departamento** y lista los departamentos de
+  la empresa (`TBL_AREAS`), no las áreas que traían los formatos ("SST / HSE",
+  "Desarrollo"). Una visita vieja en un área que no es departamento sigue
+  saliendo en la lista, para no esconderla.
+- Agregar visitas (`visitas_programar.dart`):
+  - Solo salen los **profesionales de visita** del departamento (rol
+    Profesional con el departamento exacto). El director ya no se asigna a
+    sí mismo como "prueba".
+  - Solo salen los **establecimientos del grupo** del profesional (Equipo >
+    Grupos y establecimientos), no todos. Sin grupo, lo dice y no programa.
+  - **Sin formato**: la visita queda en el departamento del profesional y él
+    escoge el formato al iniciarla (`programarVarias`,
+    `asignacionVisitaValida` en reglas acepta `formatoId` vacío; una app
+    vieja que lo mande sigue pasando si la copia coincide).
+- El jefe ve arriba las **solicitudes de cambio de fecha** con Aprobar /
+  Rechazar (rechazar exige motivo); también en el detalle de la visita.
+
+### Formatos
+- El director ve los formatos de su departamento y el encabezado lo dice.
+  Por qué el de Talento Humano no veía nada: el SST estaba en "SST / HSE"
+  (`hse`), que no es un departamento. Ahora:
+  - Desarrollo y Gerencia ven marcado en rojo todo formato cuya área no es
+    un departamento, y en el editor lo pasan a uno (**Departamento del
+    formato**, también en formatos ya creados). Reglas: mover un formato
+    exige administrar los dos departamentos.
+  - "Cargar formato SST oficial" pregunta el departamento (propone Talento
+    Humano); el director lo carga en el suyo.
+- Nuevo formato: los **cargos dependen del departamento** elegido
+  (`cargosDeArea`: los de `TBL_CARGOS` con ese departamento más los del
+  personal que trabaja en él). Al cambiar de departamento se limpian.
+- Los profesionales no crean formatos: la pestaña y las reglas son solo del
+  director, Gerencia y Desarrollo (sin cambios, se verificó).
+
+### Equipo
+- Personal es **de consulta**: el rol viene de Administración > Roles y
+  permisos y el departamento de la ficha; ya no se editan aquí. Se quitó el
+  diálogo que dejaba cambiar rol y departamento (el caso de un Profesional
+  que terminó como jefe de otro departamento). Si el departamento del rol no
+  coincide con el de la ficha, lo advierte.
+- Las tarjetas por departamento dicen en palabras: director, profesionales
+  de visita y quiénes no tienen grupo ("no se les puede programar").
+- Grupos que no aparecían y "Nuevo grupo" sin establecimientos: la pestaña
+  desmontaba las consultas al recargar. Ahora la de grupos queda siempre
+  montada (con error visible si falla) y el diálogo lee los establecimientos
+  por su cuenta, con carga y reintento. El departamento del grupo ya no se
+  vuelve a escoger para el director.
+- El filtro de roles desbordaba la fila en el teléfono: ancho fijo.
+
+### Consolidado
+- **Un departamento a la vez** ("no combinar informe por áreas"): Gerencia,
+  Desarrollo y Consulta lo eligen; el director ve el suyo.
+- El **profesional** tiene la pestaña con **solo sus actas**.
+- PDF: "DEPARTAMENTO" en vez de "ÁREAS"; la tabla por departamento solo sale
+  si llegan varios.
+
+### Visita (profesional)
+- **Elige la visita**: Registro de visita lista las de hoy, las en curso y
+  las que pasaron sin hacerse (`visitasParaRegistro`); "¿Dónde estoy?" queda
+  como ayuda.
+- Al iniciar **escoge el formato** entre los de su departamento que aplican
+  a su cargo (`formatosParaVisita`); sin formatos, lo dice.
+- **Mismo día**: se inicia solo el día programado (`visitaSePuedeIniciar`,
+  `motivoNoIniciaHoy`) y se cierra ese mismo día (`motivoNoCierraHoy`). Las
+  reglas lo exigen con la hora del servidor (`enElDiaDeLaVisita`: de la
+  medianoche programada a 24 h después). Las pruebas no tienen la
+  restricción.
+- **No puede estar en otra ubicación**: el GPS se verifica al iniciar (ya
+  estaba) y ahora también al cerrar (`verificarUbicacionInicio(accion:
+  'cerrar')`).
+- **Grabar parcialmente**: cada respuesta ya se guardaba; la barra lo dice
+  ("lo que respondes se guarda solo") y "Guardar avance" sigue.
+- **Pedir cambio de fecha al jefe inmediato** (`VisitaSolicitudFecha`,
+  `solicitarCambioFecha` / `responderCambioFecha`): el profesional ya no
+  reprograma. Aprobar una visita que se inició y no se cerró la devuelve a
+  programada en la fecha nueva: conserva las respuestas, pero inicio y
+  firmas se hacen de nuevo. Reglas: el profesional solo escribe una
+  solicitud pendiente a su nombre, y no otra mientras esa espera; el jefe
+  la rechaza o la aprueba.
+
+### Pruebas
+- Dart: `visitas_fecha_test.dart` (modelo) y
+  `visitas_programar_equipo_test.dart` (pantallas, escritorio y teléfono);
+  Visitas 131 verdes.
+- Reglas: `visitas_fecha.rules.js` (programar sin formato, formato al
+  iniciar, mismo día, solicitud y aprobación, mover formato); 49 verdes, 2
+  omitidas de antes.
+
+---
+
 ## Publicación web: no se sube una compilación vieja — 27 sep 2026 (Claude)
 
 Caso: con `main` en la 2.6.2 (16), se publicó y to-do-gestion.com seguía
