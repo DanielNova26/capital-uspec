@@ -3,14 +3,15 @@
 // Accesos de una persona a los módulos, administrados desde Talento Humano.
 //
 // Reglas que sostiene este servicio:
-//  1. La verdad de "qué módulos usa una persona" vive en TBL_USUARIOS:
-//     `empresasDetalle.{empresa}.apps` (por empresa) y `apps` (global legacy).
-//     `extractUserApps` une ambas listas, así que quitar un módulo exige
-//     tocar las dos o el módulo sigue apareciendo.
-//  2. Escribir la lista global pisa lo que otras empresas heredaban de ella.
-//     Antes de escribir se congela en cada otra empresa su lista efectiva
-//     actual, de modo que un cambio hecho en la empresa A nunca le quite
-//     módulos a la misma persona en la empresa B.
+//  1. La verdad de "qué módulos usa una persona" vive en TBL_USUARIOS, por
+//     empresa: `empresasDetalle.{empresa}.apps`. Al guardar, la persona queda
+//     con los módulos por empresa (ver `planearAppsPorEmpresa` en
+//     utils/user_company): cada empresa ve solo su lista.
+//  2. Un cambio en la empresa A no le quita ni le da módulos en la empresa B:
+//     antes de escribir se congela en cada otra empresa lo que ve hoy. La
+//     lista global `apps` queda como lo común a todas sus empresas, para que
+//     las versiones anteriores de la app no pasen módulos de una a otra
+//     (antes quedaba igual a la última empresa editada y se sumaba a todas).
 //  3. Notificaciones y calendario no son módulos: nadie los asigna y nadie
 //     los puede quitar (ver kAlwaysOnServices en core/app_catalog.dart).
 //  4. Talento Humano concede el ACCESO al módulo. El rol interno del módulo
@@ -211,6 +212,7 @@ class PersonnelAccessService {
           empresa: {'apps': next},
         },
         'apps': next,
+        kCampoAppsPorEmpresa: true,
         'accesosActualizadoAt': now,
         if ((actorId ?? '').trim().isNotEmpty)
           'accesosActualizadoPor': actorId!.trim(),
@@ -220,31 +222,16 @@ class PersonnelAccessService {
     }
 
     final data = snap.data() ?? const <String, dynamic>{};
-    final update = <String, dynamic>{
+    // Esta empresa queda con lo marcado; las demás, con lo que ven hoy.
+    final plan = planearAppsPorEmpresa(data, cambios: {empresa: next});
+    await ref.update({
       'empresas': FieldValue.arrayUnion([empresa]),
-      'empresasDetalle.$empresa.apps': next,
-      // La lista global queda como espejo de la empresa que se acaba de
-      // editar; las demás empresas ya no dependen de ella (ver abajo).
-      'apps': next,
+      ...plan.comoRutas(),
       'accesosActualizadoAt': now,
       if ((actorId ?? '').trim().isNotEmpty)
         'accesosActualizadoPor': actorId!.trim(),
       'updatedAt': now,
-    };
-
-    // Congela lo que hoy tiene la persona en las demás empresas, para que
-    // pisar `apps` no le quite módulos allá.
-    for (final otra in extractUserEmpresaIds(data)) {
-      if (otra == empresa) continue;
-      final detail = getUserCompanyDetail(data, otra);
-      if (detail != null && detail['apps'] is List) continue;
-      final efectivas = normalizeAppIdList(
-        extractUserApps(data, empresaId: otra),
-      ).ids..sort();
-      update['empresasDetalle.$otra.apps'] = efectivas;
-    }
-
-    await ref.update(update);
+    });
     return next;
   }
 
@@ -322,6 +309,7 @@ class PersonnelAccessService {
     final next = normalizeAppIdList(apps.toList()).ids..sort();
     return {
       'apps': next,
+      kCampoAppsPorEmpresa: true,
       'empresasDetalle': {
         empresaId: {...empresaDetalleExistente, 'apps': next},
       },

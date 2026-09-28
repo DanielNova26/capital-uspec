@@ -6,6 +6,7 @@ import {
   scrypt as nodeScrypt,
 } from "crypto";
 import {promisify} from "util";
+import {appsDeEmpresa, raizEsDeEmpresa} from "./apps_por_empresa";
 
 const scrypt = promisify(nodeScrypt);
 const usersCollection = "TBL_USUARIOS";
@@ -118,7 +119,7 @@ function isAdminForCompany(
     ["administrador", "admin", "superadmin", "administrador_sistema"].includes(role) ||
     role.endsWith("_administrador") || role.endsWith("_admin")
   )) return true;
-  return [...textList(data.apps), ...textList(scoped?.apps)].some(adminApp);
+  return appsDeEmpresa(data, empresaId).some(adminApp);
 }
 
 async function requireAdmin(
@@ -169,8 +170,11 @@ function scopedText(
   fields: string[]
 ): string {
   const scoped = companyDetail(data, empresaId);
+  // La raíz es la copia de la empresa principal: el área y el cargo de otra
+  // empresa no se completan con ella (raizEsDeEmpresa en la app).
+  const raiz = raizEsDeEmpresa(data, empresaId) ? data : {};
   for (const field of fields) {
-    const value = clean(scoped?.[field] ?? data[field], 240);
+    const value = clean(scoped?.[field] ?? raiz[field], 240);
     if (value) return value;
   }
   return "";

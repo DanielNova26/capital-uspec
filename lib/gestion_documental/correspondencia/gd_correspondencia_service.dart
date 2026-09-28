@@ -292,7 +292,8 @@ class GdCorrespondenciaService {
           nombre: nombre,
           areaId: areaId.isEmpty ? areaNombre : areaId,
           areaNombre: areaNombre.isEmpty
-              ? areaNames[areaId] ?? areaId
+              ? areaNames[areaId] ??
+                    areaNombreLegible(id: areaId, empresaId: empresaId)
               : areaNombre,
           cargo: (org.cargoNombre ?? '').trim(),
         ),

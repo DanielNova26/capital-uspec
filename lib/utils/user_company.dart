@@ -108,7 +108,53 @@ List<String> extractUserEmpresaIds(Map<String, dynamic> data) {
   return ordered;
 }
 
+/// Marca que dice que los módulos de la persona ya están escritos empresa
+/// por empresa (`empresasDetalle.{empresa}.apps`).
+///
+/// Antes cada empresa sumaba a su lista la lista general `apps`, y esa lista
+/// general la reescribía quien guardara módulos en CUALQUIER empresa (Talento
+/// Humano la dejaba igual a la última empresa editada). Resultado: un módulo
+/// dado en una razón social aparecía también en la otra. Con la marca, cada
+/// empresa ve solo su lista. La marca la ponen los que guardan módulos (ver
+/// [planearAppsPorEmpresa]) después de congelar la lista de cada empresa, así
+/// que nadie pierde un acceso por el cambio de regla.
+const String kCampoAppsPorEmpresa = 'appsPorEmpresa';
+
+bool appsPorEmpresa(Map<String, dynamic> data) =>
+    data[kCampoAppsPorEmpresa] == true;
+
+List<String> _appsDeLista(Object? raw) {
+  final out = <String>[];
+  final seen = <String>{};
+  if (raw is! Iterable || raw is String) return out;
+  for (final app in raw) {
+    final id = normalizeAppId(app?.toString());
+    if (id != null && seen.add(id)) out.add(id);
+  }
+  return out;
+}
+
+/// Lista de módulos escrita en el bloque de la empresa; null si la empresa
+/// no tiene lista propia.
+List<String>? appsPropiasDeEmpresa(
+  Map<String, dynamic> data,
+  String? empresaId,
+) {
+  final raw = getUserCompanyDetail(data, empresaId)?['apps'];
+  return raw is List ? _appsDeLista(raw) : null;
+}
+
 List<String> extractUserApps(Map<String, dynamic> data, {String? empresaId}) {
+  // Módulos por empresa: la lista de la empresa y nada más. Sin lista propia,
+  // la general solo vale en la empresa principal.
+  if (appsPorEmpresa(data)) {
+    final propias = appsPropiasDeEmpresa(data, empresaId);
+    if (propias != null) return propias;
+    return raizEsDeEmpresa(data, empresaId)
+        ? _appsDeLista(data['apps'])
+        : <String>[];
+  }
+
   final ordered = <String>[];
   final seen = <String>{};
 
@@ -118,10 +164,12 @@ List<String> extractUserApps(Map<String, dynamic> data, {String? empresaId}) {
     ordered.add(appId);
   }
 
-  // Compatibilidad: muchas cuentas antiguas guardan la asignación de módulos
-  // en `apps` global. Las cuentas multiempresa nuevas también pueden tener
-  // `empresasDetalle[empresaId].apps`. Para no ocultar módulos existentes
-  // (por ejemplo Rutas) cuando el bloque scoped está incompleto, se combinan.
+  // Compatibilidad (personas sin [kCampoAppsPorEmpresa]): muchas cuentas
+  // antiguas guardan la asignación de módulos en `apps` global y las
+  // multiempresa también en `empresasDetalle[empresaId].apps`; se combinan
+  // para no ocultar módulos existentes (por ejemplo Rutas). Esta suma es la
+  // que dejaba pasar módulos de una empresa a otra: desaparece cuando se
+  // fijan los módulos por empresa.
   final apps = data['apps'] as List<dynamic>? ?? const [];
   for (final app in apps) {
     addCandidate(app?.toString());
@@ -136,6 +184,104 @@ List<String> extractUserApps(Map<String, dynamic> data, {String? empresaId}) {
   }
 
   return ordered;
+}
+
+/// Módulos que la persona ve en [empresaId] solo porque están en la lista
+/// general, que es de otra empresa. Vacío si ya tiene los módulos por empresa
+/// o si [empresaId] es su principal.
+List<String> appsHeredadasEnEmpresa(
+  Map<String, dynamic> data,
+  String? empresaId,
+) {
+  if (appsPorEmpresa(data) || raizEsDeEmpresa(data, empresaId)) {
+    return const <String>[];
+  }
+  final propias = appsPropiasDeEmpresa(data, empresaId) ?? const <String>[];
+  return [
+    for (final app in _appsDeLista(data['apps']))
+      if (!propias.any((p) => appIdsEquivalent(p, app))) app,
+  ];
+}
+
+/// Módulos de cada empresa de una persona, listos para escribirse.
+class AppsPorEmpresaPlan {
+  /// Lista completa de cada empresa (ids canónicos, ordenados).
+  final Map<String, List<String>> porEmpresa;
+
+  /// Lista general: lo que tienen TODAS sus empresas. Solo la leen versiones
+  /// anteriores de la app, que la suman a cada empresa; siendo la
+  /// intersección, no le pasa a ninguna empresa un módulo de otra.
+  final List<String> raiz;
+
+  const AppsPorEmpresaPlan({required this.porEmpresa, required this.raiz});
+
+  /// Para `update()`: rutas con punto, no toca el resto de cada bloque.
+  Map<String, dynamic> comoRutas() => {
+    for (final e in porEmpresa.entries) 'empresasDetalle.${e.key}.apps': e.value,
+    'apps': raiz,
+    kCampoAppsPorEmpresa: true,
+  };
+
+  /// Para `set(merge: true)`, que no interpreta los puntos.
+  Map<String, dynamic> comoAnidado() => {
+    'empresasDetalle': {
+      for (final e in porEmpresa.entries) e.key: {'apps': e.value},
+    },
+    'apps': raiz,
+    kCampoAppsPorEmpresa: true,
+  };
+}
+
+/// Planea guardar los módulos de una persona empresa por empresa.
+///
+/// [cambios] trae la nueva lista de las empresas que se están editando. Las
+/// demás empresas quedan con lo que la persona ve HOY en ellas (se congelan),
+/// así un cambio en una empresa nunca le quita ni le da módulos en otra. Con
+/// [quitarHeredadas], lo que una empresa solo veía por la lista general de
+/// otra empresa ([appsHeredadasEnEmpresa]) no se congela.
+AppsPorEmpresaPlan planearAppsPorEmpresa(
+  Map<String, dynamic> data, {
+  Map<String, Iterable<String>> cambios = const {},
+  bool quitarHeredadas = false,
+}) {
+  final empresas = <String>{
+    ...extractUserEmpresaIds(data),
+    for (final e in cambios.keys)
+      if (normalizeEmpresaId(e) != null) normalizeEmpresaId(e)!,
+  };
+  final porEmpresa = <String, List<String>>{};
+  for (final e in empresas) {
+    Iterable<String> lista;
+    if (cambios.containsKey(e)) {
+      lista = cambios[e]!;
+    } else {
+      final heredadas = quitarHeredadas
+          ? appsHeredadasEnEmpresa(data, e)
+          : const <String>[];
+      lista = extractUserApps(data, empresaId: e).where(
+        (app) => !heredadas.any((h) => appIdsEquivalent(h, app)),
+      );
+    }
+    porEmpresa[e] = normalizeAppIdList(lista.toList()).ids..sort();
+  }
+
+  if (porEmpresa.isEmpty) {
+    // Sin empresas no hay nada que repartir: la lista general queda igual.
+    return AppsPorEmpresaPlan(
+      porEmpresa: const {},
+      raiz: normalizeAppIdList(_appsDeLista(data['apps'])).ids..sort(),
+    );
+  }
+  Set<String>? interseccion;
+  for (final lista in porEmpresa.values) {
+    interseccion = interseccion == null
+        ? {...lista}
+        : interseccion.intersection(lista.toSet());
+  }
+  return AppsPorEmpresaPlan(
+    porEmpresa: porEmpresa,
+    raiz: (interseccion ?? <String>{}).toList()..sort(),
+  );
 }
 
 String resolveGlobalRole(Map<String, dynamic> data) {
@@ -245,12 +391,31 @@ bool userHasApp(Map<String, dynamic> data, String? appId, {String? empresaId}) {
   return false;
 }
 
+/// Empresas en las que la persona puede entrar: sus membresías menos las
+/// apagadas por un traslado (`empresasDetalle.{empresa}.activo: false`).
+///
+/// Una empresa apagada se queda en `empresas` para conservar lo que la
+/// persona registró allí, pero ya no se ofrece al iniciar sesión ni al
+/// cambiar de empresa: quien pasó "solo a la nueva" no debe seguir entrando
+/// a la antigua. Si todas están apagadas se devuelven todas; cortar el
+/// acceso es trabajo del interruptor global `activo`, no de esta lista.
+List<String> empresasSeleccionables(Map<String, dynamic> data) {
+  final todas = extractUserEmpresaIds(data);
+  final abiertas = [
+    for (final e in todas)
+      if (getUserCompanyDetail(data, e)?['activo'] != false) e,
+  ];
+  return abiertas.isEmpty ? todas : abiertas;
+}
+
 String? resolveValidEmpresaId({
   required Map<String, dynamic> data,
   String? selectedEmpresaId,
   String? preferredEmpresaId,
 }) {
-  final allowedIds = extractUserEmpresaIds(data);
+  // Una sesión guardada en una empresa que después se apagó cae a una que
+  // siga abierta.
+  final allowedIds = empresasSeleccionables(data);
   if (allowedIds.isEmpty) return null;
 
   final selected = normalizeEmpresaId(selectedEmpresaId);
@@ -284,17 +449,97 @@ Map<String, dynamic>? getUserCompanyDetail(
   return null;
 }
 
+/// Campos del PUESTO de una persona: área, cargo, centros y jefe. Dependen
+/// de la empresa, a diferencia del nombre, la foto o el correo.
+///
+/// Una misma cédula puede ser Auxiliar de cocina en una razón social y
+/// Coordinadora en otra. La raíz del documento es la copia de la empresa
+/// principal, así que estos campos solo se leen de la raíz cuando la empresa
+/// que se mira ES la principal (ver [raizEsDeEmpresa]). Leerlos de la raíz
+/// para cualquier empresa era lo que hacía salir a la persona con el cargo de
+/// otra empresa.
+const Set<String> kCamposPuesto = {
+  'areaId',
+  'area_id',
+  'area',
+  'areaNombre',
+  'area_nombre',
+  'departamento',
+  'departamentoId',
+  'departamento_id',
+  'departamentoNombre',
+  'cargoId',
+  'cargo_id',
+  'cargo',
+  'cargoNombre',
+  'cargo_nombre',
+  'puesto',
+  'centroId',
+  'centro_id',
+  'centro',
+  'centroCodigo',
+  'centro_codigo',
+  'centroCostos',
+  'centro_costos',
+  'centro_costos_nombre',
+  'centro_nombre',
+  'centrosOperacionIds',
+  'centrosOperacionNombres',
+  'centroOperacionId',
+  'centroOperacion',
+  'centrosTrabajoIds',
+  'centrosTrabajoNombres',
+  'centroTrabajoId',
+  'centroTrabajo',
+  'jefeId',
+  'jefe_id',
+  'jefe_uid',
+  'jefeNombre',
+  'jefe_nombre',
+  'cargoJefe',
+  'jefe_directo',
+  'jefe_directo_id',
+  'jefe_cargo',
+  'jefe_cargo_desc',
+  'gruposInterventoria',
+};
+
+/// ¿Los datos raíz del documento pertenecen a [empresaId]?
+///
+/// La raíz es la copia de la empresa principal (`empresaId` raíz). Sin
+/// principal escrita, vale si la persona tiene una única empresa, o ninguna
+/// (registro antiguo: la raíz es lo único que hay). Es el mismo criterio de
+/// Interventoría (`puedeUsarDatosRaizInterventoria`).
+bool raizEsDeEmpresa(Map<String, dynamic> data, String? empresaId) {
+  final empresa = normalizeEmpresaId(empresaId);
+  if (empresa == null) return true;
+  final principal = normalizeEmpresaId(data['empresaId']?.toString());
+  if (principal != null) return principal == empresa;
+  final empresas = extractUserEmpresaIds(data);
+  if (empresas.isEmpty) return true;
+  return empresas.length == 1 && empresas.single == empresa;
+}
+
+/// ¿Se puede leer [key] de la raíz para [empresaId]?
+bool _raizSirve(Map<String, dynamic> data, String? empresaId, String key) =>
+    !kCamposPuesto.contains(key) || raizEsDeEmpresa(data, empresaId);
+
 /// Combina un registro global con el bloque específico de la empresa activa.
-/// Los valores de `empresasDetalle[empresaId]` tienen prioridad, pero los
-/// campos globales se conservan como fallback para datos legacy.
+///
+/// Los valores de `empresasDetalle[empresaId]` tienen prioridad y los campos
+/// globales se conservan como respaldo para datos legacy, SALVO los del
+/// puesto ([kCamposPuesto]) cuando la raíz es de otra empresa: esos se quitan
+/// para que la persona no aparezca en esta empresa con el cargo de la otra.
 Map<String, dynamic> mergeCompanyScopedData(
   Map<String, dynamic> data,
   String? empresaId,
 ) {
   final detail = getUserCompanyDetail(data, empresaId);
-  return detail == null
-      ? Map<String, dynamic>.from(data)
-      : {...data, ...detail};
+  final base = Map<String, dynamic>.from(data);
+  if (!raizEsDeEmpresa(data, empresaId)) {
+    base.removeWhere((key, _) => kCamposPuesto.contains(key));
+  }
+  return detail == null ? base : {...base, ...detail};
 }
 
 dynamic getScopedField(
@@ -308,7 +553,10 @@ dynamic getScopedField(
     final value = detail[key];
     if (value != null) return value;
   }
-  if (data.containsKey(fallbackKey)) return data[fallbackKey];
+  if (data.containsKey(fallbackKey) &&
+      _raizSirve(data, empresaId, fallbackKey)) {
+    return data[fallbackKey];
+  }
   return null;
 }
 
@@ -336,6 +584,7 @@ String resolveScopedStringWithFallbacks(
   }
 
   for (final key in fallbackKeys) {
+    if (!_raizSirve(data, empresaId, key)) continue;
     final value = data[key];
     if (value != null && value.toString().trim().isNotEmpty) {
       return value.toString();

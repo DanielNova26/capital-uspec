@@ -74,12 +74,16 @@ class SessionAuditService {
         ? cleanUserId
         : _firstString(userData, const ['cedula', 'documento']);
     final nombre = _nombreUsuario(userData, cleanUserId);
-    final cargo = _firstScopedString(scoped, userData, const [
+    // Cargo y área de la empresa donde entró; la raíz es de la principal.
+    final raizPuesto = raizEsDeEmpresa(userData, cleanEmpresaId)
+        ? userData
+        : const <String, dynamic>{};
+    final cargo = _firstScopedString(scoped, raizPuesto, const [
       'cargo',
       'cargoNombre',
       'cargo_nombre',
     ]);
-    final areaNombre = _firstScopedString(scoped, userData, const [
+    final areaNombre = _firstScopedString(scoped, raizPuesto, const [
       'areaNombre',
       'area',
       'area_nombre',

@@ -7,6 +7,7 @@
  */
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
+import {appsDeEmpresa, raizEsDeEmpresa} from "./apps_por_empresa";
 import {
   createCipheriv,
   createDecipheriv,
@@ -515,7 +516,7 @@ function hasAdminAccess(
   ].map(normalize);
   if (roles.some(roleIsAdmin)) return true;
 
-  const appIds = [...textList(user.apps), ...textList(scoped?.apps)];
+  const appIds = appsDeEmpresa(user, empresaId);
   return appIds.some(appIsAdminDashboard);
 }
 
@@ -2119,7 +2120,13 @@ export const whatsappAdminDirectorio = functions
         nombre,
         telefono,
         email: firstText(cv.email, root.email, root.correo, root.mail),
-        cargo: firstText(scoped?.cargo, root.cargo, root.cargoNombre),
+        // El cargo de la raíz es de la empresa principal: en otra empresa
+        // solo cuenta el de su bloque (raizEsDeEmpresa en la app).
+        cargo: firstText(
+          scoped?.cargo,
+          raizEsDeEmpresa(root, caller.empresaId) ? root.cargo : "",
+          raizEsDeEmpresa(root, caller.empresaId) ? root.cargoNombre : ""
+        ),
         tieneTelefonoValido: telefono.length >= 8 && telefono.length <= 15,
       }];
     });

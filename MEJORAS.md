@@ -8,8 +8,8 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ## Visitas: documento "Cambios módulo visitas" — 28 sep 2026 (Claude)
 
-Revisión punto por punto del documento que envió la dirección. Versión 2.6.3
-(17).
+Revisión punto por punto del documento que envió la dirección. Versión 2.6.5
+(19).
 
 ### Cronograma
 - El filtro de todo acceso dice **Departamento** y lista los departamentos de

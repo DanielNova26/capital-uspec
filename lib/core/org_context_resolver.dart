@@ -36,6 +36,9 @@ class OrgContextResolver {
     required String empresaId,
   }) {
     final detail = getUserCompanyDetail(userData, empresaId);
+    // La raíz es la copia de la empresa principal: el puesto de otra empresa
+    // no se completa con ella (ver kCamposPuesto).
+    final raizSirve = raizEsDeEmpresa(userData, empresaId);
     var usedLegacyFallback = false;
 
     String? readFromDetail(List<String> keys) {
@@ -54,6 +57,7 @@ class OrgContextResolver {
     }) {
       final scoped = readFromDetail(scopedKeys);
       if (scoped != null) return scoped;
+      if (!raizSirve) return null;
 
       for (final key in fallbackKeys) {
         final value = userData[key];

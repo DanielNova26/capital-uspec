@@ -31,6 +31,7 @@ exports.validatedDianUrl = validatedDianUrl;
 exports.registrarTokenDianDesdeCorreo = registrarTokenDianDesdeCorreo;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
+const apps_por_empresa_1 = require("./apps_por_empresa");
 const crypto_1 = require("crypto");
 const REGION = "us-central1";
 const TOKEN_COLLECTION = "TBL_DIAN_TOKENS";
@@ -79,6 +80,9 @@ function belongsToCompany(user, empresaId) {
     return text(user.empresaId || user.empresa) === empresaId;
 }
 function scopedApps(user, empresaId) {
+    // Con los módulos ya fijados por empresa manda la regla común de la app.
+    if (user.appsPorEmpresa === true)
+        return (0, apps_por_empresa_1.appsDeEmpresa)(user, empresaId);
     const detail = user.empresasDetalle;
     const companyDetail = detail && typeof detail === "object" && !Array.isArray(detail)
         ? detail[empresaId]

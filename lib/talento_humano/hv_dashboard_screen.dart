@@ -143,9 +143,12 @@ class _HvDashboardScreenState extends State<HvDashboardScreen>
         final person = _personFromUser(doc.id, d);
         peopleByStatus.putIfAbsent(status, () => []).add(person);
 
-        final area = (d['areaNombre'] ?? d['area'] ?? 'Sin área')
-            .toString()
-            .trim();
+        // El área de ESTA empresa; la raíz es de la principal.
+        final enEmpresa = mergeCompanyScopedData(d, eid);
+        final area =
+            (enEmpresa['areaNombre'] ?? enEmpresa['area'] ?? 'Sin área')
+                .toString()
+                .trim();
         final areaKey = area.isEmpty ? 'Sin área' : area;
         byArea[areaKey] = byArea[areaKey] ?? {};
         byArea[areaKey]![status] = (byArea[areaKey]![status] ?? 0) + 1;
@@ -226,7 +229,9 @@ class _HvDashboardScreenState extends State<HvDashboardScreen>
                         nombre: nombre,
                         cedula: doc.id,
                         fechaNacimiento: dt,
-                        area: (d['areaNombre'] ?? d['area'] ?? '').toString(),
+                        area:
+                            (enEmpresa['areaNombre'] ?? enEmpresa['area'] ?? '')
+                                .toString(),
                       ),
                     );
                   }

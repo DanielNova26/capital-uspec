@@ -353,44 +353,49 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       }
     } catch (_) {}
 
-    final areas =
-        areasSnap.docs
-            .map(
-              (d) => {
-                'id': (d.data()['areaId'] ?? d.id).toString(),
-                'nombre': (d.data()['nombre'] ?? d.id).toString(),
-              },
-            )
-            .toList()
-          ..sort((a, b) => a['nombre']!.compareTo(b['nombre']!));
-    String areaNameById(String id) {
-      final hit = areas.firstWhere(
-        (a) => a['id'] == id,
-        orElse: () => {'id': id, 'nombre': _areaLabelFor(id)},
-      );
-      return hit['nombre'] ?? id;
+    // Áreas sin repetir y con todas sus variantes de id: la persona, el
+    // cargo y la tarea pueden guardar la misma área con ids distintos.
+    final areaCatalogo = AreaCatalogo.desde([
+      for (final d in areasSnap.docs)
+        (
+          id: (d.data()['areaId'] ?? d.id).toString(),
+          nombre: d.data()['nombre']?.toString(),
+        ),
+    ], empresaId: empresaId);
+    final areas = [
+      for (final o in areaCatalogo.opciones) {'id': o.id, 'nombre': o.nombre},
+    ];
+    String areaNameById(String id) =>
+        areaCatalogo.opciones.any((o) => o.contiene(id))
+        ? areaCatalogo.nombreDe(id, empresaId: empresaId)
+        : _areaLabelFor(id);
+
+    /// Opción del catálogo a la que corresponde un id o nombre de área.
+    String opcionDeArea(String valor) {
+      final v = valor.trim();
+      if (v.isEmpty) return '';
+      for (final o in areaCatalogo.opciones) {
+        if (o.contiene(v)) return o.id;
+      }
+      return '';
     }
 
-    String areaIdByName(String name) {
-      final normalized = name.trim().toLowerCase();
-      if (normalized.isEmpty) return '';
-      final hit = areas.firstWhere(
-        (a) => (a['nombre'] ?? '').trim().toLowerCase() == normalized,
-        orElse: () => {},
-      );
-      return (hit['id'] ?? '').toString();
-    }
-
-    final cargos = cargosSnap.docs
-        .map(
-          (d) => {
-            'id': (d.data()['cargoId'] ?? d.id).toString(),
-            'nombre': (d.data()['nombre'] ?? d.data()['descripcion'] ?? d.id)
-                .toString(),
-            'areaId': (d.data()['areaId'] ?? '').toString(),
-          },
-        )
-        .toList();
+    final cargos = cargosSnap.docs.map((d) {
+      final areaCargo = (d.data()['areaId'] ?? '').toString();
+      final areaNombreCargo = (d.data()['areaNombre'] ?? d.data()['area'] ?? '')
+          .toString();
+      final opcion = opcionDeArea(areaCargo);
+      return {
+        'id': (d.data()['cargoId'] ?? d.id).toString(),
+        'nombre': (d.data()['nombre'] ?? d.data()['descripcion'] ?? d.id)
+            .toString(),
+        'areaId': opcion.isNotEmpty
+            ? opcion
+            : (opcionDeArea(areaNombreCargo).isNotEmpty
+                  ? opcionDeArea(areaNombreCargo)
+                  : areaCargo),
+      };
+    }).toList();
     final usuarios = userDocs.values
         .map((d) {
           final m = d.data();
@@ -420,9 +425,10 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
             const ['area', 'areaNombre', 'area_nombre', 'departamento'],
             const ['area', 'areaNombre', 'area_nombre', 'departamento'],
           ).trim();
-          if (areaId.isEmpty && areaName.isNotEmpty) {
-            areaId = areaIdByName(areaName);
-          }
+          final opcion = opcionDeArea(areaId).isNotEmpty
+              ? opcionDeArea(areaId)
+              : opcionDeArea(areaName);
+          if (opcion.isNotEmpty) areaId = opcion;
           final cargoId = resolveScopedStringWithFallbacks(
             m,
             empresaId,
@@ -447,14 +453,14 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         .whereType<Map<String, String>>()
         .toList();
 
-    if (taskAreaId.isNotEmpty &&
-        areas.every((area) => area['id'] != taskAreaId)) {
+    final areaTarea = opcionDeArea(taskAreaId);
+    if (taskAreaId.isNotEmpty && areaTarea.isEmpty) {
       areas.add({'id': taskAreaId, 'nombre': _areaLabelFor(taskAreaId)});
       areas.sort((a, b) => a['nombre']!.compareTo(b['nombre']!));
     }
     // '' = todas las áreas.
     areas.insert(0, {'id': '', 'nombre': 'Todas las áreas'});
-    String selectedAreaId = taskAreaId;
+    String selectedAreaId = areaTarea.isNotEmpty ? areaTarea : taskAreaId;
     String selectedAreaName = taskAreaId.isEmpty
         ? ''
         : areaNameById(taskAreaId);
@@ -468,12 +474,25 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       builder: (_) => StatefulBuilder(
         builder: (context, setDialogState) {
           final filteredCargos = cargos.where((c) {
-            return selectedAreaId.isEmpty || c['areaId'] == selectedAreaId;
+            return areaCatalogo.coincide(
+              filtro: selectedAreaId,
+              valor: c['areaId'],
+              todas: '',
+            );
           }).toList()..sort((a, b) => a['nombre']!.compareTo(b['nombre']!));
 
           final filteredUsers = usuarios.where((u) {
             if (u['id'] == widget.userId) return false;
-            if (selectedAreaId.isNotEmpty && u['areaId'] != selectedAreaId) {
+            if (!areaCatalogo.coincide(
+                  filtro: selectedAreaId,
+                  valor: u['areaId'],
+                  todas: '',
+                ) &&
+                !areaCatalogo.coincide(
+                  filtro: selectedAreaId,
+                  valor: u['areaNombre'],
+                  todas: '',
+                )) {
               return false;
             }
             if (selectedCargoId != null &&

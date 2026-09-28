@@ -3312,6 +3312,8 @@ String _cargoUsuario(Map<String, dynamic> m, String empresaId) {
       if (cargo.isNotEmpty) return cargo;
     }
   }
+  // La raíz es de la empresa principal: en otra empresa su cargo no cuenta.
+  if (!raizEsDeEmpresa(m, empresaId)) return '';
   return _firstString(m, const [
     'cargo',
     'cargoNombre',

@@ -250,6 +250,16 @@ void main() {
         VisitasService.cargoDeFicha({'cargo': 'Gerencia'}, 'e'),
         'Gerencia',
       );
+      // La raíz es de la principal: en otra empresa su cargo no cuenta.
+      expect(
+        VisitasService.cargoDeFicha({
+          'empresaId': 'a',
+          'empresas': ['a', 'e'],
+          'cargo': 'Gerente',
+          'empresasDetalle': {'e': <String, dynamic>{}},
+        }, 'e'),
+        '',
+      );
     });
 
     test('Gerencia no ejecuta visitas: eso sigue siendo del profesional', () {

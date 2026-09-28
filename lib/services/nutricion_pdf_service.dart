@@ -7,6 +7,8 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import '../utils/user_company.dart';
+
 /// Genera un PDF de reporte nutricional con:
 /// - Datos del paciente
 /// - Diagnósticos y plan alimentario
@@ -25,10 +27,15 @@ class NutricionPdfService {
   }
 
   /// Obtiene los datos del usuario (nombre, cargo, empresa).
-  Future<Map<String, String>> _getUserData(String userId) async {
+  Future<Map<String, String>> _getUserData(
+    String userId, {
+    String? empresaId,
+  }) async {
     try {
       final doc = await _db.collection('TBL_USUARIOS').doc(userId).get();
-      final data = doc.data() ?? {};
+      final raw = doc.data() ?? {};
+      // Cargo y empresa de la empresa del paciente, no de la principal.
+      final data = mergeCompanyScopedData(raw, empresaId);
       final nombres = (data['nombres'] ?? '').toString().trim();
       final apellidos = (data['apellidos'] ?? '').toString().trim();
       final nombreCompleto =
@@ -59,7 +66,10 @@ class NutricionPdfService {
     final pdf = pw.Document();
 
     // 1) Datos del profesional desde Firestore
-    final userData = await _getUserData(userId);
+    final userData = await _getUserData(
+      userId,
+      empresaId: (pacienteData['empresaId'] ?? '').toString(),
+    );
 
     // 2) Descargar imágenes en paralelo
     final futures = <Future<Uint8List?>>[];

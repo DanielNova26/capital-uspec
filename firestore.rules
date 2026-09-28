@@ -142,12 +142,23 @@ service cloud.firestore {
       return a is string && a.trim().size() > 0 ? a : b;
     }
 
+    // El cargo de la raíz solo cuenta si la raíz es de esta empresa (la
+    // principal, o no hay principal escrita). Espejo de `raizEsDeEmpresa`
+    // en lib/utils/user_company.dart: ser Gerente en una razón social no da
+    // Gerencia en Visitas de la otra.
+    function raizEsDeEmpresa(u, empresaId) {
+      return u.get('empresaId', '') == empresaId
+        || u.get('empresaId', '') == '';
+    }
+
     function esGerenciaPorFicha(empresaId) {
       let u = currentUser();
       let d = u.get('empresasDetalle', {}).get(empresaId, {});
+      let cargoRaiz = raizEsDeEmpresa(u, empresaId)
+        ? primerTexto(u.get('cargoNombre', ''), u.get('cargo', ''))
+        : '';
       return esCargoGerencia(primerTexto(d.get('cargoNombre', ''),
-          primerTexto(d.get('cargo', ''),
-            primerTexto(u.get('cargoNombre', ''), u.get('cargo', '')))))
+          primerTexto(d.get('cargo', ''), cargoRaiz)))
         || d.get('roleKey', '') in ['gerencia', 'gerente']
         || u.get('roleKey', '') in ['gerencia', 'gerente']
         || u.get('role', '') in ['gerencia', 'gerente'];

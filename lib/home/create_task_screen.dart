@@ -157,30 +157,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     'idNumber',
   ]);
 
-  String _norm(String s) => s.trim().toLowerCase();
-
-  String _scopeKey(String s) {
-    return _norm(s)
-        .replaceAll('á', 'a')
-        .replaceAll('é', 'e')
-        .replaceAll('í', 'i')
-        .replaceAll('ó', 'o')
-        .replaceAll('ú', 'u')
-        .replaceAll('ü', 'u')
-        .replaceAll('ñ', 'n')
-        .replaceAll(RegExp(r'\s+'), ' ');
-  }
-
-  String? _areaIdByName(String? name) {
-    final key = _scopeKey(name ?? '');
-    if (key.isEmpty) return null;
-    final hit = _areas.firstWhere(
-      (a) => _scopeKey(a['nombre'] ?? '') == key,
-      orElse: () => {},
-    );
-    final id = (hit['id'] ?? '').toString().trim();
-    return id.isEmpty ? null : id;
-  }
 
   /// Attempts to resolve the areaId of the given user for the current empresa.
   /// This method first looks into `empresasDetalle[_empresaId]` for an
@@ -188,60 +164,74 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   /// logic (using top-level areaId/areaName fields). This ensures that
   /// employees belonging to multiple companies are correctly mapped.
   String? _resolveAreaIdFromUser(Map<String, dynamic> u) {
+    // Se mira la persona EN la empresa activa: si la raíz es de otra empresa,
+    // su área no cuenta aquí (ver mergeCompanyScopedData).
+    final data = mergeCompanyScopedData(u, _empresaId);
+    final candidatos = <String>[];
     final empresaId = normalizeEmpresaId(_empresaId);
     if (empresaId != null) {
       final context = _orgContextResolver.resolve(
         userData: u,
         empresaId: empresaId,
       );
-      final scopedAreaId = (context.areaId ?? '').trim();
-      if (scopedAreaId.isNotEmpty &&
-          _areas.any((a) => a['id'] == scopedAreaId)) {
-        return scopedAreaId;
-      }
-      final scopedAreaName = (context.areaNombre ?? '').trim();
-      if (scopedAreaName.isNotEmpty) {
-        final hit = _areas.firstWhere(
-          (a) => _norm(a['nombre'] ?? '') == _norm(scopedAreaName),
-          orElse: () => {},
-        );
-        final id = (hit['id'] ?? '').toString().trim();
-        if (id.isNotEmpty) return id;
-      }
+      candidatos
+        ..add((context.areaId ?? '').trim())
+        ..add((context.areaNombre ?? '').trim());
     }
-
-    // 1) si ya viene areaId real
-    final direct = _firstNonEmpty(u, const [
-      'areaId',
-      'area_id',
-      'departamentoId',
-      'departamento_id',
-    ]);
-    if (direct.isNotEmpty && _areas.any((a) => a['id'] == direct)) {
-      return direct;
-    }
-
-    // 2) si viene por nombre: area / areaNombre / departamento
-    final nombre = _firstNonEmpty(u, const [
-      'areaNombre',
-      'area_nombre',
-      'area',
-      'departamento',
-      'departamentoNombre',
-    ]);
-
-    if (nombre.isNotEmpty) {
-      final hit = _areas.firstWhere(
-        (a) => _norm(a['nombre'] ?? '') == _norm(nombre),
-        orElse: () => {},
+    candidatos
+      ..add(
+        _firstNonEmpty(data, const [
+          'areaId',
+          'area_id',
+          'departamentoId',
+          'departamento_id',
+        ]),
+      )
+      ..add(
+        _firstNonEmpty(data, const [
+          'areaNombre',
+          'area_nombre',
+          'area',
+          'departamento',
+          'departamentoNombre',
+        ]),
       );
-      if ((hit['id'] ?? '').toString().trim().isNotEmpty) {
-        return hit['id']!.trim();
-      }
+    // La misma área existe con varias variantes de id y de nombre: se
+    // resuelve contra el catálogo agrupado, nunca comparando ids con ==.
+    for (final c in candidatos) {
+      final opcion = _opcionArea(c);
+      if (opcion != null) return opcion;
     }
-
     return null;
   }
+
+  /// Id del desplegable al que corresponde un área guardada con cualquier
+  /// variante de id o nombre.
+  String? _opcionArea(String? valor) {
+    final v = (valor ?? '').trim();
+    if (v.isEmpty) return null;
+    for (final opcion in _areaCatalogo.opciones) {
+      if (opcion.contiene(v)) return opcion.id;
+    }
+    if (_areas.any((a) => a['id'] == v)) return v;
+    return null;
+  }
+
+  /// ¿El área guardada [valor] es el área [areaId] del desplegable?
+  bool _esArea(String? valor, String areaId) {
+    final v = (valor ?? '').trim();
+    final a = areaId.trim();
+    if (v.isEmpty || a.isEmpty) return false;
+    if (v == a) return true;
+    return _areaCatalogo.coincide(filtro: a, valor: v);
+  }
+
+  /// ¿El registro (usuario o estructura, ya en la empresa activa) está en el
+  /// área [areaId]? Mira el id y los nombres guardados.
+  bool _registroEnArea(Map<String, dynamic> data, String areaId) =>
+      _esArea(data['areaId']?.toString(), areaId) ||
+      _esArea(data['area']?.toString(), areaId) ||
+      _esArea(data['areaNombre']?.toString(), areaId);
 
   String? _nombreAreaPorId(String? id) {
     if (id == null || id.trim().isEmpty) return null;
@@ -352,6 +342,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   // ==================== Datos cargados ====================
   List<Map<String, String>> _areas = []; // [{id,nombre,centroId?}]
+
+  /// Las mismas áreas con todas sus variantes de id, para filtrar sin `==`.
+  AreaCatalogo _areaCatalogo = const AreaCatalogo.vacio();
   List<Map<String, dynamic>> _cargos =
       []; // [{id,nombre,areaId?,enabled?,cedulas?,empresaId?}]
   // Usuarios activos, mapa para lookup rápido por uid
@@ -393,8 +386,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     }
     final cargos = <String, String>{};
     for (final estr in _estructura.values) {
-      final areaId = (estr['areaId'] ?? '').toString().trim();
-      if (areaId.isEmpty || areaId != _areaId!.trim()) continue;
+      if (!_registroEnArea(estr, _areaId!)) continue;
       final cargoId = _cargoIdDe(estr);
       final cargoNombre = _cargoNombreDe(estr);
       final key = (cargoId.isNotEmpty ? cargoId : cargoNombre).trim();
@@ -408,6 +400,12 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       structureCargos: cargos,
       catalogCargos: _cargos,
       areaId: _areaId!.trim(),
+      areaIds:
+          _areaCatalogo.opciones
+              .where((o) => o.id == _areaId!.trim())
+              .firstOrNull
+              ?.ids ??
+          const <String>{},
       empresaId: (_empresaId ?? '').trim(),
       areaNombre: _nombreAreaPorId(_areaId) ?? '',
     );
@@ -446,8 +444,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         ),
       );
       for (final estr in _estructura.values) {
-        final areaId = (estr['areaId'] ?? '').toString().trim();
-        if (areaId.isEmpty || areaId != areaActiva) continue;
+        if (!_registroEnArea(estr, areaActiva)) continue;
         final cargoId = _cargoIdDe(estr);
         final cargoNombre = _cargoNombreDe(estr).trim().toLowerCase();
         if (cargoActivoId != 'todos' && cargoActivoId.isNotEmpty) {
@@ -482,7 +479,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       if (areaActiva.isNotEmpty) {
         if (cedulasPermitidas.isNotEmpty) {
           if (cedula.isEmpty || !cedulasPermitidas.contains(cedula)) continue;
-        } else if (areaId != areaActiva) {
+        } else if (!_esArea(areaId, areaActiva) &&
+            !_registroEnArea(u, areaActiva)) {
           continue;
         }
       }
@@ -539,8 +537,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     final out = <String>{};
     for (final cargo in _cargos) {
       if (!_cargoCoincideEmpresa(cargo)) continue;
-      final area = (cargo['areaId'] ?? '').toString().trim();
-      if (area.isEmpty || area != areaId) continue;
+      if (!_esArea(cargo['areaId']?.toString(), areaId) &&
+          !_esArea(cargo['areaNombre']?.toString(), areaId)) {
+        continue;
+      }
 
       final id = (cargo['id'] ?? '').toString().trim();
       final nombre = (cargo['nombre'] ?? '').toString().trim().toLowerCase();
@@ -679,7 +679,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       return;
     }
 
-    final data = Map<String, dynamic>.from(_currentUserData);
+    // La persona en la empresa activa: su raíz es de la principal.
+    final data = mergeCompanyScopedData(_currentUserData, _empresaId);
     final estr = _currentUid == null ? null : _estructura[_currentUid!];
     if (estr != null) {
       bool isEmpty(String key) =>
@@ -725,17 +726,12 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     if (areaId.isEmpty) {
       areaId = _areaDe(data).trim();
     }
-    if (areaId.isNotEmpty && !_areas.any((a) => a['id'] == areaId)) {
-      final idFromName = _areaIdByName(
-        areaNombre.isNotEmpty ? areaNombre : areaId,
-      );
-      if (idFromName != null) {
-        if (areaNombre.isEmpty) areaNombre = areaId;
-        areaId = idFromName;
-      }
-    }
-    if (areaId.isEmpty && areaNombre.isNotEmpty) {
-      areaId = _areaIdByName(areaNombre) ?? '';
+    // Cualquier variante del id o del nombre se lleva a la opción del
+    // desplegable (Regla 3: nunca comparar áreas con ==).
+    final opcion = _opcionArea(areaId) ?? _opcionArea(areaNombre);
+    if (opcion != null) {
+      if (areaNombre.isEmpty && !pareceAreaId(areaId)) areaNombre = areaId;
+      areaId = opcion;
     }
 
     String? catalogAreaName;
@@ -783,19 +779,17 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
       _estructura.clear();
       for (final d in merged.values) {
-        final data = Map<String, dynamic>.from(d.data());
+        final raw = d.data();
+        // Bloque de la empresa activa sobre la raíz, sin heredar el puesto
+        // de la raíz cuando esta es de otra empresa.
+        final data = mergeCompanyScopedData(raw, scopedEmpresaId);
         if ((data['cedula'] ?? '').toString().trim().isEmpty) {
           data['cedula'] = d.id;
         }
         if (scopedEmpresaId != null) {
-          final detalle = data['empresasDetalle'];
-          if (detalle is Map && detalle[scopedEmpresaId] is Map) {
-            final det = Map<String, dynamic>.from(
-              detalle[scopedEmpresaId] as Map,
-            );
-            data.addAll(det);
+          if (getUserCompanyDetail(raw, scopedEmpresaId) != null) {
             data['empresaId'] = scopedEmpresaId;
-          } else if (!matchesEmpresaScope(data, scopedEmpresaId)) {
+          } else if (!matchesEmpresaScope(raw, scopedEmpresaId)) {
             continue;
           }
         }
@@ -931,7 +925,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
     // Un área sin `nombre` mostraba su id crudo, y la misma área registrada
     // dos veces salía repetida en el desplegable.
-    _areas = areasUnicas(crudas, empresaId: _empresaId)
+    final opciones = areasUnicas(crudas, empresaId: _empresaId);
+    _areaCatalogo = AreaCatalogo(opciones);
+    _areas = opciones
         .map(
           (a) => {
             'id': a.id,
@@ -1122,7 +1118,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       }
 
       for (final d in merged.values) {
-        final data = Map<String, dynamic>.from(d.data());
+        final data = mergeCompanyScopedData(d.data(), _empresaId);
         final estr = _estructura[d.id];
 
         if ((data['cedula'] ?? '').toString().trim().isEmpty) {

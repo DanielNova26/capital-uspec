@@ -11,6 +11,7 @@ import 'package:flutter_typeahead/flutter_typeahead.dart';
 import 'package:excel/excel.dart';
 import 'package:file_saver/file_saver.dart';
 import '../core/hierarchy_order.dart';
+import '../core/multiempresa_sync.dart';
 import '../widgets/internal_module_layout.dart';
 import 'personnel_access_picker.dart';
 import 'personnel_requisition_service.dart'
@@ -128,6 +129,9 @@ class _OrganizationalStructureScreenState
 
   /// Caché de datos de TBL_USUARIOS, keyed por cédula.
   Map<String, _UserInfo> _userCache = {};
+
+  /// Cédulas con esta empresa apagada en TBL_USUARIOS (trasladadas).
+  Set<String> _apagados = {};
   CargoHierarchyIndex _hierarchy = CargoHierarchyIndex.empty();
 
   /// Docs actuales del stream (para export).
@@ -202,12 +206,23 @@ class _OrganizationalStructureScreenState
     return mergeCompanyScopedData(raw, widget.empresaId);
   }
 
-  bool _orgBelongsToCompany(Map<String, dynamic> raw) {
-    return matchesEmpresaScope(
+  /// Quien se trasladó a otra empresa queda con esta empresa apagada
+  /// (`empresasDetalle.{empresa}.activo: false`): sigue en `empresas` para
+  /// conservar su historial, pero ya no es personal de aquí. No es un retiro,
+  /// así que tampoco sale en el filtro de inactivos.
+  bool _orgBelongsToCompany(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final raw = doc.data() ?? const <String, dynamic>{};
+    if (!matchesEmpresaScope(
       raw,
       widget.empresaId,
       allowLegacyWithoutEmpresa: false,
-    );
+    )) {
+      return false;
+    }
+    if (getUserCompanyDetail(raw, widget.empresaId)?['activo'] == false) {
+      return false;
+    }
+    return !_apagados.contains(_orgCedula(doc));
   }
 
   Future<void> _loadUserCache() async {
@@ -231,6 +246,7 @@ class _OrganizationalStructureScreenState
     }
 
     final cache = <String, _UserInfo>{};
+    final apagados = <String>{};
     for (final doc in allDocs) {
       final data = doc.data();
 
@@ -239,6 +255,11 @@ class _OrganizationalStructureScreenState
           ((data['empresasDetalle'] as Map<String, dynamic>?)?[widget.empresaId]
               as Map<String, dynamic>?) ??
           {};
+      if (detalle['activo'] == false) {
+        apagados.add(doc.id);
+        final ced = (data['cedula'] as String?)?.trim() ?? '';
+        if (ced.isNotEmpty) apagados.add(ced);
+      }
 
       // Helper: lee campo de detalle primero, luego raíz
       String _r(String key) {
@@ -307,7 +328,12 @@ class _OrganizationalStructureScreenState
       if (cedula.isNotEmpty && cedula != doc.id) cache[cedula] = info;
     }
 
-    if (mounted) setState(() => _userCache = cache);
+    if (mounted) {
+      setState(() {
+        _userCache = cache;
+        _apagados = apagados;
+      });
+    }
   }
 
   // ── Helpers de nombre ─────────────────────────────────────────────────────
@@ -430,6 +456,39 @@ class _OrganizationalStructureScreenState
         : all.where(matchesTerm).toList();
     result.sort((a, b) => a['nombre']!.compareTo(b['nombre']!));
     return result;
+  }
+
+  /// Ids de catálogo de esta empresa para un área y un cargo escritos por
+  /// nombre. Vacío si el nombre no está en el catálogo (así no queda el id
+  /// de un cargo anterior pegado a un nombre nuevo).
+  Future<({String areaId, String cargoId})> _enlacesCatalogo({
+    required String area,
+    required String cargo,
+  }) async {
+    final fs = FirebaseFirestore.instance;
+    final res = await Future.wait([
+      fs
+          .collection(_areasCollection)
+          .where('empresaId', isEqualTo: widget.empresaId)
+          .get(),
+      fs
+          .collection(_cargosCollection)
+          .where('empresaId', isEqualTo: widget.empresaId)
+          .get(),
+    ]);
+    final catalogo = CatalogoEmpresa.agrupar(
+      empresas: [widget.empresaId],
+      areas: [for (final d in res[0].docs) (id: d.id, data: d.data())],
+      cargos: [for (final d in res[1].docs) (id: d.id, data: d.data())],
+    )[widget.empresaId]!;
+    return (
+      areaId: area.isEmpty
+          ? ''
+          : catalogo.porNombre(TipoCatalogo.area, area)?.id ?? '',
+      cargoId: cargo.isEmpty
+          ? ''
+          : catalogo.porNombre(TipoCatalogo.cargo, cargo)?.id ?? '',
+    );
   }
 
   /// Todos los cargos de TBL_CARGOS
@@ -1072,6 +1131,12 @@ class _OrganizationalStructureScreenState
     final userMap = <String, Map<String, dynamic>>{};
     final userDocIds = <String>{}; // solo IDs canónicos de documento
     for (final d in [...usrSnap1.docs, ...usrSnap2.docs]) {
+      // Con esta empresa apagada (trasladada a otra) ya no ocupa cargos ni
+      // áreas aquí: se queda fuera de los ocupantes que se recalculan.
+      if (getUserCompanyDetail(d.data(), widget.empresaId)?['activo'] ==
+          false) {
+        continue;
+      }
       if (userDocIds.add(d.id)) {
         userMap[d.id] = d.data();
         final ced = (d.data()['cedula'] as String?)?.trim() ?? '';
@@ -1098,6 +1163,13 @@ class _OrganizationalStructureScreenState
           {};
       final d = (detalle[key] as String?)?.trim() ?? '';
       if (d.isNotEmpty) return d;
+      // La raíz es de la empresa principal. Copiarla al bloque de otra
+      // empresa era lo que dejaba a la persona con el cargo, el área o los
+      // centros de la principal en todas sus empresas. El correo sí es de la
+      // persona y vale en todas.
+      if (key != 'correo' && !raizEsDeEmpresa(data, widget.empresaId)) {
+        return '';
+      }
       return (data[key] as String?)?.trim() ?? '';
     }
 
@@ -1115,6 +1187,7 @@ class _OrganizationalStructureScreenState
         legacySingle: legacyKey.isEmpty ? null : detalle[legacyKey],
       );
       if (scoped.isNotEmpty) return scoped;
+      if (!raizEsDeEmpresa(data, widget.empresaId)) return <String>{};
       return resolvePersonnelAssignmentIds(
         multiple: data[key],
         legacySingle: legacyKey.isEmpty ? null : data[legacyKey],
@@ -1183,7 +1256,7 @@ class _OrganizationalStructureScreenState
       final centroCodigo = _usrField(data, 'centroCodigo').isNotEmpty
           ? _usrField(data, 'centroCodigo')
           : _usrField(data, 'centroId');
-      return <String, dynamic>{
+      final scope = <String, dynamic>{
         'nombre': _buildNombre(data),
         'area': area,
         'areaNombre': area,
@@ -1213,6 +1286,13 @@ class _OrganizationalStructureScreenState
         ).toList(),
         'gruposInterventoria': userSet(data, 'gruposInterventoria').toList(),
       };
+      // En una empresa que no es la principal, una lista vacía es "no hay
+      // dato propio", no "quitar todo": no vacía lo que ya tenga la
+      // estructura de esa empresa.
+      if (!raizEsDeEmpresa(data, widget.empresaId)) {
+        scope.removeWhere((_, v) => v is List && v.isEmpty);
+      }
+      return scope;
     }
 
     // 0) Asegurar un único documento global por cédula con un bloque
@@ -2293,11 +2373,20 @@ class _OrganizationalStructureScreenState
                 final docRef = FirebaseFirestore.instance
                     .collection(_orgCollection)
                     .doc(id);
+                // Área y cargo se guardan con su id del catálogo de ESTA
+                // empresa. Sin id, el que quedaba era el de antes (a veces
+                // de otra empresa) y cada módulo mostraba un cargo distinto.
+                final enlaces = await _enlacesCatalogo(
+                  area: ctrArea.text.trim(),
+                  cargo: ctrCargo.text.trim(),
+                );
                 final payload = <String, dynamic>{
                   'nombre': ctrName.text.trim(),
                   'area': ctrArea.text.trim(),
                   'areaNombre': ctrArea.text.trim(),
+                  'areaId': enlaces.areaId,
                   'cargo': ctrCargo.text.trim(),
+                  'cargoId': enlaces.cargoId,
                   'jefe_cargo': selectedBossCode,
                   'jefe_cargo_desc': ctrBossCargo.text.trim(),
                   'cargoJefe': ctrBossCargo.text.trim(),
@@ -2369,7 +2458,9 @@ class _OrganizationalStructureScreenState
                 const scopedKeys = [
                   'area',
                   'areaNombre',
+                  'areaId',
                   'cargo',
+                  'cargoId',
                   'correo',
                   'jefeId',
                   'jefeNombre',
@@ -2459,7 +2550,9 @@ class _OrganizationalStructureScreenState
                     'nombres': ctrName.text.trim(),
                     'correo': ctrMail.text.trim(),
                     'areaNombre': ctrArea.text.trim(),
+                    'areaId': enlaces.areaId,
                     'cargoNombre': ctrCargo.text.trim(),
+                    'cargoId': enlaces.cargoId,
                     'centroId': centroIdGuardado,
                     'centroCostos': centroNombreGuardado,
                     'centrosOperacionIds': operacionIds,
@@ -3008,7 +3101,7 @@ class _OrganizationalStructureScreenState
                   // Personal completo de la empresa (sin filtros de vista):
                   // lo usa el selector de jefe directo del formulario.
                   _companyDocs = snap.data!.docs
-                      .where((d) => _orgBelongsToCompany(d.data()))
+                      .where(_orgBelongsToCompany)
                       .toList();
                   final docs =
                       _companyDocs.where((d) {

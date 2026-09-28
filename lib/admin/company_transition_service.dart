@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../core/multiempresa_sync.dart' show claveCatalogo;
 import '../utils/user_company.dart';
 
 class CompanyTransitionResult {
@@ -22,6 +23,11 @@ class CompanyTransitionResult {
     this.keptBothActive = 0,
     this.sourceTurnedOff = 0,
   });
+}
+
+String _nombreCatalogo(Map<String, dynamic> data) {
+  final nombre = (data['nombre'] ?? '').toString().trim();
+  return nombre.isNotEmpty ? nombre : (data['descripcion'] ?? '').toString();
 }
 
 /// Crea la nueva razón social y traslada a sus empleados.
@@ -48,10 +54,25 @@ class CompanyTransitionService {
     Map<String, String> centroMap = const {},
     Map<String, String> areaMap = const {},
   }) async {
-    final source = await _db
-        .collection(collection)
-        .where('empresaId', isEqualTo: sourceEmpresaId)
-        .get();
+    final res = await Future.wait([
+      _db
+          .collection(collection)
+          .where('empresaId', isEqualTo: sourceEmpresaId)
+          .get(),
+      _db
+          .collection(collection)
+          .where('empresaId', isEqualTo: targetEmpresaId)
+          .get(),
+    ]);
+    final source = res[0];
+    // Lo que el destino ya tiene con el mismo nombre se reutiliza. Antes se
+    // copiaba igual con otro id y la empresa quedaba con "Auxiliar de
+    // cocina" dos veces: la mitad del personal en uno y la mitad en el otro.
+    final existentes = <String, String>{
+      for (final d in res[1].docs)
+        if (claveCatalogo(_nombreCatalogo(d.data())).isNotEmpty)
+          claveCatalogo(_nombreCatalogo(d.data())): d.id,
+    };
     final ids = <String, String>{};
     WriteBatch? batch;
     var writes = 0;
@@ -59,8 +80,17 @@ class CompanyTransitionService {
       final data = doc.data();
       final sourceId = (data[idField] ?? doc.id).toString().trim();
       if (sourceId.isEmpty) continue;
+      final yaExiste = existentes[claveCatalogo(_nombreCatalogo(data))];
+      if (yaExiste != null) {
+        ids[sourceId] = yaExiste;
+        if (doc.id != sourceId) ids[doc.id] = yaExiste;
+        continue;
+      }
       final targetId = '${targetEmpresaId}_$sourceId';
       ids[sourceId] = targetId;
+      if (doc.id != sourceId) ids[doc.id] = targetId;
+      final clave = claveCatalogo(_nombreCatalogo(data));
+      if (clave.isNotEmpty) existentes[clave] = targetId;
       batch ??= _db.batch();
       batch.set(_db.collection(collection).doc(targetId), {
         ...data,

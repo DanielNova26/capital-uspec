@@ -27,6 +27,7 @@ exports.thNotificarCitacionDescargos = exports.thNotificarPlazosDisciplinarios =
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 const whatsapp_1 = require("./whatsapp");
+const apps_por_empresa_1 = require("./apps_por_empresa");
 /**
  * Alertas de los plazos del proceso disciplinario.
  *
@@ -118,18 +119,8 @@ async function talentoHumanoTeam(empresaId) {
     const recipients = new Set();
     for (const document of [...byArray.docs, ...byField.docs]) {
         const data = document.data();
-        const apps = [];
-        if (Array.isArray(data.apps))
-            apps.push(...data.apps);
-        const detail = data.empresasDetalle;
-        if (detail && typeof detail === "object") {
-            const scoped = detail[empresaId];
-            if (scoped && typeof scoped === "object") {
-                const scopedApps = scoped.apps;
-                if (Array.isArray(scopedApps))
-                    apps.push(...scopedApps);
-            }
-        }
+        // Talento Humano de ESTA empresa (misma regla que la app).
+        const apps = (0, apps_por_empresa_1.appsDeEmpresa)(data, empresaId);
         if (apps.some(isTalentoHumanoApp))
             recipients.add(document.id);
     }

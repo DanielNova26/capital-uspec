@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:todo/state/empresa_scope.dart';
 import 'package:todo/utils/task_status.dart';
+import 'package:todo/utils/user_company.dart';
 import 'package:todo/widgets/empty_state_widget.dart';
 import 'package:todo/widgets/skeleton_loader.dart';
 import 'package:todo/widgets/task_filters_panel.dart';
@@ -88,10 +89,23 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
           .collection('TBL_CARGOS')
           .where('empresaId', isEqualTo: empresaId)
           .get();
-      final usersSnap = await FirebaseFirestore.instance
-          .collection('TBL_USUARIOS')
-          .where('empresaId', isEqualTo: empresaId)
-          .get();
+      // Quien tiene esta empresa como secundaria no la lleva en `empresaId`
+      // raíz: sin la consulta por `empresas` su cargo y área no aparecían.
+      final usuarios = <String, Map<String, dynamic>>{};
+      for (final snap in await Future.wait([
+        FirebaseFirestore.instance
+            .collection('TBL_USUARIOS')
+            .where('empresaId', isEqualTo: empresaId)
+            .get(),
+        FirebaseFirestore.instance
+            .collection('TBL_USUARIOS')
+            .where('empresas', arrayContains: empresaId)
+            .get(),
+      ])) {
+        for (final d in snap.docs) {
+          usuarios[d.id] = d.data();
+        }
+      }
 
       if (!mounted) return;
       setState(() {
@@ -114,14 +128,26 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
             d.id: (d.data()['nombre'] ?? d.data()['descripcion'] ?? d.id)
                 .toString(),
         };
+        // El puesto de cada persona EN esta empresa, no el de su principal.
         _userMeta = {
-          for (final d in usersSnap.docs)
-            d.id: {
-              'area': (d.data()['area'] ?? '').toString().trim(),
-              'cargo': (d.data()['cargo'] ?? '').toString().trim(),
-              'areaId': (d.data()['areaId'] ?? '').toString().trim(),
-              'cargoId': (d.data()['cargoId'] ?? '').toString().trim(),
-            },
+          for (final e in usuarios.entries)
+            e.key: () {
+              final u = mergeCompanyScopedData(e.value, empresaId);
+              String t(List<String> keys) {
+                for (final k in keys) {
+                  final v = (u[k] ?? '').toString().trim();
+                  if (v.isNotEmpty) return v;
+                }
+                return '';
+              }
+
+              return {
+                'area': t(const ['area', 'areaNombre']),
+                'cargo': t(const ['cargo', 'cargoNombre']),
+                'areaId': t(const ['areaId']),
+                'cargoId': t(const ['cargoId']),
+              };
+            }(),
         };
       });
     } catch (_) {}

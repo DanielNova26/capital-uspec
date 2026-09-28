@@ -1,0 +1,175 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:todo/core/empresa_resolver.dart';
+import 'package:todo/core/org_context_resolver.dart';
+import 'package:todo/core/task_permissions.dart';
+import 'package:todo/utils/user_company.dart';
+
+/// Persona de A (principal) que también trabaja en B. La raíz es la copia
+/// de A. En B solo tiene escrito el cargo: el área, el centro y el jefe de B
+/// no existen, y NO deben salir los de A.
+Map<String, dynamic> _persona() => {
+  'empresaId': 'A',
+  'empresas': ['A', 'B'],
+  'nombres': 'Ana',
+  'correo': 'ana@x.co',
+  'cargo': 'Gerente general',
+  'cargoId': 'A_gerente',
+  'area': 'Gerencia',
+  'areaId': 'A_gerencia',
+  'centroId': 'A_2001',
+  'centroCostos': 'Cómbita',
+  'centrosOperacionIds': ['A_2001'],
+  'jefeId': '999',
+  'empresasDetalle': {
+    'A': {'cargo': 'Gerente general', 'areaId': 'A_gerencia'},
+    'B': {'cargo': 'Auxiliar de cocina'},
+  },
+};
+
+void main() {
+  group('raizEsDeEmpresa', () {
+    test('la raíz es de la principal', () {
+      expect(raizEsDeEmpresa(_persona(), 'A'), isTrue);
+      expect(raizEsDeEmpresa(_persona(), 'B'), isFalse);
+    });
+
+    test('sin principal: vale con una sola empresa o ninguna', () {
+      expect(
+        raizEsDeEmpresa({
+          'empresas': ['A'],
+        }, 'A'),
+        isTrue,
+      );
+      expect(
+        raizEsDeEmpresa({
+          'empresas': ['A', 'B'],
+        }, 'A'),
+        isFalse,
+      );
+      expect(raizEsDeEmpresa({'cargo': 'X'}, 'A'), isTrue);
+    });
+  });
+
+  group('mergeCompanyScopedData', () {
+    test('en otra empresa no hereda el puesto de la principal', () {
+      final b = mergeCompanyScopedData(_persona(), 'B');
+      expect(b['cargo'], 'Auxiliar de cocina');
+      for (final k in [
+        'area',
+        'areaId',
+        'cargoId',
+        'centroId',
+        'centroCostos',
+        'centrosOperacionIds',
+        'jefeId',
+      ]) {
+        expect(b.containsKey(k), isFalse, reason: k);
+      }
+      // Lo que es de la persona sí se conserva.
+      expect(b['nombres'], 'Ana');
+      expect(b['correo'], 'ana@x.co');
+    });
+
+    test('en la principal la raíz completa lo que falte', () {
+      final a = mergeCompanyScopedData(_persona(), 'A');
+      expect(a['centroCostos'], 'Cómbita');
+      expect(a['cargo'], 'Gerente general');
+    });
+
+    test('sin empresa no se toca nada', () {
+      expect(mergeCompanyScopedData(_persona(), null)['area'], 'Gerencia');
+    });
+  });
+
+  test('resolveScopedStringWithFallbacks respeta la regla', () {
+    String area(String empresa) => resolveScopedStringWithFallbacks(
+      _persona(),
+      empresa,
+      const ['area'],
+      const ['area'],
+    );
+    expect(area('A'), 'Gerencia');
+    expect(area('B'), '');
+    // El correo es de la persona: vale en cualquier empresa.
+    expect(
+      resolveScopedStringWithFallbacks(_persona(), 'B', const [
+        'correo',
+      ], const ['correo']),
+      'ana@x.co',
+    );
+  });
+
+  test('OrgContextResolver no completa B con la raíz de A', () {
+    final b = const OrgContextResolver().resolve(
+      userData: _persona(),
+      empresaId: 'B',
+    );
+    expect(b.cargoNombre, 'Auxiliar de cocina');
+    expect(b.areaId, isNull);
+    expect(b.centroId, isNull);
+    final a = const OrgContextResolver().resolve(
+      userData: _persona(),
+      empresaId: 'A',
+    );
+    expect(a.centroCostos, 'Cómbita');
+  });
+
+  test('EmpresaResolver no usa la raíz para otra empresa', () {
+    final sinBloque = {..._persona()}..remove('empresasDetalle');
+    final r = const EmpresaResolver().resolveDetalle(
+      userData: sinBloque,
+      empresaId: 'B',
+    );
+    expect(r.detail, isNull);
+    expect(
+      const EmpresaResolver()
+          .resolveDetalle(userData: sinBloque, empresaId: 'A')
+          .detail?['cargo'],
+      'Gerente general',
+    );
+  });
+
+  group('empresa apagada por un traslado', () {
+    Map<String, dynamic> trasladada() => {
+      ..._persona(),
+      'empresaId': 'B',
+      'ultimaEmpresaId': 'A',
+      'empresasDetalle': {
+        'A': {'cargo': 'Gerente general', 'activo': false, 'trasladadoA': 'B'},
+        'B': {'cargo': 'Auxiliar de cocina', 'activo': true},
+      },
+    };
+
+    test('no se ofrece para entrar, pero sigue siendo membresía', () {
+      expect(empresasSeleccionables(trasladada()), ['B']);
+      expect(extractUserEmpresaIds(trasladada()), ['A', 'B']);
+    });
+
+    test('una sesión guardada en la apagada cae a la abierta', () {
+      expect(
+        resolveValidEmpresaId(
+          data: trasladada(),
+          selectedEmpresaId: 'A',
+          preferredEmpresaId: 'A',
+        ),
+        'B',
+      );
+    });
+
+    test('si todas están apagadas no deja a nadie sin empresa', () {
+      final todas = {
+        ...trasladada(),
+        'empresasDetalle': {
+          'A': {'activo': false},
+          'B': {'activo': false},
+        },
+      };
+      expect(empresasSeleccionables(todas), ['A', 'B']);
+    });
+  });
+
+  test('ser Gerente en A no da todas las áreas en B', () {
+    expect(canCreateTasksAcrossAreas(_persona(), empresaId: 'A'), isTrue);
+    expect(canCreateTasksAcrossAreas(_persona(), empresaId: 'B'), isFalse);
+  });
+}
