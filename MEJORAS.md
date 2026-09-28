@@ -49,10 +49,12 @@ Versión 2.6.9 (23).
 ### Despliegue
 - `firebase deploy --only functions:visitasBuscarLugar,hosting`. Las reglas
   no cambian.
-- La clave de servidor sale de `VISITAS_GOOGLE_API_KEY` o
-  `MOVILIDAD_GOOGLE_API_KEY` (en `functions/.env`), o de la configuración de
-  Movilidad de la empresa. En Google Cloud debe tener habilitada
-  **Places API (New)**.
+- La clave es **la misma de Rutas**, en el mismo orden que usa Rutas: la de
+  la empresa (Rutas > Estudio movilidad > Programación) y si no,
+  `MOVILIDAD_GOOGLE_API_KEY` del backend. `VISITAS_GOOGLE_API_KEY` solo si se
+  quiere una aparte. En Google Cloud esa clave debe tener habilitada también
+  **Places API (New)** (Rutas usa Routes API), y agregarla a sus
+  restricciones de API si las tiene.
 
 ### Pruebas
 - `test/visitas/visitas_ubicaciones_test.dart`: buscar y elegir el lugar,

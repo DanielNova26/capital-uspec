@@ -9,10 +9,11 @@
 //
 // Se hace desde el backend para que funcione igual en web y en móvil y la
 // clave no viaje en la app. Usa Places API (New), Text Search. La clave es la
-// de Google Maps Platform del servidor: `VISITAS_GOOGLE_API_KEY` o, si no está,
-// la misma del estudio de movilidad (`MOVILIDAD_GOOGLE_API_KEY` o la de la
-// configuración de la empresa). Esa clave necesita "Places API (New)"
-// habilitada.
+// misma de Rutas (Estudio movilidad), en el mismo orden que usa Rutas: la de
+// la empresa (Rutas > Estudio movilidad > Programación) y si no, la del
+// backend (`MOVILIDAD_GOOGLE_API_KEY`). `VISITAS_GOOGLE_API_KEY` solo hace
+// falta si se quiere una clave aparte para Visitas. Esa clave necesita
+// "Places API (New)" habilitada, además de la Routes API que ya usa Rutas.
 //
 // Solo Desarrollo y Gerencia: son quienes cargan el maestro de ubicaciones,
 // igual que exigen las reglas de TBL_VISITAS_UBICACIONES.
@@ -42,6 +43,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.visitasBuscarLugar = void 0;
 exports.lugaresDesdeRespuesta = lugaresDesdeRespuesta;
+exports.primeraClave = primeraClave;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 const visitas_cleanup_1 = require("./visitas_cleanup");
@@ -92,27 +94,37 @@ function lugaresDesdeRespuesta(body) {
     return out;
 }
 /**
- * La clave de Google del servidor: la propia de Visitas, la del estudio de
- * movilidad del backend o la guardada en la configuración de la empresa.
+ * La primera clave con contenido, en el orden en que se pasan.
+ * @param {unknown[]} candidatas Claves posibles, de la que manda a la última.
+ * @return {string} La clave, o vacío si no hay ninguna.
+ */
+function primeraClave(...candidatas) {
+    for (const c of candidatas) {
+        const v = typeof c === "string" ? c.trim() : "";
+        if (v.length > 0)
+            return v;
+    }
+    return "";
+}
+/**
+ * La clave de Google del servidor, la misma de Rutas: una propia de Visitas
+ * si se configuró, si no la de la empresa en el estudio de movilidad y por
+ * último la del backend.
  * @param {string} empresaId Empresa activa.
  * @return {Promise<string>} La clave, o vacío si no hay ninguna.
  */
 async function claveGoogle(empresaId) {
-    const env = [
-        process.env.VISITAS_GOOGLE_API_KEY,
-        process.env.MOVILIDAD_GOOGLE_API_KEY,
-    ].map((v) => (v ?? "").trim()).find((v) => v.length > 0);
-    if (env)
-        return env;
+    let config = {};
     try {
         const snap = await admin.firestore()
             .collection("TBL_RUTAS_MOV_CONFIG").doc(empresaId).get();
-        const d = snap.data() ?? {};
-        return String(d.apiKeyGoogle ?? d.apiKey ?? "").trim();
+        config = snap.data() ?? {};
     }
     catch (_) {
-        return "";
+        // Sin la configuración de Rutas se sigue con la del backend.
     }
+    // 'apiKey' es el nombre viejo de la clave de Google en Rutas.
+    return primeraClave(process.env.VISITAS_GOOGLE_API_KEY, config.apiKeyGoogle, config.apiKey, process.env.MOVILIDAD_GOOGLE_API_KEY);
 }
 exports.visitasBuscarLugar = functions.region(REGION)
     .runWith({ timeoutSeconds: 30, memory: "256MB" })
@@ -128,8 +140,9 @@ exports.visitasBuscarLugar = functions.region(REGION)
     }
     const clave = await claveGoogle(empresaId);
     if (!clave) {
-        throw new functions.https.HttpsError("failed-precondition", "No hay clave de Google Maps en el servidor. Configura " +
-            "VISITAS_GOOGLE_API_KEY en las funciones (o la del estudio de movilidad).");
+        throw new functions.https.HttpsError("failed-precondition", "No hay clave de Google Maps. Se usa la misma de Rutas: guárdala en " +
+            "Rutas > Estudio movilidad > Programación (o " +
+            "MOVILIDAD_GOOGLE_API_KEY en las funciones).");
     }
     const lat = Number(raw.lat);
     const lng = Number(raw.lng);
@@ -166,8 +179,9 @@ exports.visitasBuscarLugar = functions.region(REGION)
         const msg = (json.error?.message ?? "")
             .toString();
         console.warn("[visitasBuscarLugar]", res.status, msg);
-        throw new functions.https.HttpsError("failed-precondition", `Google rechazó la búsqueda (${res.status}). Revisa que la clave ` +
-            `tenga habilitada "Places API (New)". ${msg}`.trim());
+        throw new functions.https.HttpsError("failed-precondition", `Google rechazó la búsqueda (${res.status}). La clave de Rutas ` +
+            "necesita también \"Places API (New)\" habilitada en Google Cloud " +
+            `(y en sus restricciones de API, si las tiene). ${msg}`.trim());
     }
     return { lugares: lugaresDesdeRespuesta(json) };
 });

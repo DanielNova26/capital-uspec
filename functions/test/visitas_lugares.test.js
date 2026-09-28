@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const {lugaresDesdeRespuesta} = require("../lib/visitas_lugares");
+const {lugaresDesdeRespuesta, primeraClave} = require("../lib/visitas_lugares");
 
 test("Places (New): nombre, dirección, coordenadas y ciudad", () => {
   const lugares = lugaresDesdeRespuesta({
@@ -45,4 +45,16 @@ test("sin resultados o respuesta rara: lista vacía", () => {
   assert.deepEqual(lugaresDesdeRespuesta({}), []);
   assert.deepEqual(lugaresDesdeRespuesta(null), []);
   assert.deepEqual(lugaresDesdeRespuesta({places: "no"}), []);
+});
+
+test("clave: la misma de Rutas, en el orden de Rutas", () => {
+  // Visitas propia (opcional) > empresa en Rutas > nombre viejo > backend.
+  assert.equal(primeraClave(undefined, " k-empresa ", "k-vieja", "k-env"),
+    "k-empresa");
+  assert.equal(primeraClave("", "", "k-vieja", "k-env"), "k-vieja");
+  assert.equal(primeraClave(undefined, undefined, undefined, "k-env"), "k-env");
+  assert.equal(primeraClave("k-visitas", "k-empresa", "", "k-env"),
+    "k-visitas");
+  // Algo que no es texto no cuenta como clave.
+  assert.equal(primeraClave(123, null, {}, "  "), "");
 });
