@@ -926,36 +926,298 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ── Rutas (28 sep 2026) ───────────────────────────────────────────────
+    // Estaba entero en la regla general: cualquiera con sesión, de cualquier
+    // empresa, podía darse el rol de administrador, leer las claves de Google
+    // y TomTom del estudio de movilidad o la ubicación en vivo de los
+    // conductores. Ahora va por empresa y por rol.
+    //
+    // Roles en `TBL_RUTAS_ROLES/{empresa}_{usuario}` (el id que escriben
+    // Administración y `RutasService.guardarRol`): conductor, calidad, admin,
+    // admin_calidad y desarrollador, el perfil que prueba todos. Espejo de
+    // `RutasDashboardScreen`: el desarrollador de la app entra a todo.
+    //
+    // Lo que no es sensible (rutas, establecimientos, placas, configuración,
+    // asignaciones y la lista de roles) lo lee cualquiera de la empresa:
+    // Administración carga los roles de todos los módulos y Talento Humano
+    // cierra las asignaciones de quien inhabilita.
+    function rolRutas(empresaId) {
+      let path = /databases/$(database)/documents/TBL_RUTAS_ROLES/$(empresaId + '_' + request.auth.token.userDocId);
+      return exists(path) ? estadoTexto(get(path).data.get('rol', '')) : '';
+    }
+
+    function rutasConRol(empresaId, roles) {
+      return belongsToCompany(empresaId)
+        && (rolRutas(empresaId) in roles
+          || isDeveloper() || isDeveloperIn(empresaId));
+    }
+
+    function participaEnRutas(empresaId) {
+      return rutasConRol(empresaId, ['conductor', 'calidad', 'admin',
+        'admin_calidad', 'desarrollador', 'developer']);
+    }
+
+    function administraRutas(empresaId) {
+      return rutasConRol(empresaId,
+        ['admin', 'admin_calidad', 'desarrollador', 'developer']);
+    }
+
+    function revisaRutas(empresaId) {
+      return rutasConRol(empresaId,
+        ['calidad', 'admin_calidad', 'desarrollador', 'developer']);
+    }
+
+    function conduceRutas(empresaId) {
+      return rutasConRol(empresaId, ['conductor', 'desarrollador', 'developer']);
+    }
+
+    // Borrar evidencias y limpiar el historial: solo el perfil de desarrollo.
+    function desarrolloRutas(empresaId) {
+      return rutasConRol(empresaId, ['desarrollador', 'developer']);
+    }
+
+    // Desarrollo asigna cualquier rol. El administrador de Rutas asigna los
+    // demás, a otras personas: no se cambia a sí mismo ni da o quita el
+    // perfil de desarrollador. [antes] y [despues] son el rol que tenía y el
+    // que queda (iguales al crear o borrar): la empresa se mira una sola vez.
+    function asignaRolRutas(empresaId, userId, antes, despues) {
+      return belongsToCompany(empresaId)
+        && ((userId != request.auth.token.userDocId
+            && !(antes in ['desarrollador', 'developer'])
+            && !(despues in ['desarrollador', 'developer'])
+            && rolRutas(empresaId) in ['admin', 'admin_calidad'])
+          || isDeveloper() || isDeveloperIn(empresaId));
+    }
+
+    function empresaSeConserva() {
+      return resource.data.empresaId == request.resource.data.empresaId;
+    }
+
+    match /TBL_RUTAS_ROLES/{docId} {
+      allow get: if resource == null || belongsToCompany(resource.data.empresaId);
+      allow list: if belongsToCompany(resource.data.empresaId);
+      allow create: if docId == request.resource.data.empresaId + '_'
+          + request.resource.data.userId
+        && request.resource.data.rol in ['conductor', 'calidad', 'admin',
+          'admin_calidad', 'desarrollador']
+        && asignaRolRutas(request.resource.data.empresaId,
+          request.resource.data.userId, request.resource.data.rol,
+          request.resource.data.rol);
+      allow update: if empresaSeConserva()
+        && resource.data.get('userId', '') == request.resource.data.userId
+        && request.resource.data.rol in ['conductor', 'calidad', 'admin',
+          'admin_calidad', 'desarrollador']
+        && asignaRolRutas(resource.data.empresaId, request.resource.data.userId,
+          resource.data.get('rol', ''), request.resource.data.rol);
+      allow delete: if asignaRolRutas(resource.data.empresaId,
+        resource.data.get('userId', ''), resource.data.get('rol', ''),
+        resource.data.get('rol', ''));
+    }
+
+    // Catálogos de Administración de Rutas. `get` de un id que no existe:
+    // la importación desde Excel pregunta por el id antes de crearlo.
+    match /TBL_RUTAS/{docId} {
+      allow get: if resource == null || belongsToCompany(resource.data.empresaId);
+      allow list: if belongsToCompany(resource.data.empresaId);
+      allow create: if administraRutas(request.resource.data.empresaId);
+      allow update: if empresaSeConserva()
+        && administraRutas(resource.data.empresaId);
+      allow delete: if administraRutas(resource.data.empresaId);
+    }
+
+    match /TBL_RUTAS_ESTABLECIMIENTOS/{docId} {
+      allow get: if resource == null || belongsToCompany(resource.data.empresaId);
+      allow list: if belongsToCompany(resource.data.empresaId);
+      allow create: if administraRutas(request.resource.data.empresaId);
+      allow update: if empresaSeConserva()
+        && administraRutas(resource.data.empresaId);
+      allow delete: if administraRutas(resource.data.empresaId);
+    }
+
+    match /TBL_RUTAS_PLACAS/{docId} {
+      allow get: if resource == null || belongsToCompany(resource.data.empresaId);
+      allow list: if belongsToCompany(resource.data.empresaId);
+      allow create: if administraRutas(request.resource.data.empresaId);
+      allow update: if empresaSeConserva()
+        && administraRutas(resource.data.empresaId);
+      allow delete: if false;
+    }
+
+    // Configuración (docId = empresa). La crea con valores por defecto quien
+    // habilita el módulo en Administración; la cambia Administración de Rutas.
+    match /TBL_RUTAS_CONFIG/{empresaId} {
+      allow get: if resource == null || belongsToCompany(empresaId);
+      allow create: if belongsToCompany(empresaId)
+        && request.resource.data.empresaId == empresaId;
+      allow update: if request.resource.data.empresaId == empresaId
+        && administraRutas(empresaId);
+      allow delete: if false;
+    }
+
+    // Asignaciones: las abre y releva Administración de Rutas. Talento
+    // Humano, al inhabilitar a alguien, cierra su asignación o retira al
+    // ayudante (`PersonnelStatusService.changeStatus`); quien lo hace no
+    // tiene por qué tener rol en Rutas, así que ese cierre, y solo ese, lo
+    // puede escribir cualquiera de la empresa. El histórico no se borra.
+    function cierreDeAsignacionPorRetiro() {
+      let cambios = request.resource.data.diff(resource.data).affectedKeys();
+      let d = request.resource.data;
+      return (d.activa == false
+          && d.get('cerradaPor', '') == 'inhabilitacion_talento_humano'
+          && cambios.hasOnly(['activa', 'vigenteHasta', 'cerradaPor',
+            'cerradaCedula']))
+        || (d.get('ayudanteCedula', '') == ''
+          && d.get('ayudanteRetiradoPor', '') == 'inhabilitacion_talento_humano'
+          && cambios.hasOnly(['ayudanteCedula', 'ayudanteNombre',
+            'ayudanteRetiradoPor', 'ayudanteRetiradoAt']));
+    }
+
+    match /TBL_RUTAS_ASIGNACIONES/{docId} {
+      allow get: if resource == null || belongsToCompany(resource.data.empresaId);
+      allow list: if belongsToCompany(resource.data.empresaId);
+      allow create: if administraRutas(request.resource.data.empresaId);
+      allow update: if empresaSeConserva()
+        && ((cierreDeAsignacionPorRetiro()
+            && belongsToCompany(resource.data.empresaId))
+          || administraRutas(resource.data.empresaId));
+      allow delete: if false;
+    }
+
+    // Evidencias: fotos y ubicación de la entrega. Las ve quien tiene un rol
+    // en Rutas. El conductor sube la suya a su nombre, y solo repite la que
+    // Calidad rechazó; Calidad aprueba o rechaza sin tocar la foto.
+    function evidenciaDelConductor() {
+      return request.resource.data.estado == 'pendiente'
+        && request.resource.data.createdBy == request.auth.token.userDocId;
+    }
+
+    function revisionDeEvidencia() {
+      return request.resource.data.estado in ['aprobada', 'rechazada']
+        && request.resource.data.revisadoPor == request.auth.token.userDocId
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['estado', 'revisadoPor', 'revisadoEn', 'motivoRechazo']);
+    }
+
+    match /TBL_RUTAS_EVIDENCIAS/{docId} {
+      allow get: if resource == null || participaEnRutas(resource.data.empresaId);
+      allow list: if participaEnRutas(resource.data.empresaId);
+      allow create: if evidenciaDelConductor()
+        && conduceRutas(request.resource.data.empresaId);
+      allow update: if empresaSeConserva()
+        && ((resource.data.estado == 'rechazada'
+            && evidenciaDelConductor()
+            && conduceRutas(resource.data.empresaId))
+          || (revisionDeEvidencia() && revisaRutas(resource.data.empresaId)));
+      allow delete: if desarrolloRutas(resource.data.empresaId);
+    }
+
+    // Lo mantiene la Cloud Function `rutasResumenEvidencia`.
+    match /TBL_RUTAS_RESUMEN_DIARIO/{docId} {
+      allow get: if resource == null || participaEnRutas(resource.data.empresaId);
+      allow list: if participaEnRutas(resource.data.empresaId);
+      allow create, update: if false;
+      allow delete: if desarrolloRutas(resource.data.empresaId);
+    }
+
+    // Ubicación en vivo de cada conductor: la ve el centro de control
+    // (Administración de Rutas) y cada quien la suya. Se escribe solo la
+    // propia, en `{empresa}_{usuario}`.
+    match /TBL_RUTAS_UBICACIONES/{docId} {
+      allow get: if resource == null
+        || (resource.data.userId == request.auth.token.userDocId
+          && belongsToCompany(resource.data.empresaId))
+        || administraRutas(resource.data.empresaId);
+      allow list: if administraRutas(resource.data.empresaId);
+      allow create, update: if request.resource.data.userId == request.auth.token.userDocId
+        && docId == request.resource.data.empresaId + '_'
+          + request.auth.token.userDocId
+        && (resource == null || empresaSeConserva())
+        && participaEnRutas(request.resource.data.empresaId);
+      allow delete: if false;
+    }
+
+    // Estudio de movilidad: la configuración guarda las claves de Google y
+    // TomTom. Todo es de Administración de Rutas; las mediciones y corridas
+    // las escribe la Cloud Function.
+    match /TBL_RUTAS_MOV_CONFIG/{empresaId} {
+      allow get: if resource == null || administraRutas(empresaId);
+      allow create, update: if request.resource.data.empresaId == empresaId
+        && administraRutas(empresaId);
+      allow delete: if false;
+    }
+
+    match /TBL_RUTAS_MOV_HORARIOS/{docId} {
+      allow get: if resource == null || administraRutas(resource.data.empresaId);
+      allow list: if administraRutas(resource.data.empresaId);
+      allow create: if administraRutas(request.resource.data.empresaId);
+      allow update: if empresaSeConserva()
+        && administraRutas(resource.data.empresaId);
+      allow delete: if administraRutas(resource.data.empresaId);
+    }
+
+    match /TBL_RUTAS_MOV_MEDICIONES/{docId} {
+      allow get: if resource == null || administraRutas(resource.data.empresaId);
+      allow list: if administraRutas(resource.data.empresaId);
+      allow create, update: if false;
+      allow delete: if administraRutas(resource.data.empresaId);
+    }
+
+    match /TBL_RUTAS_MOV_RUNS/{docId} {
+      allow get: if resource == null || administraRutas(resource.data.empresaId);
+      allow list: if administraRutas(resource.data.empresaId);
+      allow create, update: if false;
+      allow delete: if administraRutas(resource.data.empresaId);
+    }
+
+    // Todo lo que no tiene regla propia. Las colecciones con regla propia se
+    // excluyen aquí: si no, esta regla las volvería a abrir (Firestore deja
+    // pasar si CUALQUIER regla que coincide lo permite). Una lista con `in`
+    // y no una cadena de `!=`: cuesta una sola expresión.
     match /{collection}/{document=**} {
       allow read, write: if isSignedIn()
-        && collection != 'TBL_WHATSAPP_CONFIG'
-        && collection != 'TBL_CORREO_LISTADOS'
-        && collection != 'TBL_GD_EXPEDIENTES'
-        && collection != 'TBL_INTERVENTORIA_VISITAS'
-        && collection != 'TBL_INTERVENTORIA_HALLAZGOS'
-        && collection != 'TBL_INTERVENTORIA_ROLES'
-        && collection != 'TBL_INTERVENTORIA_CONFIG'
-        && collection != 'TBL_INTERVENTORIA_SOLICITUDES_ELIMINACION'
-        && collection != 'TBL_VISITAS'
-        && collection != 'TBL_VISITAS_FORMATOS'
-        && collection != 'TBL_VISITAS_ROLES'
-        && collection != 'TBL_VISITAS_UBICACIONES'
-        && collection != 'TBL_VISITAS_GRUPOS'
-        && collection != 'TBL_CORREO_ROLES'
-        && collection != 'TBL_GD_TIPOS_DOCUMENTALES'
-        && collection != 'TBL_GD_EXPEDIENTES_EVENTOS'
-        && collection != 'TBL_GD_COLABORACION'
-        && collection != 'TBL_GD_VINCULOS'
-        && collection != 'TBL_GD_CONTADORES'
-        && collection != 'TBL_DIAN_TOKENS'
-        && collection != 'TBL_DIAN_TOKEN_ACCESOS'
-        && collection != 'TBL_DIAN_TOKEN_CONFIG'
-        && collection != 'TBL_AUTH_CREDENTIALS'
-        && collection != 'TBL_AUTH_LOGIN_ATTEMPTS'
-        && collection != 'TBL_AUTH_RECOVERY_CHALLENGES'
-        && collection != 'TBL_AUTH_ADMIN_AUDIT'
-        && collection != 'TBL_PAGOS_BENEFICIARIOS'
-        && collection != 'TBL_PAGOS_BENEFICIARIOS_CUENTA';
+        && !(collection in [
+          'TBL_WHATSAPP_CONFIG',
+          'TBL_CORREO_LISTADOS',
+          'TBL_GD_EXPEDIENTES',
+          'TBL_INTERVENTORIA_VISITAS',
+          'TBL_INTERVENTORIA_HALLAZGOS',
+          'TBL_INTERVENTORIA_ROLES',
+          'TBL_INTERVENTORIA_CONFIG',
+          'TBL_INTERVENTORIA_SOLICITUDES_ELIMINACION',
+          'TBL_VISITAS',
+          'TBL_VISITAS_FORMATOS',
+          'TBL_VISITAS_ROLES',
+          'TBL_VISITAS_UBICACIONES',
+          'TBL_VISITAS_GRUPOS',
+          'TBL_CORREO_ROLES',
+          'TBL_GD_TIPOS_DOCUMENTALES',
+          'TBL_GD_EXPEDIENTES_EVENTOS',
+          'TBL_GD_COLABORACION',
+          'TBL_GD_VINCULOS',
+          'TBL_GD_CONTADORES',
+          'TBL_DIAN_TOKENS',
+          'TBL_DIAN_TOKEN_ACCESOS',
+          'TBL_DIAN_TOKEN_CONFIG',
+          'TBL_AUTH_CREDENTIALS',
+          'TBL_AUTH_LOGIN_ATTEMPTS',
+          'TBL_AUTH_RECOVERY_CHALLENGES',
+          'TBL_AUTH_ADMIN_AUDIT',
+          'TBL_PAGOS_BENEFICIARIOS',
+          'TBL_PAGOS_BENEFICIARIOS_CUENTA',
+          'TBL_RUTAS',
+          'TBL_RUTAS_ROLES',
+          'TBL_RUTAS_ESTABLECIMIENTOS',
+          'TBL_RUTAS_PLACAS',
+          'TBL_RUTAS_CONFIG',
+          'TBL_RUTAS_ASIGNACIONES',
+          'TBL_RUTAS_EVIDENCIAS',
+          'TBL_RUTAS_RESUMEN_DIARIO',
+          'TBL_RUTAS_UBICACIONES',
+          'TBL_RUTAS_MOV_CONFIG',
+          'TBL_RUTAS_MOV_HORARIOS',
+          'TBL_RUTAS_MOV_MEDICIONES',
+          'TBL_RUTAS_MOV_RUNS'
+        ]);
     }
   }
 }

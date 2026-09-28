@@ -6,6 +6,70 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Rutas: reglas por empresa y por rol — 28 sep 2026 (Claude)
+
+Ronda "módulo por módulo" (Codex va con Correspondencia). Rutas estaba
+entero en la regla general, así que cualquiera con sesión, de cualquier
+empresa, podía:
+- darse el rol de administrador de Rutas (`TBL_RUTAS_ROLES`);
+- leer las claves de Google y TomTom del estudio de movilidad
+  (`TBL_RUTAS_MOV_CONFIG.apiKeyGoogle` / `apiKeyTomtom`);
+- ver la ubicación en vivo de los conductores y aprobar sus fotos.
+
+Solo cambian las reglas y la copia de roles al crear una empresa; las
+pantallas de Rutas no se tocaron.
+
+**Quién hace qué** (roles en `TBL_RUTAS_ROLES/{empresa}_{usuario}`; el
+desarrollador de la app y el rol `desarrollador` de Rutas entran a todo):
+- Roles: la lista la lee cualquiera de la empresa (Administración la carga).
+  Los asigna Desarrollo, o el administrador de Rutas a otras personas: no se
+  cambia a sí mismo ni da o quita "desarrollador".
+- Rutas, establecimientos, placas, configuración y asignaciones: los lee la
+  empresa, los escribe Administración de Rutas (`admin`, `admin_calidad`).
+  La configuración base la puede crear quien habilita el módulo.
+- Talento Humano, al inhabilitar, cierra la asignación del conductor o
+  retira al ayudante sin tener rol en Rutas: ese cierre exacto
+  (`cerradaPor` / `ayudanteRetiradoPor` = `inhabilitacion_talento_humano`)
+  lo puede escribir cualquiera de la empresa; nada más.
+- Evidencias y resumen diario: los ve quien tiene rol en Rutas. El
+  conductor sube la suya a su nombre, en pendiente, y repite solo la
+  rechazada. Calidad aprueba o rechaza sin tocar la foto. Borrar: solo el
+  perfil de desarrollo.
+- Ubicaciones: el centro de control (Administración) y cada conductor la
+  suya.
+- Estudio de movilidad (configuración con las claves, horarios, mediciones,
+  corridas): solo Administración de Rutas.
+
+**La copia de roles al crear una empresa usaba un id que las reglas no
+encuentran.** `CompanyTransitionService` copiaba los roles como
+`{nueva}_{origen}_{usuario}`; las reglas buscan `{empresa}_{usuario}`. Ya
+pasaba con Interventoría y Correo: la persona veía el rol en la pantalla y
+el servidor le negaba el permiso. Ahora usa `idRolEnEmpresa`
+(`test/admin/id_rol_en_empresa_test.dart`).
+
+**De paso:** la regla general excluía las colecciones con una cadena de 28
+`!=`; ahora es una lista con `in` (41 colecciones, con las de Rutas).
+
+**Antes de desplegar:**
+- En la consola, `TBL_RUTAS_ROLES`: los roles copiados por "Crear empresa y
+  trasladar" antes de este cambio tienen id `{nueva}_{origen}_{usuario}` y
+  dejan de dar permiso. Se arreglan volviendo a guardar el rol en
+  Administración (escribe `{empresa}_{usuario}`).
+- Asignar roles de Rutas desde Administración ahora exige ser Desarrollo o
+  administrador de Rutas, como ya pasaba con Interventoría.
+
+**Despliegue:** `firebase deploy --only firestore:rules`. La copia de
+roles es de la app: entra con la próxima publicación.
+
+**Pruebas:** `functions/test/rutas.rules.js` (11; contra las reglas
+anteriores fallan 10). Todas las de reglas: 71 aprobadas, 2 omitidas, y
+siguen pasando con la comprobación de habilitado duplicada a propósito
+(margen en el tope de 1000 expresiones). Flutter: 1.109 aprobadas.
+
+**Pendiente:** las fotos viven en Storage y sus reglas no están en el
+repositorio (se manejan en la consola); conviene revisarlas con el mismo
+criterio.
+
 ## Reglas de Firestore: el inhabilitado tampoco entra por la base — 28 sep 2026 (Claude)
 
 La app y Functions ya no dejaban entrar a un inhabilitado, pero las reglas no

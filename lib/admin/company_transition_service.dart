@@ -30,6 +30,28 @@ class CompanyTransitionResult {
   });
 }
 
+/// Id del rol de módulo copiado a la empresa nueva: `{empresa}_{usuario}`,
+/// el mismo que escribe Administración y el único donde las reglas de
+/// Firestore buscan el rol (Interventoría, Correo, Rutas). Antes se
+/// anteponía la empresa nueva al id viejo (`{nueva}_{origen}_{usuario}`) y
+/// las reglas no lo encontraban: la persona tenía el rol en la pantalla
+/// pero el servidor le negaba el permiso.
+String idRolEnEmpresa({
+  required String targetEmpresaId,
+  required String sourceEmpresaId,
+  required String docId,
+  required Map<String, dynamic> data,
+}) {
+  var usuario = (data['userId'] ?? data['usuarioId'] ?? '').toString().trim();
+  if (usuario.isEmpty) {
+    final prefijo = '${sourceEmpresaId}_';
+    usuario = docId.startsWith(prefijo)
+        ? docId.substring(prefijo.length)
+        : docId;
+  }
+  return '${targetEmpresaId}_$usuario';
+}
+
 String _nombreCatalogo(Map<String, dynamic> data) {
   final nombre = (data['nombre'] ?? '').toString().trim();
   return nombre.isNotEmpty ? nombre : (data['descripcion'] ?? '').toString();
@@ -142,7 +164,16 @@ class CompanyTransitionService {
       for (final doc in source.docs) {
         batch ??= _db.batch();
         batch.set(
-          _db.collection(collection).doc('${targetEmpresaId}_${doc.id}'),
+          _db
+              .collection(collection)
+              .doc(
+                idRolEnEmpresa(
+                  targetEmpresaId: targetEmpresaId,
+                  sourceEmpresaId: sourceEmpresaId,
+                  docId: doc.id,
+                  data: doc.data(),
+                ),
+              ),
           {
             ...doc.data(),
             'empresaId': targetEmpresaId,
