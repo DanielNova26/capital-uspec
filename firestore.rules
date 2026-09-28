@@ -252,11 +252,13 @@ service cloud.firestore {
     }
 
     // Administra (Desarrollo, jefe, Gerencia) o tiene cualquier otro rol.
+    // El rol (un get) antes que Desarrollo y Gerencia por ficha (~60
+    // expresiones cada uno): el profesional no paga lo que no le toca.
     function participaEnVisitas(empresaId) {
       return belongsToCompany(empresaId)
-        && (isDeveloper() || isDeveloperIn(empresaId)
-          || rolVisitasEn(empresaId,
+        && (rolVisitasEn(empresaId,
             ['jefe', 'gerencia', 'profesional', 'consulta', 'firmante'])
+          || isDeveloper() || isDeveloperIn(empresaId)
           || esGerenciaPorFicha(empresaId));
     }
 
@@ -576,12 +578,14 @@ service cloud.firestore {
     match /TBL_VISITAS_FORMATOS/{docId} {
       allow get: if resource == null
         || participaEnVisitas(resource.data.empresaId);
+      // Jefe y profesional (los de todos los días) primero: los chequeos de
+      // Desarrollo y Gerencia cuestan ~60 expresiones cada uno (28 sep 2026).
       allow list: if belongsToCompany(resource.data.empresaId)
-        && (isDeveloper() || isDeveloperIn(resource.data.empresaId)
-          || rolVisitasEn(resource.data.empresaId, ['consulta', 'gerencia'])
-          || (rolVisitasEn(resource.data.empresaId, ['jefe', 'profesional'])
+        && ((rolVisitasEn(resource.data.empresaId, ['jefe', 'profesional'])
             && resource.data.areaId == areaVisitasUsuario(
               resource.data.empresaId, request.auth.token.userDocId))
+          || rolVisitasEn(resource.data.empresaId, ['consulta', 'gerencia'])
+          || isDeveloper() || isDeveloperIn(resource.data.empresaId)
           || esGerenciaPorFicha(resource.data.empresaId));
       allow create: if administraVisitasArea(request.resource.data.empresaId,
           request.resource.data.areaId);
@@ -599,20 +603,24 @@ service cloud.firestore {
 
     // El firmante del establecimiento (25 sep 2026) lee y firma solo las
     // visitas donde el profesional lo designó (`firmanteEstablecimientoId`).
+    // 28 sep 2026: el profesional (sus propias visitas) va PRIMERO y por su
+    // lado. Iba al final, después de Desarrollo, jefe y Gerencia: a él se le
+    // evaluaba todo eso y la consulta de "Mis visitas" pasaba el tope de 1000
+    // expresiones (`belongsToCompany` cuesta ~125 y cada chequeo de
+    // administrador ~60), así que Firestore la negaba con permission-denied.
+    // Lo barato primero: el dueño de la visita, su rol y luego la empresa.
     match /TBL_VISITAS/{docId} {
       allow get: if resource == null
+        || esVisitaPropiaDelProfesional()
         || (belongsToCompany(resource.data.empresaId)
           && (esFirmanteDeVisita()
             || administraVisitasAreaEn(resource.data.empresaId, resource.data.areaId)
-            || rolVisitasEn(resource.data.empresaId, ['consulta'])
-            || (rolVisitasEn(resource.data.empresaId, ['profesional'])
-              && resource.data.profesionalId == request.auth.token.userDocId)));
-      allow list: if belongsToCompany(resource.data.empresaId)
-        && (esFirmanteDeVisita()
-          || administraVisitasAreaEn(resource.data.empresaId, resource.data.areaId)
-          || rolVisitasEn(resource.data.empresaId, ['consulta'])
-          || (rolVisitasEn(resource.data.empresaId, ['profesional'])
-            && resource.data.profesionalId == request.auth.token.userDocId));
+            || rolVisitasEn(resource.data.empresaId, ['consulta'])));
+      allow list: if esVisitaPropiaDelProfesional()
+        || (belongsToCompany(resource.data.empresaId)
+          && (esFirmanteDeVisita()
+            || administraVisitasAreaEn(resource.data.empresaId, resource.data.areaId)
+            || rolVisitasEn(resource.data.empresaId, ['consulta'])));
       allow create: if administraVisitasArea(request.resource.data.empresaId,
           request.resource.data.areaId)
         && request.resource.data.asignadoPorId == request.auth.token.userDocId
@@ -636,21 +644,10 @@ service cloud.firestore {
         // Lo barato primero (estado, dueño): los roles hacen get() y cuentan
         // contra el tope; con el orden anterior un rechazo llegaba al límite.
         && (
-          ((
-            (resource.data.estado == 'programada'
-              && (
-                (request.resource.data.estado == 'cancelada'
-                  && request.resource.data.diff(resource.data).affectedKeys()
-                    .hasOnly(['estado', 'motivoCancelacion', 'updatedAt']))
-                || esReprogramacionDeVisita()
-                || esRespuestaDeSolicitudFecha()
-              ))
-            || (resource.data.estado == 'en_curso'
-              && (esRespuestaDeSolicitudFecha()
-                || esAprobacionDeFechaEnCurso()))
-          )
-            && administraVisitasAreaEn(resource.data.empresaId, resource.data.areaId))
-          || (resource.data.profesionalId == request.auth.token.userDocId
+          // El profesional con su propia visita va primero (28 sep 2026):
+          // es el caso de todos los días y así no paga los chequeos de
+          // administrador, que lo llevaban al tope de expresiones.
+          (resource.data.profesionalId == request.auth.token.userDocId
             && rolVisitasEn(resource.data.empresaId, ['profesional'])
             && (
               ((resource.data.estado == 'programada'
@@ -686,6 +683,21 @@ service cloud.firestore {
                   .hasOnly(['estado', 'fin', 'cumplimiento', 'tareasCreadas',
                     'cerradaPor', 'updatedAt']))
             ))
+          // Jefe del departamento, Desarrollo o Gerencia.
+          || ((
+            (resource.data.estado == 'programada'
+              && (
+                (request.resource.data.estado == 'cancelada'
+                  && request.resource.data.diff(resource.data).affectedKeys()
+                    .hasOnly(['estado', 'motivoCancelacion', 'updatedAt']))
+                || esReprogramacionDeVisita()
+                || esRespuestaDeSolicitudFecha()
+              ))
+            || (resource.data.estado == 'en_curso'
+              && (esRespuestaDeSolicitudFecha()
+                || esAprobacionDeFechaEnCurso()))
+          )
+            && administraVisitasAreaEn(resource.data.empresaId, resource.data.areaId))
           // El firmante designado estampa su firma y nada más, con la
           // visita en curso y sin firma previa del establecimiento.
           || (resource.data.estado == 'en_curso'
@@ -697,6 +709,15 @@ service cloud.firestore {
               .hasOnly(['firmaEstablecimiento', 'updatedAt']))
         );
       allow delete: if false;
+    }
+
+    // La visita es del profesional que la pide y él tiene el rol en la
+    // empresa. Primero la comparación (gratis), luego su rol (un get) y al
+    // final la empresa, que es lo más caro.
+    function esVisitaPropiaDelProfesional() {
+      return resource.data.profesionalId == request.auth.token.userDocId
+        && rolVisitasEn(resource.data.empresaId, ['profesional'])
+        && belongsToCompany(resource.data.empresaId);
     }
 
     function esFirmanteDeVisita() {

@@ -6,6 +6,22 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Visitas: el profesional recibía permission-denied — 28 sep 2026 (Claude)
+
+- **Causa**: en las reglas de `TBL_VISITAS`, el caso del profesional (su
+  propia visita) iba al final, después de los chequeos de Desarrollo, jefe y
+  Gerencia. Con `belongsToCompany` más completo (personal inhabilitado), a él
+  se le evaluaba todo eso y la consulta de Mis visitas pasaba el tope de 1000
+  expresiones por petición: Firestore la negaba.
+- **Arreglo**: `esVisitaPropiaDelProfesional()` va primero en `get` y `list`,
+  y su rama va primero en `update` (llenar, guardar avance, iniciar, cerrar).
+  La lista de formatos y `participaEnVisitas` miran el rol antes que
+  Desarrollo y Gerencia por ficha. Nadie gana ni pierde permisos: solo cambia
+  el orden.
+- Pruebas: `functions/test/visitas_fecha.rules.js` (Mis visitas, abrir, guardar
+  avance y formatos con una ficha multiempresa; otro profesional no ve ni toca).
+- Despliegue: `firebase deploy --only firestore:rules`.
+
 ## Nutrición: los datos de salud quedan en su empresa — 28 sep 2026 (Claude)
 
 Ronda "módulo por módulo". Pacientes, valoraciones, patologías, historial,

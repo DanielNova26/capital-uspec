@@ -21,8 +21,12 @@ const {
 const {
   collection,
   doc,
+  getDoc,
+  getDocs,
+  query,
   setDoc,
   updateDoc,
+  where,
   writeBatch,
 } = require("firebase/firestore");
 
@@ -123,6 +127,28 @@ test.before(async () => {
       setDoc(doc(db, "TBL_USUARIOS/jefe"), miembro("Zuly")),
       setDoc(doc(db, "TBL_USUARIOS/prof"), miembro("Yesika")),
       setDoc(doc(db, "TBL_USUARIOS/prof2"), miembro("Otro profesional")),
+      // Ficha real de varias empresas, con todos los campos de rol y cargo.
+      setDoc(doc(db, "TBL_USUARIOS/profMulti"), {
+        nombre: "Yesika", estado: "activo", activo: true,
+        empresas: ["EMP_P", "EMP_A"], empresaId: "EMP_P",
+        role: "empleado", roleKey: "empleado", roleId: "EMP_P_empleado",
+        cargo: "Analista", cargoNombre: "Analista",
+        empresasDetalle: {
+          EMP_P: {cargo: "Analista", roleKey: "empleado", estadoLaboral: "activo"},
+          EMP_A: {
+            cargo: "Supervisor De Hse", cargoNombre: "Supervisor De Hse",
+            roleKey: "empleado", roleId: "EMP_A_empleado",
+            estadoLaboral: "activo", activo: true,
+          },
+        },
+      }),
+      setDoc(doc(db, "TBL_VISITAS_ROLES/EMP_A_profMulti"), {
+        empresaId: "EMP_A", userId: "profMulti", rol: "profesional", areaId: AREA,
+      }),
+      setDoc(doc(db, "TBL_VISITAS/multiCurso"), visita({
+        ...inicio, ...conFormato, profesionalId: "profMulti",
+        firmaProfesional: null, firmaEstablecimiento: null,
+      })),
       setDoc(doc(db, "TBL_VISITAS_ROLES/EMP_A_jefe"), {
         empresaId: "EMP_A", userId: "jefe", rol: "jefe", areaId: AREA,
       }),
@@ -298,4 +324,34 @@ test("un formato se pasa a un departamento real: Desarrollo sí, el jefe no", as
   await assertFails(updateDoc(doc(auth("jefe"), "TBL_VISITAS_FORMATOS/HSE"), {
     areaId: "EMP_A_contabilidad",
   }));
+});
+
+test("el profesional ve Mis visitas, abre la suya y guarda avance", async () => {
+  // 28 sep 2026: la consulta de Mis visitas pasaba el tope de 1000
+  // expresiones porque al profesional se le evaluaban antes todos los
+  // chequeos de administrador. Ahora su caso va primero.
+  for (const id of ["prof", "profMulti"]) {
+    const db = auth(id);
+    await assertSucceeds(getDocs(query(collection(db, "TBL_VISITAS"),
+      where("empresaId", "==", "EMP_A"), where("profesionalId", "==", id))));
+  }
+  await assertSucceeds(getDoc(doc(auth("profMulti"), "TBL_VISITAS/multiCurso")));
+  await assertSucceeds(updateDoc(doc(auth("profMulti"), "TBL_VISITAS/multiCurso"), {
+    respuestas: {s1: {valor: "cumple"}}, updatedAt: new Date(),
+  }));
+  // Los formatos de su departamento, para elegir al iniciar.
+  await assertSucceeds(getDocs(query(collection(auth("profMulti"), "TBL_VISITAS_FORMATOS"),
+    where("empresaId", "==", "EMP_A"), where("areaId", "==", AREA))));
+});
+
+test("el profesional no ve ni toca las visitas de otro", async () => {
+  await assertFails(getDocs(query(collection(auth("prof2"), "TBL_VISITAS"),
+    where("empresaId", "==", "EMP_A"), where("profesionalId", "==", "prof"))));
+  await assertFails(getDoc(doc(auth("prof2"), "TBL_VISITAS/cursoHoy")));
+  await assertFails(updateDoc(doc(auth("prof2"), "TBL_VISITAS/cursoHoy"), {
+    respuestas: {s1: {valor: "no cumple"}}, updatedAt: new Date(),
+  }));
+  // Sin filtrar por profesional, un profesional no lista todo.
+  await assertFails(getDocs(query(collection(auth("prof"), "TBL_VISITAS"),
+    where("empresaId", "==", "EMP_A"))));
 });
