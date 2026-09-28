@@ -473,6 +473,7 @@ class _HomeScreenState extends State<HomeScreen> {
           kVisitaEstadosLabel[v.estado] ?? v.estado,
           if (v.cumplimiento != null) '${v.cumplimiento}%',
           if (v.reprogramaciones.isNotEmpty) 'reprogramada',
+          if (v.solicitudFecha?.pendiente == true) 'pide cambio de fecha',
         ].join(' · '),
         'estado': v.estado,
         'profesionalId': v.profesionalId,

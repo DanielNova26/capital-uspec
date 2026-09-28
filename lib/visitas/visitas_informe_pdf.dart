@@ -1515,7 +1515,7 @@ Future<Uint8List> generarConsolidadoVisitas({
                   pw.Expanded(
                     child: _celda('Del ${_dd(desde)} al ${_dd(hasta)}'),
                   ),
-                  _celda('ÁREAS:', negrita: true, fondo: _kGris),
+                  _celda('DEPARTAMENTO:', negrita: true, fondo: _kGris),
                   pw.Expanded(flex: 2, child: _celda(titulo)),
                 ],
               ),
@@ -1536,8 +1536,11 @@ Future<Uint8List> generarConsolidadoVisitas({
             kpi('Hallazgos', '${c.hallazgos}', PdfColors.red700),
           ],
         ),
-        if (c.porArea.isNotEmpty) ...[
-          subtitulo(varias ? 'Por área (cada una con su color)' : 'Área'),
+        // Desde el 28 sep 2026 el consolidado es de un departamento ("no
+        // combinar informe por áreas"); la tabla por departamento solo sale si
+        // llegan varios.
+        if (varias) ...[
+          subtitulo('Por departamento (cada uno con su color)'),
           pw.Table(
             border: pw.TableBorder.all(color: _kBorde, width: .5),
             columnWidths: {
@@ -1549,7 +1552,7 @@ Future<Uint8List> generarConsolidadoVisitas({
                 decoration: const pw.BoxDecoration(color: _kGris),
                 children: [
                   _celda(''),
-                  _celda('ÁREA', negrita: true),
+                  _celda('DEPARTAMENTO', negrita: true),
                   _celda('TERMINADAS', negrita: true),
                   _celda('SIN REALIZAR', negrita: true),
                   _celda('CANCELADAS', negrita: true),
@@ -1597,7 +1600,7 @@ Future<Uint8List> generarConsolidadoVisitas({
               children: [
                 _celda(''),
                 _celda('ESTABLECIMIENTO', negrita: true),
-                _celda('ÁREA', negrita: true),
+                _celda('DEPARTAMENTO', negrita: true),
                 _celda('VISITAS', negrita: true),
                 _celda('CUMPLIMIENTO', negrita: true),
                 _celda('HALLAZGOS', negrita: true),

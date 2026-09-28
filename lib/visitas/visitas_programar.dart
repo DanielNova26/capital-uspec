@@ -4,9 +4,15 @@
 //
 // Pedido de la dirección: "seleccionar varias fechas y solo asignarles los
 // lugares, más rápido, y que no sea una por una según el calendario". El jefe
-// elige al profesional y el formato una sola vez, marca los días en el
-// calendario y a cada día le pone el establecimiento. Los establecimientos del
-// grupo del profesional (maestro de equipo) salen primero.
+// elige al profesional una sola vez, marca los días en el calendario y a cada
+// día le pone el establecimiento.
+//
+// 28 sep 2026 (documento "Cambios módulo visitas"):
+//  - En la lista solo salen los profesionales de visita (rol Profesional) del
+//    departamento; el director ya no se asigna a sí mismo.
+//  - Solo salen los establecimientos a los que está asociado el profesional
+//    (los de su grupo en Equipo), no todos los de la empresa.
+//  - Sin formato: el profesional lo elige al momento de la visita.
 //
 // Web y móvil: en pantallas angostas el diálogo ocupa toda la pantalla; la
 // lógica (qué se puede programar) es la misma y vive en `visitas_models.dart`
@@ -20,6 +26,7 @@ import 'visitas_service.dart';
 
 const String _kFont = 'Arial';
 const Color _kColor = Color(0xFF7C3AED);
+const Color _kAviso = Color(0xFFB45309);
 
 String _dd(DateTime d) =>
     '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
@@ -60,6 +67,8 @@ class _ProgramarVisitasDialog extends StatefulWidget {
   final String empresaId;
   final String jefeId;
   final String jefeNombre;
+
+  /// Ve y programa todos los departamentos (Desarrollo y Gerencia).
   final bool esDesarrollador;
   final DateTime diaInicial;
   final bool pantallaCompleta;
@@ -82,15 +91,14 @@ class _ProgramarVisitasDialog extends StatefulWidget {
 class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
   List<VisitaPersona> _equipo = const [];
   List<VisitaCentro> _centros = const [];
-  List<VisitaFormato> _formatos = const [];
   List<VisitaGrupo> _grupos = const [];
+  Map<String, String> _areas = const {};
   String _areaJefe = '';
   bool _cargando = true;
   bool _guardando = false;
   bool _esPrueba = false;
 
   VisitaPersona? _profesional;
-  VisitaFormato? _formato;
 
   /// Días elegidos y el establecimiento de cada uno.
   final Map<DateTime, FilaProgramacion> _filas = {};
@@ -122,25 +130,20 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
           ? ''
           : await widget.svc.areaDeUsuario(widget.empresaId, widget.jefeId);
       final centros = await widget.svc.streamCentros(widget.empresaId).first;
-      final formatos = await widget.svc
-          .streamFormatos(
-            widget.empresaId,
-            areaId: widget.esDesarrollador ? null : areaJefe,
-          )
-          .first;
       final grupos = await widget.svc
           .streamGrupos(
             widget.empresaId,
             areaId: widget.esDesarrollador ? null : areaJefe,
           )
           .first;
+      final areas = await widget.svc.areasDeEmpresa(widget.empresaId);
       if (!mounted) return;
       setState(() {
         _equipo = equipo;
         _areaJefe = areaJefe;
         _centros = centros;
-        _formatos = formatos.where((f) => f.usable).toList();
         _grupos = grupos;
+        _areas = areas;
         _cargando = false;
       });
     } catch (e) {
@@ -154,18 +157,26 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
     SnackBar(content: Text(msg), backgroundColor: const Color(0xFFB91C1C)),
   );
 
-  /// Profesionales que este jefe puede programar: rol Profesional con el
-  /// área del jefe tal cual (las reglas la comparan exacta).
+  String _nombreArea(String id) {
+    if (_areas.containsKey(id)) return _areas[id]!;
+    for (final e in _areas.entries) {
+      if (mismaAreaVisitas(e.key, id)) return e.value;
+    }
+    return id;
+  }
+
+  /// Solo profesionales de visita (rol Profesional), del departamento del
+  /// jefe con el id tal cual (las reglas lo comparan exacto).
   List<VisitaPersona> get _profesionales => [
     for (final p in _equipo)
-      if ((p.rol == kVisitasRolProfesional &&
-              (widget.esDesarrollador || p.rolAreaId == _areaJefe)) ||
-          (_esPrueba && p.id == widget.jefeId))
+      if (p.rol == kVisitasRolProfesional &&
+          p.rolAreaId.isNotEmpty &&
+          (widget.esDesarrollador || p.rolAreaId == _areaJefe))
         p,
   ];
 
-  /// Profesionales del área con el rol guardado con otra variante del área:
-  /// no se pueden programar hasta guardarlos de nuevo en Equipo.
+  /// Profesionales del departamento con el rol guardado con otra variante
+  /// del área: no se pueden programar hasta asignárselo de nuevo en Admin.
   List<VisitaPersona> get _conAreaDescuadrada => widget.esDesarrollador
       ? const []
       : [
@@ -176,41 +187,30 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
               p,
         ];
 
-  List<VisitaFormato> get _formatosPosibles => [
-    for (final f in _formatos)
-      if ((widget.esDesarrollador || f.areaId == _areaJefe) &&
-          (_esPrueba || !f.esBorrador) &&
-          (_profesional == null ||
-              f.areaId == _profesional!.areaVisitas ||
-              (_esPrueba && _profesional!.id == widget.jefeId)))
-        f,
-  ];
-
-  Set<String> get _centrosDelGrupo => _profesional == null
-      ? const {}
-      : centrosDelProfesional(_profesional!.id, _grupos);
-
-  List<VisitaCentro> get _centrosOrdenados =>
-      ordenarPorGrupo(_centros, _centrosDelGrupo, (c) => c.id);
+  /// Los establecimientos a los que está asociado el profesional: los de su
+  /// grupo. Solo esos se pueden programar.
+  List<VisitaCentro> get _centrosPermitidos {
+    final p = _profesional;
+    if (p == null) return const [];
+    final delGrupo = centrosDelProfesional(p.id, _grupos);
+    return [
+      for (final c in _centros)
+        if (delGrupo.contains(c.id)) c,
+    ];
+  }
 
   void _elegirProfesional(VisitaPersona? p) {
     setState(() {
       _profesional = p;
-      _formato = p == null
-          ? null
-          : formatoPropuesto(
-              _formatosPosibles,
-              areaId: p.areaVisitas,
-              cargo: p.cargo,
-              permitirBorrador: _esPrueba,
-            );
-      // Con un solo establecimiento en su grupo, se llena solo.
-      final grupo = _centrosDelGrupo;
-      if (grupo.length == 1) {
-        for (final k in _filas.keys.toList()) {
-          if (_filas[k]!.centroId.isEmpty) {
-            _filas[k] = _filas[k]!.copyWith(centroId: grupo.first);
-          }
+      final permitidos = {for (final c in _centrosPermitidos) c.id};
+      for (final k in _filas.keys.toList()) {
+        final f = _filas[k]!;
+        // Un establecimiento de otro profesional no se queda puesto.
+        if (!permitidos.contains(f.centroId)) {
+          _filas[k] = FilaProgramacion(
+            fecha: f.fecha,
+            centroId: permitidos.length == 1 ? permitidos.first : '',
+          );
         }
       }
     });
@@ -224,10 +224,12 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
         // El establecimiento del último día elegido se repite: casi siempre
         // se programan tandas al mismo sitio o a los del grupo.
         final ultimo = _filasOrdenadas.lastOrNull;
-        final grupo = _centrosDelGrupo;
+        final permitidos = _centrosPermitidos;
         _filas[d] = FilaProgramacion(
           fecha: d,
-          centroId: ultimo?.centroId ?? (grupo.length == 1 ? grupo.first : ''),
+          centroId:
+              ultimo?.centroId ??
+              (permitidos.length == 1 ? permitidos.first.id : ''),
           subcentroId: ultimo?.subcentroId ?? '',
         );
       }
@@ -247,9 +249,8 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
 
   Future<void> _guardar() async {
     final p = _profesional;
-    final f = _formato;
-    if (p == null || f == null) {
-      _aviso('Elige el profesional y el formato.');
+    if (p == null) {
+      _aviso('Elige el profesional.');
       return;
     }
     final errores = validarProgramacion(_filasOrdenadas, hoy: _hoy);
@@ -257,12 +258,9 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
       _aviso(errores.first);
       return;
     }
-    if (!widget.esDesarrollador && f.areaId != _areaJefe) {
-      _aviso('Solo puedes asignar formatos de tu área.');
-      return;
-    }
-    if (p.areaVisitas != f.areaId && !(_esPrueba && p.id == widget.jefeId)) {
-      _aviso('El profesional debe pertenecer al área del formato.');
+    final permitidos = {for (final c in _centrosPermitidos) c.id};
+    if (_filasOrdenadas.any((f) => !permitidos.contains(f.centroId))) {
+      _aviso('Solo se programan los establecimientos del profesional.');
       return;
     }
     setState(() => _guardando = true);
@@ -276,12 +274,12 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
                 .firstOrNull;
             return VisitaProfesional(
               empresaId: widget.empresaId,
-              formatoId: f.id,
-              formatoNombre: f.nombre,
-              formatoAsignado: f,
+              formatoId: '',
+              formatoNombre: '',
               esPrueba: _esPrueba,
-              areaId: f.areaId,
-              areaNombre: f.areaNombre,
+              // El departamento del profesional, tal como quedó su rol.
+              areaId: p.rolAreaId,
+              areaNombre: _nombreArea(p.rolAreaId),
               centroId: centro.id,
               centroNombre: centro.nombre,
               subcentroId: sub?.id ?? '',
@@ -317,13 +315,34 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
     ),
   );
 
+  Widget _nota(String t, {Color color = _kAviso}) => Padding(
+    padding: const EdgeInsets.only(top: 6),
+    child: Text(t, style: TextStyle(fontSize: 12, color: color)),
+  );
+
   Widget _cabecera() {
     final profesionales = _profesionales;
-    final formatos = _formatosPosibles;
     final descuadrados = _conAreaDescuadrada;
+    final p = _profesional;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (!widget.esDesarrollador)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Text(
+              _areaJefe.isEmpty
+                  ? 'Tu rol de Visitas no tiene departamento. Pide en '
+                        'Administración > Roles y permisos que te lo vuelvan a '
+                        'asignar.'
+                  : 'Departamento: ${_nombreArea(_areaJefe)}',
+              style: TextStyle(
+                fontFamily: _kFont,
+                fontWeight: FontWeight.w700,
+                color: _areaJefe.isEmpty ? _kAviso : Colors.black87,
+              ),
+            ),
+          ),
         SwitchListTile.adaptive(
           contentPadding: EdgeInsets.zero,
           title: const Text('Visita de prueba'),
@@ -331,96 +350,55 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
             'Se identifica como ensayo y la jefatura podrá eliminarla después.',
           ),
           value: _esPrueba,
-          onChanged: (v) => setState(() {
-            _esPrueba = v;
-            if (!v && _profesional?.id == widget.jefeId) _profesional = null;
-            if (!v && _formato?.esBorrador == true) _formato = null;
-          }),
+          onChanged: (v) => setState(() => _esPrueba = v),
         ),
-        if (!widget.esDesarrollador && _areaJefe.isEmpty)
-          const Padding(
-            padding: EdgeInsets.only(bottom: 8),
-            child: Text(
-              'Tu rol de Visitas no tiene área. Pide en Admin > Roles y '
-              'permisos que te lo asignen con tu área.',
-              style: TextStyle(color: Color(0xFFB45309)),
-            ),
-          ),
         DropdownButtonFormField<String>(
-          key: ValueKey('prof-$_esPrueba-${_profesional?.id}'),
-          initialValue: profesionales.any((p) => p.id == _profesional?.id)
-              ? _profesional!.id
-              : null,
+          key: ValueKey('prof-${p?.id}'),
+          initialValue: profesionales.any((x) => x.id == p?.id) ? p!.id : null,
           isExpanded: true,
-          decoration: const InputDecoration(labelText: 'Profesional'),
+          decoration: const InputDecoration(labelText: 'Profesional de visita'),
           items: [
-            for (final p in profesionales)
+            for (final x in profesionales)
               DropdownMenuItem(
-                value: p.id,
+                value: x.id,
                 child: Text(
-                  p.cargo.isEmpty ? p.nombre : '${p.nombre} · ${p.cargo}',
+                  [
+                    x.nombre,
+                    if (x.cargo.isNotEmpty) x.cargo,
+                    if (widget.esDesarrollador) _nombreArea(x.rolAreaId),
+                  ].join(' · '),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
           ],
           onChanged: (id) => _elegirProfesional(
-            profesionales.where((p) => p.id == id).firstOrNull,
+            profesionales.where((x) => x.id == id).firstOrNull,
           ),
         ),
-        if (profesionales.isEmpty && !_esPrueba)
-          const Padding(
-            padding: EdgeInsets.only(top: 6),
-            child: Text(
-              'No hay profesionales en tu área. Dales el rol Profesional en '
-              'la pestaña Equipo.',
-              style: TextStyle(fontSize: 12, color: Color(0xFFB45309)),
-            ),
+        if (profesionales.isEmpty)
+          _nota(
+            'No hay profesionales de visita en tu departamento. El rol '
+            'Profesional se asigna en Administración > Roles y permisos > '
+            'Visitas.',
           ),
         if (descuadrados.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Text(
-              '${descuadrados.map((p) => p.nombre).join(', ')}: el rol quedó '
-              'con el área escrita distinto. Pide a Administración que se lo '
-              'vuelva a asignar en Roles y permisos para poder programarlos.',
-              style: const TextStyle(fontSize: 12, color: Color(0xFFB45309)),
-            ),
+          _nota(
+            '${descuadrados.map((x) => x.nombre).join(', ')}: el rol quedó '
+            'con el departamento escrito distinto. Pide a Administración que '
+            'se lo vuelva a asignar en Roles y permisos para poder '
+            'programarlos.',
           ),
-        const SizedBox(height: 10),
-        DropdownButtonFormField<String>(
-          key: ValueKey(
-            'formato-$_esPrueba-${_formato?.id}-${_profesional?.id}',
+        if (p != null && _centrosPermitidos.isEmpty)
+          _nota(
+            '${p.nombre} no tiene establecimientos asignados. Ponlo en un '
+            'grupo con sus establecimientos en Equipo > Grupos y '
+            'establecimientos.',
           ),
-          initialValue: formatos.any((f) => f.id == _formato?.id)
-              ? _formato!.id
-              : null,
-          isExpanded: true,
-          decoration: const InputDecoration(labelText: 'Formato'),
-          items: [
-            for (final f in formatos)
-              DropdownMenuItem(
-                value: f.id,
-                child: Text(
-                  '${f.areaNombre} · ${f.nombre}'
-                  '${f.cargos.isEmpty ? '' : ' · ${f.cargos.join(', ')}'}'
-                  '${f.predeterminado ? ' ★' : ''}'
-                  '${f.esBorrador ? ' (borrador)' : ''}',
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-          ],
-          onChanged: (id) => setState(
-            () => _formato = formatos.where((f) => f.id == id).firstOrNull,
-          ),
+        _nota(
+          'El formato no se elige aquí: el profesional escoge el que va a '
+          'diligenciar al iniciar la visita.',
+          color: Colors.black54,
         ),
-        if (_formatos.isEmpty)
-          const Padding(
-            padding: EdgeInsets.only(top: 6),
-            child: Text(
-              'No hay formatos. Créalos en la pestaña Formatos.',
-              style: TextStyle(fontSize: 12, color: Color(0xFFB45309)),
-            ),
-          ),
       ],
     );
   }
@@ -469,11 +447,10 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
   );
 
   Widget _fila(FilaProgramacion fila) {
-    final centros = _centrosOrdenados;
-    final grupo = _centrosDelGrupo;
-    final centro = _centros.where((c) => c.id == fila.centroId).firstOrNull;
+    final centros = _centrosPermitidos;
+    final centro = centros.where((c) => c.id == fila.centroId).firstOrNull;
     final subs = centro?.subcentrosActivos ?? const [];
-    final falta = fila.centroId.isEmpty;
+    final falta = centro == null;
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
@@ -500,22 +477,23 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
           Expanded(
             flex: 3,
             child: DropdownButtonFormField<String>(
-              key: ValueKey('c-${fila.fecha}-${fila.centroId}'),
+              key: ValueKey(
+                'c-${fila.fecha}-${fila.centroId}-${centros.length}',
+              ),
               initialValue: centro?.id,
               isExpanded: true,
               isDense: true,
-              decoration: const InputDecoration(
-                hintText: 'Establecimiento',
+              decoration: InputDecoration(
+                hintText: _profesional == null
+                    ? 'Elige primero el profesional'
+                    : 'Establecimiento',
                 border: InputBorder.none,
               ),
               items: [
                 for (final c in centros)
                   DropdownMenuItem(
                     value: c.id,
-                    child: Text(
-                      grupo.contains(c.id) ? '★ ${c.nombre}' : c.nombre,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    child: Text(c.nombre, overflow: TextOverflow.ellipsis),
                   ),
               ],
               onChanged: (id) => setState(
@@ -566,6 +544,7 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
 
   Widget _dias() {
     final filas = _filasOrdenadas;
+    final centros = _centrosPermitidos;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -580,11 +559,11 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
             style: TextStyle(fontSize: 12, color: Colors.black54),
           )
         else ...[
-          if (filas.length > 1)
+          if (filas.length > 1 && centros.length > 1)
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: DropdownButtonFormField<String>(
-                key: ValueKey('todos-${filas.length}'),
+                key: ValueKey('todos-${filas.length}-${_profesional?.id}'),
                 isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Mismo establecimiento para todos los días',
@@ -592,15 +571,10 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
                   border: OutlineInputBorder(),
                 ),
                 items: [
-                  for (final c in _centrosOrdenados)
+                  for (final c in centros)
                     DropdownMenuItem(
                       value: c.id,
-                      child: Text(
-                        _centrosDelGrupo.contains(c.id)
-                            ? '★ ${c.nombre}'
-                            : c.nombre,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                      child: Text(c.nombre, overflow: TextOverflow.ellipsis),
                     ),
                 ],
                 onChanged: (id) {
@@ -608,12 +582,13 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
                 },
               ),
             ),
-          if (_centrosDelGrupo.isNotEmpty)
-            const Padding(
-              padding: EdgeInsets.only(bottom: 6),
+          if (centros.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
               child: Text(
-                '★ = establecimientos del grupo del profesional.',
-                style: TextStyle(fontSize: 11, color: Colors.black54),
+                'Solo salen los ${centros.length} establecimiento'
+                '${centros.length == 1 ? '' : 's'} del grupo del profesional.',
+                style: const TextStyle(fontSize: 11, color: Colors.black54),
               ),
             ),
           for (final f in filas) _fila(f),
@@ -664,7 +639,9 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
       ),
       FilledButton(
         style: FilledButton.styleFrom(backgroundColor: _kColor),
-        onPressed: _guardando || _cargando || n == 0 ? null : _guardar,
+        onPressed: _guardando || _cargando || n == 0 || _profesional == null
+            ? null
+            : _guardar,
         child: Text(
           _guardando
               ? 'Guardando…'

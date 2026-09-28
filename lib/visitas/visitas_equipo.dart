@@ -2,21 +2,26 @@
 //
 // Maestro de equipo de Visitas (25 sep 2026).
 //
-// Lo que pidió la dirección: "estoy asignando la app a los profesionales y no
-// me salen los profesionales ni el director". Las tarjetas de área de la
-// pestaña Formatos solo mostraban a quien ya tenía rol, y el área se comparaba
-// al pie de la letra, así que casi siempre decían "sin asignar". Además eran
-// de solo lectura. Este maestro reemplaza esas tarjetas:
-//
 // - Personal: todos los que tienen el módulo Visitas en sus accesos o ya
-//   tienen rol, con su foto, cargo y área (de la ficha o del cargo). Desde
-//   aquí se les da el rol, el área y el grupo.
-// - Grupos: grupos de profesionales de un área con los establecimientos
-//   (centros de costo) que visitan. Programar propone esos establecimientos.
+//   tienen rol, con su foto, cargo, departamento, rol y grupo.
+// - Grupos: grupos de profesionales de un departamento con los
+//   establecimientos (centros de costo) que visitan. Al programar solo salen
+//   los establecimientos del grupo del profesional.
 //
-// Permisos (los mismos de `firestore.rules`): el jefe da o quita el rol
-// Profesional dentro de su área y arma los grupos de su área. Nombrar al
-// director (jefe), consulta o firmante es de Desarrollo / Administración.
+// 28 sep 2026 (documento "Cambios módulo visitas"): el rol y el departamento
+// ya no se editan aquí. "Al profesional se le asigna el rol en el módulo
+// ADMINISTRACIÓN; no tener que volver a asignar rol en VISITAS", y "no tener
+// que volver a definir ÁREA porque el sistema ya tiene esa información". Se
+// había dado el caso de alguien que era Profesional en Administración y aquí
+// le cambiaron el rol y el departamento. Personal queda de consulta; lo que
+// se arma aquí son los grupos.
+//
+// Además los grupos y los establecimientos se cargan sin depender de volver
+// a escuchar la misma consulta: antes, tras guardar algo la pestaña recargaba
+// y quedaba "Todavía no hay grupos" y el grupo nuevo sin establecimientos.
+//
+// Permisos (los mismos de `firestore.rules`): el jefe arma los grupos de su
+// departamento; Desarrollo y Gerencia, los de cualquiera.
 
 import 'package:flutter/material.dart';
 
@@ -29,6 +34,7 @@ import 'visitas_service.dart';
 const String _kFont = 'Arial';
 const Color _kColor = Color(0xFF7C3AED);
 const Color _kRojo = Color(0xFFDC2626);
+const Color _kAviso = Color(0xFFB45309);
 
 void _snack(BuildContext context, String msg, {bool error = false}) {
   if (!context.mounted) return;
@@ -44,10 +50,9 @@ class VisitasEquipoTab extends StatefulWidget {
   final VisitasService svc;
   final String empresaId;
   final String userId;
-  final bool esDesarrollador;
 
-  /// Solo Desarrollo nombra a la Gerencia; Gerencia administra el resto.
-  final bool puedeNombrarGerencia;
+  /// Ve todos los departamentos (Desarrollo y Gerencia).
+  final bool esDesarrollador;
 
   const VisitasEquipoTab({
     super.key,
@@ -55,7 +60,6 @@ class VisitasEquipoTab extends StatefulWidget {
     required this.empresaId,
     required this.userId,
     required this.esDesarrollador,
-    this.puedeNombrarGerencia = false,
   });
 
   @override
@@ -69,8 +73,10 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
   List<VisitaPersona> _equipo = const [];
   Map<String, String> _areasMapa = const {};
   AreaCatalogo _areas = const AreaCatalogo.vacio();
+  List<VisitaCentro> _centros = const [];
+
+  /// Se escucha una sola vez y el StreamBuilder no se desmonta al recargar.
   late final Stream<List<VisitaGrupo>> _gruposStream;
-  late final Stream<List<VisitaCentro>> _centrosStream;
 
   String _busqueda = '';
   String _filtroRol = 'todos';
@@ -79,21 +85,25 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
   void initState() {
     super.initState();
     _gruposStream = widget.svc.streamGrupos(widget.empresaId);
-    _centrosStream = widget.svc.streamCentros(widget.empresaId);
     _cargar();
   }
 
   Future<void> _cargar() async {
-    setState(() {
-      _cargando = true;
-      _error = null;
-    });
+    // Reintento tras un error: vuelve a mostrar la carga. La primera vez
+    // (desde initState) no hay nada que cambiar.
+    if (_error != null) {
+      setState(() {
+        _error = null;
+        _cargando = true;
+      });
+    }
     try {
       final areaJefe = widget.esDesarrollador
           ? ''
           : await widget.svc.areaDeUsuario(widget.empresaId, widget.userId);
       final areas = await widget.svc.areasDeEmpresa(widget.empresaId);
       final equipo = await widget.svc.equipoVisitas(widget.empresaId);
+      final centros = await widget.svc.streamCentros(widget.empresaId).first;
       if (!mounted) return;
       setState(() {
         _areaJefe = areaJefe;
@@ -102,6 +112,7 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
           areas.entries.map((e) => (id: e.key, nombre: e.value)),
         );
         _equipo = equipo;
+        _centros = centros;
         _cargando = false;
       });
     } catch (e) {
@@ -114,21 +125,21 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
     }
   }
 
-  String _nombreArea(String ref) => _areas.nombreDe(ref);
+  String _nombreArea(String ref) =>
+      ref.trim().isEmpty ? 'Sin departamento' : _areas.nombreDe(ref);
 
-  /// Del área de este jefe (o de cualquiera, para Desarrollo).
+  /// Del departamento de este jefe (o de cualquiera, para Desarrollo).
   bool _enMiArea(String area) =>
       widget.esDesarrollador || mismaAreaVisitas(area, _areaJefe);
 
-  /// El jefe ve a los de su área y a quienes tienen el acceso pero todavía
-  /// no tienen rol (son los que puede volver profesionales).
+  /// El jefe ve a los de su departamento (por el rol o por la ficha).
   List<VisitaPersona> get _visibles {
     final q = areaClave(_busqueda);
     final lista = [
       for (final p in _equipo)
         if ((widget.esDesarrollador ||
-                p.rol.isEmpty ||
-                _enMiArea(p.areaVisitas)) &&
+                _enMiArea(p.rolAreaId) ||
+                _enMiArea(p.areaId)) &&
             (_filtroRol == 'todos' ||
                 (_filtroRol == 'sin_rol'
                     ? p.rol.isEmpty
@@ -158,60 +169,66 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
 
   @override
   Widget build(BuildContext context) {
-    if (_cargando) return const Center(child: CircularProgressIndicator());
-    if (_error != null) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(_error!, textAlign: TextAlign.center),
-            const SizedBox(height: 8),
-            OutlinedButton(onPressed: _cargar, child: const Text('Reintentar')),
-          ],
-        ),
-      );
-    }
-    return StreamBuilder<List<VisitaCentro>>(
-      stream: _centrosStream,
-      builder: (context, centrosSnap) => StreamBuilder<List<VisitaGrupo>>(
-        stream: _gruposStream,
-        builder: (context, gruposSnap) {
-          final centros = centrosSnap.data ?? const <VisitaCentro>[];
-          final grupos = [
-            for (final g in gruposSnap.data ?? const <VisitaGrupo>[])
-              if (_enMiArea(g.areaId)) g,
-          ];
-          return DefaultTabController(
-            length: 2,
+    return StreamBuilder<List<VisitaGrupo>>(
+      stream: _gruposStream,
+      builder: (context, gruposSnap) {
+        if (_cargando) return const Center(child: CircularProgressIndicator());
+        if (_error != null) {
+          return Center(
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                const TabBar(
-                  labelColor: _kColor,
-                  indicatorColor: _kColor,
-                  unselectedLabelColor: Colors.black54,
-                  labelStyle: TextStyle(
-                    fontFamily: _kFont,
-                    fontWeight: FontWeight.w800,
-                  ),
-                  tabs: [
-                    Tab(text: 'Personal'),
-                    Tab(text: 'Grupos y establecimientos'),
-                  ],
-                ),
-                Expanded(
-                  child: TabBarView(
-                    children: [_personal(grupos), _grupos(grupos, centros)],
-                  ),
+                Text(_error!, textAlign: TextAlign.center),
+                const SizedBox(height: 8),
+                OutlinedButton(
+                  onPressed: _cargar,
+                  child: const Text('Reintentar'),
                 ),
               ],
             ),
           );
-        },
-      ),
+        }
+        final grupos = [
+          for (final g in gruposSnap.data ?? const <VisitaGrupo>[])
+            if (_enMiArea(g.areaId)) g,
+        ];
+        final errorGrupos = gruposSnap.hasError
+            ? 'No se pudieron leer los grupos: ${gruposSnap.error}'
+            : null;
+        final cargandoGrupos = !gruposSnap.hasData && !gruposSnap.hasError;
+        return DefaultTabController(
+          length: 2,
+          child: Column(
+            children: [
+              const TabBar(
+                labelColor: _kColor,
+                indicatorColor: _kColor,
+                unselectedLabelColor: Colors.black54,
+                labelStyle: TextStyle(
+                  fontFamily: _kFont,
+                  fontWeight: FontWeight.w800,
+                ),
+                tabs: [
+                  Tab(text: 'Personal'),
+                  Tab(text: 'Grupos y establecimientos'),
+                ],
+              ),
+              Expanded(
+                child: TabBarView(
+                  children: [
+                    _personal(grupos),
+                    _grupos(grupos, errorGrupos, cargandoGrupos),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
-  // ── Personal ───────────────────────────────────────────────────────────
+  // ── Personal (consulta) ────────────────────────────────────────────────
 
   List<String> get _areasEnAlcance {
     if (!widget.esDesarrollador) {
@@ -226,6 +243,24 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
       ..sort((a, b) => _nombreArea(a).compareTo(_nombreArea(b)));
   }
 
+  Widget _persona(VisitaPersona p) => Padding(
+    padding: const EdgeInsets.only(right: 10, bottom: 4),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        UserAvatar(userId: p.id, nameHint: p.nombre, radius: 11),
+        const SizedBox(width: 4),
+        UserNameText(
+          p.id,
+          fallbackName: p.nombre,
+          style: const TextStyle(fontFamily: _kFont, fontSize: 12),
+        ),
+      ],
+    ),
+  );
+
+  /// Resumen de un departamento en palabras: quién dirige, quiénes visitan
+  /// y a quién le falta grupo (sin grupo no se le puede programar).
   Widget _resumenArea(String area, List<VisitaGrupo> grupos) {
     final delArea = [
       for (final p in _equipo)
@@ -235,23 +270,21 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
     final profesionales = delArea
         .where((p) => p.rol == kVisitasRolProfesional)
         .toList();
-    final gruposArea = grupos.where((g) => mismaAreaVisitas(g.areaId, area));
+    final gruposArea = grupos
+        .where((g) => mismaAreaVisitas(g.areaId, area))
+        .toList();
     final sinGrupo = profesionales
-        .where((p) => gruposDe(p.id, gruposArea.toList()).isEmpty)
-        .length;
-    Widget persona(VisitaPersona p) => Padding(
-      padding: const EdgeInsets.only(right: 8, bottom: 4),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          UserAvatar(userId: p.id, nameHint: p.nombre, radius: 11),
-          const SizedBox(width: 4),
-          UserNameText(
-            p.id,
-            fallbackName: p.nombre,
-            style: const TextStyle(fontFamily: _kFont, fontSize: 12),
-          ),
-        ],
+        .where((p) => gruposDe(p.id, gruposArea).isEmpty)
+        .toList();
+    Widget etiqueta(String t) => Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 2),
+      child: Text(
+        t,
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: Colors.black54,
+        ),
       ),
     );
     return Card(
@@ -266,38 +299,40 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
               style: const TextStyle(
                 fontFamily: _kFont,
                 fontWeight: FontWeight.w800,
+                fontSize: 15,
               ),
             ),
-            const SizedBox(height: 6),
-            const Text(
-              'Director (jefe)',
-              style: TextStyle(fontSize: 11, color: Colors.black54),
-            ),
+            etiqueta('DIRECTOR'),
             if (directores.isEmpty)
               const Text(
-                'Sin director. Lo nombra Administración en Roles y permisos '
-                'o Desarrollo desde aquí.',
+                'Nadie tiene el rol de director (Jefe inmediato) de este '
+                'departamento. Se asigna en Administración > Roles y permisos '
+                '> Visitas.',
                 style: TextStyle(fontSize: 12, color: _kRojo),
               )
             else
-              Wrap(children: [for (final p in directores) persona(p)]),
-            const SizedBox(height: 6),
-            Text(
-              'Profesionales (${profesionales.length}) · '
-              '${gruposArea.length} grupo${gruposArea.length == 1 ? '' : 's'}'
-              '${sinGrupo == 0 ? '' : ' · $sinGrupo sin grupo'}',
-              style: TextStyle(
-                fontSize: 11,
-                color: sinGrupo == 0 ? Colors.black54 : _kRojo,
-              ),
+              Wrap(children: [for (final p in directores) _persona(p)]),
+            etiqueta(
+              'PROFESIONALES DE VISITA (${profesionales.length}) · '
+              '${gruposArea.length} GRUPO${gruposArea.length == 1 ? '' : 'S'}',
             ),
             if (profesionales.isEmpty)
               const Text(
-                'Sin profesionales. Búscalos abajo y dales el rol.',
+                'Nadie tiene el rol Profesional en este departamento. Se '
+                'asigna en Administración > Roles y permisos > Visitas.',
                 style: TextStyle(fontSize: 12, color: _kRojo),
               )
             else
-              Wrap(children: [for (final p in profesionales) persona(p)]),
+              Wrap(children: [for (final p in profesionales) _persona(p)]),
+            if (sinGrupo.isNotEmpty) ...[
+              etiqueta('SIN GRUPO (NO SE LES PUEDE PROGRAMAR)'),
+              Wrap(children: [for (final p in sinGrupo) _persona(p)]),
+              const Text(
+                'Agrégalos a un grupo con sus establecimientos en la pestaña '
+                'Grupos y establecimientos.',
+                style: TextStyle(fontSize: 12, color: _kRojo),
+              ),
+            ],
           ],
         ),
       ),
@@ -319,13 +354,12 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
               borderRadius: BorderRadius.circular(10),
             ),
             child: Text(
-              widget.esDesarrollador
-                  ? 'Aquí sale todo el personal con el módulo Visitas en sus '
-                        'accesos. Dale el rol, el área y el grupo. El director '
-                        'de cada área es el rol Jefe.'
-                  : 'Aquí sale el personal de tu área y quienes tienen el '
-                        'módulo Visitas pero aún no tienen rol. Puedes darles '
-                        'el rol Profesional y ponerlos en un grupo.',
+              'Esta lista es de consulta. El rol en Visitas lo asigna '
+              'Administración (Roles y permisos > Visitas) y el departamento '
+              'sale de la ficha de cada persona: aquí no se cambian. '
+              '${widget.esDesarrollador ? 'Cada departamento tiene su director (rol Jefe inmediato) y sus profesionales de visita. ' : ''}'
+              'Lo que sí se arma aquí son los grupos: qué profesionales '
+              'visitan qué establecimientos.',
               style: const TextStyle(
                 fontFamily: _kFont,
                 fontSize: 12,
@@ -338,9 +372,10 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
             const Padding(
               padding: EdgeInsets.only(bottom: 8),
               child: Text(
-                'Tu rol de Visitas no tiene área: pide en Admin > Roles y '
-                'permisos que te lo asignen con tu área.',
-                style: TextStyle(color: Color(0xFFB45309)),
+                'Tu rol de Visitas no tiene departamento: pide en '
+                'Administración > Roles y permisos que te lo vuelvan a '
+                'asignar.',
+                style: TextStyle(color: _kAviso),
               ),
             ),
           LayoutBuilder(
@@ -369,27 +404,36 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
                   decoration: const InputDecoration(
                     isDense: true,
                     prefixIcon: Icon(Icons.search, size: 20),
-                    hintText: 'Buscar por nombre, cargo o área',
+                    hintText: 'Buscar por nombre, cargo o departamento',
                     border: OutlineInputBorder(),
                   ),
                   onChanged: (v) => setState(() => _busqueda = v),
                 ),
               ),
-              DropdownButton<String>(
-                value: _filtroRol,
-                items: [
-                  const DropdownMenuItem(
-                    value: 'todos',
-                    child: Text('Todos los roles'),
-                  ),
-                  const DropdownMenuItem(
-                    value: 'sin_rol',
-                    child: Text('Sin rol'),
-                  ),
-                  for (final e in kVisitasRolesLabel.entries)
-                    DropdownMenuItem(value: e.key, child: Text(e.value)),
-                ],
-                onChanged: (v) => setState(() => _filtroRol = v ?? 'todos'),
+              // Ancho fijo: "Gerencia (ve y administra todo)" desbordaba la
+              // fila en el teléfono.
+              SizedBox(
+                width: 260,
+                child: DropdownButton<String>(
+                  value: _filtroRol,
+                  isExpanded: true,
+                  items: [
+                    const DropdownMenuItem(
+                      value: 'todos',
+                      child: Text('Todos los roles'),
+                    ),
+                    const DropdownMenuItem(
+                      value: 'sin_rol',
+                      child: Text('Sin rol'),
+                    ),
+                    for (final e in kVisitasRolesLabel.entries)
+                      DropdownMenuItem(
+                        value: e.key,
+                        child: Text(e.value, overflow: TextOverflow.ellipsis),
+                      ),
+                  ],
+                  onChanged: (v) => setState(() => _filtroRol = v ?? 'todos'),
+                ),
               ),
               Text(
                 '${visibles.length} persona${visibles.length == 1 ? '' : 's'}',
@@ -402,8 +446,8 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
             const Padding(
               padding: EdgeInsets.all(16),
               child: Text(
-                'Nadie con el módulo Visitas coincide. Da el acceso en '
-                'Admin > Usuarios y vuelve a cargar.',
+                'Nadie con el módulo Visitas coincide. El acceso y el rol se '
+                'dan en Administración.',
                 style: TextStyle(color: Colors.black54),
               ),
             )
@@ -421,6 +465,13 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
   Widget _personaTile(VisitaPersona p, List<VisitaGrupo> grupos) {
     final grupo = gruposDe(p.id, grupos).firstOrNull;
     final area = p.areaVisitas;
+    // El departamento del rol quedó distinto al de la ficha: se corrige
+    // volviendo a asignar el rol en Administración, que lo toma de la ficha.
+    final descuadre =
+        visitasRolRequiereArea(p.rol) &&
+        p.rolAreaId.isNotEmpty &&
+        p.areaId.isNotEmpty &&
+        !mismaAreaVisitas(p.rolAreaId, p.areaId);
     return Card(
       margin: const EdgeInsets.only(bottom: 6),
       child: ListTile(
@@ -433,152 +484,41 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
             fontWeight: FontWeight.w700,
           ),
         ),
-        subtitle: Text(
-          [
-            if (p.cargo.isNotEmpty) p.cargo,
-            area.isEmpty ? 'Sin área' : _nombreArea(area),
-            if (grupo != null) 'Grupo ${grupo.nombre}',
-            if (!p.tieneAcceso) 'sin el módulo Visitas en sus accesos',
-          ].join(' · '),
-          style: TextStyle(
-            fontFamily: _kFont,
-            fontSize: 12,
-            color: p.tieneAcceso ? Colors.black54 : const Color(0xFFB45309),
-          ),
-        ),
-        trailing: Wrap(
-          spacing: 4,
-          crossAxisAlignment: WrapCrossAlignment.center,
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _RolChip(p.rol),
-            IconButton(
-              tooltip: 'Editar rol, área y grupo',
-              icon: const Icon(Icons.edit_outlined),
-              onPressed: () => _editarPersona(p, grupos),
+            Text(
+              [
+                if (p.cargo.isNotEmpty) p.cargo,
+                _nombreArea(area),
+                if (p.rol == kVisitasRolProfesional)
+                  grupo == null ? 'sin grupo' : 'Grupo ${grupo.nombre}',
+                if (!p.tieneAcceso) 'sin el módulo Visitas en sus accesos',
+              ].join(' · '),
+              style: TextStyle(
+                fontFamily: _kFont,
+                fontSize: 12,
+                color: p.tieneAcceso ? Colors.black54 : _kAviso,
+              ),
             ),
+            if (descuadre)
+              Text(
+                'Su ficha dice ${_nombreArea(p.areaId)} y el rol quedó en '
+                '${_nombreArea(p.rolAreaId)}: pide que le vuelvan a asignar '
+                'el rol en Administración.',
+                style: const TextStyle(fontSize: 12, color: _kAviso),
+              ),
           ],
         ),
+        trailing: _RolChip(p.rol),
       ),
     );
-  }
-
-  Future<void> _editarPersona(VisitaPersona p, List<VisitaGrupo> grupos) async {
-    final puedeTodo = widget.esDesarrollador;
-    if (p.rol == kVisitasRolGerencia && !widget.puedeNombrarGerencia) {
-      _snack(
-        context,
-        'El rol Gerencia lo asigna Desarrollo en Roles y permisos.',
-        error: true,
-      );
-      return;
-    }
-    if (!puedeTodo && p.rol.isNotEmpty) {
-      String? motivo;
-      if (p.rol != kVisitasRolProfesional) {
-        motivo =
-            'El rol ${kVisitasRolesLabel[p.rol] ?? p.rol} lo cambia '
-            'Administración en Roles y permisos.';
-      } else if (p.rolAreaId != _areaJefe) {
-        // Las reglas solo dejan al jefe tocar roles con su área exacta.
-        motivo = mismaAreaVisitas(p.rolAreaId, _areaJefe)
-            ? 'Su rol quedó con el área escrita distinto. Pide a '
-                  'Administración que se lo vuelva a asignar en Roles y '
-                  'permisos: ahí queda con el área correcta.'
-            : 'Es profesional de otra área.';
-      }
-      if (motivo != null) {
-        _snack(context, motivo, error: true);
-        return;
-      }
-    }
-    final resultado = await showDialog<_EdicionPersona>(
-      context: context,
-      builder: (_) => _PersonaDialog(
-        persona: p,
-        roles: puedeTodo
-            ? [
-                '',
-                for (final r in kVisitasRolesLabel.keys)
-                  if (r != kVisitasRolGerencia || widget.puedeNombrarGerencia)
-                    r,
-              ]
-            : const ['', kVisitasRolProfesional],
-        areas: puedeTodo
-            ? _areasMapa
-            : {
-                if (_areaJefe.isNotEmpty)
-                  _areaJefe: _areasMapa[_areaJefe] ?? _nombreArea(_areaJefe),
-              },
-        areaInicial: () {
-          if (!puedeTodo) return _areaJefe;
-          final ref = p.areaVisitas;
-          if (_areasMapa.containsKey(ref)) return ref;
-          // La misma área con otra variante del id: se ofrece la del
-          // catálogo, que es la que usan los formatos.
-          return _areas.opciones
-                  .where((o) => o.contiene(ref))
-                  .firstOrNull
-                  ?.id ??
-              '';
-        }(),
-        grupos: grupos,
-      ),
-    );
-    if (resultado == null || !mounted) return;
-    try {
-      if (resultado.rol.isEmpty) {
-        if (p.rol.isNotEmpty) {
-          await widget.svc.quitarRol(empresaId: widget.empresaId, userId: p.id);
-        }
-      } else {
-        await widget.svc.guardarRol(
-          empresaId: widget.empresaId,
-          userId: p.id,
-          nombre: p.nombre,
-          rol: resultado.rol,
-          areaId: visitasRolRequiereArea(resultado.rol) ? resultado.areaId : '',
-        );
-      }
-      // Grupo: un profesional está en un solo grupo de su área.
-      final actuales = gruposDe(p.id, grupos);
-      final destino = resultado.rol == kVisitasRolProfesional
-          ? grupos.where((g) => g.id == resultado.grupoId).firstOrNull
-          : null;
-      for (final g in actuales) {
-        if (g.id == destino?.id) continue;
-        if (!_enMiArea(g.areaId)) continue;
-        await widget.svc.guardarGrupo(
-          g.copyWith(
-            profesionalIds: g.profesionalIds.where((x) => x != p.id).toList(),
-          ),
-          actorId: widget.userId,
-        );
-      }
-      if (destino != null && !destino.profesionalIds.contains(p.id)) {
-        await widget.svc.guardarGrupo(
-          destino.copyWith(profesionalIds: [...destino.profesionalIds, p.id]),
-          actorId: widget.userId,
-          otros: grupos,
-        );
-      }
-      if (!mounted) return;
-      _snack(
-        context,
-        !p.tieneAcceso && resultado.rol.isNotEmpty
-            ? 'Guardado. Ojo: no tiene el módulo Visitas en sus accesos; '
-                  'dáselo en Admin > Usuarios para que pueda entrar.'
-            : 'Guardado.',
-      );
-      await _cargar();
-    } catch (e) {
-      if (mounted) _snack(context, 'No se pudo guardar: $e', error: true);
-    }
   }
 
   // ── Grupos ─────────────────────────────────────────────────────────────
 
-  Widget _grupos(List<VisitaGrupo> grupos, List<VisitaCentro> centros) {
-    final nombreCentro = {for (final c in centros) c.id: c.nombre};
+  Widget _grupos(List<VisitaGrupo> grupos, String? error, bool cargandoGrupos) {
+    final nombreCentro = {for (final c in _centros) c.id: c.nombre};
     final puedeCrear = widget.esDesarrollador || _areaJefe.isNotEmpty;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -587,9 +527,9 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
           children: [
             const Expanded(
               child: Text(
-                'Cada grupo reúne profesionales de un área y los '
-                'establecimientos que visitan. Al programar, esos '
-                'establecimientos salen primero.',
+                'Cada grupo reúne profesionales de un departamento y los '
+                'establecimientos que visitan. Al programar, a cada '
+                'profesional solo le salen los establecimientos de su grupo.',
                 style: TextStyle(
                   fontFamily: _kFont,
                   fontSize: 12,
@@ -600,20 +540,28 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
             const SizedBox(width: 8),
             FilledButton.icon(
               style: FilledButton.styleFrom(backgroundColor: _kColor),
-              onPressed: puedeCrear
-                  ? () => _editarGrupo(null, grupos, centros)
-                  : null,
+              onPressed: puedeCrear ? () => _editarGrupo(null, grupos) : null,
               icon: const Icon(Icons.group_add_outlined),
               label: const Text('Nuevo grupo'),
             ),
           ],
         ),
         const SizedBox(height: 10),
-        if (grupos.isEmpty)
+        if (error != null)
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(error, style: const TextStyle(color: _kRojo)),
+          )
+        else if (cargandoGrupos)
+          const Padding(
+            padding: EdgeInsets.all(24),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else if (grupos.isEmpty)
           const Padding(
             padding: EdgeInsets.all(16),
             child: Text(
-              'Todavía no hay grupos.',
+              'Todavía no hay grupos. Crea uno con "Nuevo grupo".',
               style: TextStyle(color: Colors.black54),
             ),
           )
@@ -642,7 +590,7 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
                         IconButton(
                           tooltip: 'Editar grupo',
                           icon: const Icon(Icons.edit_outlined),
-                          onPressed: () => _editarGrupo(g, grupos, centros),
+                          onPressed: () => _editarGrupo(g, grupos),
                         ),
                         IconButton(
                           tooltip: 'Eliminar grupo',
@@ -700,15 +648,12 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
     );
   }
 
-  Future<void> _editarGrupo(
-    VisitaGrupo? g,
-    List<VisitaGrupo> grupos,
-    List<VisitaCentro> centros,
-  ) async {
+  Future<void> _editarGrupo(VisitaGrupo? g, List<VisitaGrupo> grupos) async {
     final areaInicial = g?.areaId ?? (widget.esDesarrollador ? '' : _areaJefe);
     final resultado = await showDialog<VisitaGrupo>(
       context: context,
       builder: (_) => _GrupoDialog(
+        svc: widget.svc,
         grupo:
             g ??
             VisitaGrupo(
@@ -723,9 +668,8 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
                 if (_areaJefe.isNotEmpty)
                   _areaJefe: _areasMapa[_areaJefe] ?? _nombreArea(_areaJefe),
               },
-        // El área de un grupo no cambia: las reglas no lo permiten.
+        // El departamento de un grupo no cambia: las reglas no lo permiten.
         areaEditable: g == null && widget.esDesarrollador,
-        centros: centros,
         equipo: _equipo,
       ),
     );
@@ -806,207 +750,20 @@ class _RolChip extends StatelessWidget {
   }
 }
 
-// ── Diálogo de persona ─────────────────────────────────────────────────────
-
-class _EdicionPersona {
-  final String rol;
-  final String areaId;
-  final String grupoId;
-  const _EdicionPersona(this.rol, this.areaId, this.grupoId);
-}
-
-class _PersonaDialog extends StatefulWidget {
-  final VisitaPersona persona;
-  final List<String> roles;
-  final Map<String, String> areas;
-  final String areaInicial;
-  final List<VisitaGrupo> grupos;
-
-  const _PersonaDialog({
-    required this.persona,
-    required this.roles,
-    required this.areas,
-    required this.areaInicial,
-    required this.grupos,
-  });
-
-  @override
-  State<_PersonaDialog> createState() => _PersonaDialogState();
-}
-
-class _PersonaDialogState extends State<_PersonaDialog> {
-  late String _rol;
-  late String _area;
-  late String _grupo;
-
-  @override
-  void initState() {
-    super.initState();
-    final p = widget.persona;
-    _rol = widget.roles.contains(p.rol) ? p.rol : widget.roles.first;
-    _area = widget.areas.containsKey(widget.areaInicial)
-        ? widget.areaInicial
-        : (widget.areas.length == 1 ? widget.areas.keys.first : '');
-    _grupo = gruposDe(p.id, widget.grupos).firstOrNull?.id ?? '';
-  }
-
-  List<VisitaGrupo> get _gruposDelArea => [
-    for (final g in widget.grupos)
-      if (g.areaId == _area) g,
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final requiereArea = visitasRolRequiereArea(_rol);
-    final grupos = _gruposDelArea;
-    final faltaArea = requiereArea && _area.isEmpty;
-    return AlertDialog(
-      title: Row(
-        children: [
-          UserAvatar(
-            userId: widget.persona.id,
-            nameHint: widget.persona.nombre,
-            radius: 16,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: UserNameText(
-              widget.persona.id,
-              fallbackName: widget.persona.nombre,
-              style: const TextStyle(fontFamily: _kFont, fontSize: 16),
-            ),
-          ),
-        ],
-      ),
-      content: SizedBox(
-        width: 420,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (widget.persona.cargo.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Text(
-                  widget.persona.cargo,
-                  style: const TextStyle(color: Colors.black54),
-                ),
-              ),
-            DropdownButtonFormField<String>(
-              initialValue: _rol,
-              isExpanded: true,
-              decoration: const InputDecoration(
-                labelText: 'Rol en Visitas',
-                border: OutlineInputBorder(),
-              ),
-              items: [
-                for (final r in widget.roles)
-                  DropdownMenuItem(
-                    value: r,
-                    child: Text(
-                      r.isEmpty ? 'Sin rol' : (kVisitasRolesLabel[r] ?? r),
-                    ),
-                  ),
-              ],
-              onChanged: (v) => setState(() => _rol = v ?? ''),
-            ),
-            if (requiereArea) ...[
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                key: ValueKey('area-$_area'),
-                initialValue: _area.isEmpty ? null : _area,
-                isExpanded: true,
-                decoration: InputDecoration(
-                  labelText: 'Área',
-                  border: const OutlineInputBorder(),
-                  enabledBorder: OutlineInputBorder(
-                    borderSide: BorderSide(
-                      color: faltaArea ? _kRojo : Colors.black87,
-                    ),
-                  ),
-                ),
-                items: [
-                  for (final e in widget.areas.entries)
-                    DropdownMenuItem(value: e.key, child: Text(e.value)),
-                ],
-                onChanged: widget.areas.length <= 1
-                    ? null
-                    : (v) => setState(() {
-                        _area = v ?? '';
-                        _grupo = '';
-                      }),
-              ),
-            ],
-            if (_rol == kVisitasRolProfesional) ...[
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                key: ValueKey('grupo-$_area-$_grupo'),
-                initialValue: grupos.any((g) => g.id == _grupo) ? _grupo : '',
-                isExpanded: true,
-                decoration: const InputDecoration(
-                  labelText: 'Grupo',
-                  border: OutlineInputBorder(),
-                ),
-                items: [
-                  const DropdownMenuItem(value: '', child: Text('Sin grupo')),
-                  for (final g in grupos)
-                    DropdownMenuItem(
-                      value: g.id,
-                      child: Text(
-                        '${g.nombre} · ${g.centroIds.length} establecimiento'
-                        '${g.centroIds.length == 1 ? '' : 's'}',
-                      ),
-                    ),
-                ],
-                onChanged: (v) => setState(() => _grupo = v ?? ''),
-              ),
-              if (grupos.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.only(top: 6),
-                  child: Text(
-                    'El área no tiene grupos. Créalos en "Grupos y '
-                    'establecimientos".',
-                    style: TextStyle(fontSize: 12, color: Colors.black54),
-                  ),
-                ),
-            ],
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton(
-          style: FilledButton.styleFrom(backgroundColor: _kColor),
-          onPressed: faltaArea
-              ? null
-              : () => Navigator.pop(
-                  context,
-                  _EdicionPersona(_rol, _area, _grupo),
-                ),
-          child: const Text('Guardar'),
-        ),
-      ],
-    );
-  }
-}
-
 // ── Diálogo de grupo ───────────────────────────────────────────────────────
 
 class _GrupoDialog extends StatefulWidget {
+  final VisitasService svc;
   final VisitaGrupo grupo;
   final Map<String, String> areas;
   final bool areaEditable;
-  final List<VisitaCentro> centros;
   final List<VisitaPersona> equipo;
 
   const _GrupoDialog({
+    required this.svc,
     required this.grupo,
     required this.areas,
     required this.areaEditable,
-    required this.centros,
     required this.equipo,
   });
 
@@ -1021,6 +778,11 @@ class _GrupoDialogState extends State<_GrupoDialog> {
   late Set<String> _profesionales;
   String _buscarCentro = '';
 
+  /// Los establecimientos se leen aquí mismo: si se pasaban desde la
+  /// pestaña y esa lectura se había perdido, la lista salía vacía.
+  List<VisitaCentro>? _todos;
+  String? _errorCentros;
+
   @override
   void initState() {
     super.initState();
@@ -1031,6 +793,19 @@ class _GrupoDialogState extends State<_GrupoDialog> {
         : (widget.areas.length == 1 ? widget.areas.keys.first : '');
     _centros = {...g.centroIds};
     _profesionales = {...g.profesionalIds};
+    _leerCentros();
+  }
+
+  Future<void> _leerCentros() async {
+    if (_errorCentros != null) setState(() => _errorCentros = null);
+    try {
+      final c = await widget.svc.streamCentros(widget.grupo.empresaId).first;
+      if (mounted) setState(() => _todos = c);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _errorCentros = 'No se pudieron leer: $e');
+      }
+    }
   }
 
   @override
@@ -1039,11 +814,12 @@ class _GrupoDialogState extends State<_GrupoDialog> {
     super.dispose();
   }
 
-  /// Profesionales del área con el rol guardado exacto: es el que exigen las
-  /// reglas para programarles visitas.
+  /// Profesionales de visita del departamento.
   List<VisitaPersona> get _profesionalesDelArea => [
     for (final p in widget.equipo)
-      if (p.rol == kVisitasRolProfesional && p.rolAreaId == _area) p,
+      if (p.rol == kVisitasRolProfesional &&
+          mismaAreaVisitas(p.rolAreaId, _area))
+        p,
   ];
 
   BoxDecoration _marco(bool vacio) => BoxDecoration(
@@ -1054,16 +830,67 @@ class _GrupoDialogState extends State<_GrupoDialog> {
     ),
   );
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _listaCentros() {
+    final todos = _todos;
+    if (_errorCentros != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(_errorCentros!, textAlign: TextAlign.center),
+            TextButton(
+              onPressed: _leerCentros,
+              child: const Text('Reintentar'),
+            ),
+          ],
+        ),
+      );
+    }
+    if (todos == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (todos.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(12),
+          child: Text(
+            'La empresa no tiene establecimientos habilitados en el maestro '
+            'de centros de costo.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.black54),
+          ),
+        ),
+      );
+    }
     final q = areaClave(_buscarCentro);
     final centros = [
-      for (final c in widget.centros)
+      for (final c in todos)
         if (q.isEmpty || areaClave(c.nombre).contains(q)) c,
     ];
+    if (centros.isEmpty) {
+      return const Center(child: Text('Ningún establecimiento coincide.'));
+    }
+    return ListView(
+      children: [
+        for (final c in centros)
+          CheckboxListTile(
+            dense: true,
+            value: _centros.contains(c.id),
+            title: Text(c.nombre),
+            onChanged: (v) => setState(
+              () => v == true ? _centros.add(c.id) : _centros.remove(c.id),
+            ),
+          ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final profesionales = _profesionalesDelArea;
     final faltaNombre = _nombre.text.trim().isEmpty;
     final faltaArea = _area.isEmpty;
+    final todos = _todos ?? const <VisitaCentro>[];
     return AlertDialog(
       title: Text(widget.grupo.id.isEmpty ? 'Nuevo grupo' : 'Editar grupo'),
       content: SizedBox(
@@ -1087,34 +914,39 @@ class _GrupoDialogState extends State<_GrupoDialog> {
                 ),
               ),
               const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: _area.isEmpty ? null : _area,
-                isExpanded: true,
-                decoration: InputDecoration(
-                  labelText: 'Área',
-                  border: const OutlineInputBorder(),
-                  enabledBorder: OutlineInputBorder(
-                    borderSide: BorderSide(
-                      color: faltaArea ? _kRojo : Colors.black87,
+              if (widget.areaEditable)
+                DropdownButtonFormField<String>(
+                  initialValue: _area.isEmpty ? null : _area,
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    labelText: 'Departamento',
+                    border: const OutlineInputBorder(),
+                    enabledBorder: OutlineInputBorder(
+                      borderSide: BorderSide(
+                        color: faltaArea ? _kRojo : Colors.black87,
+                      ),
                     ),
                   ),
+                  items: [
+                    for (final e in widget.areas.entries)
+                      DropdownMenuItem(value: e.key, child: Text(e.value)),
+                  ],
+                  onChanged: (v) => setState(() {
+                    _area = v ?? '';
+                    _profesionales.clear();
+                  }),
+                )
+              else
+                // El jefe arma grupos de su departamento: no se vuelve a
+                // escoger (28 sep 2026).
+                Text(
+                  'Departamento: ${widget.areas[_area] ?? (widget.grupo.areaNombre.isEmpty ? 'sin departamento' : widget.grupo.areaNombre)}',
+                  style: TextStyle(
+                    fontFamily: _kFont,
+                    fontWeight: FontWeight.w700,
+                    color: faltaArea ? _kRojo : Colors.black87,
+                  ),
                 ),
-                items: [
-                  for (final e in widget.areas.entries)
-                    DropdownMenuItem(value: e.key, child: Text(e.value)),
-                  if (_area.isNotEmpty && !widget.areas.containsKey(_area))
-                    DropdownMenuItem(
-                      value: _area,
-                      child: Text(widget.grupo.areaNombre),
-                    ),
-                ],
-                onChanged: widget.areaEditable
-                    ? (v) => setState(() {
-                        _area = v ?? '';
-                        _profesionales.clear();
-                      })
-                    : null,
-              ),
               const SizedBox(height: 14),
               Text(
                 'Establecimientos (${_centros.length})',
@@ -1134,21 +966,7 @@ class _GrupoDialogState extends State<_GrupoDialog> {
               Container(
                 height: 220,
                 decoration: _marco(_centros.isEmpty),
-                child: ListView(
-                  children: [
-                    for (final c in centros)
-                      CheckboxListTile(
-                        dense: true,
-                        value: _centros.contains(c.id),
-                        title: Text(c.nombre),
-                        onChanged: (v) => setState(
-                          () => v == true
-                              ? _centros.add(c.id)
-                              : _centros.remove(c.id),
-                        ),
-                      ),
-                  ],
-                ),
+                child: _listaCentros(),
               ),
               const SizedBox(height: 14),
               Text(
@@ -1156,10 +974,16 @@ class _GrupoDialogState extends State<_GrupoDialog> {
                 style: const TextStyle(fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 6),
-              if (profesionales.isEmpty)
+              if (faltaArea)
                 const Text(
-                  'El área no tiene profesionales con rol. Dáselo en '
-                  'Personal.',
+                  'Elige primero el departamento.',
+                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                )
+              else if (profesionales.isEmpty)
+                const Text(
+                  'El departamento no tiene profesionales de visita. El rol '
+                  'Profesional se asigna en Administración > Roles y '
+                  'permisos > Visitas.',
                   style: TextStyle(fontSize: 12, color: Colors.black54),
                 )
               else
@@ -1191,8 +1015,8 @@ class _GrupoDialogState extends State<_GrupoDialog> {
                 ),
               const SizedBox(height: 6),
               const Text(
-                'Un profesional queda en un solo grupo de su área: si ya '
-                'estaba en otro, sale de ese al guardar.',
+                'Un profesional queda en un solo grupo de su departamento: si '
+                'ya estaba en otro, sale de ese al guardar.',
                 style: TextStyle(fontSize: 11, color: Colors.black54),
               ),
             ],
@@ -1206,7 +1030,7 @@ class _GrupoDialogState extends State<_GrupoDialog> {
         ),
         FilledButton(
           style: FilledButton.styleFrom(backgroundColor: _kColor),
-          onPressed: faltaNombre || faltaArea
+          onPressed: faltaNombre || faltaArea || _todos == null
               ? null
               : () => Navigator.pop(
                   context,
@@ -1215,11 +1039,11 @@ class _GrupoDialogState extends State<_GrupoDialog> {
                     areaId: _area,
                     areaNombre: widget.areas[_area] ?? widget.grupo.areaNombre,
                     centroIds: [
-                      for (final c in widget.centros)
+                      for (final c in todos)
                         if (_centros.contains(c.id)) c.id,
                       // Centros que ya no están habilitados se conservan.
                       for (final c in _centros)
-                        if (!widget.centros.any((x) => x.id == c)) c,
+                        if (!todos.any((x) => x.id == c)) c,
                     ],
                     profesionalIds: _profesionales.toList(),
                   ),

@@ -449,23 +449,50 @@ class VisitasService {
     return area;
   }
 
-  /// Cargos de la empresa, para decir a qué cargos aplica un formato.
-  Future<List<String>> cargosDeEmpresa(String empresaId) async {
+  /// Cargos de un departamento, para decir a qué cargos aplica un formato
+  /// (28 sep 2026: "los cargos deben depender del área seleccionada"). Los
+  /// del maestro de cargos (`TBL_CARGOS`) con ese departamento, más los
+  /// cargos del personal que trabaja en él: en muchas fichas el departamento
+  /// solo está en la persona y no en el cargo.
+  Future<List<String>> cargosDeArea(
+    String empresaId, {
+    required String areaId,
+    String areaNombre = '',
+  }) async {
+    if (areaId.trim().isEmpty && areaNombre.trim().isEmpty) return const [];
+    bool esDelArea(String ref) =>
+        ref.trim().isNotEmpty &&
+        (mismaAreaVisitas(ref, areaId) ||
+            (areaNombre.trim().isNotEmpty &&
+                areaClave(ref) == areaClave(areaNombre)));
+    final nombres = <String, String>{};
+    void agregar(String cargo) {
+      final c = cargo.trim();
+      if (c.isNotEmpty) nombres.putIfAbsent(areaClave(c), () => c);
+    }
+
     try {
       final snap = await _db
           .collection('TBL_CARGOS')
           .where('empresaId', isEqualTo: empresaId)
           .get();
-      final nombres = <String>{
-        for (final d in snap.docs)
-          if ((d.data()['nombre'] ?? '').toString().trim().isNotEmpty)
-            (d.data()['nombre'] ?? '').toString().trim(),
-      };
-      return nombres.toList()
-        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-    } catch (_) {
-      return const [];
-    }
+      for (final doc in snap.docs) {
+        final d = doc.data();
+        final area = [
+          d['areaId'],
+          d['areaNombre'],
+          d['area'],
+        ].map((v) => (v ?? '').toString()).any(esDelArea);
+        if (area) agregar((d['nombre'] ?? '').toString());
+      }
+    } catch (_) {}
+    try {
+      for (final p in await personalDeEmpresa(empresaId)) {
+        if (esDelArea(p.areaId)) agregar(p.cargo);
+      }
+    } catch (_) {}
+    return nombres.values.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
   }
 
   /// El equipo de Visitas: quien tiene el módulo entre sus accesos o ya
@@ -689,11 +716,20 @@ class VisitasService {
   /// Carga (o actualiza) el formato SST oficial del Excel. Mismo docId
   /// siempre: cargarlo dos veces actualiza, no duplica. Devuelve `true` si
   /// ya existía.
+  ///
+  /// Va al departamento que se elija (28 sep 2026): "SST / HSE" no es un
+  /// departamento de la empresa, y con esa área el director de Talento
+  /// Humano, que es quien lleva SST, no veía el formato. Si ya existía en
+  /// otro departamento, se mueve (solo Desarrollo y Gerencia pueden).
   Future<bool> cargarFormatoSst(
     String empresaId, {
     required String actorId,
+    required String areaId,
+    required String areaNombre,
   }) async {
-    final f = formatoSstOficial(empresaId);
+    final f = formatoSstOficial(
+      empresaId,
+    ).copyWith(areaId: areaId, areaNombre: areaNombre);
     final ref = _formatos.doc(f.id);
     final existia = (await ref.get()).exists;
     final previos = await _formatos
@@ -746,30 +782,35 @@ class VisitasService {
   Future<String> programar(VisitaProfesional v) async =>
       (await programarVarias([v])).single;
 
-  /// Programa varias visitas del mismo profesional y formato de una vez
-  /// (25 sep 2026: "seleccionar varias fechas y asignar los lugares más
-  /// rápido, no una por una"). Valida una sola vez, escribe en un lote y
-  /// manda un solo aviso con todas las fechas.
+  /// Programa varias visitas del mismo profesional de una vez (25 sep 2026:
+  /// "seleccionar varias fechas y asignar los lugares más rápido, no una por
+  /// una"). Valida una sola vez, escribe en un lote y manda un solo aviso con
+  /// todas las fechas.
+  ///
+  /// Sin formato (28 sep 2026): "el formato no es necesario; el profesional
+  /// selecciona el formato a diligenciar al momento de la visita". La visita
+  /// queda en el departamento del profesional.
   Future<List<String>> programarVarias(List<VisitaProfesional> visitas) async {
     if (visitas.isEmpty) return const [];
     final v = visitas.first;
-    final formatoActual = await _validarProgramacion(v);
+    await _validarProgramacion(v);
     final refs = <DocumentReference<Map<String, dynamic>>>[];
     final batch = _db.batch();
     for (final visita in visitas) {
       if (visita.profesionalId != v.profesionalId ||
-          visita.formatoId != v.formatoId ||
+          visita.areaId != v.areaId ||
           visita.asignadoPorId != v.asignadoPorId ||
           visita.esPrueba != v.esPrueba) {
         throw const VisitasException(
-          'Un lote es de un solo profesional, formato y tipo de visita.',
+          'Un lote es de un solo profesional y tipo de visita.',
         );
       }
       final ref = _visitas.doc();
       refs.add(ref);
       batch.set(ref, {
-        ...visita.toMap(),
-        'formatoAsignado': formatoActual.toMap(),
+        ...visita.toMap()..remove('formatoAsignado'),
+        'formatoId': '',
+        'formatoNombre': '',
         'estado': kVisitaProgramada,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -804,26 +845,11 @@ class VisitasService {
     return [for (final r in refs) r.id];
   }
 
-  Future<VisitaFormato> _validarProgramacion(VisitaProfesional v) async {
-    if (v.formatoAsignado == null || v.formatoAsignado!.id != v.formatoId) {
+  Future<void> _validarProgramacion(VisitaProfesional v) async {
+    if (v.areaId.trim().isEmpty) {
       throw const VisitasException(
-        'Selecciona un formato válido para la visita.',
-      );
-    }
-    final formatoActual = await getFormato(v.formatoId);
-    if (formatoActual == null ||
-        !formatoActual.usable ||
-        formatoActual.empresaId != v.empresaId) {
-      throw const VisitasException('El formato ya no está disponible.');
-    }
-    if (!v.esPrueba && formatoActual.esBorrador) {
-      throw const VisitasException(
-        'Un borrador solo se puede usar en visitas de prueba.',
-      );
-    }
-    if (v.areaId != formatoActual.areaId) {
-      throw const VisitasException(
-        'El formato no corresponde al área de la visita.',
+        'El profesional no tiene departamento en su rol de Visitas. Pide en '
+        'Administración > Roles y permisos que se lo vuelvan a asignar.',
       );
     }
     final areaJefe = await areaDeUsuario(v.empresaId, v.asignadoPorId);
@@ -843,7 +869,7 @@ class VisitasService {
       if (rolActor != kVisitasRolGerencia &&
           !isDeveloperUser(datosActor, empresaId: v.empresaId)) {
         throw const VisitasException(
-          'Solo la jefatura de esta área puede programar la visita.',
+          'Solo el director de este departamento puede programar la visita.',
         );
       }
     }
@@ -858,10 +884,19 @@ class VisitasService {
     if (areaProfesional != v.areaId &&
         !(v.esPrueba && v.profesionalId == v.asignadoPorId)) {
       throw const VisitasException(
-        'El profesional debe pertenecer al área del formato.',
+        'La visita va en el departamento del profesional.',
       );
     }
-    return formatoActual;
+  }
+
+  /// Formatos que el profesional puede escoger al iniciar la visita: los de
+  /// su departamento que aplican a su cargo (ver [formatosParaVisita]).
+  Future<List<VisitaFormato>> formatosDeVisita(
+    VisitaProfesional v, {
+    required String cargo,
+  }) async {
+    final formatos = await streamFormatos(v.empresaId, areaId: v.areaId).first;
+    return formatosParaVisita(formatos, visita: v, cargo: cargo);
   }
 
   Future<void> cancelar(String id, {required String motivo}) =>
@@ -892,9 +927,20 @@ class VisitasService {
       porId: actorId,
       porNombre: actorNombre,
     );
+    // Si el profesional había pedido un cambio, el jefe lo resolvió aquí.
+    final solicitud = v.solicitudFecha;
     await _visitas.doc(v.id).update({
       'fechaProgramada': Timestamp.fromDate(fecha),
       'reprogramaciones': FieldValue.arrayUnion([cambio.toMap()]),
+      if (solicitud != null && solicitud.pendiente)
+        'solicitudCambioFecha': solicitud
+            .respondida(
+              aprobada: true,
+              porId: actorId,
+              porNombre: actorNombre,
+              respuesta: 'Reprogramada para el ${_diaMes(fecha)}.',
+            )
+            .toMap(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
     final destinatario = actorId == v.profesionalId
@@ -909,6 +955,133 @@ class VisitasService {
           '${fecha.day.toString().padLeft(2, '0')}/'
           '${fecha.month.toString().padLeft(2, '0')}'
           '${motivo.trim().isEmpty ? '' : ' · $motivo'}',
+      type: 'visita_reprogramada',
+      taskId: 'visita:${v.id}',
+      fromId: actorId,
+      fromName: actorNombre,
+      empresaId: v.empresaId,
+    );
+  }
+
+  static String _diaMes(DateTime d) =>
+      '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}';
+
+  /// El profesional le pide a su jefe inmediato mover la visita (28 sep
+  /// 2026). No la mueve él: queda la solicitud en la visita y le llega el
+  /// aviso a quien la programó.
+  Future<void> solicitarCambioFecha(
+    VisitaProfesional v, {
+    required DateTime nuevaFecha,
+    required String motivo,
+    required String actorId,
+    required String actorNombre,
+  }) async {
+    final fecha = DateTime(nuevaFecha.year, nuevaFecha.month, nuevaFecha.day);
+    final error = validarSolicitudFecha(
+      v,
+      fecha: fecha,
+      motivo: motivo,
+      hoy: DateTime.now(),
+    );
+    if (error != null) throw VisitasException(error);
+    final solicitud = VisitaSolicitudFecha(
+      fecha: fecha,
+      motivo: motivo.trim(),
+      porId: actorId,
+      porNombre: actorNombre,
+    );
+    await _visitas.doc(v.id).update({
+      'solicitudCambioFecha': solicitud.toMap(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    if (v.esPrueba ||
+        v.asignadoPorId.isEmpty ||
+        v.asignadoPorId == v.profesionalId) {
+      return;
+    }
+    await _tasks.pushNotification(
+      toUserId: v.asignadoPorId,
+      title: 'Solicitud de cambio de fecha · ${v.establecimiento}',
+      description:
+          '$actorNombre pide pasar la visita del ${_diaMes(v.fechaProgramada)} '
+          'al ${_diaMes(fecha)}: ${motivo.trim()}. Apruébala o recházala '
+          'desde el cronograma de Visitas.',
+      type: 'visita_solicitud_fecha',
+      taskId: 'visita:${v.id}',
+      fromId: actorId,
+      fromName: actorNombre,
+      empresaId: v.empresaId,
+    );
+  }
+
+  /// El jefe responde la solicitud de cambio de fecha. Al aprobarla la
+  /// visita pasa a la fecha pedida. Si ya estaba en curso (se inició y no
+  /// se cerró ese día) vuelve a quedar programada: conserva las respuestas,
+  /// pero el inicio y las firmas se hacen de nuevo el día nuevo, porque el
+  /// acta se hace y se cierra en un mismo día.
+  Future<void> responderCambioFecha(
+    VisitaProfesional v, {
+    required bool aprobar,
+    required String actorId,
+    required String actorNombre,
+    String respuesta = '',
+  }) async {
+    final solicitud = v.solicitudFecha;
+    if (solicitud == null || !solicitud.pendiente) {
+      throw const VisitasException('La solicitud ya fue respondida.');
+    }
+    if (v.estado != kVisitaProgramada && v.estado != kVisitaEnCurso) {
+      throw const VisitasException('La visita ya no está pendiente.');
+    }
+    if (!aprobar && respuesta.trim().isEmpty) {
+      throw const VisitasException('Escribe por qué no se aprueba.');
+    }
+    final respondida = solicitud
+        .respondida(
+          aprobada: aprobar,
+          porId: actorId,
+          porNombre: actorNombre,
+          respuesta: respuesta.trim(),
+        )
+        .toMap();
+    final fecha = solicitud.fecha;
+    if (!aprobar) {
+      await _visitas.doc(v.id).update({
+        'solicitudCambioFecha': respondida,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } else {
+      final cambio = VisitaReprogramacion(
+        de: v.fechaProgramada,
+        a: fecha,
+        motivo: 'Solicitud del profesional: ${solicitud.motivo}',
+        porId: actorId,
+        porNombre: actorNombre,
+      );
+      await _visitas.doc(v.id).update({
+        'fechaProgramada': Timestamp.fromDate(fecha),
+        'reprogramaciones': FieldValue.arrayUnion([cambio.toMap()]),
+        'solicitudCambioFecha': respondida,
+        if (v.estado == kVisitaEnCurso) ...{
+          'estado': kVisitaProgramada,
+          'inicio': null,
+          'firmaProfesional': null,
+          'firmaEstablecimiento': null,
+          'firmanteEstablecimientoId': '',
+        },
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+    if (v.esPrueba || v.profesionalId == actorId) return;
+    await _tasks.pushNotification(
+      toUserId: v.profesionalId,
+      title: aprobar
+          ? 'Cambio de fecha aprobado · ${v.establecimiento}'
+          : 'Cambio de fecha rechazado · ${v.establecimiento}',
+      description: aprobar
+          ? 'La visita queda para el ${_diaMes(fecha)}.'
+                '${v.estado == kVisitaEnCurso ? ' Ese día la vuelves a iniciar en el establecimiento; tus respuestas siguen ahí.' : ''}'
+          : 'Sigue para el ${_diaMes(v.fechaProgramada)}: ${respuesta.trim()}',
       type: 'visita_reprogramada',
       taskId: 'visita:${v.id}',
       fromId: actorId,
@@ -963,12 +1136,41 @@ class VisitasService {
   /// estar dentro del radio; si algo falla lanza [VisitasException] con el
   /// motivo y no escribe nada. Guarda también el encabezado del formato
   /// (responsable, ciudad, cargo) que se captura en la misma pantalla.
+  ///
+  /// Desde el 28 sep 2026 aquí se fija también el formato que el profesional
+  /// eligió ([formato]); una visita programada antes ya lo trae y no cambia.
+  /// Y solo se inicia el día programado ([motivoNoIniciaHoy]).
   Future<void> iniciar(
     VisitaProfesional v, {
     required VisitaResponsable responsable,
     required String ciudad,
     required String cargoProfesional,
+    VisitaFormato? formato,
   }) async {
+    final noHoy = motivoNoIniciaHoy(v, DateTime.now());
+    if (noHoy != null) throw VisitasException(noHoy);
+    VisitaFormato? elegido;
+    if (!v.tieneFormato) {
+      if (formato == null) {
+        throw const VisitasException('Elige el formato que vas a diligenciar.');
+      }
+      // El de Firestore y no el de la pantalla: las reglas comparan la copia
+      // con el formato guardado.
+      elegido = await getFormato(formato.id);
+      if (elegido == null ||
+          !elegido.usable ||
+          elegido.empresaId != v.empresaId ||
+          elegido.areaId != v.areaId) {
+        throw const VisitasException(
+          'Ese formato ya no está disponible para tu departamento.',
+        );
+      }
+      if (!v.esPrueba && elegido.esBorrador) {
+        throw const VisitasException(
+          'Un borrador solo se usa en visitas de prueba.',
+        );
+      }
+    }
     final ref = v.esPrueba
         ? null
         : await ubicacionPara(
@@ -993,6 +1195,11 @@ class VisitasService {
       'responsableEstablecimiento': responsable.toMap(),
       'ciudad': ciudad,
       'cargoProfesional': cargoProfesional,
+      if (elegido != null) ...{
+        'formatoId': elegido.id,
+        'formatoNombre': elegido.nombre,
+        'formatoAsignado': elegido.toMap(),
+      },
       'updatedAt': FieldValue.serverTimestamp(),
     });
   }
@@ -1261,6 +1468,10 @@ class VisitasService {
   }) async {
     final errores = validarCierreVisita(formato, visita);
     if (errores.isNotEmpty) throw VisitasException(errores.join('\n'));
+    // 28 sep 2026: se cierra el mismo día y en el establecimiento ("no puede
+    // estar en una ubicación diferente").
+    final noHoy = motivoNoCierraHoy(visita, DateTime.now());
+    if (noHoy != null) throw VisitasException(noHoy);
 
     final ref = visita.esPrueba
         ? null
@@ -1270,6 +1481,16 @@ class VisitasService {
             subcentroId: visita.subcentroId,
           );
     final pos = visita.esPrueba ? null : await posicionActual();
+    if (!visita.esPrueba) {
+      final check = verificarUbicacionInicio(
+        referencia: ref,
+        lat: pos?.latitude,
+        lng: pos?.longitude,
+        precisionMetros: pos?.accuracy,
+        accion: 'cerrar',
+      );
+      if (!check.permitido) throw VisitasException(check.motivo);
+    }
     final ahora = DateTime.now();
     final resumen = resumenDeVisita(formato, visita.respuestas);
     final hallazgos = hallazgosDeVisita(
