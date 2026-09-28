@@ -23,7 +23,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.securityAdminClearLoginBlocks = exports.securityAdminResetTemporaryPassword = exports.securityAdminRevokeSessions = exports.securityAdminRequirePasswordChange = exports.securityAdminOverview = void 0;
+exports.securityAdminClearLoginBlocks = exports.securityAdminResetTemporaryPassword = exports.securityAdminRevokeDisabledSessions = exports.securityAdminRevokeSessions = exports.securityAdminRequirePasswordChange = exports.securityAdminOverview = void 0;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 const crypto_1 = require("crypto");
@@ -252,6 +252,9 @@ exports.securityAdminOverview = functions
             // entrar a otra de sus empresas.
             active: isActive(raw) &&
                 (0, acceso_1.empresasSeleccionables)(raw).includes(caller.empresaId),
+            // No puede entrar a la app en absoluto (ver acceso.ts): son a
+            // quienes cierra las sesiones securityAdminRevokeDisabledSessions.
+            accessBlocked: !isActive(raw),
             migrated: Number(raw.authVersion || 0) === 2 && migratedIds.has(doc.id),
             needsPasswordChange: raw.needsPasswordChange === true,
             recoveryConfigured: Boolean(clean(raw.pregunta_seguridad_1) && clean(raw.pregunta_seguridad_2)),
@@ -297,6 +300,46 @@ exports.securityAdminRevokeSessions = functions
     const revoked = await revokeUser(target.id);
     await writeAudit(caller, "revoke_sessions", target.id, { hadAuthAccount: revoked });
     return { ok: true, revoked };
+});
+// Cierra de una vez las sesiones de todo el personal de la empresa que hoy
+// no puede entrar a la app (inhabilitado). Es para quienes ya lo estaban
+// antes de authCerrarSesionInhabilitado: ese trigger solo actúa cuando
+// alguien PASA a inhabilitado. Se puede repetir sin daño.
+exports.securityAdminRevokeDisabledSessions = functions
+    .region("us-central1")
+    .runWith({ timeoutSeconds: 300, memory: "512MB" })
+    .https.onCall(async (data, context) => {
+    const caller = await requireAdmin(data, context);
+    const snap = await db().collection(usersCollection).get();
+    const objetivo = snap.docs.filter((doc) => {
+        const raw = doc.data();
+        return doc.id !== caller.userDocId &&
+            belongsToCompany(raw, caller.empresaId) &&
+            (0, acceso_1.motivoAccesoBloqueado)(raw) !== null;
+    });
+    let revoked = 0;
+    let withoutAccount = 0;
+    let failed = 0;
+    // De a 10 en paralelo: Auth limita las escrituras por segundo.
+    for (let i = 0; i < objetivo.length; i += 10) {
+        const lote = objetivo.slice(i, i + 10);
+        const resultados = await Promise.allSettled(lote.map((doc) => revokeUser(doc.id)));
+        for (const r of resultados) {
+            if (r.status === "rejected")
+                failed++;
+            else if (r.value)
+                revoked++;
+            else
+                withoutAccount++;
+        }
+    }
+    await writeAudit(caller, "revoke_disabled_sessions", "*", {
+        candidates: objetivo.length,
+        revoked,
+        withoutAccount,
+        failed,
+    });
+    return { ok: true, candidates: objetivo.length, revoked, withoutAccount, failed };
 });
 exports.securityAdminResetTemporaryPassword = functions
     .region("us-central1")

@@ -720,8 +720,20 @@ bool isPersonaActivaEnEmpresa(Map<String, dynamic> data, String? empresaId) {
   }
 
   final global = (data['estado'] ?? '').toString().trim().toLowerCase();
-  return global.isEmpty || global == kEstadoPersonaActivo;
+  return global.isEmpty || global == kEstadoPersonaActivo || global == 'active';
 }
+
+/// ¿Es personal habilitado en [empresaId]? Es la regla de las listas y
+/// selectores de TODOS los módulos para fichas de `TBL_USUARIOS`.
+///
+/// Suma a [isPersonaActivaEnEmpresa] (retiro por empresa en Talento Humano,
+/// traslado) la cuenta: con la cuenta inhabilitada no entra a la app (ver
+/// [motivoAccesoBloqueado]), así que no es personal activo en ninguna
+/// empresa aunque su bloque diga activo. [isPersonaActivaEnEmpresa] solo no
+/// lo mira porque también se usa sobre la estructura organizacional, donde
+/// el `estado` raíz es el de la empresa principal y no el de la cuenta.
+bool personaHabilitadaEn(Map<String, dynamic> usuario, String? empresaId) =>
+    !cuentaInhabilitada(usuario) && isPersonaActivaEnEmpresa(usuario, empresaId);
 
 /// La cuenta está apagada para toda la app: el interruptor global de
 /// Administración (`activo: false`) o un `estado` global distinto de activo.

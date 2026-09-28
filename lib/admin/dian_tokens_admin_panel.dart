@@ -87,6 +87,10 @@ class _AdminDianTokensPanelState extends State<AdminDianTokensPanel> {
   List<QueryDocumentSnapshot<Map<String, dynamic>>> get _filteredUsers {
     final query = _search.text.trim().toLowerCase();
     final rows = _users.where((doc) {
+      // Un inhabilitado no entra a la app: no se le dan accesos.
+      if (!personaHabilitadaEn(doc.data(), widget.empresaId)) {
+        return false;
+      }
       if (query.isEmpty) return true;
       final data = mergeCompanyScopedData(doc.data(), widget.empresaId);
       final haystack = [

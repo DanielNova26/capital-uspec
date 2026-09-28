@@ -12,6 +12,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 import '../widgets/internal_module_layout.dart';
 import '../widgets/user_avatar.dart';
+import '../utils/user_company.dart';
 
 // ── Widget de imagen que carga via SDK de Firebase (evita CORS en web) ────────
 class _StorageImage extends StatefulWidget {
@@ -304,6 +305,8 @@ class _NotificacionesTalentoHumanoScreenState
     return all
         .where((d) {
           final data = d.data();
+          // Un inhabilitado no entra a la app: no hay a quién notificar.
+          if (!personaHabilitadaEn(data, widget.empresaId)) return false;
           final nombre = _buildNombre(data).toLowerCase();
           final cedula = (data['cedula'] as String? ?? d.id).toLowerCase();
           return term.isEmpty || nombre.contains(term) || cedula.contains(term);
@@ -438,11 +441,16 @@ class _NotificacionesTalentoHumanoScreenState
             .collection(_usuariosCol)
             .where('empresas', arrayContains: widget.empresaId)
             .get();
-        cedulas = snap.docs.map((d) {
-          final data = d.data();
-          final ced = (data['cedula'] as String?)?.trim();
-          return (ced?.isNotEmpty == true) ? ced! : d.id;
-        }).toList();
+        // "Para todos" es el personal habilitado: un inhabilitado no entra
+        // a la app para verla.
+        cedulas = snap.docs
+            .where((d) => personaHabilitadaEn(d.data(), widget.empresaId))
+            .map((d) {
+              final data = d.data();
+              final ced = (data['cedula'] as String?)?.trim();
+              return (ced?.isNotEmpty == true) ? ced! : d.id;
+            })
+            .toList();
       } else {
         cedulas = [_empleadoCedula!];
       }

@@ -330,7 +330,7 @@ class VisitasService {
     for (final d in snap.docs) {
       final data = d.data();
       if (!userBelongsToEmpresa(data, empresaId)) continue;
-      if (!isPersonaActivaEnEmpresa(data, empresaId)) continue;
+      if (!personaHabilitadaEn(data, empresaId)) continue;
       final scoped = getUserCompanyDetail(data, empresaId) ?? const {};
       final unaEmpresa = extractUserEmpresaIds(data).length <= 1;
       String campo(List<String> claves) {

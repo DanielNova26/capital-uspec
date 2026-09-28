@@ -1,6 +1,7 @@
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 import { sendWhatsAppDirect, sendWhatsAppRoute } from "./whatsapp";
+import {motivoAccesoBloqueado} from "./acceso";
 
 const REGION = "us-central1";
 
@@ -24,6 +25,8 @@ async function responsiblePhone(userId: string): Promise<string> {
     if (!byCedula.empty) snapshot = byCedula.docs[0];
   }
   const user = snapshot.data() || {};
+  // Un inhabilitado no entra a la app: no se le escribe por WhatsApp.
+  if (motivoAccesoBloqueado(user) !== null) return "";
   const hoja = user.hojaDeVida && typeof user.hojaDeVida === "object"
     ? user.hojaDeVida as Record<string, unknown>
     : {};

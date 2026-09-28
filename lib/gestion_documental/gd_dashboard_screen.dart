@@ -1364,7 +1364,8 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
     String rolDocumental,
     Map<String, dynamic>? userData,
   ) async {
-    final ids = extractUserEmpresaIds(
+    // Solo empresas donde está habilitado (ni inhabilitado ni trasladado).
+    final ids = empresasSeleccionables(
       userData ?? const {},
     ).where((id) => id != widget.empresaId).toList();
     if (ids.isEmpty) {

@@ -285,7 +285,7 @@ extension EstadoMembresiaX on EstadoMembresia {
 EstadoMembresia estadoMembresia(Map<String, dynamic> data, String empresaId) {
   final detail = getUserCompanyDetail(data, empresaId);
   if (detail?['activo'] == false) return EstadoMembresia.apagada;
-  return isPersonaActivaEnEmpresa(data, empresaId)
+  return personaHabilitadaEn(data, empresaId)
       ? EstadoMembresia.activa
       : EstadoMembresia.retirada;
 }

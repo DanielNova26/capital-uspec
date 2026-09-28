@@ -7,6 +7,10 @@ class SecurityUserStatus {
   final String area;
   final String cargo;
   final bool active;
+
+  /// No puede entrar a la app (inhabilitado): cuenta apagada o inhabilitado
+  /// por Talento Humano en todas sus empresas.
+  final bool accessBlocked;
   final bool migrated;
   final bool needsPasswordChange;
   final bool recoveryConfigured;
@@ -21,6 +25,7 @@ class SecurityUserStatus {
     required this.area,
     required this.cargo,
     required this.active,
+    this.accessBlocked = false,
     required this.migrated,
     required this.needsPasswordChange,
     required this.recoveryConfigured,
@@ -40,6 +45,7 @@ class SecurityUserStatus {
       area: (data['area'] ?? '').toString(),
       cargo: (data['cargo'] ?? '').toString(),
       active: data['active'] == true,
+      accessBlocked: data['accessBlocked'] == true,
       migrated: data['migrated'] == true,
       needsPasswordChange: data['needsPasswordChange'] == true,
       recoveryConfigured: data['recoveryConfigured'] == true,
@@ -141,6 +147,23 @@ class SecurityAdminService {
         .call({'empresaId': empresaId, 'targetUserDocId': targetUserDocId});
     final data = Map<String, dynamic>.from(result.data as Map);
     return data['revoked'] == true;
+  }
+
+  /// Cierra las sesiones de todo el personal de la empresa que hoy no puede
+  /// entrar (inhabilitado).
+  Future<({int candidatos, int cerradas, int sinCuenta, int fallidas})>
+  revokeDisabledSessions({required String empresaId}) async {
+    final result = await _functions
+        .httpsCallable('securityAdminRevokeDisabledSessions')
+        .call({'empresaId': empresaId});
+    final data = Map<String, dynamic>.from(result.data as Map);
+    int n(String k) => (data[k] as num?)?.toInt() ?? 0;
+    return (
+      candidatos: n('candidates'),
+      cerradas: n('revoked'),
+      sinCuenta: n('withoutAccount'),
+      fallidas: n('failed'),
+    );
   }
 
   Future<String> resetTemporaryPassword({

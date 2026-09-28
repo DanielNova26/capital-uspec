@@ -292,6 +292,9 @@ export const securityAdminOverview = functions
           // entrar a otra de sus empresas.
           active: isActive(raw) &&
             empresasSeleccionables(raw).includes(caller.empresaId),
+          // No puede entrar a la app en absoluto (ver acceso.ts): son a
+          // quienes cierra las sesiones securityAdminRevokeDisabledSessions.
+          accessBlocked: !isActive(raw),
           migrated: Number(raw.authVersion || 0) === 2 && migratedIds.has(doc.id),
           needsPasswordChange: raw.needsPasswordChange === true,
           recoveryConfigured: Boolean(
@@ -343,6 +346,44 @@ export const securityAdminRevokeSessions = functions
     const revoked = await revokeUser(target.id);
     await writeAudit(caller, "revoke_sessions", target.id, {hadAuthAccount: revoked});
     return {ok: true, revoked};
+  });
+
+// Cierra de una vez las sesiones de todo el personal de la empresa que hoy
+// no puede entrar a la app (inhabilitado). Es para quienes ya lo estaban
+// antes de authCerrarSesionInhabilitado: ese trigger solo actúa cuando
+// alguien PASA a inhabilitado. Se puede repetir sin daño.
+export const securityAdminRevokeDisabledSessions = functions
+  .region("us-central1")
+  .runWith({timeoutSeconds: 300, memory: "512MB"})
+  .https.onCall(async (data: any, context) => {
+    const caller = await requireAdmin(data, context);
+    const snap = await db().collection(usersCollection).get();
+    const objetivo = snap.docs.filter((doc) => {
+      const raw = doc.data();
+      return doc.id !== caller.userDocId &&
+        belongsToCompany(raw, caller.empresaId) &&
+        motivoAccesoBloqueado(raw) !== null;
+    });
+    let revoked = 0;
+    let withoutAccount = 0;
+    let failed = 0;
+    // De a 10 en paralelo: Auth limita las escrituras por segundo.
+    for (let i = 0; i < objetivo.length; i += 10) {
+      const lote = objetivo.slice(i, i + 10);
+      const resultados = await Promise.allSettled(lote.map((doc) => revokeUser(doc.id)));
+      for (const r of resultados) {
+        if (r.status === "rejected") failed++;
+        else if (r.value) revoked++;
+        else withoutAccount++;
+      }
+    }
+    await writeAudit(caller, "revoke_disabled_sessions", "*", {
+      candidates: objetivo.length,
+      revoked,
+      withoutAccount,
+      failed,
+    });
+    return {ok: true, candidates: objetivo.length, revoked, withoutAccount, failed};
   });
 
 export const securityAdminResetTemporaryPassword = functions

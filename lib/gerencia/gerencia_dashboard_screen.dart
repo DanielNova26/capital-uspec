@@ -199,7 +199,13 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         .doc(widget.userId)
         .get();
     final userData = userDoc.data() ?? {};
-    final empresas = _empresasDe(userData);
+    // Solo las empresas donde está habilitado: donde lo inhabilitaron o de
+    // donde lo trasladaron ya no ve la información.
+    final habilitadas = empresasSeleccionables(userData).toSet();
+    final empresas = {
+      for (final e in _empresasDe(userData))
+        if (habilitadas.contains(e)) e,
+    };
     final empresaPrincipal = empresas.isNotEmpty ? empresas.first : '';
 
     final preferred = preferredEmpresaId?.trim();

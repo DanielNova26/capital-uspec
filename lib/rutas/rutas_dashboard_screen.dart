@@ -3326,7 +3326,7 @@ String _cargoUsuario(Map<String, dynamic> m, String empresaId) {
 /// (`empresasDetalle.{empresaId}.estadoLaboral`) y con `estado` global válido.
 /// La regla es la misma en todos los módulos: vive en `utils/user_company`.
 bool _usuarioActivo(Map<String, dynamic> m, String empresaId) =>
-    isPersonaActivaEnEmpresa(m, empresaId);
+    personaHabilitadaEn(m, empresaId);
 
 Future<List<_UsuarioOpcion>> _cargarUsuariosEmpresa(
   String empresaId, {

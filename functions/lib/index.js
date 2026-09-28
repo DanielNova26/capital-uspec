@@ -23,11 +23,12 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.comprasConsolidarRequerimiento = exports.comprasLimpiarRechazadosVencidos = exports.facturacionWhatsAppDocumentoRechazado = exports.interventoriaWhatsAppNuevaActa = exports.ppWhatsAppCambioFirma = exports.ppStampDirectPdf = exports.ppNotificaciones1600 = exports.ppNotificaciones1200 = exports.ppNotificaciones0800 = exports.dianBuzonProgramado = exports.dianBuzonDesconectar = exports.dianBuzonSincronizar = exports.dianBuzonConectar = exports.dianBuzonEstado = exports.dianTokenCambiarEstado = exports.dianTokenAbrir = exports.dianTokenAccesos = exports.dianTokensListar = exports.gdRevisarRespuesta = exports.correoEnviarRespuesta = exports.correoGuardarBorradorGmail = exports.correoPrepararExpediente = exports.gdRegistrarRespuestaExterna = exports.gdTerminarExpediente = exports.gdCodificarExpedientesHistoricos = exports.gdAsignarExpediente = exports.correoCrearExpediente = exports.correoMiRol = exports.correoEstadoIntegracion = exports.correoProbarWhatsApp = exports.correoProbarRegla = exports.correoProcesarProgramado = exports.correoProcesarHttp = exports.correoProcesar = exports.correoMicrosoftCallback = exports.correoMicrosoftAuthorize = exports.correoGmailCallback = exports.correoGmailAuthorize = exports.icd11Search = exports.carnetPublico = exports.securityAdminClearLoginBlocks = exports.securityAdminResetTemporaryPassword = exports.securityAdminRevokeSessions = exports.securityAdminRequirePasswordChange = exports.securityAdminOverview = exports.authCerrarSesionInhabilitado = exports.authCompletarRecuperacion = exports.authPrepararRecuperacion = exports.authCambiarClave = exports.authIniciarSesion = void 0;
-exports.notifyTaskNews = exports.notifyTaskCompleted = exports.sendTestPushHttp = exports.registerDeviceToken = exports.sendTestPush = exports.citasNutricionRecordatorios0800 = exports.onTaskUpdated = exports.onTaskCreated = exports.retryPendingNotificationDeliveries = exports.onNotificationCreated = exports.comprasGenerarReporteAbastecimiento = exports.comprasReporteAbastecimiento1700 = exports.rutasMovilidadMedirAhora = exports.rutasMovilidadTick = exports.rutasGenerarZip = exports.rutasGenerarInforme = exports.rutasResumenEvidencia = exports.visitasEliminarPrueba = exports.visitasEliminarFormato = exports.interventoriaEliminarActa = exports.interventoriaResolverEliminacion = exports.interventoriaSolicitarEliminacion = exports.thNotificarCitacionDescargos = exports.thNotificarPlazosDisciplinarios = exports.whatsappOpenWaMonitor = exports.whatsappAdminProbar = exports.whatsappAdminDirectorio = exports.whatsappAdminAsignarListado = exports.whatsappAdminNormalizarNumeros = exports.whatsappAdminGuardarListado = exports.whatsappAdminEnviarPlantillaRevision = exports.whatsappAdminSincronizarPlantillas = exports.whatsappAdminGuardar = exports.whatsappAdminEstado = exports.comprasNotificarVigenciasDocumentales = exports.comprasNotificarRecepcionCalidad = exports.comprasNotificarNuevoProveedorWhatsApp = void 0;
+exports.comprasLimpiarRechazadosVencidos = exports.facturacionWhatsAppDocumentoRechazado = exports.interventoriaWhatsAppNuevaActa = exports.ppWhatsAppCambioFirma = exports.ppStampDirectPdf = exports.ppNotificaciones1600 = exports.ppNotificaciones1200 = exports.ppNotificaciones0800 = exports.dianBuzonProgramado = exports.dianBuzonDesconectar = exports.dianBuzonSincronizar = exports.dianBuzonConectar = exports.dianBuzonEstado = exports.dianTokenCambiarEstado = exports.dianTokenAbrir = exports.dianTokenAccesos = exports.dianTokensListar = exports.gdRevisarRespuesta = exports.correoEnviarRespuesta = exports.correoGuardarBorradorGmail = exports.correoPrepararExpediente = exports.gdRegistrarRespuestaExterna = exports.gdTerminarExpediente = exports.gdCodificarExpedientesHistoricos = exports.gdAsignarExpediente = exports.correoCrearExpediente = exports.correoMiRol = exports.correoEstadoIntegracion = exports.correoProbarWhatsApp = exports.correoProbarRegla = exports.correoProcesarProgramado = exports.correoProcesarHttp = exports.correoProcesar = exports.correoMicrosoftCallback = exports.correoMicrosoftAuthorize = exports.correoGmailCallback = exports.correoGmailAuthorize = exports.icd11Search = exports.carnetPublico = exports.securityAdminClearLoginBlocks = exports.securityAdminResetTemporaryPassword = exports.securityAdminRevokeDisabledSessions = exports.securityAdminRevokeSessions = exports.securityAdminRequirePasswordChange = exports.securityAdminOverview = exports.authCerrarSesionInhabilitado = exports.authCompletarRecuperacion = exports.authPrepararRecuperacion = exports.authCambiarClave = exports.authIniciarSesion = void 0;
+exports.notifyTaskNews = exports.notifyTaskCompleted = exports.sendTestPushHttp = exports.registerDeviceToken = exports.sendTestPush = exports.citasNutricionRecordatorios0800 = exports.onTaskUpdated = exports.onTaskCreated = exports.retryPendingNotificationDeliveries = exports.onNotificationCreated = exports.comprasGenerarReporteAbastecimiento = exports.comprasReporteAbastecimiento1700 = exports.rutasMovilidadMedirAhora = exports.rutasMovilidadTick = exports.rutasGenerarZip = exports.rutasGenerarInforme = exports.rutasResumenEvidencia = exports.visitasEliminarPrueba = exports.visitasEliminarFormato = exports.interventoriaEliminarActa = exports.interventoriaResolverEliminacion = exports.interventoriaSolicitarEliminacion = exports.thNotificarCitacionDescargos = exports.thNotificarPlazosDisciplinarios = exports.whatsappOpenWaMonitor = exports.whatsappAdminProbar = exports.whatsappAdminDirectorio = exports.whatsappAdminAsignarListado = exports.whatsappAdminNormalizarNumeros = exports.whatsappAdminGuardarListado = exports.whatsappAdminEnviarPlantillaRevision = exports.whatsappAdminSincronizarPlantillas = exports.whatsappAdminGuardar = exports.whatsappAdminEstado = exports.comprasNotificarVigenciasDocumentales = exports.comprasNotificarRecepcionCalidad = exports.comprasNotificarNuevoProveedorWhatsApp = exports.comprasConsolidarRequerimiento = void 0;
 // functions/src/index.ts
 const functions = __importStar(require("firebase-functions/v1")); // compat v1
 const crypto_1 = require("crypto");
+const acceso_1 = require("./acceso");
 // Autenticación privada de To-Do. La contraseña se valida exclusivamente en
 // servidor y la aplicación recibe una sesión Firebase individual.
 var auth_1 = require("./auth");
@@ -41,6 +42,7 @@ var security_admin_1 = require("./security_admin");
 Object.defineProperty(exports, "securityAdminOverview", { enumerable: true, get: function () { return security_admin_1.securityAdminOverview; } });
 Object.defineProperty(exports, "securityAdminRequirePasswordChange", { enumerable: true, get: function () { return security_admin_1.securityAdminRequirePasswordChange; } });
 Object.defineProperty(exports, "securityAdminRevokeSessions", { enumerable: true, get: function () { return security_admin_1.securityAdminRevokeSessions; } });
+Object.defineProperty(exports, "securityAdminRevokeDisabledSessions", { enumerable: true, get: function () { return security_admin_1.securityAdminRevokeDisabledSessions; } });
 Object.defineProperty(exports, "securityAdminResetTemporaryPassword", { enumerable: true, get: function () { return security_admin_1.securityAdminResetTemporaryPassword; } });
 Object.defineProperty(exports, "securityAdminClearLoginBlocks", { enumerable: true, get: function () { return security_admin_1.securityAdminClearLoginBlocks; } });
 // ICD-11 token broker + proxy (Fase B)
@@ -365,25 +367,39 @@ async function saveInAppNotification(userId, payload, idempotencyKey) {
     });
 }
 async function getTokensFor(userId) {
-    // 1) por docId
+    const tokensDe = (doc) => {
+        const raw = doc.get("fcmTokens") ?? doc.get("fcmToken");
+        if (Array.isArray(raw))
+            return raw.filter(Boolean).map(String);
+        if (typeof raw === "string" && raw)
+            return [raw];
+        return [];
+    };
+    // Se busca por docId, luego por cédula y luego por uid, hasta dar con
+    // tokens. Un inhabilitado no entra a la app: no se le manda nada al
+    // teléfono (seguiría mostrando información de la empresa).
     const direct = await db.collection("TBL_USUARIOS").doc(userId).get();
-    let raw = direct.exists ? (direct.get("fcmTokens") ?? direct.get("fcmToken")) : null;
-    // 2) por cédula
-    if (!raw || (Array.isArray(raw) && raw.length === 0)) {
-        const qCed = await db.collection("TBL_USUARIOS").where("cedula", "==", userId).limit(1).get();
-        if (!qCed.empty)
-            raw = qCed.docs[0].get("fcmTokens") ?? qCed.docs[0].get("fcmToken");
+    const candidatos = [
+        async () => direct.exists ? direct : null,
+        async () => {
+            const q = await db.collection("TBL_USUARIOS").where("cedula", "==", userId).limit(1).get();
+            return q.empty ? null : q.docs[0];
+        },
+        async () => {
+            const q = await db.collection("TBL_USUARIOS").where("uid", "==", userId).limit(1).get();
+            return q.empty ? null : q.docs[0];
+        },
+    ];
+    for (const buscar of candidatos) {
+        const doc = await buscar();
+        if (!doc)
+            continue;
+        if ((0, acceso_1.motivoAccesoBloqueado)(doc.data() || {}) !== null)
+            return [];
+        const tokens = tokensDe(doc);
+        if (tokens.length)
+            return tokens;
     }
-    // 3) por uid
-    if (!raw || (Array.isArray(raw) && raw.length === 0)) {
-        const qUid = await db.collection("TBL_USUARIOS").where("uid", "==", userId).limit(1).get();
-        if (!qUid.empty)
-            raw = qUid.docs[0].get("fcmTokens") ?? qUid.docs[0].get("fcmToken");
-    }
-    if (Array.isArray(raw))
-        return raw.filter(Boolean).map(String);
-    if (typeof raw === "string" && raw)
-        return [raw];
     return [];
 }
 async function sendPushTo(tokens, notif, data, silenciosa = false) {

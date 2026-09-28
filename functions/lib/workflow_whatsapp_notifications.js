@@ -28,6 +28,7 @@ exports.etiquetaCentroConSubcentro = etiquetaCentroConSubcentro;
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
 const whatsapp_1 = require("./whatsapp");
+const acceso_1 = require("./acceso");
 const REGION = "us-central1";
 function text(value) {
     return (value ?? "").toString().trim();
@@ -49,6 +50,9 @@ async function responsiblePhone(userId) {
             snapshot = byCedula.docs[0];
     }
     const user = snapshot.data() || {};
+    // Un inhabilitado no entra a la app: no se le escribe por WhatsApp.
+    if ((0, acceso_1.motivoAccesoBloqueado)(user) !== null)
+        return "";
     const hoja = user.hojaDeVida && typeof user.hojaDeVida === "object"
         ? user.hojaDeVida
         : {};

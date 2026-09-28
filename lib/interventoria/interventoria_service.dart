@@ -1861,6 +1861,16 @@ class InterventoriaService {
         for (final rdoc in revisores.docs) {
           final rUserId = (rdoc.data()['userId'] ?? '').toString();
           if (rUserId.isEmpty || rUserId == guardadoPorId) continue;
+          // Un revisor inhabilitado no entra a la app: no se le notifica.
+          final revisor = await _db
+              .collection('TBL_USUARIOS')
+              .doc(rUserId)
+              .get();
+          final datosRevisor = revisor.data();
+          if (datosRevisor != null &&
+              !personaHabilitadaEn(datosRevisor, hallazgo.empresaId)) {
+            continue;
+          }
           await _db
               .collection('TBL_NOTIFICACIONES')
               .doc(rUserId)
@@ -2666,7 +2676,7 @@ class InterventoriaService {
       // El retiro de Talento Humano se guarda por empresa
       // (`empresasDetalle.{empresaId}.estadoLaboral`); el `estado` global solo
       // bloquea el login, así que por sí solo dejaba pasar a los retirados.
-      if (!isPersonaActivaEnEmpresa(data, empresaId)) continue;
+      if (!personaHabilitadaEn(data, empresaId)) continue;
       Map<String, dynamic>? scoped;
       final detalle = data['empresasDetalle'];
       if (detalle is Map && detalle[empresaId] is Map) {
@@ -3221,7 +3231,8 @@ class InterventoriaService {
   }) async {
     final userDoc = await _db.collection('TBL_USUARIOS').doc(userId).get();
     final userData = userDoc.data() ?? const <String, dynamic>{};
-    final ids = extractUserEmpresaIds(
+    // Solo empresas donde está habilitado (ni inhabilitado ni trasladado).
+    final ids = empresasSeleccionables(
       userData,
     ).where((id) => id != origenId).toList();
     final out = <InterventoriaEmpresaCopiaReglas>[];

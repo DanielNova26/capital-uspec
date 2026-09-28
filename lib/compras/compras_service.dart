@@ -13,7 +13,8 @@ import 'compras_catalog_logic.dart';
 import 'abastecimiento_models.dart';
 import 'abastecimiento_recepcion_sync.dart';
 import 'compras_models.dart';
-import '../utils/user_company.dart' show raizEsDeEmpresa;
+import '../utils/user_company.dart'
+    show personaHabilitadaEn, raizEsDeEmpresa;
 import 'compras_recepcion_logic.dart';
 import 'compras_req_engine.dart';
 import 'compras_validation.dart';
@@ -2337,10 +2338,25 @@ class ComprasService {
         .collection('TBL_COMPRAS_ROLES')
         .where('empresaId', isEqualTo: empresaId)
         .get();
-    return snap.docs
+    final conRol = snap.docs
         .map((d) => ComprasRolDoc.fromMap(d.id, d.data()))
         .where((r) => normalizeComprasRol(r.rol) == objetivo)
         .toList();
+    // A un inhabilitado no se le asigna ni notifica nada: no puede entrar a
+    // la app y la tarea quedaría huérfana. Su rol se conserva por si lo
+    // habilitan de nuevo.
+    final activos = <ComprasRolDoc>[];
+    for (final r in conRol) {
+      final doc = await _resolveUserDoc(
+        r.userId.trim().isNotEmpty ? r.userId : r.cedula,
+      );
+      final data = doc?.data();
+      if (data == null || personaHabilitadaEn(data, empresaId)) {
+        // Sin ficha no se puede saber: se conserva como antes.
+        activos.add(r);
+      }
+    }
+    return activos;
   }
 
   /// Identificador de notificación/tarea para un usuario de Compras (cédula > userId).

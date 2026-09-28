@@ -213,6 +213,90 @@ class _SecurityAdminPanelState extends State<SecurityAdminPanel> {
     });
   }
 
+  bool _cerrandoInhabilitados = false;
+
+  /// Cierra de una vez las sesiones de todos los inhabilitados: quienes ya
+  /// lo estaban antes de que el servidor las cerrara solo, al inhabilitar.
+  Future<void> _revokeDisabledSessions(int cuantos) async {
+    if (!await _confirm(
+      'Cerrar sesiones de inhabilitados',
+      'Se cerrarán las sesiones abiertas de $cuantos persona(s) que hoy no '
+          'pueden entrar a la app. Si alguna tiene la app abierta en un '
+          'navegador o teléfono, saldrá al volver a validarse. Se puede '
+          'repetir sin problema.',
+      'Cerrar sesiones',
+    )) {
+      return;
+    }
+    setState(() => _cerrandoInhabilitados = true);
+    try {
+      final r = await _service.revokeDisabledSessions(
+        empresaId: widget.empresaId,
+      );
+      if (!mounted) return;
+      _message(
+        '${r.cerradas} sesión(es) cerradas'
+        '${r.sinCuenta > 0 ? '; ${r.sinCuenta} nunca iniciaron sesión segura' : ''}'
+        '${r.fallidas > 0 ? '; ${r.fallidas} no se pudieron cerrar, intenta de nuevo' : ''}.',
+        error: r.fallidas > 0,
+      );
+      await _load();
+    } on FirebaseFunctionsException catch (error) {
+      if (mounted) {
+        _message(
+          error.message ?? 'No fue posible cerrar las sesiones.',
+          error: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _cerrandoInhabilitados = false);
+    }
+  }
+
+  Widget _avisoInhabilitados(int cuantos) => Container(
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: const Color(0xFFFEF2F2),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: const Color(0xFFFECACA)),
+    ),
+    child: Wrap(
+      spacing: 12,
+      runSpacing: 10,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        const Icon(Icons.block_rounded, color: Color(0xFFB91C1C)),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Text(
+            '$cuantos persona(s) inhabilitadas: no pueden iniciar sesión. '
+            'Si alguna tenía una sesión abierta desde antes, ciérrala aquí.',
+            style: const TextStyle(fontSize: 13, color: Color(0xFF7F1D1D)),
+          ),
+        ),
+        FilledButton.icon(
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFFB91C1C),
+          ),
+          onPressed: _cerrandoInhabilitados
+              ? null
+              : () => _revokeDisabledSessions(cuantos),
+          icon: _cerrandoInhabilitados
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Icon(Icons.logout_rounded),
+          label: const Text('Cerrar sus sesiones'),
+        ),
+      ],
+    ),
+  );
+
   Future<void> _clearBlocks(SecurityUserStatus user) async {
     await _runForUser(user, () async {
       final cleared = await _service.clearLoginBlocks(
@@ -345,6 +429,7 @@ class _SecurityAdminPanelState extends State<SecurityAdminPanel> {
         .where((user) => user.active && user.needsPasswordChange)
         .length;
     final blocked = users.where((user) => user.blocked).length;
+    final inhabilitados = users.where((user) => user.accessBlocked).length;
     final filtered = _filteredUsers;
     final pageCount = filtered.isEmpty
         ? 1
@@ -370,6 +455,10 @@ class _SecurityAdminPanelState extends State<SecurityAdminPanel> {
             blocked,
             mobile,
           ),
+          if (inhabilitados > 0) ...[
+            const SizedBox(height: 12),
+            _avisoInhabilitados(inhabilitados),
+          ],
           const SizedBox(height: 14),
           _filters(),
           const SizedBox(height: 12),
@@ -890,6 +979,8 @@ class _SecurityAdminPanelState extends State<SecurityAdminPanel> {
         return 'Cerró sesiones del usuario';
       case 'clear_login_blocks':
         return 'Retiró bloqueos de acceso';
+      case 'revoke_disabled_sessions':
+        return 'Cerró las sesiones del personal inhabilitado';
       default:
         return action.isEmpty ? 'Acción de seguridad' : action;
     }

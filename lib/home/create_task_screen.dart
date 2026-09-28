@@ -467,7 +467,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       if (estado != 'activo') continue;
       // Retiro registrado en Talento Humano: el estado vive en el bloque de la
       // empresa activa, no en el `estado` global que solo rige el login.
-      if (!isPersonaActivaEnEmpresa(u, _empresaId)) continue;
+      if (!personaHabilitadaEn(u, _empresaId)) continue;
       if (_currentUid != null && uid == _currentUid) continue;
 
       // 1) filtra por área / estructura

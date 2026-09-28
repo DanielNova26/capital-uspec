@@ -245,6 +245,27 @@ void main() {
     test('registro viejo sin empresas: no se bloquea por empresas', () {
       expect(motivoAccesoBloqueado({'nombres': 'X'}), isNull);
     });
+
+    // La regla que usan las listas de todos los módulos.
+    test('personaHabilitadaEn suma la cuenta inhabilitada', () {
+      final cuentaApagada = persona(
+        {
+          'A': {'estadoLaboral': 'activo'},
+        },
+        {'estado': 'inactivo'},
+      );
+      expect(personaHabilitadaEn(cuentaApagada, 'A'), isFalse);
+      // Sin la cuenta, el bloque de la empresa manda (estructura).
+      expect(isPersonaActivaEnEmpresa(cuentaApagada, 'A'), isTrue);
+      final enIngles = persona({'A': {}}, {'estado': 'active'});
+      expect(personaHabilitadaEn(enIngles, 'A'), isTrue);
+      final inhabilitadaEnA = persona({
+        'A': {'estadoLaboral': 'inactivo'},
+        'B': {},
+      });
+      expect(personaHabilitadaEn(inhabilitadaEnA, 'A'), isFalse);
+      expect(personaHabilitadaEn(inhabilitadaEnA, 'B'), isTrue);
+    });
   });
 
   group('personaInhabilitadaEn', () {

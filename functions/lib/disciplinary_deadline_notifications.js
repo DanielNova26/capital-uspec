@@ -28,6 +28,7 @@ const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 const whatsapp_1 = require("./whatsapp");
 const apps_por_empresa_1 = require("./apps_por_empresa");
+const acceso_1 = require("./acceso");
 /**
  * Alertas de los plazos del proceso disciplinario.
  *
@@ -119,6 +120,12 @@ async function talentoHumanoTeam(empresaId) {
     const recipients = new Set();
     for (const document of [...byArray.docs, ...byField.docs]) {
         const data = document.data();
+        // Solo quien puede entrar a ESTA empresa: un inhabilitado no recibe
+        // alertas (misma regla que la app, ver acceso.ts).
+        if (!(0, acceso_1.empresasSeleccionables)(data).includes(empresaId) ||
+            (0, acceso_1.motivoAccesoBloqueado)(data) !== null) {
+            continue;
+        }
         // Talento Humano de ESTA empresa (misma regla que la app).
         const apps = (0, apps_por_empresa_1.appsDeEmpresa)(data, empresaId);
         if (apps.some(isTalentoHumanoApp))

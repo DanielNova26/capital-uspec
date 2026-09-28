@@ -4568,8 +4568,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   /// Humano, con la cuenta apagada o trasladado a otra empresa— no entra a
   /// la app (`motivoAccesoBloqueado`), así que no hay a quién darle accesos
   /// ni roles.
-  bool _habilitado(Map<String, dynamic> d) =>
-      !cuentaInhabilitada(d) && isPersonaActivaEnEmpresa(d, _empresaId);
+  bool _habilitado(Map<String, dynamic> d) => personaHabilitadaEn(d, _empresaId);
 
   /// Personal habilitado: lo que ven las listas de accesos, módulos, roles y
   /// sesiones. Las herramientas de mantenimiento (migraciones, limpiezas,
@@ -14123,7 +14122,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   Future<Set<String>?> _elegirQuienConservaOrigen(EmpresaItem source) async {
     final activos =
         _users
-            .where((u) => isPersonaActivaEnEmpresa(u.data(), source.empresaId))
+            .where((u) => personaHabilitadaEn(u.data(), source.empresaId))
             .toList()
           ..sort(
             (a, b) => _userName(

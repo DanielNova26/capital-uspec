@@ -62,7 +62,7 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
       if (n.isNotEmpty) {
         return (
           nombre: n,
-          activa: isPersonaActivaEnEmpresa(directData, widget.empresaId),
+          activa: personaHabilitadaEn(directData, widget.empresaId),
         );
       }
     }
@@ -73,7 +73,7 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
       if (n.isNotEmpty) {
         return (
           nombre: n,
-          activa: isPersonaActivaEnEmpresa(data, widget.empresaId),
+          activa: personaHabilitadaEn(data, widget.empresaId),
         );
       }
     }

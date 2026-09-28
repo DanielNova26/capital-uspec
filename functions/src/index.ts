@@ -1,6 +1,7 @@
 // functions/src/index.ts
 import * as functions from "firebase-functions/v1"; // compat v1
 import {createHash} from "crypto";
+import {motivoAccesoBloqueado} from "./acceso";
 
 // Autenticación privada de To-Do. La contraseña se valida exclusivamente en
 // servidor y la aplicación recibe una sesión Firebase individual.
@@ -17,6 +18,7 @@ export {
   securityAdminOverview,
   securityAdminRequirePasswordChange,
   securityAdminRevokeSessions,
+  securityAdminRevokeDisabledSessions,
   securityAdminResetTemporaryPassword,
   securityAdminClearLoginBlocks,
 } from "./security_admin";
@@ -385,24 +387,34 @@ async function saveInAppNotification(
 }
 
 async function getTokensFor(userId: string): Promise<string[]> {
-  // 1) por docId
+  const tokensDe = (doc: admin.firestore.DocumentSnapshot): string[] => {
+    const raw: unknown = doc.get("fcmTokens") ?? doc.get("fcmToken");
+    if (Array.isArray(raw)) return (raw as unknown[]).filter(Boolean).map(String);
+    if (typeof raw === "string" && raw) return [raw as string];
+    return [];
+  };
+  // Se busca por docId, luego por cédula y luego por uid, hasta dar con
+  // tokens. Un inhabilitado no entra a la app: no se le manda nada al
+  // teléfono (seguiría mostrando información de la empresa).
   const direct = await db.collection("TBL_USUARIOS").doc(userId).get();
-  let raw: unknown = direct.exists ? (direct.get("fcmTokens") ?? direct.get("fcmToken")) : null;
-
-  // 2) por cédula
-  if (!raw || (Array.isArray(raw) && (raw as unknown[]).length === 0)) {
-    const qCed = await db.collection("TBL_USUARIOS").where("cedula", "==", userId).limit(1).get();
-    if (!qCed.empty) raw = qCed.docs[0].get("fcmTokens") ?? qCed.docs[0].get("fcmToken");
+  const candidatos: Array<() => Promise<admin.firestore.DocumentSnapshot | null>> = [
+    async () => direct.exists ? direct : null,
+    async () => {
+      const q = await db.collection("TBL_USUARIOS").where("cedula", "==", userId).limit(1).get();
+      return q.empty ? null : q.docs[0];
+    },
+    async () => {
+      const q = await db.collection("TBL_USUARIOS").where("uid", "==", userId).limit(1).get();
+      return q.empty ? null : q.docs[0];
+    },
+  ];
+  for (const buscar of candidatos) {
+    const doc = await buscar();
+    if (!doc) continue;
+    if (motivoAccesoBloqueado(doc.data() || {}) !== null) return [];
+    const tokens = tokensDe(doc);
+    if (tokens.length) return tokens;
   }
-
-  // 3) por uid
-  if (!raw || (Array.isArray(raw) && (raw as unknown[]).length === 0)) {
-    const qUid = await db.collection("TBL_USUARIOS").where("uid", "==", userId).limit(1).get();
-    if (!qUid.empty) raw = qUid.docs[0].get("fcmTokens") ?? qUid.docs[0].get("fcmToken");
-  }
-
-  if (Array.isArray(raw)) return (raw as unknown[]).filter(Boolean).map(String);
-  if (typeof raw === "string" && raw) return [raw as string];
   return [];
 }
 

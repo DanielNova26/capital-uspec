@@ -48,6 +48,7 @@ const admin = __importStar(require("firebase-admin"));
 const storage_1 = require("firebase-admin/storage");
 const correo_alert_policy_1 = require("./correo_alert_policy");
 const gd_cierre_policy_1 = require("./gd_cierre_policy");
+const acceso_1 = require("./acceso");
 const crypto_1 = require("crypto");
 const whatsapp_1 = require("./whatsapp");
 const notification_branding_1 = require("./notification_branding");
@@ -359,8 +360,17 @@ async function findUserByIdentity(identity) {
     return byCedula.empty ? null : byCedula.docs[0];
 }
 async function resolveCorreoRole(userId, user, empresaId) {
+    // Un inhabilitado no opera Correo, aunque le quede una sesión viva de
+    // antes (ver acceso.ts).
+    if ((0, acceso_1.motivoAccesoBloqueado)(user) !== null)
+        return null;
     if (isDeveloper(user, empresaId))
         return "administrador";
+    // Inhabilitado o trasladado fuera de ESTA empresa: aquí no opera.
+    if ((0, acceso_1.empresasDe)(user).includes(empresaId) &&
+        !(0, acceso_1.empresasSeleccionables)(user).includes(empresaId)) {
+        return null;
+    }
     const scoped = user.empresasDetalle && typeof user.empresasDetalle === "object"
         ? user.empresasDetalle[empresaId]
         : null;

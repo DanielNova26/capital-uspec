@@ -128,7 +128,6 @@ class PersonnelAccessService {
     final cargosPorId = await _cargoNombrePorId(id);
     final rows = docs.map((doc) {
       final data = doc.data();
-      final detail = getUserCompanyDetail(data, id);
       final nombre = resolveScopedStringWithFallbacks(
         data,
         id,
@@ -139,10 +138,6 @@ class PersonnelAccessService {
       final completo = apellidos.isEmpty || nombre.contains(apellidos)
           ? nombre
           : '$nombre $apellidos';
-      final estadoLaboral = (detail?['estadoLaboral'] ?? '')
-          .toString()
-          .trim()
-          .toLowerCase();
       return PersonnelAccessRow(
         userId: doc.id,
         cedula: (data['cedula'] ?? doc.id).toString().trim(),
@@ -162,9 +157,10 @@ class PersonnelAccessService {
           const ['correo'],
           const ['correo', 'email'],
         ),
-        // El retiro vive en el bloque de la empresa; el `estado` global solo
-        // gobierna el login, por eso no se usa aquí.
-        activo: estadoLaboral.isEmpty || estadoLaboral == 'activo',
+        // Misma regla que el resto de la app: inhabilitado por Talento
+        // Humano en esta empresa, trasladado a otra o con la cuenta apagada
+        // (no entra a la app) no es personal activo.
+        activo: personaHabilitadaEn(data, id),
         apps: extractUserApps(data, empresaId: id).toSet(),
       );
     }).toList();

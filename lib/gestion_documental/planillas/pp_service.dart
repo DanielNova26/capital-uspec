@@ -5319,7 +5319,7 @@ class PpService {
           for (final doc in snap.docs) {
             // Quien ya salió de la empresa conserva el rol en su ficha pero no
             // debe seguir recibiendo planillas.
-            if (!isPersonaActivaEnEmpresa(doc.data(), empresaId)) continue;
+            if (!personaHabilitadaEn(doc.data(), empresaId)) continue;
             ids.add(doc.id);
           }
         }

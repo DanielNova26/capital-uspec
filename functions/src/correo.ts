@@ -10,6 +10,7 @@ import * as admin from "firebase-admin";
 import { getDownloadURL } from "firebase-admin/storage";
 import { correoAlertOmission, correspondenceHasResponse, canRegisterExternalResponse } from "./correo_alert_policy";
 import { gdCierreEventDetail, validateGdCierre } from "./gd_cierre_policy";
+import {empresasDe, empresasSeleccionables, motivoAccesoBloqueado} from "./acceso";
 import {
   createCipheriv,
   createDecipheriv,
@@ -452,7 +453,15 @@ async function resolveCorreoRole(
   user: admin.firestore.DocumentData,
   empresaId: string
 ): Promise<CorreoRole | null> {
+  // Un inhabilitado no opera Correo, aunque le quede una sesión viva de
+  // antes (ver acceso.ts).
+  if (motivoAccesoBloqueado(user) !== null) return null;
   if (isDeveloper(user, empresaId)) return "administrador";
+  // Inhabilitado o trasladado fuera de ESTA empresa: aquí no opera.
+  if (empresasDe(user).includes(empresaId) &&
+      !empresasSeleccionables(user).includes(empresaId)) {
+    return null;
+  }
   const scoped =
     user.empresasDetalle && typeof user.empresasDetalle === "object"
       ? user.empresasDetalle[empresaId]

@@ -603,6 +603,8 @@ class _OrganizationalStructureScreenState
     return snap.docs
         .where((d) {
           final data = d.data();
+          // Jefe o persona a vincular: solo personal habilitado.
+          if (!personaHabilitadaEn(data, widget.empresaId)) return false;
           final nombre = _buildNombre(data).toLowerCase();
           final cedula = d.id.toLowerCase();
           return term.isEmpty || nombre.contains(term) || cedula.contains(term);

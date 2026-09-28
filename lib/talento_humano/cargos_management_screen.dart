@@ -1312,7 +1312,7 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
       if (n.isNotEmpty) {
         return (
           nombre: n,
-          activa: isPersonaActivaEnEmpresa(directData, widget.empresaId),
+          activa: personaHabilitadaEn(directData, widget.empresaId),
         );
       }
     }
@@ -1323,7 +1323,7 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
       if (n.isNotEmpty) {
         return (
           nombre: n,
-          activa: isPersonaActivaEnEmpresa(data, widget.empresaId),
+          activa: personaHabilitadaEn(data, widget.empresaId),
         );
       }
     }

@@ -2,6 +2,7 @@ import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
 import {sendWhatsAppDirect} from "./whatsapp";
 import {appsDeEmpresa} from "./apps_por_empresa";
+import {empresasSeleccionables, motivoAccesoBloqueado} from "./acceso";
 
 /**
  * Alertas de los plazos del proceso disciplinario.
@@ -113,6 +114,12 @@ async function talentoHumanoTeam(empresaId: string): Promise<string[]> {
   const recipients = new Set<string>();
   for (const document of [...byArray.docs, ...byField.docs]) {
     const data = document.data() as JsonMap;
+    // Solo quien puede entrar a ESTA empresa: un inhabilitado no recibe
+    // alertas (misma regla que la app, ver acceso.ts).
+    if (!empresasSeleccionables(data).includes(empresaId) ||
+        motivoAccesoBloqueado(data) !== null) {
+      continue;
+    }
     // Talento Humano de ESTA empresa (misma regla que la app).
     const apps = appsDeEmpresa(data, empresaId);
     if (apps.some(isTalentoHumanoApp)) recipients.add(document.id);
