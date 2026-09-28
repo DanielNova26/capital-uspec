@@ -1698,12 +1698,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_moduleVisible(apps, isDev, kPlanillasPagoAppId, disabledAppIds)) {
       return true;
     }
-    final detail = getUserCompanyDetail(userData, empresaId);
-    final legacyRole =
-        (detail?['rolPlanillas'] ?? userData['rolPlanillas'] ?? '')
-            .toString()
-            .trim();
-    return legacyRole.isNotEmpty;
+    return userHasApp(userData, kPlanillasPagoAppId, empresaId: empresaId);
   }
 
   bool _bibliotecaVisible(

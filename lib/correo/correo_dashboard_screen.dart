@@ -29,25 +29,29 @@ class CorreoDashboardScreen extends StatefulWidget {
 
 class _CorreoDashboardScreenState extends State<CorreoDashboardScreen> {
   final _service = CorreoService();
-  late Future<_CorreoAccess> _accessFuture;
+  late Stream<GdPermisos> _accessStream;
 
   @override
   void initState() {
     super.initState();
-    _accessFuture = _loadAccess();
+    _accessStream = _loadAccess();
   }
 
-  Future<_CorreoAccess> _loadAccess() async {
-    // Se resuelve con el mismo servicio que usa Correspondencia para que la
-    // interfaz y el backend no interpreten el rol de dos maneras distintas.
-    final rol = await GdPermisosService().resolverRol(
-      empresaId: widget.empresaId,
-      userId: widget.userId,
-    );
-    return _CorreoAccess(rol);
-  }
+  Stream<GdPermisos> _loadAccess() => GdPermisosService().observar(
+    empresaId: widget.empresaId,
+    userId: widget.userId,
+  );
 
-  void _reloadAccess() => setState(() => _accessFuture = _loadAccess());
+  void _reloadAccess() => setState(() => _accessStream = _loadAccess());
+
+  @override
+  void didUpdateWidget(CorreoDashboardScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.empresaId != widget.empresaId ||
+        oldWidget.userId != widget.userId) {
+      _accessStream = _loadAccess();
+    }
+  }
 
   void _snack(String message, {bool error = false}) {
     if (!mounted) return;
@@ -61,10 +65,11 @@ class _CorreoDashboardScreenState extends State<CorreoDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<_CorreoAccess>(
-      future: _accessFuture,
+    return StreamBuilder<GdPermisos>(
+      key: ValueKey('${widget.empresaId}_${widget.userId}'),
+      stream: _accessStream,
       builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
+        if (!snapshot.hasData || !snapshot.data!.resueltos) {
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
           );
@@ -78,7 +83,16 @@ class _CorreoDashboardScreenState extends State<CorreoDashboardScreen> {
             ),
           );
         }
-        return _correoDashboardBody(access: snapshot.data!);
+        if (!snapshot.data!.tieneAcceso) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('Correo')),
+            body: _ErrorState(
+              message: 'Ya no tienes acceso al módulo en esta empresa.',
+              onRetry: _reloadAccess,
+            ),
+          );
+        }
+        return _correoDashboardBody(access: _CorreoAccess(snapshot.data!.rol));
       },
     );
   }
@@ -123,6 +137,7 @@ class _CorreoDashboardScreenState extends State<CorreoDashboardScreen> {
           ];
 
     final tabPanel = DefaultTabController(
+      key: ValueKey('${widget.empresaId}_${widget.userId}_${access.rol.valor}'),
       length: tabs.length,
       child: Column(
         children: [
