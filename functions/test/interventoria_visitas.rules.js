@@ -50,7 +50,7 @@ test.before(async () => {
       }),
       setDoc(doc(db, "TBL_USUARIOS/kary"), {
         nombre: "Kary",
-        empresas: ["EMP_A"],
+        empresas: ["EMP_A", "EMP_CFG"],
         empresaId: "EMP_A",
         empresasDetalle: {EMP_A: {cargo: "Admin"}},
       }),
@@ -68,6 +68,14 @@ test.before(async () => {
       }),
       setDoc(doc(db, "TBL_INTERVENTORIA_HALLAZGOS/h_huerfano2"), {
         empresaId: "EMP_A", visitaId: "v1", fuente: "acta", grupoId: "horario_obs1", tareaId: "",
+      }),
+      setDoc(doc(db, "TBL_INTERVENTORIA_CONFIG/EMP_CFG"), {
+        empresaId: "EMP_CFG",
+        programasInterventoria: ["ALCALDIA_BOGOTA_CDT"],
+        tiposActaHabilitados: [
+          "ALCALDIA_PLANTA",
+          "ALCALDIA_ESTACION_POLICIA",
+        ],
       }),
     ]);
   });
@@ -180,4 +188,48 @@ test("leer un acta de otra empresa sigue denegado", async () => {
     });
   });
   await assertFails(getDoc(doc(auth("kary"), "TBL_INTERVENTORIA_VISITAS/ajena")));
+});
+
+test("una empresa configurada solo admite sus tipos de acta", async () => {
+  const db = auth("kary");
+  await assertSucceeds(
+    setDoc(doc(db, "TBL_INTERVENTORIA_VISITAS/acta_alcaldia"), {
+      empresaId: "EMP_CFG",
+      centroCostoId: "planta",
+      faseActa: "puntajes",
+      tipoActa: "ALCALDIA_PLANTA",
+    })
+  );
+  await assertFails(
+    setDoc(doc(db, "TBL_INTERVENTORIA_VISITAS/acta_pec_en_alcaldia"), {
+      empresaId: "EMP_CFG",
+      centroCostoId: "planta",
+      faseActa: "puntajes",
+      tipoActa: "REGULAR",
+    })
+  );
+  await assertFails(
+    setDoc(doc(db, "TBL_INTERVENTORIA_VISITAS/acta_sin_tipo"), {
+      empresaId: "EMP_CFG",
+      centroCostoId: "planta",
+      faseActa: "puntajes",
+    })
+  );
+});
+
+test("configurar una empresa no bloquea la corrección de actas históricas", async () => {
+  await env.withSecurityRulesDisabled(async (context) => {
+    await setDoc(
+      doc(context.firestore(), "TBL_INTERVENTORIA_VISITAS/legacy_configurada"),
+      {
+        empresaId: "EMP_CFG",
+        centroCostoId: "planta",
+        faseActa: "puntajes",
+        tipoActa: "REGULAR",
+      }
+    );
+  });
+  const ref = doc(auth("kary"), "TBL_INTERVENTORIA_VISITAS/legacy_configurada");
+  await assertSucceeds(updateDoc(ref, {observacionesGenerales: "Corrección"}));
+  await assertFails(updateDoc(ref, {tipoActa: "INFRAESTRUCTURA"}));
 });

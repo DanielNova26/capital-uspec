@@ -230,8 +230,8 @@ const List<AppCatalogEntry> kAppCatalog = [
     appId: 'bibliotecadocumentaldashboard',
     nombre: 'Biblioteca Documental',
     paraQueSirve:
-        'Publicar formatos aprobados, documentos contractuales y normas con '
-        'control de versiones.',
+        'Publicar formatos aprobados, documentos contractuales, normas y '
+        'documentos radicados con control de versiones.',
     grupo: AppCatalogGroup.gestion,
     proceso: ProcesoMapa.maestros,
     icono: Icons.local_library_rounded,

@@ -1,6 +1,6 @@
 import 'gd_models.dart';
 
-enum GdLibrarySection { formatos, contrato, normograma }
+enum GdLibrarySection { formatos, contrato, normograma, radicados }
 
 const List<String> gdFormatCategories = [
   'Formato',
@@ -41,6 +41,8 @@ const List<String> gdNormogramCategories = [
   'Circular normativa',
 ];
 
+const List<String> gdFiledDocumentCategories = ['Documento radicado'];
+
 bool gdIsInstitutionalFormat(String? category) {
   final normalized = _normalize(category ?? '');
   return gdFormatCategories.any((value) => _normalize(value) == normalized);
@@ -57,6 +59,7 @@ List<String> gdCategoriesForSection(GdLibrarySection section) =>
       GdLibrarySection.formatos => gdFormatCategories,
       GdLibrarySection.contrato => gdContractCategories,
       GdLibrarySection.normograma => gdNormogramCategories,
+      GdLibrarySection.radicados => gdFiledDocumentCategories,
     };
 
 GdLibrarySection gdSectionForCategory(String? rawCategory) {
@@ -66,6 +69,9 @@ GdLibrarySection gdSectionForCategory(String? rawCategory) {
   }
   if (gdNormogramCategories.any((value) => _normalize(value) == category)) {
     return GdLibrarySection.normograma;
+  }
+  if (gdFiledDocumentCategories.any((value) => _normalize(value) == category)) {
+    return GdLibrarySection.radicados;
   }
   return GdLibrarySection.formatos;
 }
@@ -92,7 +98,8 @@ String gdCodePrefixFor({
 }) => switch (section) {
   GdLibrarySection.formatos => gdDepartmentPrefix(area),
   GdLibrarySection.contrato ||
-  GdLibrarySection.normograma => gdCategoryPrefix(categoria),
+  GdLibrarySection.normograma ||
+  GdLibrarySection.radicados => gdCategoryPrefix(categoria),
 };
 
 /// Prefijo de tres letras para un tipo de documento de contrato o norma.
@@ -112,6 +119,7 @@ String gdCategoryPrefix(String rawCategory) {
     'decreto': 'DEC',
     'resolucion': 'RES',
     'circular normativa': 'CIN',
+    'documento radicado': 'RAD',
   };
   return known[_normalize(rawCategory)] ?? gdDepartmentPrefix(rawCategory);
 }

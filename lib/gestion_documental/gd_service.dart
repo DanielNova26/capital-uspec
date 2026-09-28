@@ -381,8 +381,14 @@ class GdService {
     if (section == GdLibrarySection.contrato && folder.isEmpty) {
       throw const GdException('Indica una carpeta temática.');
     }
-    if (section == GdLibrarySection.normograma && externalCode.isEmpty) {
-      throw const GdException('Indica el número de la norma.');
+    if ((section == GdLibrarySection.normograma ||
+            section == GdLibrarySection.radicados) &&
+        externalCode.isEmpty) {
+      throw GdException(
+        section == GdLibrarySection.radicados
+            ? 'Indica el número de radicado.'
+            : 'Indica el número de la norma.',
+      );
     }
     final updated = {
       'carpeta': section == GdLibrarySection.contrato ? folder : null,
