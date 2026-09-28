@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import '../core/multiempresa_sync.dart' show claveCatalogo;
+import '../core/multiempresa_sync.dart' show claveCatalogo, motivoNoTraslada;
 import '../utils/user_company.dart';
 
 class CompanyTransitionResult {
@@ -15,6 +15,10 @@ class CompanyTransitionResult {
   /// Personas a las que la empresa de origen les quedó apagada.
   final int sourceTurnedOff;
 
+  /// Personas inhabilitadas en el origen (o con la cuenta apagada) que NO
+  /// se trasladaron.
+  final int disabledSkipped;
+
   const CompanyTransitionResult({
     required this.usersTransferred,
     required this.employeeMirrorsCreated,
@@ -22,6 +26,7 @@ class CompanyTransitionResult {
     required this.moduleRolesCopied,
     this.keptBothActive = 0,
     this.sourceTurnedOff = 0,
+    this.disabledSkipped = 0,
   });
 }
 
@@ -239,11 +244,24 @@ class CompanyTransitionService {
       areaMap: areaMap,
     );
 
-    final users = await _db.collection('TBL_USUARIOS').get();
+    final res = await Future.wait([
+      _db.collection('TBL_USUARIOS').get(),
+      _db.collection('TBL_ESTRUCTURA_ORGANIZACIONAL').get(),
+    ]);
+    final users = res[0];
+    // La estructura también dice quién está inhabilitado: es lo que lista
+    // Talento Humano.
+    final estructuras = <String, Map<String, dynamic>>{};
+    for (final d in res[1].docs) {
+      estructuras[d.id] = d.data();
+      final cedula = (d.data()['cedula'] ?? '').toString().trim();
+      if (cedula.isNotEmpty) estructuras.putIfAbsent(cedula, () => d.data());
+    }
     var transferred = 0;
     var employeeMirrors = 0;
     var keptBoth = 0;
     var apagados = 0;
+    var inhabilitados = 0;
     WriteBatch? batch;
     var writes = 0;
 
@@ -257,6 +275,19 @@ class CompanyTransitionService {
     for (final user in users.docs) {
       final data = user.data();
       if (!userBelongsToEmpresa(data, sourceId)) continue;
+      // Personal inhabilitado no pasa a la empresa nueva.
+      if (motivoNoTraslada(
+            usuario: data,
+            estructura: estructuras[user.id],
+            empresas: [sourceId],
+          ) !=
+          null) {
+        inhabilitados++;
+        continue;
+      }
+      // Quien ya dejó el origen (apagado por un traslado anterior) no es
+      // personal de allí: tampoco se lleva.
+      if (getUserCompanyDetail(data, sourceId)?['activo'] == false) continue;
       final details = data['empresasDetalle'];
       final sourceDetail = details is Map && details[sourceId] is Map
           ? Map<String, dynamic>.from(details[sourceId] as Map)
@@ -379,6 +410,7 @@ class CompanyTransitionService {
       'preservedSourceMembership': true,
       'keptBothActive': keptBoth,
       'sourceTurnedOff': apagados,
+      'disabledSkipped': inhabilitados,
       'makeTargetPrimary': makeTargetPrimary,
       'createdAt': FieldValue.serverTimestamp(),
     });
@@ -386,6 +418,7 @@ class CompanyTransitionService {
     return CompanyTransitionResult(
       keptBothActive: keptBoth,
       sourceTurnedOff: apagados,
+      disabledSkipped: inhabilitados,
       usersTransferred: transferred,
       employeeMirrorsCreated: employeeMirrors,
       catalogsCopied: centroMap.length + areaMap.length + cargoMap.length,

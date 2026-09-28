@@ -14028,7 +14028,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       message:
           'Origen: ${source.nombre} (${source.empresaId})\n'
           'Destino: $targetName ($targetId)\n\n'
-          'Se traslada a todo el personal. Los centros, áreas y '
+          'Se traslada a todo el personal activo; los inhabilitados no '
+          'pasan. Los centros, áreas y '
           'cargos que falten en el destino se copian del origen.\n\n'
           '${conservan.isEmpty ? 'A todos' : 'A todos menos ${conservan.length}'} '
           'les queda ${source.nombre} APAGADA: dejan de aparecer en sus '
@@ -14053,6 +14054,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         'Empresa creada: ${result.usersTransferred} persona(s) trasladadas, '
         '${result.sourceTurnedOff} con la anterior apagada y '
         '${result.keptBothActive} con las dos activas. '
+        '${result.disabledSkipped > 0 ? '${result.disabledSkipped} inhabilitado(s) no se trasladaron. ' : ''}'
         '${result.catalogsCopied} catálogo(s) y '
         '${result.moduleRolesCopied} rol(es) copiados.',
       );
@@ -14106,7 +14108,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Todo el personal se traslada. A quien no marques aquí le '
+                    'Todo el personal activo se traslada (los inhabilitados '
+                    'no pasan). A quien no marques aquí le '
                     'quedará ${source.nombre} apagada: deja de salir en sus '
                     'listados, pero conserva lo que ya registró ahí.',
                     style: const TextStyle(
@@ -14251,7 +14254,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       );
       await _loadMembresiaUsers();
     } catch (e) {
-      _snack('Error: $e');
+      // Un StateError trae el porqué en palabras (p. ej. inhabilitado).
+      _snack(e is StateError ? e.message : 'Error: $e');
     }
   }
 
