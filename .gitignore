@@ -57,3 +57,6 @@ functions/.env
 # Artefactos generados del instructivo: se rehacen con el script y pesan 65 MB
 outputs/
 tmp/
+
+# Temporales de Codex (plantillas, node_modules): nunca van al repositorio
+.codex_tmp/
