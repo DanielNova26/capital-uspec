@@ -10,6 +10,16 @@ Tu foco:
 - consistencia por empresa activa
 - estabilidad
 
+## Git: siempre en `main`, nunca en ramas
+Regla del usuario (28 sep 2026), para no enredarnos entre Claude y Codex:
+todo el trabajo va directo a `main`. No se crean ramas ni se trabaja en la
+rama que proponga la sesión.
+
+- Antes de empezar: `git pull origin main`.
+- Al terminar: commit y `git push origin main`.
+- Si el push se rechaza porque `main` avanzó: `git pull --no-rebase origin main`,
+  resolver, volver a correr las pruebas y subir. Nunca push forzado.
+
 ## Reglas transversales de interfaz (aplican a TODOS los módulos)
 
 Estas no son sugerencias de diseño: son contratos de la app. Si una pantalla
