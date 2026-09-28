@@ -135,7 +135,7 @@ class _HvDashboardScreenState extends State<HvDashboardScreen>
         final d = doc.data();
         // Los retirados conservan su hoja de vida, pero no cuentan en los
         // indicadores ni en los cumpleaños de la plantilla vigente.
-        if (!isPersonaActivaEnEmpresa(d, eid)) continue;
+        if (!personaHabilitadaEn(d, eid)) continue;
 
         // Tab 1
         final status = (d['estadoHojaDeVida'] as String?) ?? 'sin_enviar';

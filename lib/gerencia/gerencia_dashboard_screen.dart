@@ -81,21 +81,7 @@ double _scoreForTask(Map<String, dynamic> task) {
 }
 
 Set<String> _empresasDe(Map<String, dynamic> data) {
-  final out = <String>{};
-  final primary = (data['empresaId'] ?? '').toString().trim();
-  if (primary.isNotEmpty) out.add(primary);
-  final list = data['empresas'] as List<dynamic>? ?? const [];
-  for (final e in list) {
-    final id = (e ?? '').toString().trim();
-    if (id.isNotEmpty) out.add(id);
-  }
-  final detalle = data['empresasDetalle'] as Map<String, dynamic>?;
-  if (detalle != null) {
-    for (final key in detalle.keys) {
-      if (key.trim().isNotEmpty) out.add(key.trim());
-    }
-  }
-  return out;
+  return empresasSeleccionables(data).toSet();
 }
 
 class _PersonScore {
@@ -200,6 +186,11 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         .get();
     final userData = userDoc.data() ?? {};
     final empresas = _empresasDe(userData);
+    if (empresas.isEmpty) {
+      throw StateError(
+        'No tienes empresas habilitadas para consultar Gerencia.',
+      );
+    }
     final empresaPrincipal = empresas.isNotEmpty ? empresas.first : '';
 
     final preferred = preferredEmpresaId?.trim();

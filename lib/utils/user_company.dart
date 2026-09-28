@@ -217,7 +217,8 @@ class AppsPorEmpresaPlan {
 
   /// Para `update()`: rutas con punto, no toca el resto de cada bloque.
   Map<String, dynamic> comoRutas() => {
-    for (final e in porEmpresa.entries) 'empresasDetalle.${e.key}.apps': e.value,
+    for (final e in porEmpresa.entries)
+      'empresasDetalle.${e.key}.apps': e.value,
     'apps': raiz,
     kCampoAppsPorEmpresa: true,
   };
@@ -258,9 +259,10 @@ AppsPorEmpresaPlan planearAppsPorEmpresa(
       final heredadas = quitarHeredadas
           ? appsHeredadasEnEmpresa(data, e)
           : const <String>[];
-      lista = extractUserApps(data, empresaId: e).where(
-        (app) => !heredadas.any((h) => appIdsEquivalent(h, app)),
-      );
+      lista = extractUserApps(
+        data,
+        empresaId: e,
+      ).where((app) => !heredadas.any((h) => appIdsEquivalent(h, app)));
     }
     porEmpresa[e] = normalizeAppIdList(lista.toList()).ids..sort();
   }
@@ -391,21 +393,17 @@ bool userHasApp(Map<String, dynamic> data, String? appId, {String? empresaId}) {
   return false;
 }
 
-/// Empresas en las que la persona puede entrar: sus membresías menos las
-/// apagadas por un traslado (`empresasDetalle.{empresa}.activo: false`).
+/// Empresas en las que la cuenta está habilitada y la persona sigue activa.
 ///
 /// Una empresa apagada se queda en `empresas` para conservar lo que la
 /// persona registró allí, pero ya no se ofrece al iniciar sesión ni al
 /// cambiar de empresa: quien pasó "solo a la nueva" no debe seguir entrando
-/// a la antigua. Si todas están apagadas se devuelven todas; cortar el
-/// acceso es trabajo del interruptor global `activo`, no de esta lista.
+/// a la antigua. Si ninguna está habilitada, no hay empresa seleccionable.
 List<String> empresasSeleccionables(Map<String, dynamic> data) {
-  final todas = extractUserEmpresaIds(data);
-  final abiertas = [
-    for (final e in todas)
-      if (getUserCompanyDetail(data, e)?['activo'] != false) e,
+  return [
+    for (final e in extractUserEmpresaIds(data))
+      if (personaHabilitadaEn(data, e)) e,
   ];
-  return abiertas.isEmpty ? todas : abiertas;
 }
 
 String? resolveValidEmpresaId({
@@ -683,6 +681,19 @@ bool isPersonaActivaEnEmpresa(Map<String, dynamic> data, String? empresaId) {
 
   final global = (data['estado'] ?? '').toString().trim().toLowerCase();
   return global.isEmpty || global == kEstadoPersonaActivo;
+}
+
+/// Para documentos de `TBL_USUARIOS`: exige una cuenta habilitada además
+/// del vínculo laboral vigente en la empresa. Un bloque activo no puede
+/// reactivar una cuenta bloqueada globalmente.
+///
+/// No usar con `TBL_ESTRUCTURA_ORGANIZACIONAL`: allí el estado raíz describe
+/// la empresa principal, por lo que corresponde [isPersonaActivaEnEmpresa].
+/// La pertenencia a la empresa se valida por separado.
+bool personaHabilitadaEn(Map<String, dynamic> data, String? empresaId) {
+  final estado = (data['estado'] ?? '').toString().trim().toLowerCase();
+  if (estado.isNotEmpty && estado != kEstadoPersonaActivo) return false;
+  return isPersonaActivaEnEmpresa(data, empresaId);
 }
 
 /// Marca con la que Talento Humano saca a alguien de los desplegables de

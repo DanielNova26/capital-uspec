@@ -4548,7 +4548,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       final d = u.data();
       // El retiro vive en el bloque de la empresa: el `estado` raíz solo
       // gobierna el login y no dice nada del vínculo laboral.
-      if (soloActivos && !isPersonaActivaEnEmpresa(d, _empresaId)) return false;
+      if (soloActivos && !personaHabilitadaEn(d, _empresaId)) return false;
       // La persona en la empresa activa: la raíz es de su empresa principal.
       final enEmpresa = mergeCompanyScopedData(d, _empresaId);
       final uAreaId = _safe(enEmpresa['areaId']);
@@ -14073,7 +14073,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   Future<Set<String>?> _elegirQuienConservaOrigen(EmpresaItem source) async {
     final activos =
         _users
-            .where((u) => isPersonaActivaEnEmpresa(u.data(), source.empresaId))
+            .where((u) => personaHabilitadaEn(u.data(), source.empresaId))
             .toList()
           ..sort(
             (a, b) => _userName(

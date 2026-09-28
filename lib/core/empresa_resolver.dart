@@ -30,7 +30,7 @@ class EmpresaResolver {
   const EmpresaResolver();
 
   List<String> allowedEmpresas(Map<String, dynamic> userData) {
-    return extractUserEmpresaIds(userData);
+    return empresasSeleccionables(userData);
   }
 
   bool belongsToEmpresa(Map<String, dynamic> userData, String? empresaId) {

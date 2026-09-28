@@ -10,6 +10,56 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:todo/utils/user_company.dart';
 
 void main() {
+  group('cuentas de TBL_USUARIOS habilitadas', () {
+    Map<String, dynamic> usuario() => {
+      'empresaId': 'EMP1',
+      'estado': 'activo',
+      'empresasDetalle': {
+        'EMP1': {'estadoLaboral': 'inactivo'},
+        'EMP2': {'estadoLaboral': 'activo'},
+      },
+    };
+
+    test('el retiro solo excluye la empresa correspondiente', () {
+      expect(personaHabilitadaEn(usuario(), 'EMP1'), isFalse);
+      expect(personaHabilitadaEn(usuario(), 'EMP2'), isTrue);
+    });
+
+    test('un bloque activo no reactiva una cuenta inhabilitada', () {
+      for (final estado in ['inactivo', 'bloqueado', ' pendiente ']) {
+        final data = {...usuario(), 'estado': estado};
+        expect(personaHabilitadaEn(data, 'EMP2'), isFalse, reason: estado);
+        // La estructura conserva su regla: el estado raíz es de EMP1.
+        expect(isPersonaActivaEnEmpresa(data, 'EMP2'), isTrue);
+      }
+    });
+
+    test('respeta los interruptores global y por empresa', () {
+      expect(
+        personaHabilitadaEn({...usuario(), 'activo': false}, 'EMP2'),
+        isFalse,
+      );
+      final data = {
+        ...usuario(),
+        'empresasDetalle': {
+          'EMP2': {'activo': false, 'estadoLaboral': 'activo'},
+        },
+      };
+      expect(personaHabilitadaEn(data, 'EMP2'), isFalse);
+    });
+
+    test('conserva cuentas antiguas y normaliza el estado global', () {
+      for (final estado in [null, '', ' ACTIVO ']) {
+        expect(
+          personaHabilitadaEn({...usuario(), 'estado': estado}, 'EMP2'),
+          isTrue,
+        );
+      }
+      expect(personaHabilitadaEn({}, 'EMP1'), isTrue);
+      expect(personaHabilitadaEn({'estado': 'inactivo'}, null), isFalse);
+    });
+  });
+
   test('sin datos de estado se considera activo', () {
     expect(isPersonaActivaEnEmpresa({'nombre': 'Ana'}, 'EMP1'), isTrue);
   });

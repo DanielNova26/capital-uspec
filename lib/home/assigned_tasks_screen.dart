@@ -408,7 +408,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
           }
           // No se puede pedir reasignación hacia alguien ya retirado en
           // Talento Humano: el estado laboral vive por empresa.
-          if (!isPersonaActivaEnEmpresa(m, empresaId)) return null;
+          if (!personaHabilitadaEn(m, empresaId)) return null;
           final nombre = [
             (m['nombres'] ?? m['primerNombre'] ?? '').toString(),
             (m['apellidos'] ?? m['primerApellido'] ?? '').toString(),

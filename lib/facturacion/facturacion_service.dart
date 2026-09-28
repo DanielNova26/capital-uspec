@@ -112,7 +112,7 @@ class FacturacionService {
         final data = doc.data();
         // El rol sobrevive al retiro: sin este filtro se notifica a personal
         // que Talento Humano ya inhabilitó en la empresa.
-        if (!isPersonaActivaEnEmpresa(data, empresaId)) continue;
+        if (!personaHabilitadaEn(data, empresaId)) continue;
         final detalle = data['empresasDetalle'];
         if (detalle is Map) {
           final emp = detalle[empresaId];
@@ -1250,7 +1250,7 @@ class FacturacionService {
       final data = doc.data();
       // Un responsable retirado no puede recibir la devolución: se prefiere
       // fallar con "no hay responsable" antes que asignarle la tarea.
-      if (!isPersonaActivaEnEmpresa(data, empresaId)) continue;
+      if (!personaHabilitadaEn(data, empresaId)) continue;
       final info = resolveFacUserInfoFromData(data, empresaId);
       if (info.rol != kRolEstablecimiento || info.establecimientoId != estId) {
         continue;

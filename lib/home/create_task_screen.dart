@@ -157,7 +157,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     'idNumber',
   ]);
 
-
   /// Attempts to resolve the areaId of the given user for the current empresa.
   /// This method first looks into `empresasDetalle[_empresaId]` for an
   /// `areaId` or area name. If not found, it falls back to the existing
@@ -467,7 +466,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       if (estado != 'activo') continue;
       // Retiro registrado en Talento Humano: el estado vive en el bloque de la
       // empresa activa, no en el `estado` global que solo rige el login.
-      if (!isPersonaActivaEnEmpresa(u, _empresaId)) continue;
+      if (!personaHabilitadaEn(u, _empresaId)) continue;
       if (_currentUid != null && uid == _currentUid) continue;
 
       // 1) filtra por área / estructura
@@ -1820,7 +1819,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       decoration: BoxDecoration(
         color: (color ?? Colors.black).withValues(alpha: 0.07),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: (color ?? Colors.black).withValues(alpha: 0.10)),
+        border: Border.all(
+          color: (color ?? Colors.black).withValues(alpha: 0.10),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

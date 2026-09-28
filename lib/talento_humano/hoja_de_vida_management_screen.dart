@@ -216,7 +216,7 @@ class _HojaDeVidaManagementScreenState
                 // no se le siguen pidiendo correcciones.
                 docs = docs.where((d) {
                   final data = d.data();
-                  if (!isPersonaActivaEnEmpresa(data, widget.empresaId)) {
+                  if (!personaHabilitadaEn(data, widget.empresaId)) {
                     return false;
                   }
                   return (data['primerNombre'] as String?)?.isNotEmpty ?? false;

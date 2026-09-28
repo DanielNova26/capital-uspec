@@ -62,7 +62,7 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
       if (n.isNotEmpty) {
         return (
           nombre: n,
-          activa: isPersonaActivaEnEmpresa(directData, widget.empresaId),
+          activa: personaHabilitadaEn(directData, widget.empresaId),
         );
       }
     }
@@ -71,10 +71,7 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
       final data = q.docs.first.data();
       final n = _nombreDeUsuario(data);
       if (n.isNotEmpty) {
-        return (
-          nombre: n,
-          activa: isPersonaActivaEnEmpresa(data, widget.empresaId),
-        );
+        return (nombre: n, activa: personaHabilitadaEn(data, widget.empresaId));
       }
     }
     return (nombre: cedula, activa: true);

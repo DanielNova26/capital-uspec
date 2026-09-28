@@ -3,6 +3,7 @@ import '../utils/user_company.dart';
 
 enum AccessDenialReason {
   invalidInput,
+  userDisabled,
   empresaNotAllowed,
   appNotAssigned,
   appDisabledForEmpresa,
@@ -43,9 +44,18 @@ class AccessGuard {
       );
     }
 
-    // Desarrollador: bypass completo sin importar empresa ni app asignada.
-    // Se verifica primero para que un desarrollador no sea bloqueado
-    // por falta de membresía en la empresa activa.
+    // La cuenta y el vínculo laboral se comprueban incluso si el módulo se
+    // abre directamente o el usuario conserva un rol de desarrollador.
+    if (!personaHabilitadaEn(userData, normalizedEmpresaId)) {
+      return const AccessDecision(
+        allowed: false,
+        reason: AccessDenialReason.userDisabled,
+        message: 'El usuario no está habilitado en esta empresa.',
+      );
+    }
+
+    // Desarrollador: conserva el acceso sin exigir membresía o app asignada,
+    // siempre que no exista una inhabilitación explícita.
     if (isDeveloperUser(userData, empresaId: normalizedEmpresaId)) {
       return const AccessDecision(allowed: true, isDeveloperOverride: true);
     }

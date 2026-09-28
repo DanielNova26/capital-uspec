@@ -2666,7 +2666,7 @@ class InterventoriaService {
       // El retiro de Talento Humano se guarda por empresa
       // (`empresasDetalle.{empresaId}.estadoLaboral`); el `estado` global solo
       // bloquea el login, así que por sí solo dejaba pasar a los retirados.
-      if (!isPersonaActivaEnEmpresa(data, empresaId)) continue;
+      if (!personaHabilitadaEn(data, empresaId)) continue;
       Map<String, dynamic>? scoped;
       final detalle = data['empresasDetalle'];
       if (detalle is Map && detalle[empresaId] is Map) {
@@ -3211,7 +3211,7 @@ class InterventoriaService {
   /// Empresas del usuario, distintas de [origenId], a las que podría copiar
   /// las reglas del maestro.
   ///
-  /// Se devuelven TODAS las empresas del usuario y no solo las que administra:
+  /// Se devuelven las empresas habilitadas del usuario, incluso las que no administra:
   /// ver la empresa deshabilitada con el motivo es mejor que preguntarse por
   /// qué no aparece. Cada una trae sus reglas y sus cargos para que la pantalla
   /// avise qué se va a pisar y qué cargos no existen allí.
@@ -3221,7 +3221,7 @@ class InterventoriaService {
   }) async {
     final userDoc = await _db.collection('TBL_USUARIOS').doc(userId).get();
     final userData = userDoc.data() ?? const <String, dynamic>{};
-    final ids = extractUserEmpresaIds(
+    final ids = empresasSeleccionables(
       userData,
     ).where((id) => id != origenId).toList();
     final out = <InterventoriaEmpresaCopiaReglas>[];
