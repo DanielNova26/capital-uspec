@@ -1,0 +1,13 @@
+Analyzing 17 items...                                           
+
+   info - Use the null-aware marker '?' rather than a null check via an 'if'. Try using '?' - lib\admin\admin_dashboard_screen.dart:5096:18 - use_null_aware_elements
+   info - Use the null-aware marker '?' rather than a null check via an 'if'. Try using '?' - lib\admin\admin_dashboard_screen.dart:5317:39 - use_null_aware_elements
+   info - The local variable '_userName' starts with an underscore. Try renaming the variable to not start with an underscore - lib\admin\admin_dashboard_screen.dart:8796:12 - no_leading_underscores_for_local_identifiers
+warning - The declaration '_tabSesionesUsuarios' isn't referenced. Try removing the declaration of '_tabSesionesUsuarios' - lib\admin\admin_dashboard_screen.dart:11385:10 - unused_element
+   info - 'groupValue' is deprecated and shouldn't be used. Use a RadioGroup ancestor to manage group value instead. This feature was deprecated after v3.32.0-0.0.pre. Try replacing the use of the deprecated member with the replacement - lib\admin\admin_dashboard_screen.dart:16309:21 - deprecated_member_use
+   info - 'onChanged' is deprecated and shouldn't be used. Use RadioGroup to handle value change instead. This feature was deprecated after v3.32.0-0.0.pre. Try replacing the use of the deprecated member with the replacement - lib\admin\admin_dashboard_screen.dart:16310:21 - deprecated_member_use
+   info - Use the null-aware marker '?' rather than a null check via an 'if'. Try using '?' - lib\gestion_documental\correspondencia\gd_colaboracion_panel.dart:631:15 - use_null_aware_elements
+   info - Statements in an if should be enclosed in a block. Try wrapping the statement in a block - lib\gestion_documental\correspondencia\gd_control_dashboard_screen.dart:1879:5 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block. Try wrapping the statement in a block - lib\gestion_documental\correspondencia\gd_correspondencia_screen.dart:1581:7 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block. Try wrapping the statement in a block - lib\gestion_documental\correspondencia\gd_correspondencia_screen.dart:2514:5 - curly_braces_in_flow_control_structures
+

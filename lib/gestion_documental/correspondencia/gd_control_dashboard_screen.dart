@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:file_saver/file_saver.dart';
@@ -66,6 +67,8 @@ class _GdControlDashboardScreenState extends State<GdControlDashboardScreen> {
   /// usuario por qué, al entrar a un expediente, no verá el botón de
   /// clasificar. Sin este aviso parece que la pantalla está incompleta.
   GdPermisos _permisos = GdPermisos.cargando;
+  StreamSubscription<GdPermisos>? _permissionSubscription;
+  int _permissionRevision = 0;
   bool _permisosListos = false;
 
   @override
@@ -83,25 +86,27 @@ class _GdControlDashboardScreenState extends State<GdControlDashboardScreen> {
     }
   }
 
-  Future<void> _cargarPermisos() async {
-    try {
-      final permisos = await GdPermisosService().resolver(
-        empresaId: widget.empresaId,
-        userId: widget.userId,
-      );
-      if (mounted) {
-        setState(() {
-          _permisos = permisos;
-          _permisosListos = true;
+  void _cargarPermisos() {
+    final revision = ++_permissionRevision;
+    _permissionSubscription?.cancel();
+    _permisos = GdPermisos.cargando;
+    _permisosListos = false;
+    _permissionSubscription = GdPermisosService()
+        .observar(empresaId: widget.empresaId, userId: widget.userId)
+        .listen((permissions) {
+          if (mounted && revision == _permissionRevision) {
+            setState(() {
+              _permisos = permissions;
+              _permisosListos = permissions.resueltos;
+            });
+          }
         });
-      }
-    } catch (_) {
-      if (mounted) setState(() => _permisosListos = false);
-    }
   }
 
   @override
   void dispose() {
+    _permissionRevision++;
+    _permissionSubscription?.cancel();
     _search.dispose();
     super.dispose();
   }
@@ -139,100 +144,115 @@ class _GdControlDashboardScreenState extends State<GdControlDashboardScreen> {
           const SizedBox(width: 12),
         ],
       ),
-      body: StreamBuilder<List<GdExpediente>>(
-        stream: _streamExpedientes(),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return _DashboardError(error: snapshot.error);
-          }
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final rows = snapshot.data!;
-          final visible = rows.where(_matches).toList();
-          return RefreshIndicator(
-            onRefresh: () async => setState(() {}),
-            child: CustomScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              slivers: [
-                SliverPadding(
-                  padding: EdgeInsets.fromLTRB(
-                    wide ? 28 : 14,
-                    20,
-                    wide ? 28 : 14,
-                    28,
-                  ),
-                  sliver: SliverList.list(
-                    children: [
-                      _HeroHeader(
-                        total: rows.length,
-                        onOpenCorrespondence: _openCorrespondence,
-                      ),
-                      const SizedBox(height: 18),
-                      _KpiGrid(rows: rows, wide: wide),
-                      const SizedBox(height: 18),
-                      if (wide)
-                        Column(
+      body: !_permisos.resueltos
+          ? const Center(child: CircularProgressIndicator())
+          : !_permisos.tieneAcceso
+          ? const Center(
+              child: Text(
+                'Ya no tienes acceso a Correspondencia en esta empresa.',
+              ),
+            )
+          : StreamBuilder<List<GdExpediente>>(
+              stream: _streamExpedientes(),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return _DashboardError(error: snapshot.error);
+                }
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final rows = snapshot.data!;
+                final visible = rows.where(_matches).toList();
+                return RefreshIndicator(
+                  onRefresh: () async => setState(() {}),
+                  child: CustomScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    slivers: [
+                      SliverPadding(
+                        padding: EdgeInsets.fromLTRB(
+                          wide ? 28 : 14,
+                          20,
+                          wide ? 28 : 14,
+                          28,
+                        ),
+                        sliver: SliverList.list(
                           children: [
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  flex: 7,
-                                  child: _TypeChart(rows: rows),
-                                ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  flex: 4,
-                                  child: _StatusChart(rows: rows),
-                                ),
-                              ],
+                            _HeroHeader(
+                              total: rows.length,
+                              onOpenCorrespondence: _openCorrespondence,
                             ),
-                            const SizedBox(height: 16),
-                            _ResponsibleChart(rows: rows),
+                            const SizedBox(height: 18),
+                            _KpiGrid(rows: rows, wide: wide),
+                            const SizedBox(height: 18),
+                            if (wide)
+                              Column(
+                                children: [
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(
+                                        flex: 7,
+                                        child: _TypeChart(rows: rows),
+                                      ),
+                                      const SizedBox(width: 16),
+                                      Expanded(
+                                        flex: 4,
+                                        child: _StatusChart(rows: rows),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 16),
+                                  _ResponsibleChart(rows: rows),
+                                ],
+                              )
+                            else ...[
+                              _StatusChart(rows: rows),
+                              const SizedBox(height: 14),
+                              _TypeChart(rows: rows),
+                              const SizedBox(height: 14),
+                              _ResponsibleChart(rows: rows),
+                            ],
+                            const SizedBox(height: 18),
+                            _ProcessSection(
+                              all: rows,
+                              rows: visible,
+                              wide: wide,
+                              search: _search,
+                              filter: _filter,
+                              typeFilter: _typeFilter,
+                              responsibleFilter: _responsibleFilter,
+                              receivedRange: _receivedRange,
+                              exporting: _exporting,
+                              onQuery: (value) =>
+                                  setState(() => _query = value),
+                              onFilter: (value) =>
+                                  setState(() => _filter = value),
+                              onTypeFilter: (value) =>
+                                  setState(() => _typeFilter = value),
+                              onResponsibleFilter: (value) =>
+                                  setState(() => _responsibleFilter = value),
+                              onPickRange: _pickReceivedRange,
+                              onClearAdvanced: _clearAdvancedFilters,
+                              onExportView: () => _exportExcel(
+                                visible,
+                                alcance: 'Vista filtrada',
+                              ),
+                              onExportAll: () => _exportExcel(
+                                rows,
+                                alcance: 'Histórico completo',
+                              ),
+                              onOpen: _openDetail,
+                              onOpenAll: _openCorrespondence,
+                            ),
                           ],
-                        )
-                      else ...[
-                        _StatusChart(rows: rows),
-                        const SizedBox(height: 14),
-                        _TypeChart(rows: rows),
-                        const SizedBox(height: 14),
-                        _ResponsibleChart(rows: rows),
-                      ],
-                      const SizedBox(height: 18),
-                      _ProcessSection(
-                        all: rows,
-                        rows: visible,
-                        wide: wide,
-                        search: _search,
-                        filter: _filter,
-                        typeFilter: _typeFilter,
-                        responsibleFilter: _responsibleFilter,
-                        receivedRange: _receivedRange,
-                        exporting: _exporting,
-                        onQuery: (value) => setState(() => _query = value),
-                        onFilter: (value) => setState(() => _filter = value),
-                        onTypeFilter: (value) =>
-                            setState(() => _typeFilter = value),
-                        onResponsibleFilter: (value) =>
-                            setState(() => _responsibleFilter = value),
-                        onPickRange: _pickReceivedRange,
-                        onClearAdvanced: _clearAdvancedFilters,
-                        onExportView: () =>
-                            _exportExcel(visible, alcance: 'Vista filtrada'),
-                        onExportAll: () =>
-                            _exportExcel(rows, alcance: 'Histórico completo'),
-                        onOpen: _openDetail,
-                        onOpenAll: _openCorrespondence,
+                        ),
                       ),
                     ],
                   ),
-                ),
-              ],
+                );
+              },
             ),
-          );
-        },
-      ),
     );
   }
 

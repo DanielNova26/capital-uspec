@@ -1,0 +1,313 @@
+00:00 +0: loading C:/Desarrollo/capital-uspec/test/admin/admin_access_filter_test.dart
+00:00 +0: C:/Desarrollo/capital-uspec/test/admin/admin_access_filter_test.dart: matchesAdminAccessFilter all keeps every user
+00:00 +1: C:/Desarrollo/capital-uspec/test/admin/admin_access_filter_test.dart: matchesAdminAccessFilter enabled and disabled separate visibility
+00:00 +2: C:/Desarrollo/capital-uspec/test/admin/admin_access_filter_test.dart: matchesAdminAccessFilter role filters only include users with module access
+00:01 +3: C:/Desarrollo/capital-uspec/test/admin/admin_module_closeout_service_test.dart: cierre administrativo por módulo reconoce tareas de Interventoría y Facturación
+00:01 +4: C:/Desarrollo/capital-uspec/test/admin/admin_module_closeout_service_test.dart: cierre administrativo por módulo solo considera abiertas las tareas no finalizadas
+00:01 +5: C:/Desarrollo/capital-uspec/test/admin/admin_module_closeout_service_test.dart: cierre administrativo por módulo aplica el corte antes o desde el inicio del día
+00:01 +6: C:/Desarrollo/capital-uspec/test/admin/admin_module_closeout_service_test.dart: cierre administrativo por módulo lee fechas históricas y actuales de las tareas
+00:01 +7: C:/Desarrollo/capital-uspec/test/admin/admin_module_closeout_service_test.dart: cierre administrativo por módulo identifica notificaciones directas y ligadas a una tarea
+00:02 +8: C:/Desarrollo/capital-uspec/test/admin/admin_module_closeout_service_test.dart: cierre administrativo por módulo no vuelve a procesar notificaciones ya leídas
+00:04 +9: C:/Desarrollo/capital-uspec/test/admin/admin_module_inventory_test.dart: une alias y código y conserva todos los registros originales
+00:05 +10: C:/Desarrollo/capital-uspec/test/admin/admin_module_inventory_test.dart: estados en conflicto se muestran y prevalece el documento canónico
+00:05 +11: C:/Desarrollo/capital-uspec/test/admin/admin_module_inventory_test.dart: incluye apps propias y roles históricos sin convertirlos en permisos
+00:05 +12: C:/Desarrollo/capital-uspec/test/admin/admin_module_inventory_test.dart: registro de faltantes respeta alias y estados y no asigna accesos
+00:05 +13: C:/Desarrollo/capital-uspec/test/admin/admin_module_inventory_test.dart: sin permiso administrativo no registra módulos en otra empresa
+00:06 +14: C:/Desarrollo/capital-uspec/test/admin/admin_name_normalizer_test.dart: normaliza mayúsculas y partículas de un nombre
+00:06 +15: C:/Desarrollo/capital-uspec/test/admin/admin_name_normalizer_test.dart: conserva apellidos compuestos con guion y apóstrofo
+00:06 +16: C:/Desarrollo/capital-uspec/test/admin/admin_name_normalizer_test.dart: elimina espacios de un valor ya normalizado
+00:06 +17: C:/Desarrollo/capital-uspec/test/admin/admin_name_normalizer_test.dart: normaliza un nombre completo sin separar nombres y apellidos
+00:08 +18: C:/Desarrollo/capital-uspec/test/admin/admin_users_directory_test.dart: web muestra tabla y la ficha de la persona seleccionada
+00:12 +19: C:/Desarrollo/capital-uspec/test/admin/admin_users_directory_test.dart: web muestra tabla y la ficha de la persona seleccionada
+00:12 +20: C:/Desarrollo/capital-uspec/test/admin/admin_users_directory_test.dart: web muestra tabla y la ficha de la persona seleccionada
+00:12 +21: C:/Desarrollo/capital-uspec/test/admin/admin_users_directory_test.dart: web muestra tabla y la ficha de la persona seleccionada
+00:12 +22: C:/Desarrollo/capital-uspec/test/admin/admin_users_directory_test.dart: web muestra tabla y la ficha de la persona seleccionada
+00:14 +23: C:/Desarrollo/capital-uspec/test/admin/admin_users_directory_test.dart: web muestra tabla y la ficha de la persona seleccionada
+00:14 +24: C:/Desarrollo/capital-uspec/test/admin/admin_users_directory_test.dart: web muestra tabla y la ficha de la persona seleccionada
+00:14 +25: C:/Desarrollo/capital-uspec/test/admin/admin_users_directory_test.dart: web muestra tabla y la ficha de la persona seleccionada
+00:14 +26: C:/Desarrollo/capital-uspec/test/admin/admin_users_directory_test.dart: web muestra tabla y la ficha de la persona seleccionada
+00:14 +27: C:/Desarrollo/capital-uspec/test/admin/admin_users_directory_test.dart: web muestra tabla y la ficha de la persona seleccionada
+00:14 +28: C:/Desarrollo/capital-uspec/test/admin/admin_users_directory_test.dart: web muestra tabla y la ficha de la persona seleccionada
+00:14 +29: C:/Desarrollo/capital-uspec/test/admin/admin_users_directory_test.dart: web muestra tabla y la ficha de la persona seleccionada
+00:14 +30: C:/Desarrollo/capital-uspec/test/admin/admin_users_workspace_test.dart: web permite navegar sin montar herramientas no elegidas
+00:16 +31: C:/Desarrollo/capital-uspec/test/admin/admin_users_workspace_test.dart: web permite navegar sin montar herramientas no elegidas
+00:17 +32: C:/Desarrollo/capital-uspec/test/admin/admin_users_workspace_test.dart: web permite navegar sin montar herramientas no elegidas
+00:17 +33: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:20 +34: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:20 +35: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:20 +36: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:20 +37: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:20 +38: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:20 +39: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:20 +40: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:20 +41: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:20 +42: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:20 +43: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:20 +44: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:20 +45: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:20 +46: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:21 +47: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:24 +48: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:24 +49: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:24 +50: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:24 +51: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:24 +52: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:24 +53: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:24 +54: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:24 +55: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:24 +56: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:24 +57: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:24 +58: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:24 +59: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:25 +60: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:25 +61: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:25 +62: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:25 +63: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:25 +64: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:29 +65: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:29 +66: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:29 +67: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:29 +68: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:30 +69: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:30 +70: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:30 +71: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:30 +72: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:30 +73: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:30 +74: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:30 +75: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:30 +76: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:30 +77: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:32 +78: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:32 +79: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:32 +80: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:32 +81: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:32 +82: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:32 +83: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:32 +84: C:/Desarrollo/capital-uspec/test/admin/library_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:34 +85: C:/Desarrollo/capital-uspec/test/admin/payment_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:37 +86: C:/Desarrollo/capital-uspec/test/admin/payment_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:37 +87: C:/Desarrollo/capital-uspec/test/admin/payment_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:37 +88: C:/Desarrollo/capital-uspec/test/admin/payment_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:37 +89: C:/Desarrollo/capital-uspec/test/admin/payment_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:37 +90: C:/Desarrollo/capital-uspec/test/admin/payment_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:37 +91: C:/Desarrollo/capital-uspec/test/admin/payment_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:37 +92: C:/Desarrollo/capital-uspec/test/admin/payment_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:38 +93: C:/Desarrollo/capital-uspec/test/admin/payment_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:39 +94: C:/Desarrollo/capital-uspec/test/admin/payment_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:39 +95: C:/Desarrollo/capital-uspec/test/admin/payment_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:39 +96: C:/Desarrollo/capital-uspec/test/admin/payment_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:39 +97: C:/Desarrollo/capital-uspec/test/admin/payment_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:39 +98: C:/Desarrollo/capital-uspec/test/admin/payment_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:39 +99: C:/Desarrollo/capital-uspec/test/admin/payment_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:39 +100: C:/Desarrollo/capital-uspec/test/admin/payment_module_roles_panel_test.dart: crear exige nombre y muestra las acciones del nivel elegido
+00:39 +101: C:/Desarrollo/capital-uspec/test/admin/task_module_roles_panel_test.dart: crear rol exige nombre y entrega permisos elegidos
+00:39 +102: C:/Desarrollo/capital-uspec/test/admin/task_module_roles_panel_test.dart: crear rol exige nombre y entrega permisos elegidos
+00:39 +103: C:/Desarrollo/capital-uspec/test/admin/task_module_roles_panel_test.dart: crear rol exige nombre y entrega permisos elegidos
+00:39 +104: C:/Desarrollo/capital-uspec/test/admin/task_module_roles_panel_test.dart: crear rol exige nombre y entrega permisos elegidos
+00:39 +105: C:/Desarrollo/capital-uspec/test/admin/task_module_roles_panel_test.dart: crear rol exige nombre y entrega permisos elegidos
+00:39 +106: C:/Desarrollo/capital-uspec/test/admin/task_module_roles_panel_test.dart: crear rol exige nombre y entrega permisos elegidos
+00:43 +107: C:/Desarrollo/capital-uspec/test/admin/task_module_roles_panel_test.dart: crear rol exige nombre y entrega permisos elegidos
+00:44 +108: C:/Desarrollo/capital-uspec/test/admin/payment_module_roles_panel_test.dart: sincronización muestra pendientes y bloquea doble envío
+00:44 +109: C:/Desarrollo/capital-uspec/test/admin/payment_module_roles_panel_test.dart: sincronización muestra pendientes y bloquea doble envío
+00:44 +110: C:/Desarrollo/capital-uspec/test/admin/payment_module_roles_panel_test.dart: sincronización muestra pendientes y bloquea doble envío
+00:44 +111: C:/Desarrollo/capital-uspec/test/admin/task_module_roles_panel_test.dart: editar conserva referencia y permite desactivar un rol
+00:44 +112: C:/Desarrollo/capital-uspec/test/admin/task_module_roles_panel_test.dart: editar conserva referencia y permite desactivar un rol
+00:46 +113: C:/Desarrollo/capital-uspec/test/admin/task_module_roles_panel_test.dart: editar conserva referencia y permite desactivar un rol
+00:46 +114: C:/Desarrollo/capital-uspec/test/admin/task_module_roles_panel_test.dart: sincronización pendiente se puede reintentar y bloquea doble envío
+00:47 +115: C:/Desarrollo/capital-uspec/test/admin/task_module_roles_panel_test.dart: sincronización pendiente se puede reintentar y bloquea doble envío
+00:47 +116: C:/Desarrollo/capital-uspec/test/admin/task_module_roles_panel_test.dart: sincronización pendiente se puede reintentar y bloquea doble envío
+00:47 +117: C:/Desarrollo/capital-uspec/test/admin/task_module_roles_panel_test.dart: sincronización pendiente se puede reintentar y bloquea doble envío
+00:47 +118: C:/Desarrollo/capital-uspec/test/admin/task_module_roles_panel_test.dart: sincronización pendiente se puede reintentar y bloquea doble envío
+00:47 +119: C:/Desarrollo/capital-uspec/test/admin/task_module_roles_panel_test.dart: sincronización pendiente se puede reintentar y bloquea doble envío
+00:47 +120: C:/Desarrollo/capital-uspec/test/admin/task_module_roles_panel_test.dart: móvil usa navegación compacta y formulario sin desbordes
+00:49 +121: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_formato_plantilla_test.dart: sello de validación sobre el archivo subido escribe quién validó en O2 y no toca nada más
+00:49 +122: C:/Desarrollo/capital-uspec/test/admin/task_module_roles_panel_test.dart: web ofrece panel lateral y la sección elegida
+00:49 +123: C:/Desarrollo/capital-uspec/test/admin/task_module_roles_panel_test.dart: web ofrece panel lateral y la sección elegida
+00:49 +124: C:/Desarrollo/capital-uspec/test/admin/task_module_roles_panel_test.dart: web ofrece panel lateral y la sección elegida
+00:49 +125: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_formato_plantilla_test.dart: sello de validación sobre el archivo subido rechaza lo que no es la plantilla
+00:49 +126: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_formato_plantilla_test.dart: plantilla Excel de formato institucional la clave de hoja usa el mismo hash que Excel/openpyxl
+00:49 +127: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_formato_plantilla_test.dart: plantilla Excel de formato institucional la hoja permite combinar celdas y conserva el encabezado
+00:49 +128: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_formato_plantilla_test.dart: plantilla Excel de formato institucional con logo inserta la imagen y el sello de aprobación
+00:50 +129: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_formato_plantilla_test.dart: plantilla Excel de formato institucional un logo que no es imagen se ignora sin romper el archivo
+00:50 +130: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_formato_plantilla_test.dart: plantilla Excel de formato institucional nombre de archivo legible
+00:50 +131: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_library_logic_test.dart: estructura de Biblioteca Documental separa formatos, contrato, normograma y radicados
+00:50 +132: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_library_logic_test.dart: estructura de Biblioteca Documental genera código por área (formatos) o tipo (contrato y normas)
+00:50 +133: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_library_logic_test.dart: estructura de Biblioteca Documental el título sale en mayúscula aunque se haya guardado en minúscula
+00:50 +134: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_library_logic_test.dart: estructura de Biblioteca Documental normaliza palabras clave sin duplicarlas
+00:50 +135: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_library_logic_test.dart: estructura de Biblioteca Documental busca por palabras clave y calcula documentos asociados
+00:50 +136: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_library_logic_test.dart: estructura de Biblioteca Documental busca documentos contractuales por carpeta, alias y código externo
+00:50 +137: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_library_logic_test.dart: estructura de Biblioteca Documental busca el normograma por número de ley y tema
+00:51 +138: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_library_logic_test.dart: estructura de Biblioteca Documental busca documentos radicados por su número
+00:51 +139: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_library_logic_test.dart: estructura de Biblioteca Documental el modelo conserva palabras clave y fecha de aprobación
+00:52 +140: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_permisos_rol_test.dart: el desarrollador se reconoce como en el resto de la app por el rol dentro de la empresa, no por una bandera
+00:52 +141: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_permisos_rol_test.dart: el desarrollador se reconoce como en el resto de la app por un roleId terminado en _desarrollador
+00:52 +142: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_permisos_rol_test.dart: el texto del rol se traduce a un permiso administrador, en cualquiera de sus formas, es administrador
+00:52 +143: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_permisos_rol_test.dart: el texto del rol se traduce a un permiso un texto que no se reconoce no concede nada
+00:52 +144: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_permisos_rol_test.dart: qué puede cada rol el administrador del módulo puede todo
+00:52 +145: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_permisos_rol_test.dart: qué puede cada rol el operador trabaja lo suyo y no clasifica
+00:52 +146: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_permisos_rol_test.dart: qué puede cada rol mientras se resuelve el rol solo se mira
+00:53 +147: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_permisos_test.dart: jerarquía el clasificador incluye las funciones del operador
+00:53 +148: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_permisos_test.dart: jerarquía el operador trabaja lo suyo pero no clasifica ni asigna
+00:53 +149: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_permisos_test.dart: jerarquía el visor solo consulta
+00:53 +150: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_permisos_test.dart: jerarquía el administrador puede todo
+00:53 +151: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_permisos_test.dart: jerarquía los maestros y los filtros son solo del administrador
+00:53 +152: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_permisos_test.dart: jerarquía el orden de los niveles no se altera
+00:53 +153: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_permisos_test.dart: mientras se resuelve el rol el permiso inicial es el más restrictivo
+00:53 +154: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_permisos_test.dart: GdRolCorrespondencia.desdeTexto reconoce las formas del rol clasificador
+00:53 +155: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_permisos_test.dart: GdRolCorrespondencia.desdeTexto desarrollador y superadmin cuentan como administrador
+00:53 +156: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_permisos_test.dart: GdRolCorrespondencia.desdeTexto un texto desconocido no se convierte en permiso
+00:53 +157: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_permisos_test.dart: rol por defecto quien entra sin rol asignado es operador
+00:56 +158: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_role_access_test.dart: consulta solo recibe la versión publicada de este documento y empresa
+00:56 +159: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_role_access_test.dart: cada nivel muestra las acciones reales y consulta carece de flujo
+00:56 +160: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_role_access_test.dart: vacío, consulta y valor desconocido no heredan el administrador raíz
+00:57 +161: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_role_access_test.dart: rol raíz no habilita otra empresa ni hereda la app combinada
+00:57 +162: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_role_access_test.dart: consulta solo accede a publicados aun por enlace directo
+00:57 +163: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_role_access_test.dart: revocar app o membresía impide lectura y el desarrollador conserva su bypass
+00:59 +164: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_tipos_documentales_test.dart: GdTipoDocumental.normalizarCodigo pasa a mayúsculas y descarta espacios y signos
+00:59 +165: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_tipos_documentales_test.dart: GdTipoDocumental.normalizarCodigo quita acentos y la ñ en vez de descartar la letra
+00:59 +166: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_tipos_documentales_test.dart: GdTipoDocumental.normalizarCodigo corta estrictamente en tres caracteres
+00:59 +167: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_tipos_documentales_test.dart: GdTipoDocumental.normalizarCodigo deja vacío lo que no aporta ningún caracter válido
+00:59 +168: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_tipos_documentales_test.dart: GdTipoDocumental.codigoSugerido propone las primeras tres letras del nombre
+00:59 +169: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_tipos_documentales_test.dart: GdTipoDocumental.codigoSugerido ignora los espacios al tomar las tres primeras letras
+00:59 +170: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_tipos_documentales_test.dart: GdTipoDocumental.codigoSugerido devuelve lo que haya cuando el nombre es más corto
+00:59 +171: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_tipos_documentales_test.dart: etiqueta y búsqueda la etiqueta muestra código y nombre juntos
+00:59 +172: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_tipos_documentales_test.dart: etiqueta y búsqueda cae al nombre cuando el registro viejo no tiene código
+00:59 +173: C:/Desarrollo/capital-uspec/test/gestion_documental/gd_tipos_documentales_test.dart: etiqueta y búsqueda el texto de búsqueda incluye el alias
+01:00 +174: C:/Desarrollo/capital-uspec/test/gestion_documental/office_preview_test.dart: Word y Excel tienen visor; otros formatos no
+01:00 +175: C:/Desarrollo/capital-uspec/test/gestion_documental/office_preview_test.dart: la URL del archivo queda codificada para el visor
+01:04 +176: C:/Desarrollo/capital-uspec/test/gestion_documental/planillas/pp_current_role_service_test.dart: formulario con rol viejo se rechaza al cambiar el nivel
+01:04 +177: C:/Desarrollo/capital-uspec/test/gestion_documental/planillas/pp_current_role_service_test.dart: no acepta un nivel administrativo proporcionado por cliente
+01:04 +178: C:/Desarrollo/capital-uspec/test/gestion_documental/planillas/pp_current_role_service_test.dart: no usa rol de la principal para escribir en otra empresa
+01:04 +179: C:/Desarrollo/capital-uspec/test/gestion_documental/planillas/pp_current_role_service_test.dart: retirar nivel o membresía se comprueba antes de guardar
+01:04 +180: C:/Desarrollo/capital-uspec/test/gestion_documental/planillas/pp_current_role_service_test.dart: nivel vigente continúa con validación de empresa del documento
+01:04 +181: C:/Desarrollo/capital-uspec/test/gestion_documental/planillas/pp_current_role_service_test.dart: nivel vigente permite guardar y conserva la planilla
+01:05 +182: C:/Desarrollo/capital-uspec/test/gestion_documental/planillas/pp_current_role_service_test.dart: Tesorería envía a auditoría y registra historial sin saltar la etapa
+01:05 +183: C:/Desarrollo/capital-uspec/test/gestion_documental/planillas/pp_current_role_service_test.dart: gerencia no puede aprobar auditoría y se conserva la excepción de logo
+01:05 +184: C:/Desarrollo/capital-uspec/test/gestion_documental/planillas/pp_current_role_service_test.dart: formulario de logos abierto también comprueba el rol vigente
+01:05 +185: C:/Desarrollo/capital-uspec/test/gestion_documental/planillas/pp_roles_test.dart: PpRoles eliminar_logo solo administrador documental puede eliminar logos
+01:06 +186: C:/Desarrollo/capital-uspec/test/gestion_documental/planillas/pp_roles_test.dart: PpRoles editar_nombre_planilla tesoreria puede editar el nombre de una planilla cargada
+01:08 +187: C:/Desarrollo/capital-uspec/test/gestion_documental/planillas/pp_role_access_test.dart: nivel raíz solo sirve en la empresa principal
+01:08 +188: C:/Desarrollo/capital-uspec/test/gestion_documental/planillas/pp_role_access_test.dart: vacío y desconocido no recuperan el administrador raíz
+01:08 +189: C:/Desarrollo/capital-uspec/test/gestion_documental/planillas/pp_role_access_test.dart: membresía y persona inactivas retiran acceso
+01:08 +190: C:/Desarrollo/capital-uspec/test/gestion_documental/planillas/pp_role_access_test.dart: avisos de etapa respetan nivel efectivo y revocación scoped
+01:08 +191: C:/Desarrollo/capital-uspec/test/gestion_documental/planillas/pp_role_access_test.dart: niveles muestran acciones existentes y separan cuentas bancarias
+01:08 +192: C:/Desarrollo/capital-uspec/test/gestion_documental/planillas/pp_role_access_test.dart: desarrollador general conserva la excepción real de eliminar logos
+01:11 +193: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: códigos con ceros a la izquierda rellena hasta cuatro dígitos
+01:11 +194: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: códigos con ceros a la izquierda nunca recorta un código que ya viene más largo
+01:11 +195: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: fecha límite va en aaaammdd con forma de pago 1 o 2
+01:11 +196: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: fecha límite con forma de pago 3 van ocho ceros aunque haya fecha
+01:11 +197: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: importe lleva miles con coma y dos decimales
+01:11 +198: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: importe el total va sin decimales
+01:11 +199: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: importe la suma es exacta porque no pasa por coma flotante
+01:12 +200: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: validación un lote correcto no reporta nada
+01:12 +201: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: validación nombra a la persona en cada problema
+01:12 +202: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: validación devuelve todos los problemas, no solo el primero
+01:12 +203: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: validación rechaza el nombre que pasa de 36 caracteres
+01:12 +204: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: validación rechaza identificaciones y cuentas con puntos o guiones
+01:12 +205: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: validación avisa cuando la misma cédula aparece dos veces en el lote
+01:12 +206: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: validación la forma de pago 1 sin fecha es un error, no ocho ceros
+01:12 +207: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: validación la forma de pago 3 no exige fecha
+01:12 +208: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: validación el tipo de cuenta solo admite 01 y 02
+01:12 +209: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: validación el concepto no pasa de 40 caracteres
+01:12 +210: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: archivo generado respeta la forma del ejemplo que el banco ya acepta
+01:12 +211: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: archivo generado entrecomilla el importe porque lleva comas de miles
+01:12 +212: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: archivo generado todas las filas tienen el mismo número de columnas
+01:12 +213: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: archivo generado los conceptos vacíos dejan la casilla vacía, no la corren
+01:12 +214: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: de la planilla firmada al plano lee el NIT, la cuenta y el banco de la planilla
+01:12 +215: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: de la planilla firmada al plano la X va en AHO y el tipo de cuenta es 02
+01:12 +216: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: de la planilla firmada al plano acepta los nombres de columna que use el Excel
+01:13 +217: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: de la planilla firmada al plano una fila incompleta entra y la validación dice de quién es
+01:13 +218: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: de la planilla firmada al plano un NIT largo se marca como tipo 2
+01:13 +219: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: codificación del archivo conserva tildes y eñes, que sí existen en latin1
+01:13 +220: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: codificación del archivo cambia lo que latin1 no sabe escribir
+01:13 +221: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: el maestro completa lo que al archivo le falta rellena la cuenta y el banco que el archivo no traía
+01:13 +222: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: el maestro completa lo que al archivo le falta el archivo manda sobre el maestro
+01:13 +223: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: el maestro completa lo que al archivo le falta un beneficiario que no está en el maestro se queda igual
+01:13 +224: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: el maestro completa lo que al archivo le falta dice a quién hay que dar de alta antes de reintentar
+01:13 +225: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: el maestro completa lo que al archivo le falta sin maestro las filas pasan tal cual
+01:13 +226: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: cadena completa: del Excel guardado al CSV sale el archivo que el banco espera, sin volver a subir nada
+01:13 +227: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: cadena completa: del Excel guardado al CSV el maestro rellena una fila a la que le falta la cuenta
+01:13 +228: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: el banco viene por nombre en la planilla reconoce los nombres como los escribe una persona
+01:13 +229: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: el banco viene por nombre en la planilla un código sigue siendo un código
+01:13 +230: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: el banco viene por nombre en la planilla lo que no es ningún banco queda vacío, no se inventa
+01:13 +231: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: el banco viene por nombre en la planilla la fila de la planilla sale con el código correcto
+01:13 +232: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: nombres más largos que el tope del banco se recortan sin partir la palabra cuando se puede
+01:13 +233: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: nombres más largos que el tope del banco los que caben no se tocan
+01:13 +234: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: nombres más largos que el tope del banco sin espacio donde cortar se corta a lo bruto
+01:13 +235: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_archivo_plano_test.dart: nombres más largos que el tope del banco la fila de la planilla ya no falla por el nombre
+01:14 +236: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_cuentas_models_test.dart: código de banco el mismo banco escrito de dos formas queda igual
+01:14 +237: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_cuentas_models_test.dart: código de banco también normaliza al leer de Firestore, no solo al escribir
+01:14 +238: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_cuentas_models_test.dart: quién ve el número de cuenta Talento Humano no lo ve
+01:14 +239: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_cuentas_models_test.dart: quién ve el número de cuenta Talento Humano sí registra el banco
+01:14 +240: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_cuentas_models_test.dart: quién ve el número de cuenta Tesorería ve y edita todo
+01:14 +241: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_cuentas_models_test.dart: quién ve el número de cuenta un rol desconocido no ve ni edita nada
+01:14 +242: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_cuentas_models_test.dart: quién ve el número de cuenta paraRol tapa el número a quien no le compete
+01:14 +243: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_cuentas_models_test.dart: quién ve el número de cuenta deja ver que la cuenta existe, sin decir cuál
+01:14 +244: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_cuentas_models_test.dart: quién ve el número de cuenta una cuenta muy corta se tapa entera
+01:14 +245: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_cuentas_models_test.dart: id del documento lleva la empresa, para que el permiso sea por empresa
+01:14 +246: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_cuentas_models_test.dart: importación del maestro un lote limpio entra completo
+01:14 +247: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_cuentas_models_test.dart: importación del maestro la misma cédula dos veces se bloquea, no se elige una
+01:14 +248: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_cuentas_models_test.dart: importación del maestro dos personas con la misma cuenta se avisa pero entra
+01:14 +249: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_cuentas_models_test.dart: importación del maestro un banco fuera del catálogo se avisa, nunca se bloquea
+01:14 +250: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_cuentas_models_test.dart: importación del maestro sin catálogo no inventa avisos de banco
+01:14 +251: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_cuentas_models_test.dart: importación del maestro bloquea lo que el banco rechazaría
+01:14 +252: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_cuentas_models_test.dart: importación del maestro cada conflicto dice de quién es
+01:15 +253: C:/Desarrollo/capital-uspec/test/gestion_documental/pp_cuentas_models_test.dart: paso al archivo plano la cuenta se convierte en línea de pago con su banco normalizado
+01:16 +254: C:/Desarrollo/capital-uspec/test/core/task_permissions_test.dart: permisos raíz de la empresa principal no habilitan otra empresa
+01:16 +255: C:/Desarrollo/capital-uspec/test/core/task_permissions_test.dart: equipo y jerarquía de estructura de otra empresa no se heredan
+01:16 +256: C:/Desarrollo/capital-uspec/test/core/task_permissions_test.dart: restricción explícita del rol prevalece sobre estructura y alias heredados
+01:16 +257: C:/Desarrollo/capital-uspec/test/core/task_permissions_test.dart: isTaskAssignedToUser solo reconoce al responsable, no al creador ni al aprobador
+01:16 +258: C:/Desarrollo/capital-uspec/test/core/task_permissions_test.dart: isTaskAssignedToUser admite assignedTo y los alias conocidos del usuario
+01:16 +259: C:/Desarrollo/capital-uspec/test/core/task_permissions_test.dart: canCreateTasksAcrossAreas permite al desarrollador ver todas las áreas
+01:16 +260: C:/Desarrollo/capital-uspec/test/core/task_permissions_test.dart: canCreateTasksAcrossAreas permite un permiso explícito aunque no sea administrador
+01:16 +261: C:/Desarrollo/capital-uspec/test/core/task_permissions_test.dart: canCreateTasksAcrossAreas mantiene al usuario operativo limitado a su área
+01:16 +262: C:/Desarrollo/capital-uspec/test/core/task_permissions_test.dart: canCreateTasksAcrossAreas el permiso por empresa tiene prioridad sobre el cargo
+01:16 +263: C:/Desarrollo/capital-uspec/test/core/task_permissions_test.dart: canViewTaskTeam reconoce responsables por cargo
+01:16 +264: C:/Desarrollo/capital-uspec/test/core/task_permissions_test.dart: canViewTaskTeam permite controlar el acceso por empresa
+01:18 +265: C:/Desarrollo/capital-uspec/test/utils/user_company_test.dart: resuelve estructura multiempresa sin usar el empresaId top-level
+01:18 +266: C:/Desarrollo/capital-uspec/test/utils/user_company_test.dart: los módulos específicos de empresa se combinan con el fallback global
+01:18 +267: C:/Desarrollo/capital-uspec/test/utils/user_company_test.dart: el nombre visible no cambia la clave interna de desarrollador
+01:18 +268: C:/Desarrollo/capital-uspec/test/utils/user_company_test.dart: un desarrollador no aparece en una empresa a la que no pertenece
+01:18 +269: C:/Desarrollo/capital-uspec/test/utils/user_company_test.dart: normaliza Facturación al identificador canónico del módulo
+01:18 +270: C:/Desarrollo/capital-uspec/test/utils/user_company_test.dart: conserva Planillas como módulo independiente para roles existentes
+01:18 +271: C:/Desarrollo/capital-uspec/test/utils/user_company_test.dart: normaliza Biblioteca al identificador canónico independiente
+01:18 +272: C:/Desarrollo/capital-uspec/test/utils/user_company_test.dart: conserva Biblioteca a quien tenía el módulo combinado y su rol
+01:19 +273: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: traslado de personal solo en la nueva: entra a B con su puesto y A queda apagada
+01:20 +274: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: traslado de personal en las dos: entra a B, A sigue activa y la principal no cambia
+01:20 +275: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: traslado de personal solo en la antigua: si ya estaba en B, allá queda apagada
+01:20 +276: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: traslado de personal corrige un traslado anterior: vuelve a A y apaga B
+01:20 +277: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: traslado de personal quien ya estaba activo en B conserva su puesto de allá
+01:20 +278: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: traslado de personal sin cambios no escribe nada
+01:20 +279: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: traslado de personal personal inhabilitado no pasa inhabilitado por Talento Humano en la antigua
+01:20 +280: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: traslado de personal personal inhabilitado no pasa inhabilitado solo en la estructura organizacional
+01:20 +281: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: traslado de personal personal inhabilitado no pasa inhabilitado en la nueva tampoco se mueve
+01:20 +282: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: traslado de personal personal inhabilitado no pasa cuenta apagada en toda la app
+01:20 +283: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: traslado de personal personal inhabilitado no pasa reactivado por Talento Humano vuelve a poder pasar
+01:20 +284: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: traslado de personal personal inhabilitado no pasa una empresa apagada por traslado no es un inhabilitado
+01:20 +285: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: idCatalogo usa la forma {empresa}_{slug} sin tildes
+01:20 +286: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: idCatalogo no repite un id ocupado
+01:20 +287: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: CatalogoEmpresa encuentra por nombre sin importar tildes ni mayúsculas
+01:20 +288: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: CatalogoEmpresa los centros también se reconocen por código
+01:20 +289: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: analizarPersona persona bien sincronizada no tiene descuadres
+01:20 +290: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: analizarPersona bloque vacío en la otra empresa: ve el cargo de la principal
+01:20 +291: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: analizarPersona id de cargo de otra empresa
+01:20 +292: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: analizarPersona cargo distinto entre empresas activas
+01:20 +293: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: analizarPersona empresa apagada no cuenta como descuadre
+01:20 +294: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: analizarPersona nombre en el catálogo pero sin su id: sin enlace
+01:20 +295: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: analizarPersona cargo renombrado en el catálogo: nombre desactualizado
+01:20 +296: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: analizarPersona área guardada con el nombre en el campo del id
+01:20 +297: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: analizarPersona centro de operación de otra empresa
+01:20 +298: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: analizarPersona raíz pisada con el cargo de otra empresa
+01:20 +299: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: analizarPersona estructura organizacional con otro cargo
+01:20 +300: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: módulos por empresa en la ficha marca los que B ve solo por la lista general
+01:20 +301: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: módulos por empresa en la ficha al vincular entra con los módulos de la referencia, sin Admin
+01:20 +302: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: planearSincronizacion iguala B a la principal y deja a la persona sin descuadres
+01:20 +303: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: planearSincronizacion crea en el destino el cargo, su área y el centro que falten
+01:20 +304: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: planearSincronizacion dos personas con el mismo cargo nuevo no lo crean dos veces
+01:20 +305: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: planearSincronizacion vincula a una empresa nueva con su cargo y área
+01:20 +306: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: planearSincronizacion una referencia sin cargo no borra el cargo del destino
+01:20 +307: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: planearSincronizacion también alinea la estructura organizacional
+01:20 +308: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: planearEnvioCatalogo envía solo lo que falta y enlaza cargos con su área
+01:20 +309: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: planearEnvioCatalogo a una empresa vacía le llega el catálogo completo
+01:20 +310: C:/Desarrollo/capital-uspec/test/core/multiempresa_sync_test.dart: planearEnvioCatalogo solo los cargos elegidos, con su área
+01:20 +311: All tests passed!

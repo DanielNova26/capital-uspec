@@ -1,0 +1,21 @@
+Analyzing 16 items...                                           
+
+   info - Use the null-aware marker '?' rather than a null check via an 'if'. Try using '?' - lib\admin\admin_dashboard_screen.dart:4972:18 - use_null_aware_elements
+   info - Use the null-aware marker '?' rather than a null check via an 'if'. Try using '?' - lib\admin\admin_dashboard_screen.dart:5193:39 - use_null_aware_elements
+   info - The local variable '_userName' starts with an underscore. Try renaming the variable to not start with an underscore - lib\admin\admin_dashboard_screen.dart:8642:12 - no_leading_underscores_for_local_identifiers
+warning - The declaration '_tabSesionesUsuarios' isn't referenced. Try removing the declaration of '_tabSesionesUsuarios' - lib\admin\admin_dashboard_screen.dart:11231:10 - unused_element
+   info - 'groupValue' is deprecated and shouldn't be used. Use a RadioGroup ancestor to manage group value instead. This feature was deprecated after v3.32.0-0.0.pre. Try replacing the use of the deprecated member with the replacement - lib\admin\admin_dashboard_screen.dart:16155:21 - deprecated_member_use
+   info - 'onChanged' is deprecated and shouldn't be used. Use RadioGroup to handle value change instead. This feature was deprecated after v3.32.0-0.0.pre. Try replacing the use of the deprecated member with the replacement - lib\admin\admin_dashboard_screen.dart:16156:21 - deprecated_member_use
+   info - The parameter name 'sum' matches a visible type name. Try adding a name for the parameter or changing the parameter name to not match an existing type - lib\gestion_documental\planillas\pp_generar_desde_excel_screen.dart:275:10 - avoid_types_as_parameter_names
+warning - The library 'package:todo/home/document_management_screen.dart' doesn't export a member with the hidden name 'kArial'. Try removing the name from the list of hidden members - lib\home\home_screen.dart:25:47 - undefined_hidden_name
+warning - The library 'package:todo/home/create_task_screen.dart' doesn't export a member with the hidden name 'kArial'. Try removing the name from the list of hidden members - lib\home\home_screen.dart:51:39 - undefined_hidden_name
+   info - Parameter 'key' could be a super parameter. Trying converting 'key' to a super parameter - lib\home\home_screen.dart:64:9 - use_super_parameters
+   info - The private field _events could be 'final'. Try making the field 'final' - lib\home\home_screen.dart:82:43 - prefer_final_fields
+warning - The value of the field '_listeningUserId' isn't used. Try removing the field, or using it - lib\home\home_screen.dart:92:11 - unused_field
+warning - The value of the field '_currentEmpresaId' isn't used. Try removing the field, or using it - lib\home\home_screen.dart:94:11 - unused_field
+warning - The declaration '_openNotificationTask' isn't referenced. Try removing the declaration of '_openNotificationTask' - lib\home\home_screen.dart:144:16 - unused_element
+warning - The declaration '_startNotifListener' isn't referenced. Try removing the declaration of '_startNotifListener' - lib\home\home_screen.dart:391:8 - unused_element
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement - lib\home\home_screen.dart:2298:48 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement - lib\home\home_screen.dart:2309:50 - deprecated_member_use
+
+17 issues found. (ran in 60.8s)

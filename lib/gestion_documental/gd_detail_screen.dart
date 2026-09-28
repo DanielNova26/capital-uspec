@@ -9,7 +9,6 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../utils/user_company.dart';
 import '../widgets/office_preview/office_preview.dart';
 import '../widgets/internal_module_layout.dart';
 import '../widgets/user_avatar.dart';
@@ -17,6 +16,7 @@ import 'correspondencia/gd_colaboracion_models.dart';
 import 'correspondencia/gd_colaboracion_service.dart';
 import 'correspondencia/gd_correspondencia_screen.dart';
 import 'gd_models.dart';
+import 'gd_role_access.dart';
 import 'gd_library_logic.dart';
 import 'gd_service.dart';
 import 'widgets/gd_pdf_preview.dart';
@@ -255,6 +255,24 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                 .doc(widget.userId)
                 .snapshots(),
             builder: (context, userSnap) {
+              if (!userSnap.hasData &&
+                  userSnap.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (!gdCanReadDocument(
+                userSnap.data?.data(),
+                widget.empresaId,
+                doc,
+              )) {
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text(
+                      'No tienes acceso a este documento en la empresa activa.',
+                    ),
+                  ),
+                );
+              }
               final rolDocumental = _resolveRolDocumental(
                 userSnap.data?.data(),
                 widget.empresaId,
@@ -266,7 +284,11 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                   final versionsError = verSnap.hasError
                       ? verSnap.error?.toString()
                       : null;
-                  final versions = verSnap.data ?? const <VersionDoc>[];
+                  final versions = gdVersionsForReader(
+                    rolDocumental,
+                    doc,
+                    verSnap.data ?? const <VersionDoc>[],
+                  );
                   final currentVersion = _resolveCurrentVersion(doc, versions);
                   return isWeb
                       ? _buildWebLayout(
@@ -321,22 +343,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
   String? _resolveRolDocumental(
     Map<String, dynamic>? userData,
     String empresaId,
-  ) {
-    if (userData == null) return null;
-    if (isDeveloperUser(userData)) return GdRoles.desarrollador;
-    final detail = getUserCompanyDetail(userData, empresaId);
-    final scoped = (detail?['rolDocumental'] ?? '')
-        .toString()
-        .trim()
-        .toLowerCase();
-    if (scoped.isNotEmpty) return scoped;
-    final global = (userData['rolDocumental'] ?? '')
-        .toString()
-        .trim()
-        .toLowerCase();
-    if (global.isNotEmpty) return global;
-    return null;
-  }
+  ) => resolveGdDocumentalRole(userData, empresaId);
 
   VersionDoc? _resolveCurrentVersion(
     DocumentoDoc doc,
