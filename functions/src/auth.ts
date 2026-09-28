@@ -7,6 +7,7 @@ import {
   timingSafeEqual,
 } from "crypto";
 import {promisify} from "util";
+import {motivoAccesoBloqueado} from "./acceso";
 
 const scrypt = promisify(nodeScrypt);
 const credentialsCollection = "TBL_AUTH_CREDENTIALS";
@@ -77,9 +78,10 @@ async function answerHash(answer: string, salt?: Buffer) {
   return passwordHash(normalized(answer), salt);
 }
 
+// Un inhabilitado no entra hasta que lo habiliten: cuenta apagada o
+// inhabilitado por Talento Humano en todas sus empresas (ver acceso.ts).
 function isActive(data: admin.firestore.DocumentData): boolean {
-  const state = normalized(data.estado || data.status);
-  return state === "" || state === "activo" || state === "active";
+  return motivoAccesoBloqueado(data) === null;
 }
 
 async function findUsers(input: string): Promise<UserMatch[]> {
@@ -233,8 +235,12 @@ async function requireOwnUser(context: functions.https.CallableContext) {
   }
   const ref = db().collection("TBL_USUARIOS").doc(userDocId);
   const snap = await ref.get();
-  if (!snap.exists || !isActive(snap.data() || {})) {
-    throw new functions.https.HttpsError("permission-denied", "El usuario no está activo.");
+  const bloqueo = snap.exists ? motivoAccesoBloqueado(snap.data() || {}) : null;
+  if (!snap.exists || bloqueo) {
+    throw new functions.https.HttpsError(
+      "permission-denied",
+      bloqueo || "El usuario no está activo."
+    );
   }
   return {ref, data: snap.data() || {}, userDocId};
 }
@@ -252,14 +258,23 @@ export const authIniciarSesion = functions
 
     const candidates = await findUsers(input);
     let selected: UserMatch | null = null;
+    // El porqué del bloqueo solo se dice a quien puso bien la contraseña:
+    // a un tercero no se le revela si el usuario existe o está inhabilitado.
+    let bloqueo: string | null = null;
     for (const candidate of candidates) {
-      if (!isActive(candidate.data)) continue;
-      if (await verifyUserPassword(candidate, password)) {
-        selected = candidate;
-        break;
+      if (!(await verifyUserPassword(candidate, password))) continue;
+      const motivo = motivoAccesoBloqueado(candidate.data);
+      if (motivo) {
+        bloqueo = bloqueo || motivo;
+        continue;
       }
+      selected = candidate;
+      break;
     }
 
+    if (!selected && bloqueo) {
+      throw new functions.https.HttpsError("permission-denied", bloqueo);
+    }
     if (!selected) {
       await recordFailure(context, input);
       throw new functions.https.HttpsError(
@@ -451,4 +466,28 @@ export const authCompletarRecuperacion = functions
     await admin.auth().revokeRefreshTokens(authUid(userDocId)).catch(() => undefined);
     await clearFailures(context, `recovery:${userDocId}`);
     return {ok: true};
+  });
+
+// Al quedar inhabilitado (cuenta apagada o inhabilitado por Talento Humano
+// en todas sus empresas) se cortan sus sesiones abiertas: el token vigente
+// ya no se renueva y la app lo saca al volver a validarlo. La app abierta
+// también lo saca al instante al ver el cambio en su ficha.
+export const authCerrarSesionInhabilitado = functions
+  .region("us-central1")
+  .firestore.document("TBL_USUARIOS/{userDocId}")
+  .onUpdate(async (change, context) => {
+    const antes = motivoAccesoBloqueado(change.before.data() || {});
+    const despues = motivoAccesoBloqueado(change.after.data() || {});
+    if (antes !== null || despues === null) return;
+    try {
+      await admin.auth().revokeRefreshTokens(authUid(context.params.userDocId));
+    } catch (error) {
+      // Quien nunca inició sesión segura no tiene usuario en Auth.
+      if ((error as {code?: string})?.code !== "auth/user-not-found") {
+        functions.logger.warn("No se pudieron cerrar las sesiones", {
+          userDocIdHash: digest(context.params.userDocId),
+          errorCode: (error as {code?: string})?.code || "unknown",
+        });
+      }
+    }
   });

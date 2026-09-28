@@ -392,20 +392,58 @@ bool userHasApp(Map<String, dynamic> data, String? appId, {String? empresaId}) {
 }
 
 /// Empresas en las que la persona puede entrar: sus membresías menos las
-/// apagadas por un traslado (`empresasDetalle.{empresa}.activo: false`).
+/// apagadas por un traslado (`empresasDetalle.{empresa}.activo: false`) y
+/// menos aquellas donde Talento Humano la inhabilitó.
 ///
 /// Una empresa apagada se queda en `empresas` para conservar lo que la
 /// persona registró allí, pero ya no se ofrece al iniciar sesión ni al
 /// cambiar de empresa: quien pasó "solo a la nueva" no debe seguir entrando
-/// a la antigua. Si todas están apagadas se devuelven todas; cortar el
-/// acceso es trabajo del interruptor global `activo`, no de esta lista.
+/// a la antigua. Un inhabilitado no entra a esa empresa hasta que lo
+/// habiliten; si lo está en todas, la lista queda vacía y no entra a la app
+/// (ver [motivoAccesoBloqueado]). Solo si todas están apagadas por traslado,
+/// sin inhabilitación, se devuelven todas para no dejar a nadie sin empresa
+/// por un dato a medias.
+///
+/// Espejo en el servidor: `functions/src/acceso.ts`.
 List<String> empresasSeleccionables(Map<String, dynamic> data) {
   final todas = extractUserEmpresaIds(data);
   final abiertas = [
     for (final e in todas)
-      if (getUserCompanyDetail(data, e)?['activo'] != false) e,
+      if (getUserCompanyDetail(data, e)?['activo'] != false &&
+          !personaInhabilitadaEn(data, e))
+        e,
   ];
-  return abiertas.isEmpty ? todas : abiertas;
+  if (abiertas.isNotEmpty) return abiertas;
+  if (todas.any((e) => personaInhabilitadaEn(data, e))) return const [];
+  return todas;
+}
+
+/// Mensaje para quien tiene la cuenta inhabilitada.
+const String kMensajeCuentaInhabilitada =
+    'Tu usuario está inhabilitado. Comunícate con Talento Humano o con el '
+    'administrador para que te habiliten de nuevo.';
+
+/// Mensaje para quien está inhabilitado en todas sus empresas.
+const String kMensajeInhabilitadoEnEmpresas =
+    'Estás inhabilitado en tu empresa. Comunícate con Talento Humano para '
+    'que te habiliten de nuevo.';
+
+/// Por qué la persona NO puede entrar a la app; null si puede.
+///
+/// Regla: un inhabilitado no entra hasta que lo habiliten otra vez. Vale la
+/// cuenta apagada en Administración (`activo: false` o un `estado` global
+/// distinto de activo) y la inhabilitación de Talento Humano en todas sus
+/// empresas. Si queda habilitado en alguna, entra solo a esa.
+///
+/// La aplican el servidor al iniciar sesión (`functions/src/acceso.ts`),
+/// la reanudación de sesión y el vigilante de la sesión abierta.
+String? motivoAccesoBloqueado(Map<String, dynamic> usuario) {
+  if (cuentaInhabilitada(usuario)) return kMensajeCuentaInhabilitada;
+  if (extractUserEmpresaIds(usuario).isNotEmpty &&
+      empresasSeleccionables(usuario).isEmpty) {
+    return kMensajeInhabilitadoEnEmpresas;
+  }
+  return null;
 }
 
 String? resolveValidEmpresaId({
@@ -689,8 +727,14 @@ bool isPersonaActivaEnEmpresa(Map<String, dynamic> data, String? empresaId) {
 /// Administración (`activo: false`) o un `estado` global distinto de activo.
 bool cuentaInhabilitada(Map<String, dynamic> usuario) {
   if (usuario['activo'] == false) return true;
-  final global = (usuario['estado'] ?? '').toString().trim().toLowerCase();
-  return global.isNotEmpty && global != kEstadoPersonaActivo;
+  // Mismo criterio que el servidor (`functions/src/acceso.ts`): `estado` o,
+  // en registros viejos, `status`; "active" también vale.
+  String texto(Object? v) => (v ?? '').toString().trim().toLowerCase();
+  final estado = texto(usuario['estado']);
+  final global = estado.isNotEmpty ? estado : texto(usuario['status']);
+  return global.isNotEmpty &&
+      global != kEstadoPersonaActivo &&
+      global != 'active';
 }
 
 bool _estadoInactivo(Map<String, dynamic>? bloque) {

@@ -7,6 +7,7 @@ import {
 } from "crypto";
 import {promisify} from "util";
 import {appsDeEmpresa, raizEsDeEmpresa} from "./apps_por_empresa";
+import {empresasSeleccionables, motivoAccesoBloqueado} from "./acceso";
 
 const scrypt = promisify(nodeScrypt);
 const usersCollection = "TBL_USUARIOS";
@@ -49,9 +50,9 @@ function textList(value: unknown): string[] {
   return value.map((item) => clean(item)).filter(Boolean);
 }
 
+// Activo = puede entrar a la app (ver acceso.ts): un inhabilitado no.
 function isActive(data: FirebaseFirestore.DocumentData): boolean {
-  const state = normalized(data.estado || data.status);
-  return state === "" || state === "activo" || state === "active";
+  return motivoAccesoBloqueado(data) === null;
 }
 
 function isDeveloper(data: FirebaseFirestore.DocumentData): boolean {
@@ -287,7 +288,10 @@ export const securityAdminOverview = functions
           cedula: clean(raw.cedula || doc.id),
           area: scopedText(raw, caller.empresaId, ["areaNombre", "area", "area_name"]),
           cargo: scopedText(raw, caller.empresaId, ["cargoNombre", "cargo", "cargo_name"]),
-          active: isActive(raw),
+          // En esta empresa: inhabilitado aquí sale inactivo aunque pueda
+          // entrar a otra de sus empresas.
+          active: isActive(raw) &&
+            empresasSeleccionables(raw).includes(caller.empresaId),
           migrated: Number(raw.authVersion || 0) === 2 && migratedIds.has(doc.id),
           needsPasswordChange: raw.needsPasswordChange === true,
           recoveryConfigured: Boolean(

@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:todo/theme/app_typography.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:todo/state/empresa_scope.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -28,7 +29,11 @@ import '../home/home_screen.dart';
 // Solo mantenemos la fuente como constante
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  /// Mensaje a mostrar al abrir, p. ej. por qué se cerró la sesión
+  /// (inhabilitado).
+  final String? aviso;
+
+  const LoginScreen({super.key, this.aviso});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -54,6 +59,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
+    _errorMessage = widget.aviso;
     _loadLoginPrefs();
   }
 
@@ -712,6 +718,21 @@ class _LoginScreenState extends State<LoginScreen> {
 
       final needsChange = secureLogin.needsPasswordChange;
       final docId = docSnapshot.id;
+
+      // Un inhabilitado no entra hasta que lo habiliten. El servidor ya lo
+      // frena; esto cubre una ficha que cambió entre las dos lecturas.
+      final bloqueo = motivoAccesoBloqueado(data);
+      if (bloqueo != null) {
+        try {
+          await FirebaseAuth.instance.signOut();
+        } catch (_) {}
+        if (!mounted) return;
+        setState(() {
+          _errorMessage = bloqueo;
+          _isLoading = false;
+        });
+        return;
+      }
 
       // Sin las empresas apagadas por un traslado.
       final uniqueEmpresas = empresasSeleccionables(data);
