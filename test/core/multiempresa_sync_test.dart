@@ -215,10 +215,10 @@ void main() {
       expect(raiz['empresaNombre'], 'Empresa B');
       // Módulos: B lleva los de A sin Administración.
       expect(raiz['appsPorEmpresa'], isTrue);
-      expect(
-        (raiz['empresasDetalle'] as Map)[_b]['apps'],
-        ['comprasdashboard', 'tareasdashboard'],
-      );
+      expect((raiz['empresasDetalle'] as Map)[_b]['apps'], [
+        'comprasdashboard',
+        'tareasdashboard',
+      ]);
       expect(p.descuadres, isEmpty);
     });
 
@@ -240,7 +240,8 @@ void main() {
       expect(situacionTraslado(p, _a, _b), DestinoTraslado.soloAntigua);
       expect(p.puesto(_b)!.estado, EstadoMembresia.apagada);
       expect(
-        (_aplicarTraslado(u, plan)['empresasDetalle'] as Map)[_b]['trasladadoA'],
+        (_aplicarTraslado(u, plan)['empresasDetalle']
+            as Map)[_b]['trasladadoA'],
         _a,
       );
     });
@@ -264,7 +265,10 @@ void main() {
       );
       expect(p.puesto(_a)!.estado, EstadoMembresia.activa);
       expect(p.puesto(_b)!.estado, EstadoMembresia.apagada);
-      expect((r['empresasDetalle'] as Map)[_a].containsKey('trasladadoA'), false);
+      expect(
+        (r['empresasDetalle'] as Map)[_a].containsKey('trasladadoA'),
+        false,
+      );
       expect(r['cargoId'], '${_a}_auxiliar_cocina');
     });
 
@@ -285,6 +289,89 @@ void main() {
     test('sin cambios no escribe nada', () {
       final u = _usuario(detalle: {_a: _bloqueA(), _b: _bloqueBSano()});
       expect(trasladar(u, DestinoTraslado.ambas).vacio, isTrue);
+    });
+
+    group('personal inhabilitado no pasa', () {
+      void noPasa(PlanTraslado plan, String motivo) {
+        expect(plan.vacio, isTrue);
+        expect(plan.nuevaPrincipal, isNull);
+        expect(plan.bloqueo, contains(motivo));
+      }
+
+      test('inhabilitado por Talento Humano en la antigua', () {
+        final u = soloEnA();
+        (u['empresasDetalle'] as Map)[_a]['estadoLaboral'] = 'inactivo';
+        for (final d in DestinoTraslado.values) {
+          noPasa(trasladar(u, d), 'Inhabilitada en $_a');
+        }
+      });
+
+      test('inhabilitado solo en la estructura organizacional', () {
+        final u = soloEnA();
+        final estructura = <String, dynamic>{
+          'cedula': '111',
+          'empresaId': _a,
+          'empresas': [_a],
+          'empresasDetalle': {
+            _a: <String, dynamic>{'estado': 'inactivo'},
+          },
+        };
+        final cats = _catalogos();
+        final plan = planearTraslado(
+          persona: analizarPersona(
+            cedula: '111',
+            usuario: u,
+            estructura: estructura,
+            catalogos: cats,
+          ),
+          usuario: u,
+          estructura: estructura,
+          origenId: _a,
+          destinoId: _b,
+          decision: DestinoTraslado.soloNueva,
+          catalogos: cats,
+        );
+        noPasa(plan, 'Inhabilitada en $_a');
+      });
+
+      test('inhabilitado en la nueva tampoco se mueve', () {
+        final u = _usuario(
+          detalle: {
+            _a: _bloqueA(),
+            _b: <String, dynamic>{
+              ..._bloqueBSano(),
+              'estadoLaboral': 'inactivo',
+            },
+          },
+        );
+        noPasa(
+          trasladar(u, DestinoTraslado.soloNueva),
+          'Inhabilitada en Empresa B',
+        );
+      });
+
+      test('cuenta apagada en toda la app', () {
+        final u = soloEnA()..['activo'] = false;
+        noPasa(trasladar(u, DestinoTraslado.soloNueva), 'cuenta');
+      });
+
+      test('reactivado por Talento Humano vuelve a poder pasar', () {
+        final u = soloEnA();
+        (u['empresasDetalle'] as Map)[_a]['estadoLaboral'] = 'activo';
+        final plan = trasladar(u, DestinoTraslado.soloNueva);
+        expect(plan.bloqueo, isNull);
+        expect(plan.vacio, isFalse);
+      });
+
+      test('una empresa apagada por traslado no es un inhabilitado', () {
+        final u = _usuario(
+          detalle: {
+            _a: <String, dynamic>{..._bloqueA(), 'activo': false},
+            _b: _bloqueBSano(),
+          },
+        );
+        expect(motivoNoTraslada(usuario: u, empresas: const [_a, _b]), isNull);
+      });
     });
   });
 

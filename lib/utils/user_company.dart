@@ -685,6 +685,56 @@ bool isPersonaActivaEnEmpresa(Map<String, dynamic> data, String? empresaId) {
   return global.isEmpty || global == kEstadoPersonaActivo;
 }
 
+/// La cuenta está apagada para toda la app: el interruptor global de
+/// Administración (`activo: false`) o un `estado` global distinto de activo.
+bool cuentaInhabilitada(Map<String, dynamic> usuario) {
+  if (usuario['activo'] == false) return true;
+  final global = (usuario['estado'] ?? '').toString().trim().toLowerCase();
+  return global.isNotEmpty && global != kEstadoPersonaActivo;
+}
+
+bool _estadoInactivo(Map<String, dynamic>? bloque) {
+  if (bloque == null) return false;
+  for (final key in const ['estadoLaboral', 'estado']) {
+    final value = (bloque[key] ?? '').toString().trim().toLowerCase();
+    if (value.isEmpty) continue;
+    return value == kEstadoPersonaInactivo;
+  }
+  return false;
+}
+
+/// ¿Talento Humano inhabilitó a la persona en [empresaId]?
+///
+/// Inhabilitar (`PersonnelStatusService.changeStatus`) escribe el estado en
+/// `TBL_USUARIOS` (`empresasDetalle.{empresa}.estadoLaboral`) y en
+/// `TBL_ESTRUCTURA_ORGANIZACIONAL`, que es lo que lista Talento Humano. Basta
+/// con que uno de los dos diga inactivo. En la estructura también vale el
+/// campo literal con punto que dejó una versión anterior: es la última
+/// decisión que tomó Talento Humano.
+///
+/// No es lo mismo que una empresa apagada por un traslado: esa no es un
+/// retiro.
+bool personaInhabilitadaEn(
+  Map<String, dynamic> usuario,
+  String empresaId, {
+  Map<String, dynamic>? estructura,
+}) {
+  if (_estadoInactivo(getUserCompanyDetail(usuario, empresaId))) return true;
+  if (estructura == null) return false;
+  final literal = (estructura['empresasDetalle.$empresaId.estado'] ?? '')
+      .toString()
+      .trim()
+      .toLowerCase();
+  if (literal.isNotEmpty) return literal == kEstadoPersonaInactivo;
+  final bloque =
+      getUserCompanyDetail(estructura, empresaId) ??
+      (raizEsDeEmpresa(estructura, empresaId) &&
+              extractUserEmpresaIds(estructura).isNotEmpty
+          ? estructura
+          : null);
+  return _estadoInactivo(bloque);
+}
+
 /// Marca con la que Talento Humano saca a alguien de los desplegables de
 /// asignación **sin retirarlo**.
 ///

@@ -92,9 +92,12 @@ void main() {
     expect(area('B'), '');
     // El correo es de la persona: vale en cualquier empresa.
     expect(
-      resolveScopedStringWithFallbacks(_persona(), 'B', const [
-        'correo',
-      ], const ['correo']),
+      resolveScopedStringWithFallbacks(
+        _persona(),
+        'B',
+        const ['correo'],
+        const ['correo'],
+      ),
       'ana@x.co',
     );
   });
@@ -165,6 +168,98 @@ void main() {
         },
       };
       expect(empresasSeleccionables(todas), ['A', 'B']);
+    });
+  });
+
+  group('personaInhabilitadaEn', () {
+    test('lo dice TBL_USUARIOS por empresa', () {
+      final u = {
+        ..._persona(),
+        'empresasDetalle': {
+          'A': {'estadoLaboral': 'inactivo'},
+          'B': {'estadoLaboral': 'activo'},
+        },
+      };
+      expect(personaInhabilitadaEn(u, 'A'), isTrue);
+      expect(personaInhabilitadaEn(u, 'B'), isFalse);
+    });
+
+    test('o la estructura: bloque, raíz de la principal o campo literal', () {
+      final u = _persona();
+      expect(
+        personaInhabilitadaEn(
+          u,
+          'B',
+          estructura: {
+            'empresaId': 'A',
+            'empresas': ['A', 'B'],
+            'empresasDetalle': {
+              'B': {'estado': 'inactivo'},
+            },
+          },
+        ),
+        isTrue,
+      );
+      expect(
+        personaInhabilitadaEn(
+          u,
+          'A',
+          estructura: {
+            'empresaId': 'A',
+            'empresas': ['A'],
+            'estado': 'inactivo',
+          },
+        ),
+        isTrue,
+      );
+      // El literal con punto es la última decisión: gana sobre el bloque.
+      expect(
+        personaInhabilitadaEn(
+          u,
+          'A',
+          estructura: {
+            'empresaId': 'A',
+            'empresas': ['A'],
+            'empresasDetalle.A.estado': 'activo',
+            'empresasDetalle': {
+              'A': {'estado': 'inactivo'},
+            },
+          },
+        ),
+        isFalse,
+      );
+    });
+
+    test('la raíz de la estructura no habla por otra empresa', () {
+      expect(
+        personaInhabilitadaEn(
+          _persona(),
+          'B',
+          estructura: {
+            'empresaId': 'A',
+            'empresas': ['A', 'B'],
+            'estado': 'inactivo',
+          },
+        ),
+        isFalse,
+      );
+    });
+
+    test('apagada por traslado no es inhabilitada', () {
+      final u = {
+        ..._persona(),
+        'empresasDetalle': {
+          'A': {'activo': false, 'trasladadoA': 'B'},
+        },
+      };
+      expect(personaInhabilitadaEn(u, 'A'), isFalse);
+    });
+
+    test('cuenta inhabilitada', () {
+      expect(cuentaInhabilitada({'activo': false}), isTrue);
+      expect(cuentaInhabilitada({'estado': 'inactivo'}), isTrue);
+      expect(cuentaInhabilitada({'estado': 'activo'}), isFalse);
+      expect(cuentaInhabilitada(_persona()), isFalse);
     });
   });
 
