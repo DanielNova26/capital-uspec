@@ -9,11 +9,11 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../gestion_documental/widgets/gd_ui_widgets.dart';
+import '../../utils/user_company.dart';
 import '../../widgets/internal_module_layout.dart';
 import 'pp_generar_desde_excel_screen.dart';
 import 'pp_beneficiarios_screen.dart';
 import 'pp_models.dart';
-import 'pp_role_access.dart';
 import 'pp_subir_pdf_screen.dart';
 import 'pp_planilla_detail_screen.dart';
 import 'pp_service.dart';
@@ -104,7 +104,9 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
       }
       setState(() {});
     });
-    _cleanupFuture = _cleanupForCurrentUser();
+    _cleanupFuture = _service.limpiarCamposFirmaBinaria(
+      empresaId: widget.empresaId,
+    );
   }
 
   @override
@@ -114,18 +116,21 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
     super.dispose();
   }
 
-  String? _resolveRolPlanillas(Map<String, dynamic>? userData) =>
-      ppCanAccess(userData, widget.empresaId)
-      ? resolvePpPlanillasRole(userData, widget.empresaId)
-      : null;
-
-  Future<void> _cleanupForCurrentUser() async {
-    final user = await FirebaseFirestore.instance
-        .collection('TBL_USUARIOS')
-        .doc(widget.userId)
-        .get();
-    if (!ppCanAccess(user.data(), widget.empresaId)) return;
-    await _service.limpiarCamposFirmaBinaria(empresaId: widget.empresaId);
+  String? _resolveRolPlanillas(Map<String, dynamic>? userData) {
+    if (userData == null) return null;
+    if (isDeveloperUser(userData)) return PpRoles.desarrollador;
+    final detail = getUserCompanyDetail(userData, widget.empresaId);
+    final scoped = (detail?['rolPlanillas'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    if (scoped.isNotEmpty) return scoped;
+    final global = (userData['rolPlanillas'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    if (global.isNotEmpty) return global;
+    return null;
   }
 
   String? _resolveNombreActor(Map<String, dynamic>? data) {

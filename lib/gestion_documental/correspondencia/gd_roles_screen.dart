@@ -1,11 +1,6 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../../widgets/user_avatar.dart';
-import '../../data/firestore_user_repository.dart';
-import '../../admin/correspondence_module_role.dart';
-import '../../admin/correspondence_module_roles_repository.dart';
-import '../../admin/correspondence_module_roles_panel.dart';
 import 'gd_correspondencia_models.dart';
 import 'gd_correspondencia_service.dart';
 import 'gd_permisos.dart';
@@ -41,11 +36,6 @@ class GdRolesScreen extends StatefulWidget {
 class _GdRolesScreenState extends State<GdRolesScreen> {
   final _service = GdCorrespondenciaService();
   final _permisosService = GdPermisosService();
-  CorrespondenceModuleRolesRepository get _rolesRepo =>
-      CorrespondenceModuleRolesRepository(actorId: widget.userId);
-  List<CorrespondenceModuleRole> _roles = const [];
-  Map<String, Map<String, dynamic>> _userData = const {};
-  int _reloadRevision = 0;
   final _search = TextEditingController();
 
   List<GdResponsable> _usuarios = const [];
@@ -62,15 +52,6 @@ class _GdRolesScreenState extends State<GdRolesScreen> {
   }
 
   @override
-  void didUpdateWidget(GdRolesScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.empresaId != widget.empresaId ||
-        oldWidget.userId != widget.userId) {
-      _cargar();
-    }
-  }
-
-  @override
   void dispose() {
     _search.dispose();
     super.dispose();
@@ -81,29 +62,17 @@ class _GdRolesScreenState extends State<GdRolesScreen> {
       _loading = true;
       _error = '';
     });
-    final revision = ++_reloadRevision;
     try {
-      final results = await Future.wait([
-        _service.listarResponsables(widget.empresaId),
-        _permisosService.rolesAsignados(widget.empresaId),
-        _rolesRepo.load(widget.empresaId),
-        FirestoreUserRepository.instance.loadUsersByEmpresa(widget.empresaId),
-      ]);
-      if (!mounted || revision != _reloadRevision) return;
-      final usuarios = results[0] as List<GdResponsable>;
-      final asignados = results[1] as Map<String, GdRolCorrespondencia>;
-      final userDocs =
-          results[3] as List<QueryDocumentSnapshot<Map<String, dynamic>>>;
+      final usuarios = await _service.listarResponsables(widget.empresaId);
+      final asignados = await _permisosService.rolesAsignados(widget.empresaId);
       if (!mounted) return;
       setState(() {
         _usuarios = usuarios;
         _asignados = asignados;
-        _roles = results[2] as List<CorrespondenceModuleRole>;
-        _userData = {for (final doc in userDocs) doc.id: doc.data()};
         _loading = false;
       });
     } catch (error) {
-      if (!mounted || revision != _reloadRevision) return;
+      if (!mounted) return;
       setState(() {
         _error = 'No fue posible cargar los usuarios: $error';
         _loading = false;
@@ -124,11 +93,8 @@ class _GdRolesScreenState extends State<GdRolesScreen> {
   /// Rol efectivo que se muestra. Quien no tiene rol explícito aparece con el
   /// rol por defecto, no en blanco: en blanco daría a entender que no tiene
   /// acceso, y sí lo tiene para lo que se le asigne.
-  GdRolCorrespondencia _rolDe(String userId) => resolveCorrespondenceRole(
-    user: _userData[userId] ?? const {},
-    empresaId: widget.empresaId,
-    assignedRole: _asignados[userId]?.valor,
-  );
+  GdRolCorrespondencia _rolDe(String userId) =>
+      _asignados[userId] ?? GdPermisosService.rolPorDefecto;
 
   bool _esExplicito(String userId) => _asignados.containsKey(userId);
 
@@ -150,12 +116,12 @@ class _GdRolesScreenState extends State<GdRolesScreen> {
 
     setState(() => _busy = true);
     try {
-      await _rolesRepo.setIndividualLevel(
+      await _permisosService.asignarRol(
         empresaId: widget.empresaId,
         userId: usuario.id,
-        level: rol.valor,
+        rol: rol,
+        asignadoPor: widget.userId,
       );
-      await _cargar();
       if (!mounted) return;
       setState(() {
         _asignados = {..._asignados, usuario.id: rol};
@@ -202,17 +168,12 @@ class _GdRolesScreenState extends State<GdRolesScreen> {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      await _rolesRepo.setIndividualLevel(
+      await _permisosService.quitarRol(
         empresaId: widget.empresaId,
         userId: usuario.id,
-        level: 'operador',
       );
-      await _cargar();
       if (!mounted) return;
-      final restantes = {
-        ..._asignados,
-        usuario.id: GdRolCorrespondencia.operador,
-      };
+      final restantes = {..._asignados}..remove(usuario.id);
       setState(() {
         _asignados = restantes;
         _busy = false;
@@ -225,78 +186,6 @@ class _GdRolesScreenState extends State<GdRolesScreen> {
       if (mounted) setState(() => _busy = false);
       _message('No fue posible quitar el rol: $error', error: true);
     }
-  }
-
-  Future<void> _synchronize(CorrespondenceModuleRole role) async {
-    try {
-      final result = await _rolesRepo.synchronize(widget.empresaId, role.id);
-      _message(
-        '${result.updated} persona(s) sincronizadas; ${result.failedUserIds.length} pendientes.',
-      );
-    } finally {
-      await _cargar();
-    }
-  }
-
-  Widget _roleSelector(GdResponsable user) {
-    final current = correspondenceRoleIdOf(
-      _userData[user.id] ?? const {},
-      widget.empresaId,
-    );
-    return DropdownButtonFormField<String>(
-      key: ValueKey(
-        'correspondence_binding_${user.id}_${current}_$_reloadRevision',
-      ),
-      initialValue: current,
-      isExpanded: true,
-      decoration: const InputDecoration(
-        labelText: 'Rol de Correspondencia',
-        isDense: true,
-      ),
-      items: [
-        const DropdownMenuItem(value: '', child: Text('Nivel individual')),
-        for (final role in _roles)
-          if (role.enabled || role.id == current)
-            DropdownMenuItem(
-              value: role.id,
-              enabled: role.enabled,
-              child: Text(
-                '${role.name}${role.enabled ? '' : ' · Inactivo'}',
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-        if (current.isNotEmpty && !_roles.any((role) => role.id == current))
-          DropdownMenuItem(
-            value: current,
-            enabled: false,
-            child: const Text('Rol sin definición válida'),
-          ),
-      ],
-      onChanged: _busy
-          ? null
-          : (value) async {
-              setState(() => _busy = true);
-              try {
-                if ((value ?? '').isEmpty) {
-                  await _rolesRepo.setIndividualLevel(
-                    empresaId: widget.empresaId,
-                    userId: user.id,
-                  );
-                } else {
-                  await _rolesRepo.assign(
-                    empresaId: widget.empresaId,
-                    userId: user.id,
-                    roleId: value!,
-                  );
-                }
-                await _cargar();
-              } catch (error) {
-                _message('No se pudo cambiar el rol: $error', error: true);
-              } finally {
-                if (mounted) setState(() => _busy = false);
-              }
-            },
-    );
   }
 
   List<GdResponsable> get _visibles {
@@ -371,41 +260,6 @@ class _GdRolesScreenState extends State<GdRolesScreen> {
           : ListView(
               padding: EdgeInsets.all(wide ? 24 : 14),
               children: [
-                CorrespondenceModuleRolesPanel(
-                  roles: _roles,
-                  pendingSyncCount: (role) => _userData.entries
-                      .where(
-                        (entry) => correspondenceRoleNeedsSync(
-                          entry.value,
-                          role,
-                          assignedRole: _asignados[entry.key]?.valor ?? '',
-                        ),
-                      )
-                      .length,
-                  onSave: (name, description, level, enabled, previous) async {
-                    final saved = await _rolesRepo.save(
-                      empresaId: widget.empresaId,
-                      name: name,
-                      description: description,
-                      level: level,
-                      enabled: enabled,
-                      previous: previous,
-                    );
-                    await _synchronize(saved);
-                  },
-                  onSynchronize: _synchronize,
-                  onCreateDefaults: () async {
-                    try {
-                      final count = await _rolesRepo.ensureDefaults(
-                        widget.empresaId,
-                      );
-                      _message('$count roles iniciales creados.');
-                    } finally {
-                      await _cargar();
-                    }
-                  },
-                ),
-                const SizedBox(height: 16),
                 _Explicacion(clasificadores: clasificadores),
                 const SizedBox(height: 16),
                 TextField(
@@ -435,22 +289,13 @@ class _GdRolesScreenState extends State<GdRolesScreen> {
                   )
                 else
                   ..._visibles.map(
-                    (usuario) => Column(
-                      children: [
-                        _roleSelector(usuario),
-                        const SizedBox(height: 6),
-                        _UsuarioRolTile(
-                          key: ValueKey(
-                            'correspondence_individual_${usuario.id}_$_reloadRevision',
-                          ),
-                          usuario: usuario,
-                          rol: _rolDe(usuario.id),
-                          explicito: _esExplicito(usuario.id),
-                          habilitado: !_busy,
-                          onRol: (rol) => _cambiar(usuario, rol),
-                          onDefecto: () => _volverAlDefecto(usuario),
-                        ),
-                      ],
+                    (usuario) => _UsuarioRolTile(
+                      usuario: usuario,
+                      rol: _rolDe(usuario.id),
+                      explicito: _esExplicito(usuario.id),
+                      habilitado: !_busy,
+                      onRol: (rol) => _cambiar(usuario, rol),
+                      onDefecto: () => _volverAlDefecto(usuario),
                     ),
                   ),
                 const SizedBox(height: 40),
@@ -574,7 +419,6 @@ class _UsuarioRolTile extends StatelessWidget {
   final VoidCallback onDefecto;
 
   const _UsuarioRolTile({
-    super.key,
     required this.usuario,
     required this.rol,
     required this.explicito,
@@ -651,7 +495,7 @@ class _UsuarioRolTile extends StatelessWidget {
       ),
       IconButton(
         onPressed: habilitado && explicito ? onDefecto : null,
-        tooltip: 'Desvincular rol creado y aplicar Operador',
+        tooltip: 'Quitar el rol asignado y volver al defecto',
         icon: const Icon(Icons.settings_backup_restore, size: 20),
       ),
     ],

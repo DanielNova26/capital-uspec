@@ -114,8 +114,7 @@ extension GdAccionX on GdAccion {
 
 /// Roles del módulo documental.
 /// Se resuelven desde TBL_USUARIOS.empresasDetalle[empresaId].rolDocumental
-/// o desde TBL_USUARIOS.rolDocumental si la raíz es de esa empresa.
-/// La resolución común de acceso está en gd_role_access.dart.
+/// o desde TBL_USUARIOS.rolDocumental (fallback global).
 /// El rol 'desarrollador' tiene bypass completo (consistente con el resto del proyecto).
 class GdRoles {
   static const String redactor = 'redactor';

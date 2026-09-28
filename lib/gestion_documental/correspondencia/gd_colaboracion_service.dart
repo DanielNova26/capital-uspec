@@ -8,7 +8,6 @@ import '../../services/task_service.dart';
 import '../gd_models.dart';
 import 'gd_colaboracion_models.dart';
 import 'gd_correspondencia_models.dart';
-import 'gd_permisos.dart';
 
 class GdColaboracionService {
   GdColaboracionService({
@@ -86,11 +85,6 @@ class GdColaboracionService {
     required String userId,
     String tipo = 'referencia',
   }) async {
-    await GdPermisosService(db: _db).exigirExpediente(
-      empresaId: expediente.empresaId,
-      expedienteId: expediente.id,
-      userId: userId,
-    );
     if (documento.empresaId != expediente.empresaId) {
       throw StateError('El documento pertenece a otra empresa.');
     }
@@ -136,17 +130,6 @@ class GdColaboracionService {
     required GdDocumentoVinculado vinculo,
     required String userId,
   }) async {
-    await GdPermisosService(db: _db).exigirExpediente(
-      empresaId: expediente.empresaId,
-      expedienteId: expediente.id,
-      userId: userId,
-    );
-    if (vinculo.empresaId != expediente.empresaId ||
-        vinculo.expedienteId != expediente.id) {
-      throw StateError(
-        'El vínculo no pertenece al expediente de la empresa activa.',
-      );
-    }
     if (!vinculo.puedeUsarseComoSoporte) {
       throw StateError(
         'Solo una versión aprobada, firmada o vigente puede usarse como soporte.',
@@ -200,11 +183,6 @@ class GdColaboracionService {
     GdResponsable? destinatario,
     List<PlatformFile> adjuntos = const [],
   }) async {
-    await GdPermisosService(db: _db).exigirExpediente(
-      empresaId: expediente.empresaId,
-      expedienteId: expediente.id,
-      userId: userId,
-    );
     final clean = mensaje.trim();
     if (clean.isEmpty) throw StateError('Escribe un comentario.');
     if (tipo == 'solicitud_revision' && destinatario == null) {
@@ -339,25 +317,12 @@ class GdColaboracionService {
     required GdColaboracionEntrada entrada,
     required String userId,
   }) async {
-    await GdPermisosService(db: _db).exigirExpediente(
-      empresaId: entrada.empresaId,
-      expedienteId: entrada.expedienteId,
-      userId: userId,
-    );
-    final ref = _db.collection('TBL_GD_COLABORACION').doc(entrada.id);
-    final current = await ref.get();
-    if (!current.exists ||
-        current.data()?['empresaId'] != entrada.empresaId ||
-        current.data()?['expedienteId'] != entrada.expedienteId) {
-      throw StateError(
-        'La solicitud ya no pertenece al expediente de la empresa activa.',
-      );
-    }
-    final actual = GdColaboracionEntrada.fromFirestore(current);
-    if (actual.usuarioId != userId && actual.destinatarioId != userId) {
+    if (entrada.destinatarioId.isNotEmpty &&
+        entrada.destinatarioId != userId &&
+        entrada.usuarioId != userId) {
       throw StateError('Solo el solicitante o el revisor puede resolverla.');
     }
-    await ref.set({
+    await _db.collection('TBL_GD_COLABORACION').doc(entrada.id).set({
       'estado': 'resuelto',
       'resueltoPor': userId,
       'resolvedAt': FieldValue.serverTimestamp(),

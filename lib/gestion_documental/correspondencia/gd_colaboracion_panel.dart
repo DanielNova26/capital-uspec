@@ -13,14 +13,12 @@ class GdColaboracionPanel extends StatefulWidget {
   final GdExpediente expediente;
   final String userId;
   final List<GdResponsable> responsables;
-  final bool canEdit;
 
   const GdColaboracionPanel({
     super.key,
     required this.expediente,
     required this.userId,
     required this.responsables,
-    this.canEdit = true,
   });
 
   @override
@@ -52,7 +50,7 @@ class _GdColaboracionPanelState extends State<GdColaboracionPanel> {
             'Versiones de la Biblioteca relacionadas con este expediente.',
         icon: Icons.account_tree_outlined,
         trailing: FilledButton.tonalIcon(
-          onPressed: _busy || !widget.canEdit ? null : _showLinkDialog,
+          onPressed: _busy ? null : _showLinkDialog,
           icon: const Icon(Icons.add_link, size: 18),
           label: const Text('Vincular documento'),
         ),
@@ -91,8 +89,7 @@ class _GdColaboracionPanelState extends State<GdColaboracionPanel> {
                         ),
                       ),
                       onSupport:
-                          !widget.canEdit ||
-                              widget.expediente.respondido ||
+                          widget.expediente.respondido ||
                               !row.puedeUsarseComoSoporte
                           ? null
                           : () => _run(
@@ -144,7 +141,6 @@ class _GdColaboracionPanelState extends State<GdColaboracionPanel> {
                         (row) => _CollaborationTile(
                           value: row,
                           canResolve:
-                              widget.canEdit &&
                               !row.resuelta &&
                               row.estado != 'informativo' &&
                               (row.usuarioId == widget.userId ||
@@ -165,7 +161,6 @@ class _GdColaboracionPanelState extends State<GdColaboracionPanel> {
             const Divider(height: 32),
             LayoutBuilder(
               builder: (context, constraints) {
-                if (!widget.canEdit) return const SizedBox.shrink();
                 final compact = constraints.maxWidth < 680;
                 final areas = GdArea.desdeResponsables(
                   widget.responsables,
@@ -545,7 +540,7 @@ class _GdColaboracionPanelState extends State<GdColaboracionPanel> {
     Future<void> Function() action,
     String successMessage,
   ) async {
-    if (_busy || !widget.canEdit) return false;
+    if (_busy) return false;
     setState(() => _busy = true);
     try {
       await action();

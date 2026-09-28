@@ -10,7 +10,6 @@ import '../widgets/internal_module_layout.dart';
 import 'gd_detail_screen.dart';
 import 'gd_library_logic.dart';
 import 'gd_models.dart';
-import 'gd_role_access.dart';
 import 'gd_service.dart';
 import 'widgets/gd_ui_widgets.dart';
 
@@ -341,7 +340,22 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
   String? _resolveRolDocumental(
     Map<String, dynamic>? userData,
     String empresaId,
-  ) => resolveGdDocumentalRole(userData, empresaId);
+  ) {
+    if (userData == null) return null;
+    if (isDeveloperUser(userData)) return GdRoles.desarrollador;
+    final detail = getUserCompanyDetail(userData, empresaId);
+    final scoped = (detail?['rolDocumental'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    if (scoped.isNotEmpty) return scoped;
+    final global = (userData['rolDocumental'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    if (global.isNotEmpty) return global;
+    return null;
+  }
 
   bool _matchesFilters(DocumentoDoc document) {
     if (!gdDocumentMatchesQuery(document, _searchQuery)) return false;

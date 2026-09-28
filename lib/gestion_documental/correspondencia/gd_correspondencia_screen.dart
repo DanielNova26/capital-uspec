@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -525,8 +523,6 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
   /// Arranca en el permiso más restrictivo y se amplía cuando el rol llega. Al
   /// revés se alcanzaría a mostrar "Clasificar y asignar" a quien no puede.
   GdPermisos _permisos = GdPermisos.cargando;
-  StreamSubscription<GdPermisos>? _permissionSubscription;
-  int _permissionRevision = 0;
 
   @override
   void initState() {
@@ -536,39 +532,24 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
     _cargarPermisos();
   }
 
-  void _cargarPermisos() {
-    final revision = ++_permissionRevision;
-    _permissionSubscription?.cancel();
-    _permisos = GdPermisos.cargando;
-    _permissionSubscription = GdPermisosService()
-        .observar(empresaId: widget.empresaId, userId: widget.userId)
-        .listen((permissions) {
-          if (mounted && revision == _permissionRevision) {
-            setState(() => _permisos = permissions);
-          }
-        });
-  }
-
-  @override
-  void didUpdateWidget(GdCorrespondenciaDetail oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.empresaId != widget.empresaId ||
-        oldWidget.userId != widget.userId) {
-      _loadedId = null;
-      _tipos = const [];
-      _users = _service.listarResponsables(widget.empresaId);
-      _cargarTipos();
-      _cargarPermisos();
+  Future<void> _cargarPermisos() async {
+    try {
+      final permisos = await GdPermisosService().resolver(
+        empresaId: widget.empresaId,
+        userId: widget.userId,
+      );
+      if (mounted) setState(() => _permisos = permisos);
+    } catch (_) {
+      // Sin rol legible se queda en el permiso mínimo. El backend es el que
+      // manda de todas formas; la interfaz solo evita ofrecer lo que va a ser
+      // rechazado.
     }
   }
 
   Future<void> _cargarTipos() async {
     try {
-      final empresaId = widget.empresaId;
-      final rows = await _service.listarTiposDocumentales(empresaId);
-      if (mounted && empresaId == widget.empresaId) {
-        setState(() => _tipos = rows);
-      }
+      final rows = await _service.listarTiposDocumentales(widget.empresaId);
+      if (mounted) setState(() => _tipos = rows);
     } catch (_) {
       // Sin maestro legible se clasifica con la lista antigua; el expediente
       // queda sin código interno pero la clasificación no se bloquea.
@@ -577,8 +558,6 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
 
   @override
   void dispose() {
-    _permissionRevision++;
-    _permissionSubscription?.cancel();
     _to.dispose();
     _cc.dispose();
     _subject.dispose();
@@ -609,14 +588,6 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_permisos.resueltos) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (!_permisos.tieneAcceso) {
-      return const Center(
-        child: Text('Ya no tienes acceso a Correspondencia en esta empresa.'),
-      );
-    }
     return StreamBuilder<GdExpediente?>(
       stream: _service.streamExpediente(widget.expedienteId),
       builder: (context, snapshot) {
@@ -626,11 +597,6 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
         final expediente = snapshot.data;
         if (expediente == null) {
           return const Center(child: Text('El expediente ya no existe.'));
-        }
-        if (expediente.empresaId != widget.empresaId) {
-          return const Center(
-            child: Text('El expediente no pertenece a la empresa activa.'),
-          );
         }
         return FutureBuilder<List<GdResponsable>>(
           future: _users,
@@ -655,12 +621,8 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
   }
 
   Widget _detailContent(GdExpediente expediente, List<GdResponsable> users) {
-    final canEditResponse =
-        _permisos.puedeGestionarAsignado &&
-        expediente.asignado &&
-        !expediente.respondido;
+    final canEditResponse = expediente.asignado && !expediente.respondido;
     final reviewerCanDecide =
-        _permisos.puedeGestionarAsignado &&
         !expediente.terminado &&
         expediente.requiereAprobacion &&
         expediente.aprobacionEstado == 'pendiente' &&
@@ -674,9 +636,7 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
             children: [
               _DetailHeader(
                 expediente: expediente,
-                onEditAlias: _permisos.puedeGestionarAsignado
-                    ? () => _editAlias(expediente)
-                    : null,
+                onEditAlias: () => _editAlias(expediente),
               ),
               const SizedBox(height: 16),
               if (expediente.porClasificar) ...[
@@ -756,15 +716,13 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
                       Align(
                         alignment: Alignment.centerLeft,
                         child: OutlinedButton.icon(
-                          onPressed: !_permisos.puedeGestionarAsignado
-                              ? null
-                              : () => _run(
-                                  () => _service.reintentarEntrada(
-                                    empresaId: widget.empresaId,
-                                    userId: widget.userId,
-                                    expedienteId: expediente.id,
-                                  ),
-                                ),
+                          onPressed: () => _run(
+                            () => _service.reintentarEntrada(
+                              empresaId: widget.empresaId,
+                              userId: widget.userId,
+                              expedienteId: expediente.id,
+                            ),
+                          ),
                           icon: const Icon(Icons.cloud_download_outlined),
                           label: const Text('Cargar correo y adjuntos'),
                         ),
@@ -774,15 +732,13 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
                     else if (expediente.entradaEstado == 'error')
                       _InlineError(
                         message: expediente.entradaError,
-                        onRetry: !_permisos.puedeGestionarAsignado
-                            ? null
-                            : () => _run(
-                                () => _service.reintentarEntrada(
-                                  empresaId: widget.empresaId,
-                                  userId: widget.userId,
-                                  expedienteId: expediente.id,
-                                ),
-                              ),
+                        onRetry: () => _run(
+                          () => _service.reintentarEntrada(
+                            empresaId: widget.empresaId,
+                            userId: widget.userId,
+                            expedienteId: expediente.id,
+                          ),
+                        ),
                       )
                     else ...[
                       SelectableText(
@@ -991,7 +947,6 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
                                     () => _service.quitarAdjuntoRespuesta(
                                       expediente: expediente,
                                       attachment: a,
-                                      userId: widget.userId,
                                     ),
                                   ),
                           ),
@@ -1075,7 +1030,6 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
                   expediente: expediente,
                   userId: widget.userId,
                   responsables: users,
-                  canEdit: _permisos.puedeGestionarAsignado,
                 ),
               ],
               const SizedBox(height: 16),
@@ -1090,9 +1044,8 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
                     ? const Text(
                         'Primero asigna un responsable. El proceso permanecerá en Recibido hasta completar esa asignación.',
                       )
-                    : _permisos.puedeGestionarAsignado &&
-                          (expediente.responsableId == widget.userId ||
-                              _permisos.puedeCerrarCualquiera)
+                    : expediente.responsableId == widget.userId ||
+                          _permisos.puedeCerrarCualquiera
                     ? Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -1827,7 +1780,11 @@ class _CierreDialogState extends State<_CierreDialog> {
     }
     Navigator.pop(
       context,
-      _CierreDecision(motivo: _motivo, justificacion: texto, soporte: _soporte),
+      _CierreDecision(
+        motivo: _motivo,
+        justificacion: texto,
+        soporte: _soporte,
+      ),
     );
   }
 
@@ -2131,7 +2088,7 @@ class _SinPermisoAviso extends StatelessWidget {
 
 class _DetailHeader extends StatelessWidget {
   final GdExpediente expediente;
-  final VoidCallback? onEditAlias;
+  final VoidCallback onEditAlias;
   const _DetailHeader({required this.expediente, required this.onEditAlias});
   @override
   Widget build(BuildContext context) => Container(
@@ -2394,7 +2351,7 @@ bool _isResponseEvent(String type) => const {
 
 class _InlineError extends StatelessWidget {
   final String message;
-  final VoidCallback? onRetry;
+  final VoidCallback onRetry;
   const _InlineError({required this.message, required this.onRetry});
   @override
   Widget build(BuildContext context) => Container(

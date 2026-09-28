@@ -33,7 +33,6 @@ import '../../utils/url_binary_loader.dart';
 import '../../utils/user_company.dart';
 import 'pp_excel_parser.dart';
 import 'pp_models.dart';
-import 'pp_role_access.dart';
 
 class PpException implements Exception {
   final String mensaje;
@@ -262,15 +261,7 @@ class PpService {
     required Uint8List bytes,
     required String nombre,
     required String extension,
-    required String actorId,
-    required String rolPlanillas,
   }) async {
-    await _validarRol(
-      'confirmar_carga',
-      rolPlanillas,
-      empresaId: empresaId,
-      actorId: actorId,
-    );
     final ts = DateTime.now().millisecondsSinceEpoch;
     final path = 'planillas_pago/$empresaId/config/logo_$ts.$extension';
     final ref = _storage.ref(path);
@@ -298,21 +289,9 @@ class PpService {
     }, SetOptions(merge: true));
   }
 
-  Future<void> setLogoActivo(
-    String empresaId,
-    String path, {
-    required String actorId,
-    required String rolPlanillas,
-  }) async {
-    await _validarRol(
-      'confirmar_carga',
-      rolPlanillas,
-      empresaId: empresaId,
-      actorId: actorId,
-    );
+  Future<void> setLogoActivo(String empresaId, String path) async {
     final safePath = _normalizeStoragePath(path);
-    if (safePath == null ||
-        !safePath.startsWith('planillas_pago/$empresaId/config/')) {
+    if (safePath == null) {
       throw const PpException('Selecciona un logo válido.');
     }
     await _db.collection(_colConfig).doc(empresaId).set({
@@ -324,18 +303,11 @@ class PpService {
   Future<void> eliminarLogo({
     required String empresaId,
     required String logoPath,
-    required String actorId,
     required String rolPlanillas,
   }) async {
-    await _validarRol(
-      'eliminar_logo',
-      rolPlanillas,
-      empresaId: empresaId,
-      actorId: actorId,
-    );
+    _validarRol('eliminar_logo', rolPlanillas);
     final safePath = _normalizeStoragePath(logoPath);
-    if (safePath == null ||
-        !safePath.startsWith('planillas_pago/$empresaId/config/')) {
+    if (safePath == null) {
       throw const PpException('Selecciona un logo válido para eliminar.');
     }
 
@@ -648,12 +620,7 @@ class PpService {
     if (excelBytes == null && pdfs.isEmpty) {
       throw const PpException('Debes subir al menos un Excel o un PDF.');
     }
-    await _validarRol(
-      'confirmar_carga',
-      rolPlanillas,
-      empresaId: empresaId,
-      actorId: actorId,
-    );
+    _validarRol('confirmar_carga', rolPlanillas);
     final actorSnapshot = await _getActorSnapshot(
       actorId,
       empresaId,
@@ -848,12 +815,7 @@ class PpService {
     void Function(int procesados, int total)? onProgress,
   }) async {
     if (pdfs.isEmpty) throw const PpException('Selecciona al menos un PDF.');
-    await _validarRol(
-      'confirmar_carga',
-      rolPlanillas,
-      empresaId: empresaId,
-      actorId: actorId,
-    );
+    _validarRol('confirmar_carga', rolPlanillas);
 
     final actorSnapshot = await _getActorSnapshot(
       actorId,
@@ -993,14 +955,7 @@ class PpService {
     required String rolPlanillas,
     String? nombreActor,
   }) async {
-    await _validarRol(
-      'confirmar_carga',
-      rolPlanillas,
-      empresaId: empresaId,
-      actorId: actorId,
-      planillaId: planillaId,
-      loteId: loteId,
-    );
+    _validarRol('confirmar_carga', rolPlanillas);
     final actorSnapshot = await _getActorSnapshot(
       actorId,
       empresaId,
@@ -1096,14 +1051,7 @@ class PpService {
     required String rolPlanillas,
     String? nombreActor,
   }) async {
-    await _validarRol(
-      'enviar_auditoria',
-      rolPlanillas,
-      empresaId: empresaId,
-      actorId: actorId,
-      planillaId: planillaId,
-      loteId: loteId,
-    );
+    _validarRol('enviar_auditoria', rolPlanillas);
     await _transicionar(
       planillaId: planillaId,
       loteId: loteId,
@@ -1141,14 +1089,7 @@ class PpService {
     if (observacion.trim().isEmpty) {
       throw const PpException('La observación es obligatoria.');
     }
-    await _validarRol(
-      'observar',
-      rolPlanillas,
-      empresaId: empresaId,
-      actorId: actorId,
-      planillaId: planillaId,
-      loteId: loteId,
-    );
+    _validarRol('observar', rolPlanillas);
 
     await _transicionar(
       planillaId: planillaId,
@@ -1193,14 +1134,7 @@ class PpService {
     String? nombreActor,
     String? comentario,
   }) async {
-    await _validarRol(
-      'reenviar',
-      rolPlanillas,
-      empresaId: empresaId,
-      actorId: actorId,
-      planillaId: planillaId,
-      loteId: loteId,
-    );
+    _validarRol('reenviar', rolPlanillas);
     await _transicionar(
       planillaId: planillaId,
       loteId: loteId,
@@ -1225,14 +1159,7 @@ class PpService {
     String? nombreActor,
     String? comentario,
   }) async {
-    await _validarRol(
-      'reenviar',
-      rolPlanillas,
-      empresaId: empresaId,
-      actorId: actorId,
-      planillaId: planillaId,
-      loteId: loteId,
-    );
+    _validarRol('reenviar', rolPlanillas);
     if (pdfBytes.isEmpty) {
       throw const PpException('Debes seleccionar un PDF válido.');
     }
@@ -1353,14 +1280,7 @@ class PpService {
     String? comentario,
     String? consolidadoSeleccionado,
   }) async {
-    await _validarRol(
-      'reenviar',
-      rolPlanillas,
-      empresaId: empresaId,
-      actorId: actorId,
-      planillaId: planillaId,
-      loteId: loteId,
-    );
+    _validarRol('reenviar', rolPlanillas);
     if (excelBytes.isEmpty) {
       throw const PpException('Debes seleccionar un Excel válido.');
     }
@@ -1601,14 +1521,7 @@ class PpService {
     String? comentario,
     Uint8List? currentPdfBytes,
   }) async {
-    await _validarRol(
-      'aprobar_auditoria',
-      rolPlanillas,
-      empresaId: empresaId,
-      actorId: actorId,
-      planillaId: planillaId,
-      loteId: loteId,
-    );
+    _validarRol('aprobar_auditoria', rolPlanillas);
     final actorSnapshot = await _getActorSnapshot(
       actorId,
       empresaId,
@@ -1782,14 +1695,7 @@ class PpService {
     required String rolPlanillas,
     String? nombreActor,
   }) async {
-    await _validarRol(
-      'enviar_gerencia',
-      rolPlanillas,
-      empresaId: empresaId,
-      actorId: actorId,
-      planillaId: planillaId,
-      loteId: loteId,
-    );
+    _validarRol('enviar_gerencia', rolPlanillas);
     await _transicionar(
       planillaId: planillaId,
       loteId: loteId,
@@ -1827,14 +1733,7 @@ class PpService {
     String? comentario,
     Uint8List? currentPdfBytes,
   }) async {
-    await _validarRol(
-      'firmar',
-      rolPlanillas,
-      empresaId: empresaId,
-      actorId: actorId,
-      planillaId: planillaId,
-      loteId: loteId,
-    );
+    _validarRol('firmar', rolPlanillas);
     final actorSnapshot = await _getActorSnapshot(
       actorId,
       empresaId,
@@ -2066,14 +1965,6 @@ class PpService {
     required String motivo,
     String? nombreActor,
   }) async {
-    await _validarRol(
-      'ver_lote',
-      rolPlanillas,
-      empresaId: empresaId,
-      actorId: actorId,
-      planillaId: planillaId,
-      loteId: loteId,
-    );
     if (motivo.trim().isEmpty) {
       throw const PpException('El motivo de rechazo es obligatorio.');
     }
@@ -2085,14 +1976,7 @@ class PpService {
     );
 
     if (estado == PpEstado.en_revision_auditoria) {
-      await _validarRol(
-        'rechazar_auditoria',
-        rolPlanillas,
-        empresaId: empresaId,
-        actorId: actorId,
-        planillaId: planillaId,
-        loteId: loteId,
-      );
+      _validarRol('rechazar_auditoria', rolPlanillas);
       await _transicionar(
         planillaId: planillaId,
         loteId: loteId,
@@ -2105,14 +1989,7 @@ class PpService {
         observacion: motivo.trim(),
       );
     } else if (estado == PpEstado.pendiente_firma_gerencia) {
-      await _validarRol(
-        'rechazar_gerencia',
-        rolPlanillas,
-        empresaId: empresaId,
-        actorId: actorId,
-        planillaId: planillaId,
-        loteId: loteId,
-      );
+      _validarRol('rechazar_gerencia', rolPlanillas);
       await _transicionar(
         planillaId: planillaId,
         loteId: loteId,
@@ -2141,13 +2018,7 @@ class PpService {
     required String actorId,
     required String rolPlanillas,
   }) async {
-    await _validarRol(
-      'eliminar_planilla',
-      rolPlanillas,
-      empresaId: empresaId,
-      actorId: actorId,
-      planillaId: planillaId,
-    );
+    _validarRol('eliminar_planilla', rolPlanillas);
 
     final snap = await _planillas.doc(planillaId).get();
     if (!snap.exists) {
@@ -2204,14 +2075,7 @@ class PpService {
     String? nombreActor,
     String? nota,
   }) async {
-    await _validarRol(
-      'confirmar_carga',
-      rolPlanillas,
-      empresaId: empresaId,
-      actorId: actorId,
-      planillaId: planillaId,
-      loteId: loteId,
-    );
+    _validarRol('confirmar_carga', rolPlanillas);
 
     await _planillas.doc(planillaId).update({
       'datosExcel': datosExcel,
@@ -2244,13 +2108,7 @@ class PpService {
     required String nombrePlanilla,
     String? nombreActor,
   }) async {
-    await _validarRol(
-      'editar_nombre_planilla',
-      rolPlanillas,
-      empresaId: empresaId,
-      actorId: actorId,
-      planillaId: planillaId,
-    );
+    _validarRol('editar_nombre_planilla', rolPlanillas);
     final safeNombre = _cleanString(nombrePlanilla);
     if (safeNombre == null) {
       throw const PpException('Escribe un nombre valido para la planilla.');
@@ -3374,12 +3232,7 @@ class PpService {
     if (filasSeleccionadas.isEmpty) {
       throw const PpException('Selecciona al menos una fila para generar.');
     }
-    await _validarRol(
-      'confirmar_carga',
-      rolPlanillas,
-      empresaId: empresaId,
-      actorId: actorId,
-    );
+    _validarRol('confirmar_carga', rolPlanillas);
     final actorSnapshot = await _getActorSnapshot(
       actorId,
       empresaId,
@@ -3576,12 +3429,7 @@ class PpService {
         'No hay filas para generar la planilla consolidada.',
       );
     }
-    await _validarRol(
-      'confirmar_carga',
-      rolPlanillas,
-      empresaId: empresaId,
-      actorId: actorId,
-    );
+    _validarRol('confirmar_carga', rolPlanillas);
     final actorSnapshot = await _getActorSnapshot(
       actorId,
       empresaId,
@@ -5471,9 +5319,7 @@ class PpService {
           for (final doc in snap.docs) {
             // Quien ya salió de la empresa conserva el rol en su ficha pero no
             // debe seguir recibiendo planillas.
-            if (!ppIsNotificationRecipient(doc.data(), empresaId, rol)) {
-              continue;
-            }
+            if (!personaHabilitadaEn(doc.data(), empresaId)) continue;
             ids.add(doc.id);
           }
         }
@@ -5497,44 +5343,11 @@ class PpService {
     }
   }
 
-  Future<void> _validarRol(
-    String accion,
-    String rolPlanillas, {
-    required String empresaId,
-    required String actorId,
-    String? planillaId,
-    String? loteId,
-  }) async {
-    final actor = await _users.doc(actorId).get();
-    final user = actor.data();
-    final current = resolvePpPlanillasRole(user, empresaId);
-    if (!ppCanAccess(user, empresaId) || current != rolPlanillas) {
-      throw const PpException(
-        'Tu acceso o nivel de Planillas cambió. Actualiza la pantalla.',
-      );
-    }
-    if (!PpRoles.puedeEjecutar(accion, current)) {
+  void _validarRol(String accion, String rolPlanillas) {
+    if (!PpRoles.puedeEjecutar(accion, rolPlanillas)) {
       throw PpException(
         'El rol "$rolPlanillas" no tiene permiso para ejecutar "$accion".',
       );
-    }
-    if ((planillaId ?? '').isNotEmpty) {
-      final target = await _planillas.doc(planillaId).get();
-      if (!target.exists) {
-        throw const PpException('Planilla no encontrada.');
-      }
-      if (target.data()?['empresaId'] != empresaId ||
-          (loteId != null && (target.data()?['loteId'] ?? '') != loteId)) {
-        throw const PpException(
-          'La planilla no pertenece a la empresa o lote indicados.',
-        );
-      }
-    }
-    if ((loteId ?? '').isNotEmpty) {
-      final lote = await _lotes.doc(loteId).get();
-      if (!lote.exists || lote.data()?['empresaId'] != empresaId) {
-        throw const PpException('El lote no pertenece a la empresa activa.');
-      }
     }
   }
 

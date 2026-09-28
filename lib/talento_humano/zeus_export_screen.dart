@@ -15,16 +15,10 @@ class ZeusExportScreen extends StatefulWidget {
   final String userId;
   final String empresaId;
 
-  /// Reutiliza el alta dentro del espacio de Usuarios de Administración.
-  final bool createUserOnly;
-  final Future<void> Function()? onUserCreated;
-
   const ZeusExportScreen({
     super.key,
     required this.userId,
     required this.empresaId,
-    this.createUserOnly = false,
-    this.onUserCreated,
   });
 
   @override
@@ -61,7 +55,7 @@ class _ZeusExportScreenState extends State<ZeusExportScreen> {
   @override
   void initState() {
     super.initState();
-    if (!widget.createUserOnly) _load();
+    _load();
   }
 
   @override
@@ -518,9 +512,7 @@ class _ZeusExportScreenState extends State<ZeusExportScreen> {
         area: _newArea.text,
         cargo: _newCargo.text,
         centroCostos: _newCentro.text,
-        soloNuevo: widget.createUserOnly,
       );
-      if (!mounted) return;
       _newCedula.clear();
       _newPrimerNombre.clear();
       _newSegundoNombre.clear();
@@ -530,12 +522,7 @@ class _ZeusExportScreenState extends State<ZeusExportScreen> {
       _newArea.clear();
       _newCargo.clear();
       _newCentro.clear();
-      if (!mounted) return;
-      if (widget.createUserOnly) {
-        await widget.onUserCreated?.call();
-      } else {
-        await _load();
-      }
+      await _load();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -635,12 +622,6 @@ class _ZeusExportScreenState extends State<ZeusExportScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.createUserOnly) {
-      return SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: _buildNewUserPanel(),
-      );
-    }
     return InternalModuleLayout(
       userId: widget.userId,
       empresaId: widget.empresaId,
@@ -1249,7 +1230,6 @@ class _ZeusExportScreenState extends State<ZeusExportScreen> {
       width: twoCols ? 320 : double.infinity,
       child: TextFormField(
         controller: controller,
-        enabled: !_creatingUser,
         keyboardType: numeric ? TextInputType.number : TextInputType.text,
         decoration: InputDecoration(
           labelText: label,
@@ -1258,9 +1238,6 @@ class _ZeusExportScreenState extends State<ZeusExportScreen> {
         validator: (value) {
           if (required && (value ?? '').trim().isEmpty) {
             return 'Campo requerido';
-          }
-          if (numeric && !RegExp(r'^[0-9]+$').hasMatch((value ?? '').trim())) {
-            return 'Ingresa la cédula solo con números';
           }
           return null;
         },

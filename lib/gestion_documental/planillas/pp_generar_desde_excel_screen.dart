@@ -189,7 +189,6 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
     try {
       await _service.eliminarLogo(
         empresaId: widget.empresaId,
-        actorId: widget.userId,
         logoPath: _logoPathSeleccionado,
         rolPlanillas: widget.rolPlanillas,
       );
@@ -407,8 +406,6 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
     try {
       await _service.guardarLogo(
         empresaId: widget.empresaId,
-        actorId: widget.userId,
-        rolPlanillas: widget.rolPlanillas,
         bytes: file.bytes!,
         nombre: nombre,
         extension: ext,
@@ -1233,12 +1230,7 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
                           'Elimínalo y vuelve a subirlo para actualizar los datos.',
                         );
                       }
-                      await _service.setLogoActivo(
-                        widget.empresaId,
-                        path,
-                        actorId: widget.userId,
-                        rolPlanillas: widget.rolPlanillas,
-                      );
+                      await _service.setLogoActivo(widget.empresaId, path);
                       if (!mounted) return;
                       setState(() {
                         _logoSeleccionado = selected;

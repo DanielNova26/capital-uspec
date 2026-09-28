@@ -234,15 +234,7 @@ class ZeusExportService {
     required String area,
     required String cargo,
     required String centroCostos,
-    bool soloNuevo = false,
   }) async {
-    if (soloNuevo &&
-        (!RegExp(r'^[0-9]+$').hasMatch(cedula) ||
-            primerNombre.trim().isEmpty ||
-            primerApellido.trim().isEmpty ||
-            empresaId.trim().isEmpty)) {
-      throw ArgumentError('Revisa la cédula, nombres y empresa del usuario.');
-    }
     final nombres = '$primerNombre $segundoNombre'.trim();
     final apellidos = '$primerApellido $segundoApellido'.trim();
     final nombreCompleto = '$nombres $apellidos'.trim();
@@ -289,23 +281,7 @@ class ZeusExportService {
         'createdAt': FieldValue.serverTimestamp(),
       });
     }
-    if (soloNuevo) {
-      // Desde Admin el alta no puede reescribir una identidad existente ni
-      // cambiar su empresa principal, perfil o estado. La transacción también
-      // impide que dos altas simultáneas se pisen.
-      await _db.runTransaction((transaction) async {
-        final actual = await transaction.get(ref);
-        if (actual.exists) {
-          throw StateError(
-            'Esta cédula ya existe. Busca la persona en Usuarios o vincúlala '
-            'desde Membresía.',
-          );
-        }
-        transaction.set(ref, payload);
-      });
-    } else {
-      await ref.set(payload, SetOptions(merge: true));
-    }
+    await ref.set(payload, SetOptions(merge: true));
   }
 
   Future<Uint8List> exportToExcelBytes(ZeusExportSummary summary) async {

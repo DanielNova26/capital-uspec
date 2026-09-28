@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
@@ -53,7 +51,7 @@ enum GdRolCorrespondencia {
   /// Interpreta lo que haya escrito en Firestore.
   ///
   /// Acepta las variantes con las que el rol pudo quedar escrito a mano y las
-  /// variantes heredadas del módulo. Si no
+  /// mismas que reconoce `normalizeRole` en `functions/src/correo.ts`. Si no
   /// reconoce nada devuelve `null`, y quien llama decide el rol por defecto:
   /// un texto raro no puede convertirse silenciosamente en un permiso.
   static GdRolCorrespondencia? desdeTexto(String? value) {
@@ -87,30 +85,19 @@ enum GdRolCorrespondencia {
 
 /// Qué puede hacer el usuario actual en Correspondencia, para la empresa activa.
 ///
-/// Expresa la jerarquía operativa del módulo. La interfaz lo usa para ofrecer
-/// acciones según el permiso vigente; la autorización definitiva de callables,
-/// Firestore y Storage corresponde al servidor.
+/// Es un espejo del control que hace el backend en `requireCorreoAccess`. La
+/// interfaz lo usa para no ofrecer botones que el servidor va a rechazar; la
+/// autoridad sigue siendo el backend, no esta clase.
 class GdPermisos {
   final GdRolCorrespondencia rol;
 
-  final bool tieneAcceso;
-  final bool resueltos;
-  const GdPermisos(this.rol, {this.tieneAcceso = true, this.resueltos = true});
+  const GdPermisos(this.rol);
 
   /// Permisos mientras se resuelve el rol: nada más que mirar. Es deliberado
   /// que el estado intermedio sea el más restrictivo y no el contrario.
-  static const GdPermisos cargando = GdPermisos(
-    GdRolCorrespondencia.visor,
-    tieneAcceso: false,
-    resueltos: false,
-  );
-  static const GdPermisos sinAcceso = GdPermisos(
-    GdRolCorrespondencia.visor,
-    tieneAcceso: false,
-  );
+  static const GdPermisos cargando = GdPermisos(GdRolCorrespondencia.visor);
 
-  bool get puedeClasificar =>
-      tieneAcceso && rol.alcanza(GdRolCorrespondencia.clasificador);
+  bool get puedeClasificar => rol.alcanza(GdRolCorrespondencia.clasificador);
 
   /// Asignar y reasignar salen del mismo callable que clasificar.
   bool get puedeAsignar => puedeClasificar;
@@ -119,18 +106,17 @@ class GdPermisos {
   bool get puedeRadicar => puedeClasificar;
 
   /// Trabajar lo propio: responder, avances, novedades.
-  bool get puedeGestionarAsignado =>
-      tieneAcceso && rol.alcanza(GdRolCorrespondencia.operador);
+  bool get puedeGestionarAsignado => rol.alcanza(GdRolCorrespondencia.operador);
 
   bool get puedeAdministrarTipos =>
-      tieneAcceso && rol.alcanza(GdRolCorrespondencia.administrador);
+      rol.alcanza(GdRolCorrespondencia.administrador);
 
   bool get puedeAdministrarFiltros =>
-      tieneAcceso && rol.alcanza(GdRolCorrespondencia.administrador);
+      rol.alcanza(GdRolCorrespondencia.administrador);
 
   /// Cerrar un expediente ajeno. El responsable siempre puede cerrar el suyo.
   bool get puedeCerrarCualquiera =>
-      tieneAcceso && rol.alcanza(GdRolCorrespondencia.administrador);
+      rol.alcanza(GdRolCorrespondencia.administrador);
 
   bool get esSoloConsulta => !puedeGestionarAsignado;
 
@@ -141,52 +127,18 @@ class GdPermisos {
       'Solicítalo al administrador del módulo.';
 }
 
-/// Resolución local con la misma asignación canónica que consume Functions.
-/// Una decisión específica de empresa no recupera la raíz de otra empresa.
-GdRolCorrespondencia resolveCorrespondenceRole({
-  required Map<String, dynamic> user,
-  required String empresaId,
-  String? assignedRole,
-}) {
-  if (!personaHabilitadaEn(user, empresaId)) return GdRolCorrespondencia.visor;
-  if (isDeveloperUser(user, empresaId: empresaId)) {
-    return GdRolCorrespondencia.administrador;
-  }
-  if (!userBelongsToEmpresa(user, empresaId) ||
-      !userHasApp(user, 'correodashboard', empresaId: empresaId)) {
-    return GdRolCorrespondencia.visor;
-  }
-  final assigned = GdRolCorrespondencia.desdeTexto(assignedRole);
-  if (assigned != null) return assigned;
-  final detail = getUserCompanyDetail(user, empresaId);
-  if (detail?.containsKey('rolCorreo') == true) {
-    return GdRolCorrespondencia.desdeTexto(detail!['rolCorreo']?.toString()) ??
-        GdRolCorrespondencia.visor;
-  }
-  if (raizEsDeEmpresa(user, empresaId)) {
-    final root = GdRolCorrespondencia.desdeTexto(user['rolCorreo']?.toString());
-    if (root != null) return root;
-  }
-  final scopedGeneral = detail?['roleKey'] ?? detail?['role'] ?? detail?['rol'];
-  final general =
-      scopedGeneral ??
-      (raizEsDeEmpresa(user, empresaId)
-          ? (user['role'] ?? user['rol'] ?? user['tipoUsuario'])
-          : null);
-  if (GdRolCorrespondencia.desdeTexto(general?.toString()) ==
-      GdRolCorrespondencia.administrador) {
-    return GdRolCorrespondencia.administrador;
-  }
-  return GdRolCorrespondencia.operador;
-}
-
-/// Resuelve primero `correoMiRol`, comprobando también habilitación, pertenencia
-/// y app de la ficha actual. Una denegación explícita no activa el respaldo.
-/// Cuando el callable no está disponible, usa la asignación canónica, las
-/// asignaciones históricas y los niveles de la ficha en la empresa activa.
-/// El contrato de respaldo distingue ausencia de nivel (Operador heredado)
-/// de una decisión explícita vacía (Visor). Las diferencias pendientes del
-/// servidor y su validación se registran en MEJORAS.md.
+/// Resuelve el rol de Correspondencia de un usuario en una empresa.
+///
+/// Repite la precedencia del backend a propósito —y desde el 10 sep 2026 son
+/// de verdad la misma, que antes no lo eran— en este orden:
+/// 1. la marca de desarrollador en el usuario;
+/// 2. `TBL_CORREO_ROLES/{empresaId}_{userId}`;
+/// 3. `empresasDetalle[empresaId].rolCorreo` y `rolCorreo` del usuario;
+/// 4. el rol global del usuario, solo si es administrador.
+///
+/// Si nada de eso dice algo reconocible, el rol es `operador`: quien entra al
+/// módulo puede trabajar lo que le asignen, que es como venía funcionando antes
+/// de que existiera el rol clasificador.
 class GdPermisosService {
   final FirebaseFirestore _db;
   final FirebaseFunctions? _functions;
@@ -202,69 +154,30 @@ class GdPermisosService {
     required String empresaId,
     required String userId,
   }) async {
-    if (empresaId.trim().isEmpty || userId.trim().isEmpty) {
-      return GdPermisos.sinAcceso;
-    }
-    final user = (await _db.collection('TBL_USUARIOS').doc(userId).get())
-        .data();
-    if (user == null ||
-        !personaHabilitadaEn(user, empresaId) ||
-        (!isDeveloperUser(user, empresaId: empresaId) &&
-            (!userBelongsToEmpresa(user, empresaId) ||
-                !userHasApp(user, 'correodashboard', empresaId: empresaId)))) {
-      return GdPermisos.sinAcceso;
-    }
-    final fromServer = await _rolDesdeServidor(
-      empresaId: empresaId,
-      userId: userId,
-    );
-    if (fromServer != null) return fromServer;
-    return GdPermisos(
-      await _rolDesdeFirestore(empresaId: empresaId, userId: userId),
-    );
+    return GdPermisos(await resolverRol(empresaId: empresaId, userId: userId));
   }
 
   Future<GdRolCorrespondencia> resolverRol({
     required String empresaId,
     required String userId,
-  }) async => (await resolver(empresaId: empresaId, userId: userId)).rol;
-
-  Future<GdPermisos> exigir({
-    required String empresaId,
-    required String userId,
-    required GdRolCorrespondencia minimo,
   }) async {
-    final permissions = await resolver(empresaId: empresaId, userId: userId);
-    if (!permissions.tieneAcceso || !permissions.rol.alcanza(minimo)) {
-      throw StateError(
-        'Tu acceso o nivel de Correspondencia no permite esta acción. Actualiza la pantalla.',
-      );
+    if (empresaId.trim().isEmpty || userId.trim().isEmpty) {
+      return rolPorDefecto;
     }
-    return permissions;
-  }
-
-  Future<void> exigirExpediente({
-    required String empresaId,
-    required String expedienteId,
-    required String userId,
-  }) async {
-    await exigir(
+    // Primero el servidor. `correoMiRol` devuelve lo mismo que el backend
+    // aplica en cada acción, así que la interfaz nunca puede ofrecer más ni
+    // menos de lo que el servidor va a aceptar; y no pasa por las reglas de
+    // Firestore, que es donde Gerencia se quedaba fuera. La lectura directa
+    // de abajo queda de respaldo por si la función no responde.
+    final delServidor = await _rolDesdeServidor(
       empresaId: empresaId,
       userId: userId,
-      minimo: GdRolCorrespondencia.operador,
     );
-    final document = await _db
-        .collection('TBL_GD_EXPEDIENTES')
-        .doc(expedienteId)
-        .get();
-    if (!document.exists || document.data()?['empresaId'] != empresaId) {
-      throw StateError(
-        'El expediente no pertenece a la empresa activa o ya no existe.',
-      );
-    }
+    if (delServidor != null) return delServidor;
+    return _rolDesdeFirestore(empresaId: empresaId, userId: userId);
   }
 
-  Future<GdPermisos?> _rolDesdeServidor({
+  Future<GdRolCorrespondencia?> _rolDesdeServidor({
     required String empresaId,
     required String userId,
   }) async {
@@ -284,17 +197,8 @@ class GdPermisosService {
       // "sin rol" es una respuesta válida del servidor: el usuario existe y
       // pertenece a la empresa, pero nadie le asignó nada. Ahí aplica el rol
       // por defecto, no el respaldo.
-      if (result.data['motivo'] == 'no_pertenece') return GdPermisos.sinAcceso;
-      if (rol == null || rol.isEmpty) return const GdPermisos(rolPorDefecto);
-      return GdPermisos(
-        GdRolCorrespondencia.desdeTexto(rol) ?? GdRolCorrespondencia.visor,
-      );
-    } on FirebaseFunctionsException catch (error) {
-      if (error.code == 'permission-denied' ||
-          error.code == 'unauthenticated') {
-        return GdPermisos.sinAcceso;
-      }
-      return null;
+      if (rol == null || rol.isEmpty) return rolPorDefecto;
+      return GdRolCorrespondencia.desdeTexto(rol) ?? rolPorDefecto;
     } catch (_) {
       return null;
     }
@@ -332,93 +236,41 @@ class GdPermisosService {
           .collection('TBL_CORREO_ROLES')
           .doc('${empresaId}_$userId')
           .get();
-      final assignment = asignado.data();
-      if (assignment?['empresaId'] == empresaId &&
-          assignment?['usuarioId'] == userId) {
-        rolAsignado = assignment?['rol']?.toString();
-      }
+      rolAsignado = asignado.data()?['rol']?.toString();
     } on FirebaseException catch (e) {
       if (e.code != 'permission-denied') rethrow;
     }
-    if (GdRolCorrespondencia.desdeTexto(rolAsignado) == null) {
-      final legacy = await _db
-          .collection('TBL_CORREO_ROLES')
-          .where('empresaId', isEqualTo: empresaId)
-          .where('usuarioId', isEqualTo: userId)
-          .get();
-      for (final document in legacy.docs) {
-        final candidate = document.data()['rol']?.toString();
-        if (GdRolCorrespondencia.desdeTexto(candidate) != null) {
-          rolAsignado = candidate;
-          break;
-        }
-      }
-    }
-    return resolveCorrespondenceRole(
-      user: data,
-      empresaId: empresaId,
-      assignedRole: rolAsignado,
-    );
-  }
+    final delDoc = GdRolCorrespondencia.desdeTexto(rolAsignado);
+    if (delDoc != null) return delDoc;
 
-  /// Observa ficha y asignación; descarta respuestas de una revisión anterior.
-  Stream<GdPermisos> observar({
-    required String empresaId,
-    required String userId,
-  }) {
-    late StreamController<GdPermisos> controller;
-    StreamSubscription? userSubscription;
-    StreamSubscription? roleSubscription;
-    var revision = 0;
-    Future<void> refresh() async {
-      final requested = ++revision;
-      try {
-        final permissions = await resolver(
-          empresaId: empresaId,
-          userId: userId,
+    final detalle = data['empresasDetalle'];
+    final scoped = detalle is Map ? detalle[empresaId] : null;
+    final delUsuario = GdRolCorrespondencia.desdeTexto(
+      (scoped is Map ? scoped['rolCorreo'] : null)?.toString() ??
+          data['rolCorreo']?.toString(),
+    );
+    if (delUsuario != null) return delUsuario;
+
+    // El rol global solo sirve para reconocer al administrador que configura el
+    // módulo por primera vez. Un "usuario" global no puede volverse
+    // clasificador por esta vía: eso se asigna explícitamente.
+    //
+    // El rol se resuelve **por empresa** (`resolveScopedRoleKey`) y solo
+    // después se miran los campos de la raíz. Leer únicamente la raíz era el
+    // otro motivo por el que un administrador quedaba como operador: en una
+    // aplicación multiempresa el rol vive en `empresasDetalle[empresa]`, y la
+    // raíz puede estar vacía o traer el de otra empresa.
+    final global =
+        GdRolCorrespondencia.desdeTexto(
+          resolveScopedRoleKey(data, empresaId: empresaId),
+        ) ??
+        GdRolCorrespondencia.desdeTexto(
+          (data['role'] ?? data['rol'] ?? data['tipoUsuario'])?.toString(),
         );
-        if (!controller.isClosed && requested == revision) {
-          controller.add(permissions);
-        }
-      } catch (_) {
-        if (!controller.isClosed && requested == revision) {
-          controller.add(GdPermisos.sinAcceso);
-        }
-      }
+    if (global == GdRolCorrespondencia.administrador) {
+      return GdRolCorrespondencia.administrador;
     }
-
-    controller = StreamController<GdPermisos>(
-      onListen: () {
-        controller.add(GdPermisos.cargando);
-        userSubscription = _db
-            .collection('TBL_USUARIOS')
-            .doc(userId)
-            .snapshots()
-            .listen(
-              (_) => refresh(),
-              onError: (Object _) {
-                revision++;
-                controller.add(GdPermisos.sinAcceso);
-              },
-            );
-        roleSubscription = _db
-            .collection('TBL_CORREO_ROLES')
-            .doc('${empresaId}_$userId')
-            .snapshots()
-            .listen((_) => refresh(), onError: (Object _) => refresh());
-      },
-      onCancel: () async {
-        revision++;
-        await userSubscription?.cancel();
-        await roleSubscription?.cancel();
-      },
-    );
-    return controller.stream.distinct(
-      (a, b) =>
-          a.rol == b.rol &&
-          a.tieneAcceso == b.tieneAcceso &&
-          a.resueltos == b.resueltos,
-    );
+    return rolPorDefecto;
   }
 
   /// Lista los roles asignados explícitamente en la empresa, por usuario.
@@ -432,16 +284,37 @@ class GdPermisosService {
         .where('empresaId', isEqualTo: empresaId)
         .get();
     final result = <String, GdRolCorrespondencia>{};
-    final canonical = <String, GdRolCorrespondencia>{};
     for (final doc in snap.docs) {
       final userId = (doc.data()['usuarioId'] ?? '').toString();
       final rol = GdRolCorrespondencia.desdeTexto(
         doc.data()['rol']?.toString(),
       );
       if (userId.isEmpty || rol == null) continue;
-      result.putIfAbsent(userId, () => rol);
-      if (doc.id == '${empresaId}_$userId') canonical[userId] = rol;
+      result[userId] = rol;
     }
-    return {...result, ...canonical};
+    return result;
   }
+
+  /// Asigna el rol de un usuario en una empresa.
+  ///
+  /// El docId es `{empresaId}_{userId}` — el mismo que lee el backend — así que
+  /// un usuario no puede terminar con dos roles distintos en la misma empresa.
+  /// `usuarioId` y `empresaId` quedan también como campos porque el backend
+  /// tiene una segunda búsqueda por campos para los documentos antiguos.
+  Future<void> asignarRol({
+    required String empresaId,
+    required String userId,
+    required GdRolCorrespondencia rol,
+    required String asignadoPor,
+  }) => _db.collection('TBL_CORREO_ROLES').doc('${empresaId}_$userId').set({
+    'empresaId': empresaId,
+    'usuarioId': userId,
+    'rol': rol.valor,
+    'actualizadoPor': asignadoPor,
+    'actualizadoAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+
+  /// Quita el rol explícito y devuelve al usuario al rol por defecto.
+  Future<void> quitarRol({required String empresaId, required String userId}) =>
+      _db.collection('TBL_CORREO_ROLES').doc('${empresaId}_$userId').delete();
 }
