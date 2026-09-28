@@ -30,6 +30,7 @@ service cloud.firestore {
     // `let` y no seis `currentUser()`: cada llamada cuenta como expresiones
     // evaluadas y las reglas tienen un tope de 1000 por petición. Con las
     // llamadas repetidas el emulador ya avisaba "maximum of 1000 expressions".
+    // La cuenta apagada va al final: quien no es desarrollador no llega ahí.
     function isDeveloper() {
       let u = currentUser();
       return isSignedIn()
@@ -40,12 +41,61 @@ service cloud.firestore {
           || ('rol' in u && esRolDeDesarrollo(u.rol))
           || ('roleKey' in u && esRolDeDesarrollo(u.roleKey))
           || ('roleId' in u && esRolDeDesarrollo(u.roleId))
-        );
+        )
+        && !cuentaInhabilitada(u);
+    }
+
+    // Desarrollo de la raíz actuando sobre [empresaId], para las reglas que
+    // no pasan por `belongsToCompany`: tampoco entra a una empresa donde está
+    // inhabilitado (en la app, AccessGuard lo comprueba antes que el rol).
+    function isDeveloperFor(empresaId) {
+      return isDeveloper() && habilitadaEn(currentUser(), empresaId);
+    }
+
+    // ── Personal inhabilitado (28 sep 2026) ───────────────────────────────
+    // Espejo de `personaHabilitadaEn` en lib/utils/user_company.dart y de
+    // functions/src/acceso.ts. La app ya no deja entrar a un inhabilitado,
+    // pero con la sesión abierta (o una app vieja, sin el vigilante) seguía
+    // leyendo y escribiendo los datos de la empresa directo en Firestore.
+    // Solo cuentan los textos: un valor que no es texto se lee como vacío.
+    function estadoTexto(valor) {
+      return valor is string ? valor.trim().lower() : '';
+    }
+
+    // Cuenta apagada para toda la app: `activo: false` (Administración) o un
+    // `estado` global (en registros viejos, `status`) distinto de activo.
+    function cuentaInhabilitada(u) {
+      let estado = estadoTexto(u.get('estado', ''));
+      let global = estado != '' ? estado : estadoTexto(u.get('status', ''));
+      return u.get('activo', true) == false
+        || !(global in ['', 'activo', 'active']);
+    }
+
+    // Apagada en [empresaId]: por un traslado (`activo: false` en el bloque
+    // de la empresa) o por Talento Humano (`estadoLaboral`, o si no hay,
+    // `estado`, igual a inactivo).
+    function apagadaEnEmpresa(u, empresaId) {
+      let detalle = u.get('empresasDetalle', {});
+      let bloque = detalle is map ? detalle.get(empresaId, {}) : {};
+      let b = bloque is map ? bloque : {};
+      let laboral = estadoTexto(b.get('estadoLaboral', ''));
+      return b.get('activo', true) == false
+        || (laboral != '' ? laboral : estadoTexto(b.get('estado', ''))) == 'inactivo';
+    }
+
+    // Sin empresa (una escritura que no la trae) solo se mira la cuenta.
+    function habilitadaEn(u, empresaId) {
+      return !cuentaInhabilitada(u)
+        && (!(empresaId is string) || !apagadaEnEmpresa(u, empresaId));
     }
 
     // Una consulta de un módulo debe venir filtrada por empresa. Firestore
     // evalúa esta condición contra cada documento devuelto, por lo que una
     // consulta sin ese filtro falla en lugar de filtrar datos en el servidor.
+    // Pertenecer no basta: quien está inhabilitado en la empresa, o tiene la
+    // cuenta apagada, no entra a sus datos, aunque sea desarrollador. Va al
+    // final porque es lo más largo, y el rechazo de una empresa ajena no
+    // llega hasta ahí.
     function belongsToCompany(empresaId) {
       let u = currentUser();
       return isSignedIn()
@@ -57,7 +107,8 @@ service cloud.firestore {
           || ('empresaId' in u && u.empresaId == empresaId)
           || ('empresa' in u && u.empresa == empresaId)
           || isDeveloper()
-        );
+        )
+        && habilitadaEn(u, empresaId);
     }
 
     function interventoriaRolePath(empresaId) {
@@ -104,17 +155,30 @@ service cloud.firestore {
       return /databases/$(database)/documents/TBL_VISITAS_ROLES/$(empresaId + '_' + request.auth.token.userDocId);
     }
 
-    function hasVisitasRole(empresaId, allowedRoles) {
-      return belongsToCompany(empresaId)
-        && exists(visitasRolePath(empresaId))
+    // El rol sin volver a mirar la empresa: solo para usar DESPUÉS de un
+    // `belongsToCompany` de la misma empresa. Cada `belongsToCompany` cuesta
+    // expresiones (28 sep 2026: además mira si la persona está habilitada) y
+    // `administraVisitasArea` llegaba a evaluarlo cuatro veces.
+    function rolVisitasEn(empresaId, allowedRoles) {
+      return exists(visitasRolePath(empresaId))
         && get(visitasRolePath(empresaId)).data.rol in allowedRoles;
     }
 
-    function administraVisitas(empresaId) {
+    function hasVisitasRole(empresaId, allowedRoles) {
       return belongsToCompany(empresaId)
-        && (isDeveloper() || isDeveloperIn(empresaId)
-          || hasVisitasRole(empresaId, ['jefe', 'gerencia'])
-          || esGerenciaPorFicha(empresaId));
+        && rolVisitasEn(empresaId, allowedRoles);
+    }
+
+    // Las funciones que terminan en `En` no vuelven a mirar la empresa: se
+    // usan dentro de una regla que ya pasó por `belongsToCompany`.
+    function administraVisitasEn(empresaId) {
+      return isDeveloper() || isDeveloperIn(empresaId)
+        || rolVisitasEn(empresaId, ['jefe', 'gerencia'])
+        || esGerenciaPorFicha(empresaId);
+    }
+
+    function administraVisitas(empresaId) {
+      return belongsToCompany(empresaId) && administraVisitasEn(empresaId);
     }
 
     // Gerencia (26 sep 2026): "es el jefe de todos, puede ver absolutamente
@@ -128,9 +192,13 @@ service cloud.firestore {
     // primero con texto entre cargoNombre y cargo de la empresa, y luego los
     // de la raíz. Va siempre al final de los `||`: es lo más caro y las
     // reglas tienen un tope de 1000 expresiones por petición.
+    function gerenciaVisitasEn(empresaId) {
+      return rolVisitasEn(empresaId, ['gerencia'])
+        || esGerenciaPorFicha(empresaId);
+    }
+
     function esGerenciaVisitas(empresaId) {
-      return hasVisitasRole(empresaId, ['gerencia'])
-        || (belongsToCompany(empresaId) && esGerenciaPorFicha(empresaId));
+      return belongsToCompany(empresaId) && gerenciaVisitasEn(empresaId);
     }
 
     function esCargoGerencia(valor) {
@@ -170,18 +238,26 @@ service cloud.firestore {
         ? get(path).data.areaId : '';
     }
 
-    function administraVisitasArea(empresaId, areaId) {
-      return belongsToCompany(empresaId)
-        && (isDeveloper() || isDeveloperIn(empresaId)
-          || (areaId is string && areaId.size() > 0
-            && hasVisitasRole(empresaId, ['jefe'])
-            && areaVisitasUsuario(empresaId, request.auth.token.userDocId) == areaId)
-          || esGerenciaVisitas(empresaId));
+    function administraVisitasAreaEn(empresaId, areaId) {
+      return isDeveloper() || isDeveloperIn(empresaId)
+        || (areaId is string && areaId.size() > 0
+          && rolVisitasEn(empresaId, ['jefe'])
+          && areaVisitasUsuario(empresaId, request.auth.token.userDocId) == areaId)
+        || gerenciaVisitasEn(empresaId);
     }
 
+    function administraVisitasArea(empresaId, areaId) {
+      return belongsToCompany(empresaId)
+        && administraVisitasAreaEn(empresaId, areaId);
+    }
+
+    // Administra (Desarrollo, jefe, Gerencia) o tiene cualquier otro rol.
     function participaEnVisitas(empresaId) {
-      return administraVisitas(empresaId)
-        || hasVisitasRole(empresaId, ['profesional', 'consulta', 'firmante']);
+      return belongsToCompany(empresaId)
+        && (isDeveloper() || isDeveloperIn(empresaId)
+          || rolVisitasEn(empresaId,
+            ['jefe', 'gerencia', 'profesional', 'consulta', 'firmante'])
+          || esGerenciaPorFicha(empresaId));
     }
 
     // Rol del módulo de Planillas de Pago para la empresa activa.
@@ -216,7 +292,8 @@ service cloud.firestore {
             && esRolDeDesarrollo(u.empresasDetalle[empresaId].roleKey))
           || ('roleId' in u.empresasDetalle[empresaId]
             && esRolDeDesarrollo(u.empresasDetalle[empresaId].roleId))
-        );
+        )
+        && habilitadaEn(u, empresaId);
     }
 
     function hasPlanillasRole(empresaId, allowedRoles) {
@@ -372,22 +449,22 @@ service cloud.firestore {
     match /TBL_VISITAS_ROLES/{docId} {
       allow get: if resource == null
         || (belongsToCompany(resource.data.empresaId)
-          && (administraVisitas(resource.data.empresaId)
-            || resource.data.userId == request.auth.token.userDocId));
+          && (resource.data.userId == request.auth.token.userDocId
+            || administraVisitasEn(resource.data.empresaId)));
       allow list: if belongsToCompany(resource.data.empresaId)
-        && (administraVisitas(resource.data.empresaId)
-          || resource.data.userId == request.auth.token.userDocId);
+        && (resource.data.userId == request.auth.token.userDocId
+          || administraVisitasEn(resource.data.empresaId));
       allow create: if belongsToCompany(request.resource.data.empresaId)
         && docId == request.resource.data.empresaId + '_' + request.resource.data.userId
         && request.resource.data.rol in ['jefe', 'profesional', 'consulta', 'firmante', 'gerencia']
         && request.resource.data.areaId is string
         && (isDeveloper() || isDeveloperIn(request.resource.data.empresaId)
           || (request.resource.data.rol == 'profesional'
-            && administraVisitasArea(request.resource.data.empresaId,
+            && administraVisitasAreaEn(request.resource.data.empresaId,
               request.resource.data.areaId))
           || (request.resource.data.rol != 'gerencia'
             && request.resource.data.userId != request.auth.token.userDocId
-            && esGerenciaVisitas(request.resource.data.empresaId)));
+            && gerenciaVisitasEn(request.resource.data.empresaId)));
       allow update: if resource.data.empresaId == request.resource.data.empresaId
         && resource.data.userId == request.resource.data.userId
         && belongsToCompany(resource.data.empresaId)
@@ -398,21 +475,21 @@ service cloud.firestore {
             && request.resource.data.rol == 'profesional'
             && resource.data.areaId == request.resource.data.areaId
             && resource.data.userId != request.auth.token.userDocId
-            && administraVisitasArea(resource.data.empresaId,
+            && administraVisitasAreaEn(resource.data.empresaId,
               resource.data.areaId))
           || (resource.data.rol != 'gerencia'
             && request.resource.data.rol != 'gerencia'
             && resource.data.userId != request.auth.token.userDocId
-            && esGerenciaVisitas(resource.data.empresaId)));
+            && gerenciaVisitasEn(resource.data.empresaId)));
       allow delete: if belongsToCompany(resource.data.empresaId)
         && (isDeveloper() || isDeveloperIn(resource.data.empresaId)
           || (resource.data.rol == 'profesional'
             && resource.data.userId != request.auth.token.userDocId
-            && administraVisitasArea(resource.data.empresaId,
+            && administraVisitasAreaEn(resource.data.empresaId,
               resource.data.areaId))
           || (resource.data.rol != 'gerencia'
             && resource.data.userId != request.auth.token.userDocId
-            && esGerenciaVisitas(resource.data.empresaId)));
+            && gerenciaVisitasEn(resource.data.empresaId)));
     }
 
     // Grupos de profesionales con sus establecimientos (25 sep 2026). Los
@@ -436,8 +513,8 @@ service cloud.firestore {
         || participaEnVisitas(resource.data.empresaId);
       allow list: if belongsToCompany(resource.data.empresaId)
         && (isDeveloper() || isDeveloperIn(resource.data.empresaId)
-          || hasVisitasRole(resource.data.empresaId, ['consulta', 'gerencia'])
-          || (hasVisitasRole(resource.data.empresaId, ['jefe', 'profesional'])
+          || rolVisitasEn(resource.data.empresaId, ['consulta', 'gerencia'])
+          || (rolVisitasEn(resource.data.empresaId, ['jefe', 'profesional'])
             && resource.data.areaId == areaVisitasUsuario(
               resource.data.empresaId, request.auth.token.userDocId))
           || esGerenciaPorFicha(resource.data.empresaId));
@@ -450,7 +527,7 @@ service cloud.firestore {
       allow update: if resource.data.empresaId == request.resource.data.empresaId
         && administraVisitasArea(resource.data.empresaId, resource.data.areaId)
         && (resource.data.areaId == request.resource.data.areaId
-          || administraVisitasArea(resource.data.empresaId,
+          || administraVisitasAreaEn(resource.data.empresaId,
             request.resource.data.areaId));
       allow delete: if false;
     }
@@ -461,15 +538,15 @@ service cloud.firestore {
       allow get: if resource == null
         || (belongsToCompany(resource.data.empresaId)
           && (esFirmanteDeVisita()
-            || administraVisitasArea(resource.data.empresaId, resource.data.areaId)
-            || hasVisitasRole(resource.data.empresaId, ['consulta'])
-            || (hasVisitasRole(resource.data.empresaId, ['profesional'])
+            || administraVisitasAreaEn(resource.data.empresaId, resource.data.areaId)
+            || rolVisitasEn(resource.data.empresaId, ['consulta'])
+            || (rolVisitasEn(resource.data.empresaId, ['profesional'])
               && resource.data.profesionalId == request.auth.token.userDocId)));
       allow list: if belongsToCompany(resource.data.empresaId)
         && (esFirmanteDeVisita()
-          || administraVisitasArea(resource.data.empresaId, resource.data.areaId)
-          || hasVisitasRole(resource.data.empresaId, ['consulta'])
-          || (hasVisitasRole(resource.data.empresaId, ['profesional'])
+          || administraVisitasAreaEn(resource.data.empresaId, resource.data.areaId)
+          || rolVisitasEn(resource.data.empresaId, ['consulta'])
+          || (rolVisitasEn(resource.data.empresaId, ['profesional'])
             && resource.data.profesionalId == request.auth.token.userDocId));
       allow create: if administraVisitasArea(request.resource.data.empresaId,
           request.resource.data.areaId)
@@ -487,9 +564,12 @@ service cloud.firestore {
       // aprueba o lo rechaza.
       allow update: if resource.data.empresaId == request.resource.data.empresaId
         && resource.data.profesionalId == request.resource.data.profesionalId
-        // Lo barato primero (estado, dueño): `administraVisitas` y
-        // `hasVisitasRole` hacen get() y cuentan contra el tope de
-        // expresiones; con el orden anterior un rechazo llegaba al límite.
+        // La empresa se mira una vez aquí y no en cada rama: cada
+        // `belongsToCompany` cuesta expresiones y las reglas tienen un tope
+        // de 1000 por petición (28 sep 2026).
+        && belongsToCompany(resource.data.empresaId)
+        // Lo barato primero (estado, dueño): los roles hacen get() y cuentan
+        // contra el tope; con el orden anterior un rechazo llegaba al límite.
         && (
           ((
             (resource.data.estado == 'programada'
@@ -504,9 +584,9 @@ service cloud.firestore {
               && (esRespuestaDeSolicitudFecha()
                 || esAprobacionDeFechaEnCurso()))
           )
-            && administraVisitasArea(resource.data.empresaId, resource.data.areaId))
+            && administraVisitasAreaEn(resource.data.empresaId, resource.data.areaId))
           || (resource.data.profesionalId == request.auth.token.userDocId
-            && hasVisitasRole(resource.data.empresaId, ['profesional'])
+            && rolVisitasEn(resource.data.empresaId, ['profesional'])
             && (
               ((resource.data.estado == 'programada'
                   || resource.data.estado == 'en_curso')
@@ -549,8 +629,7 @@ service cloud.firestore {
             && (!('firmaEstablecimiento' in resource.data)
               || resource.data.firmaEstablecimiento == null)
             && request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['firmaEstablecimiento', 'updatedAt'])
-            && belongsToCompany(resource.data.empresaId))
+              .hasOnly(['firmaEstablecimiento', 'updatedAt']))
         );
       allow delete: if false;
     }
@@ -694,9 +773,11 @@ service cloud.firestore {
         && (isDeveloper() || isDeveloperIn(request.resource.data.empresaId)
           || esGerenciaVisitas(request.resource.data.empresaId));
       allow update: if resource.data.empresaId == request.resource.data.empresaId
-        && (isDeveloper() || isDeveloperIn(resource.data.empresaId)
+        && (isDeveloperFor(resource.data.empresaId)
+          || isDeveloperIn(resource.data.empresaId)
           || esGerenciaVisitas(resource.data.empresaId));
-      allow delete: if isDeveloper() || isDeveloperIn(resource.data.empresaId)
+      allow delete: if isDeveloperFor(resource.data.empresaId)
+        || isDeveloperIn(resource.data.empresaId)
         || esGerenciaVisitas(resource.data.empresaId);
     }
 
@@ -709,7 +790,7 @@ service cloud.firestore {
     // Administración le decía "permission-denied" al cambiar un rol
     // (11 sep 2026). Probado en functions/test/interventoria_roles.rules.js.
     function administraInterventoria(empresaId) {
-      return isDeveloper()
+      return isDeveloperFor(empresaId)
         || isDeveloperIn(empresaId)
         || hasInterventoriaRole(empresaId, ['admin_interventoria']);
     }
@@ -748,12 +829,11 @@ service cloud.firestore {
     // y por eso el corte se hace ahora aunque el segundo lector no exista
     // todavía: hacerlo después sería una migración.
     match /TBL_PAGOS_BENEFICIARIOS/{docId} {
-      allow read: if belongsToCompany(resource.data.empresaId)
-        && hasPlanillasRole(resource.data.empresaId, [
+      // `hasPlanillasRole` ya mira la empresa (y si la persona está habilitada).
+      allow read: if hasPlanillasRole(resource.data.empresaId, [
           'tesoreria', 'admin_doc', 'desarrollador'
         ]);
-      allow create, update: if belongsToCompany(request.resource.data.empresaId)
-        && hasPlanillasRole(request.resource.data.empresaId, [
+      allow create, update: if hasPlanillasRole(request.resource.data.empresaId, [
           'tesoreria', 'admin_doc', 'desarrollador'
         ])
         // El número de cuenta no puede colarse aquí ni por descuido ni a
@@ -769,12 +849,10 @@ service cloud.firestore {
     // documental. Talento Humano NO entra: no le hace falta para su trabajo, y
     // un dato que no se necesita no se expone.
     match /TBL_PAGOS_BENEFICIARIOS_CUENTA/{docId} {
-      allow read: if belongsToCompany(resource.data.empresaId)
-        && hasPlanillasRole(resource.data.empresaId, [
+      allow read: if hasPlanillasRole(resource.data.empresaId, [
           'tesoreria', 'admin_doc', 'desarrollador'
         ]);
-      allow create, update: if belongsToCompany(request.resource.data.empresaId)
-        && hasPlanillasRole(request.resource.data.empresaId, [
+      allow create, update: if hasPlanillasRole(request.resource.data.empresaId, [
           'tesoreria', 'admin_doc', 'desarrollador'
         ]);
       allow delete: if hasPlanillasRole(resource.data.empresaId, [
@@ -786,17 +864,22 @@ service cloud.firestore {
       // Mismo caso: quien no tiene rol asignado lee un documento inexistente.
       allow get: if resource == null || belongsToCompany(resource.data.empresaId);
       allow list: if belongsToCompany(resource.data.empresaId);
-      allow create: if isDeveloper() || isCorreoAdmin(request.resource.data.empresaId);
+      allow create: if isDeveloperFor(request.resource.data.get('empresaId', null))
+        || isCorreoAdmin(request.resource.data.empresaId);
       allow update: if resource.data.empresaId == request.resource.data.empresaId
-        && (isDeveloper() || isCorreoAdmin(resource.data.empresaId));
-      allow delete: if isDeveloper() || isCorreoAdmin(resource.data.empresaId);
+        && (isDeveloperFor(resource.data.empresaId)
+          || isCorreoAdmin(resource.data.empresaId));
+      allow delete: if isDeveloperFor(resource.data.get('empresaId', null))
+        || isCorreoAdmin(resource.data.empresaId);
     }
 
     match /TBL_GD_TIPOS_DOCUMENTALES/{docId} {
       allow read: if belongsToCompany(resource.data.empresaId);
-      allow create: if isDeveloper() || isCorreoAdmin(request.resource.data.empresaId);
+      allow create: if isDeveloperFor(request.resource.data.get('empresaId', null))
+        || isCorreoAdmin(request.resource.data.empresaId);
       allow update: if resource.data.empresaId == request.resource.data.empresaId
-        && (isDeveloper() || isCorreoAdmin(resource.data.empresaId));
+        && (isDeveloperFor(resource.data.empresaId)
+          || isCorreoAdmin(resource.data.empresaId));
       allow delete: if false;
     }
 

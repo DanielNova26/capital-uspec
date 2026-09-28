@@ -6,6 +6,56 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Reglas de Firestore: el inhabilitado tampoco entra por la base — 28 sep 2026 (Claude)
+
+La app y Functions ya no dejaban entrar a un inhabilitado, pero las reglas no
+lo sabían: con la sesión abierta (o una app vieja, sin el vigilante) seguía
+leyendo y escribiendo los datos de la empresa directo en Firestore. Solo se
+tocó `firestore.rules`; la app y Functions no cambian.
+
+- `habilitadaEn` en las reglas, espejo de `personaHabilitadaEn`
+  (`lib/utils/user_company.dart`) y de `functions/src/acceso.ts`. No pasa
+  quien tiene la cuenta apagada (`activo: false`, o `estado`/`status` global
+  distinto de activo), quien está inhabilitado ahí por Talento Humano
+  (`estadoLaboral`, o `estado`, = inactivo) ni quien tiene la empresa apagada
+  por un traslado. Si sigue habilitado en otra empresa, entra solo a esa.
+- `belongsToCompany` la exige, así que cubre todo lo que ya estaba por
+  empresa: Interventoría, Visitas, Correspondencia, Biblioteca, Planillas y
+  datos bancarios.
+- El desarrollador no se salta la regla, igual que en `AccessGuard`:
+  `isDeveloper` exige la cuenta habilitada, `isDeveloperIn` la empresa, y las
+  reglas que no pasaban por `belongsToCompany` (roles de Interventoría y
+  Correo, tipos documentales, ubicaciones de Visitas) usan `isDeveloperFor`.
+- **Tope de 1000 expresiones.** Visitas evaluaba `belongsToCompany` hasta
+  cuatro veces por petición y con la regla nueva se pasaba del tope. Las
+  funciones terminadas en `En` (`administraVisitasAreaEn`,
+  `gerenciaVisitasEn`, `rolVisitasEn`…) no vuelven a mirar la empresa y se
+  usan dentro de una regla que ya la miró; el `update` de `TBL_VISITAS` la
+  mira una sola vez arriba. Lo que permite cada regla no cambia. Con la
+  comprobación nueva duplicada a propósito siguen pasando todas las pruebas:
+  quedó margen.
+
+**Despliegue:** `firebase deploy --only firestore:rules`.
+
+**Pruebas:** `functions/test/inhabilitados.rules.js` (9; contra las reglas
+anteriores fallan 8). Con el emulador:
+`firebase emulators:exec --only firestore "cd functions && node --test test/*.rules.js"`
+→ 60 aprobadas, 2 omitidas a propósito.
+
+**Lo que las reglas NO cubren todavía** (decisión aparte, no es de este
+cambio):
+- La regla general `/{collection}/{document=**}` (Tareas, Usuarios, Compras,
+  Talento Humano…) solo pide sesión: ni empresa ni estado. Quien queda
+  inhabilitado en todas sus empresas conserva hasta una hora ahí, hasta que
+  vence su sesión (Functions se las revoca en ese momento); quien sigue
+  habilitado en otra empresa no pierde la sesión y sigue viendo esas
+  colecciones completas. Cerrarlo pide leer un documento más en cada
+  petición de toda la app y filtrar por empresa esas colecciones.
+- Cualquiera con sesión puede escribir `TBL_USUARIOS`, incluida su propia
+  ficha: podría volver a habilitarse o darse un rol. Es el P0 de "Seguridad
+  transversal"; hay que acordar con Codex quién escribe qué en Usuarios antes
+  de cerrarlo.
+
 ## Visitas: Google Maps y subcentros como establecimiento — 28 sep 2026 (Claude)
 
 Pedido: "que se busquen los lugares con Google Maps (busco Buen Pastor, sale
