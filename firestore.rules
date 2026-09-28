@@ -333,35 +333,100 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ── Nutrición (28 sep 2026) ───────────────────────────────────────────
+    // Pacientes, valoraciones, patologías e historial son datos de salud y
+    // solo pedían sesión: cualquiera, de cualquier empresa, los leía y
+    // escribía. Ahora cada documento es de su empresa (y de nadie
+    // inhabilitado en ella) y no cambia de empresa. `get` de un id que no
+    // existe responde vacío: la app pregunta por la firma, el paciente o la
+    // plantilla antes de crearlos.
+    //
+    // No se exige tener el módulo asignado: la lista de módulos vive en la
+    // ficha del usuario, que todavía puede escribir cualquiera (P0 de
+    // Seguridad transversal). Las citas las consulta el calendario de
+    // Inicio de todo el personal.
+    function nutricionDeSuEmpresa() {
+      return request.method == 'create'
+        ? belongsToCompany(request.resource.data.empresaId)
+        : belongsToCompany(resource.data.empresaId)
+          && (request.method != 'update'
+            || request.resource.data.empresaId == resource.data.empresaId);
+    }
+
     match /TBL_PACIENTES/{docId} {
-      allow read, write: if isSignedIn();
+      allow get: if resource == null || nutricionDeSuEmpresa();
+      allow list, create, update, delete: if nutricionDeSuEmpresa();
     }
     match /TBL_VALORACIONES_NUTRICION/{docId} {
-      allow read, write: if isSignedIn();
+      allow get: if resource == null || nutricionDeSuEmpresa();
+      allow list, create, update, delete: if nutricionDeSuEmpresa();
     }
     match /TBL_MEDICIONES_NUTRICION/{docId} {
-      allow read, write: if isSignedIn();
+      allow get: if resource == null || nutricionDeSuEmpresa();
+      allow list, create, update, delete: if nutricionDeSuEmpresa();
     }
     match /TBL_PATOLOGIAS/{docId} {
-      allow read, write: if isSignedIn();
+      allow get: if resource == null || nutricionDeSuEmpresa();
+      allow list, create, update, delete: if nutricionDeSuEmpresa();
     }
     match /TBL_DIETAS/{docId} {
-      allow read, write: if isSignedIn();
+      allow get: if resource == null || nutricionDeSuEmpresa();
+      allow list, create, update, delete: if nutricionDeSuEmpresa();
     }
     match /TBL_ASIGNACIONES_DIETA/{docId} {
-      allow read, write: if isSignedIn();
+      allow get: if resource == null || nutricionDeSuEmpresa();
+      allow list, create, update, delete: if nutricionDeSuEmpresa();
     }
     match /TBL_CARNETS_NUTRICION/{docId} {
-      allow read, write: if isSignedIn();
+      allow get: if resource == null || nutricionDeSuEmpresa();
+      allow list, create, update, delete: if nutricionDeSuEmpresa();
     }
     match /TBL_MENUS/{docId} {
-      allow read, write: if isSignedIn();
+      allow get: if resource == null || nutricionDeSuEmpresa();
+      allow list, create, update, delete: if nutricionDeSuEmpresa();
     }
     match /TBL_DERIVACIONES_NUTRICION/{docId} {
-      allow read, write: if isSignedIn();
+      allow get: if resource == null || nutricionDeSuEmpresa();
+      allow list, create, update, delete: if nutricionDeSuEmpresa();
     }
     match /TBL_ALERTAS_NUTRICION/{docId} {
-      allow read, write: if isSignedIn();
+      allow get: if resource == null || nutricionDeSuEmpresa();
+      allow list, create, update, delete: if nutricionDeSuEmpresa();
+    }
+    match /TBL_FIRMAS/{docId} {
+      allow get: if resource == null || nutricionDeSuEmpresa();
+      allow list, create, update, delete: if nutricionDeSuEmpresa();
+    }
+    match /TBL_EVIDENCIAS_NUTRICION/{docId} {
+      allow get: if resource == null || nutricionDeSuEmpresa();
+      allow list, create, update, delete: if nutricionDeSuEmpresa();
+    }
+    match /TBL_PLANTILLAS_MENUS/{docId} {
+      allow get: if resource == null || nutricionDeSuEmpresa();
+      allow list, create, update, delete: if nutricionDeSuEmpresa();
+    }
+    match /TBL_INGREDIENTES/{docId} {
+      allow get: if resource == null || nutricionDeSuEmpresa();
+      allow list, create, update, delete: if nutricionDeSuEmpresa();
+    }
+    match /TBL_DIRECTORIO_NUTRICION/{docId} {
+      allow get: if resource == null || nutricionDeSuEmpresa();
+      allow list, create, update, delete: if nutricionDeSuEmpresa();
+    }
+    match /TBL_CITAS_NUTRICION/{docId} {
+      allow get: if resource == null || nutricionDeSuEmpresa();
+      allow list, create, update, delete: if nutricionDeSuEmpresa();
+    }
+
+    // Historial del paciente: `{empresa}-{paciente}/registros`. La consulta
+    // no filtra por empresa (lee los últimos 20 del paciente), así que la
+    // empresa sale del id: los códigos de empresa no llevan guion
+    // (`codigoEmpresaDesdeNombre`). Se agrega y no se reescribe.
+    match /TBL_HISTORIAL_NUTRICION/{historialId}/registros/{registroId} {
+      allow read: if belongsToCompany(historialId.split('-')[0]);
+      allow create: if belongsToCompany(historialId.split('-')[0])
+        && request.resource.data.empresaId == historialId.split('-')[0];
+      allow update, delete: if false;
     }
 
     // Las credenciales de WhatsApp se administran exclusivamente mediante
@@ -1216,7 +1281,24 @@ service cloud.firestore {
           'TBL_RUTAS_MOV_CONFIG',
           'TBL_RUTAS_MOV_HORARIOS',
           'TBL_RUTAS_MOV_MEDICIONES',
-          'TBL_RUTAS_MOV_RUNS'
+          'TBL_RUTAS_MOV_RUNS',
+          'TBL_PACIENTES',
+          'TBL_VALORACIONES_NUTRICION',
+          'TBL_MEDICIONES_NUTRICION',
+          'TBL_PATOLOGIAS',
+          'TBL_DIETAS',
+          'TBL_ASIGNACIONES_DIETA',
+          'TBL_CARNETS_NUTRICION',
+          'TBL_MENUS',
+          'TBL_DERIVACIONES_NUTRICION',
+          'TBL_ALERTAS_NUTRICION',
+          'TBL_FIRMAS',
+          'TBL_EVIDENCIAS_NUTRICION',
+          'TBL_PLANTILLAS_MENUS',
+          'TBL_INGREDIENTES',
+          'TBL_DIRECTORIO_NUTRICION',
+          'TBL_CITAS_NUTRICION',
+          'TBL_HISTORIAL_NUTRICION'
         ]);
     }
   }

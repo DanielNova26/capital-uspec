@@ -6,6 +6,58 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Nutrición: los datos de salud quedan en su empresa — 28 sep 2026 (Claude)
+
+Ronda "módulo por módulo". Pacientes, valoraciones, patologías, historial,
+derivaciones y alertas son datos de salud, y solo pedían sesión:
+cualquiera, de cualquier empresa, los leía y escribía (10 colecciones con
+`isSignedIn()` y 7 más en la regla general).
+
+- Las 16 colecciones de Nutrición van por empresa, con la regla de
+  inhabilitados: se lee, crea, cambia y borra solo en la propia empresa, y
+  un documento no cambia de empresa (`nutricionDeSuEmpresa`).
+- `TBL_HISTORIAL_NUTRICION/{empresa}-{paciente}/registros`: su consulta no
+  filtra por empresa, así que la empresa sale del id (los códigos de
+  empresa no llevan guion). Se agrega y no se reescribe.
+- Las citas las sigue consultando el calendario de Inicio de todo el
+  personal: su consulta ya filtra por empresa.
+- De paso se cierra un choque entre empresas: dietas y patologías usan el
+  código como id (`TBL_DIETAS/{codigo}`), y guardar la dieta "D1" en una
+  empresa le pisaba la "D1" a la otra. Ahora la regla lo rechaza. Si dos
+  empresas llegan a usar Nutrición con los mismos códigos, hay que pasar a
+  `{empresa}_{codigo}` (la carga inicial de dietas ya lo hace).
+- No se exige tener el módulo asignado: la lista de módulos vive en la
+  ficha del usuario, que todavía puede escribir cualquiera (P0).
+
+Solo cambian las reglas. **Despliegue:** `firebase deploy --only firestore:rules`.
+
+**Pruebas:** `functions/test/nutricion.rules.js` (6; contra las reglas
+anteriores fallan 5, la que pasa es la de control). Todas las de reglas:
+77 aprobadas, 2 omitidas, también con la comprobación de habilitado
+duplicada.
+
+### Compras: lo que hay que resolver antes de cerrarle las reglas
+
+Revisado para la misma ronda y dejado para Codex, que es dueño de
+`lib/compras`. Hoy todo Compras está en la regla general, incluido
+`TBL_COMPRAS_ROLES`: cualquiera con sesión puede darse el rol de admin.
+
+1. **Dos consultas no filtran por empresa** y fallarían con reglas por
+   empresa: `compras_service.dart:482` (abastecimiento por `recepcionId`) y
+   `compras_aprobaciones.dart:299` (aprobaciones por `entidadId`). Hay que
+   agregarles `.where('empresaId', isEqualTo: …)`.
+2. **El rol no siempre está donde las reglas lo pueden ver.**
+   `getRolUsuario` busca el rol por consulta (cualquier id) y, si no hay,
+   `_inferComprasRolFromUserData` lo deduce de la ficha: `rolCompras`,
+   `roleKey`, `role`, `rol` o el **cargo** ("Director de Calidad",
+   "Almacenista"…). Las reglas solo pueden leer
+   `TBL_COMPRAS_ROLES/{empresa}_{usuario}`. Antes de reglas por rol, cada
+   persona de Compras necesita su documento con ese id; si no, quien hoy
+   entra por el cargo se queda sin permisos.
+3. Con eso listo, las reglas siguen el patrón de Rutas: lectura por
+   empresa, escritura por rol, y roles asignados solo por Desarrollo o el
+   admin de Compras.
+
 ## Rutas: reglas por empresa y por rol — 28 sep 2026 (Claude)
 
 Ronda "módulo por módulo" (Codex va con Correspondencia). Rutas estaba
