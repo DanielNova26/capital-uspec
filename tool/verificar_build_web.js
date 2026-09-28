@@ -21,7 +21,10 @@ function detener(mensaje) {
     '\nEjecuta:  flutter build web --release\n' +
       'Espera a que termine con "Built build\\web" (sin errores) y vuelve a publicar.\n',
   );
-  process.exit(1);
+  // 2 y no 1: en Windows, firebase-tools corre el predeploy con cross-spawn,
+  // que convierte cualquier salida 1 en un falso "spawn ... ENOENT" con su
+  // traza, como si el script no existiera.
+  process.exit(2);
 }
 
 const pubspec = fs.readFileSync(path.join(raiz, 'pubspec.yaml'), 'utf8');
