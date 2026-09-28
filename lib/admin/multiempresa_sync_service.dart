@@ -201,6 +201,19 @@ class MultiempresaSyncService {
       nombresEmpresa: nombresEmpresa,
     );
     final referencia = persona.referenciaSugerida;
+    // Personal inhabilitado no pasa a otra empresa. Se mira la empresa de
+    // la que trae el puesto: si está activa en alguna, esa es la referencia.
+    final bloqueo = motivoNoTraslada(
+      usuario: usuario,
+      estructura: estructura,
+      empresas: [?referencia],
+      nombresEmpresa: nombresEmpresa,
+    );
+    if (bloqueo != null) {
+      throw StateError(
+        'No se agregó a ${nombresEmpresa[empresaId] ?? empresaId}. $bloqueo',
+      );
+    }
     if (referencia == null) {
       // Sin ninguna empresa previa no hay puesto que llevar.
       await _db.collection(_usuarios).doc(cedula).set({

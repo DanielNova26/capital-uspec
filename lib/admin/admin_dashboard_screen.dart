@@ -4041,6 +4041,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 _users,
                 search: _userSearch,
                 areaId: _userAreaFilter,
+                soloActivos: false,
               ).length
         : 0;
 
@@ -4058,7 +4059,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           if (ocultos > 0) ...[
             const SizedBox(height: 8),
             Text(
-              '$ocultos persona(s) retirada(s) sin mostrar.',
+              '$ocultos persona(s) inhabilitada(s) sin mostrar: no pueden '
+              'entrar a la app hasta que las habiliten.',
               style: const TextStyle(
                 fontFamily: kArial,
                 fontSize: 12,
@@ -4133,6 +4135,36 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                                       fontSize: 16,
                                     ),
                                   ),
+                                  if (!_habilitado(d)) ...[
+                                    const SizedBox(height: 4),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.red.withValues(
+                                          alpha: 0.1,
+                                        ),
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      child: Text(
+                                        getUserCompanyDetail(
+                                                  d,
+                                                  _empresaId,
+                                                )?['trasladadoA'] !=
+                                                null
+                                            ? 'Trasladado a otra empresa · no entra aquí'
+                                            : 'Inhabilitado · no puede entrar',
+                                        style: const TextStyle(
+                                          fontFamily: kArial,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w800,
+                                          color: Colors.red,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                   const SizedBox(height: 2),
                                   Text(
                                     'Cédula: $cedula • ID: ${uDoc.id}',
@@ -4431,7 +4463,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       selected: _userSoloActivos,
       onSelected: (v) => setState(() => _userSoloActivos = v),
       label: const Text(
-        'Solo personal activo',
+        'Solo personal habilitado',
         style: TextStyle(fontFamily: kArial, fontSize: 12),
       ),
     );
@@ -4532,11 +4564,26 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   // ---------------- HELPERS: FILTRO DE PERSONAL ----------------
 
+  /// ¿Está habilitado en la empresa activa? Un inhabilitado —por Talento
+  /// Humano, con la cuenta apagada o trasladado a otra empresa— no entra a
+  /// la app (`motivoAccesoBloqueado`), así que no hay a quién darle accesos
+  /// ni roles.
+  bool _habilitado(Map<String, dynamic> d) =>
+      personaHabilitadaEn(d, _empresaId);
+
+  /// Personal habilitado: lo que ven las listas de accesos, módulos, roles y
+  /// sesiones. Las herramientas de mantenimiento (migraciones, limpiezas,
+  /// cierres) siguen trabajando sobre todos (`_users`).
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> get _usuariosHabilitados =>
+      _users.where((u) => _habilitado(u.data())).toList();
+
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _applyPersonnelFilter(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> users, {
     required String search,
     String? areaId,
-    bool soloActivos = false,
+    // Por defecto solo habilitados: la pestaña Usuarios es la única que los
+    // puede mostrar ("Ver inhabilitados").
+    bool soloActivos = true,
   }) {
     // Áreas con todas sus variantes de id: la persona puede tener guardada
     // la misma área con otro id (Regla 3: nada de comparar con ==).
@@ -4548,7 +4595,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       final d = u.data();
       // El retiro vive en el bloque de la empresa: el `estado` raíz solo
       // gobierna el login y no dice nada del vínculo laboral.
-      if (soloActivos && !personaHabilitadaEn(d, _empresaId)) return false;
+      if (soloActivos && !_habilitado(d)) return false;
       // La persona en la empresa activa: la raíz es de su empresa principal.
       final enEmpresa = mergeCompanyScopedData(d, _empresaId);
       final uAreaId = _safe(enEmpresa['areaId']);
@@ -5106,7 +5153,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     if (empresaId.trim().isEmpty) {
       return const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
     }
-    return _users
+    return _usuariosHabilitados
         .where(
           (user) => matchesEmpresaScope(
             user.data(),
@@ -7900,7 +7947,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   /// Cuenta cuántos usuarios tienen asignado [appId] (normalizado).
   int _countUsersWithApp(String appId) {
-    return _users.where((u) {
+    return _usuariosHabilitados.where((u) {
       return (_userApps[u.id] ?? {}).any((a) => appIdsEquivalent(a, appId));
     }).length;
   }
@@ -7939,7 +7986,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         return StatefulBuilder(
           builder: (ctx2, setSS2) {
             // Usuarios visibles según filtros
-            final visible = _users.where((u) {
+            final visible = _usuariosHabilitados.where((u) {
               final d = u.data();
               final nombre = _userName(d).toLowerCase();
               final uAreaId = (d['areaId'] ?? '').toString().trim();
@@ -8138,7 +8185,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   child: Row(
                     children: [
                       Text(
-                        '${selection.values.where((v) => v).length} de ${_users.length} seleccionados',
+                        '${selection.values.where((v) => v).length} de ${_usuariosHabilitados.length} seleccionados',
                         style: const TextStyle(
                           fontFamily: kArial,
                           fontSize: 12,
@@ -10526,7 +10573,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         final sessions = snap.data ?? const <LoginSessionDoc>[];
         final latestByUser = _latestSessionByUser(sessions);
         final query = _sessionSearch.trim().toLowerCase();
-        final users = _users.where((doc) {
+        final habilitados = _usuariosHabilitados;
+        final users = habilitados.where((doc) {
           if (query.isEmpty) return true;
           final data = doc.data();
           final nombre = _userName(data, doc.id).toLowerCase();
@@ -10537,10 +10585,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               doc.id.toLowerCase().contains(query) ||
               cargo.contains(query);
         }).toList();
-        final loggedUsers = _users
+        final loggedUsers = habilitados
             .where((userDoc) => _latestForUser(userDoc, latestByUser) != null)
             .length;
-        final neverLogged = _users.length - loggedUsers;
+        final neverLogged = habilitados.length - loggedUsers;
         final todayKey = DateFormat('yyyy-MM-dd').format(DateTime.now());
         final todayCount = sessions
             .where(
@@ -10571,7 +10619,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   ),
                   Chip(
                     avatar: const Icon(Icons.people_alt, size: 18),
-                    label: Text('${_users.length} usuarios'),
+                    label: Text('${habilitados.length} usuarios'),
                   ),
                   Chip(
                     avatar: const Icon(Icons.login_rounded, size: 18),
@@ -11776,7 +11824,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   ),
                   FilterChip(
                     label: Text(
-                      'Sin rol asignado (${_users.where((u) {
+                      'Sin rol asignado (${_usuariosHabilitados.where((u) {
                         final ced = _safe(u.data()['cedula']);
                         return !rolesActuales.any((r) => r.userId == u.id || r.cedula == ced);
                       }).length})',
@@ -12056,7 +12104,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       builder: (ctx, snapRoles) {
         final rolesActuales = snapRoles.data ?? [];
         final search = _rutasRolesSearch.trim().toLowerCase();
-        final filtered = _users.where((u) {
+        final filtered = _usuariosHabilitados.where((u) {
           if (search.isEmpty) return true;
           final data = u.data();
           final nombre = _userName(data, u.id).toLowerCase();
@@ -14028,7 +14076,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       message:
           'Origen: ${source.nombre} (${source.empresaId})\n'
           'Destino: $targetName ($targetId)\n\n'
-          'Se traslada a todo el personal. Los centros, áreas y '
+          'Se traslada a todo el personal activo; los inhabilitados no '
+          'pasan. Los centros, áreas y '
           'cargos que falten en el destino se copian del origen.\n\n'
           '${conservan.isEmpty ? 'A todos' : 'A todos menos ${conservan.length}'} '
           'les queda ${source.nombre} APAGADA: dejan de aparecer en sus '
@@ -14053,6 +14102,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         'Empresa creada: ${result.usersTransferred} persona(s) trasladadas, '
         '${result.sourceTurnedOff} con la anterior apagada y '
         '${result.keptBothActive} con las dos activas. '
+        '${result.disabledSkipped > 0 ? '${result.disabledSkipped} inhabilitado(s) no se trasladaron. ' : ''}'
         '${result.catalogsCopied} catálogo(s) y '
         '${result.moduleRolesCopied} rol(es) copiados.',
       );
@@ -14106,7 +14156,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Todo el personal se traslada. A quien no marques aquí le '
+                    'Todo el personal activo se traslada (los inhabilitados '
+                    'no pasan). A quien no marques aquí le '
                     'quedará ${source.nombre} apagada: deja de salir en sus '
                     'listados, pero conserva lo que ya registró ahí.',
                     style: const TextStyle(
@@ -14251,7 +14302,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       );
       await _loadMembresiaUsers();
     } catch (e) {
-      _snack('Error: $e');
+      // Un StateError trae el porqué en palabras (p. ej. inhabilitado).
+      _snack(e is StateError ? e.message : 'Error: $e');
     }
   }
 

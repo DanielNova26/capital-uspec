@@ -393,17 +393,52 @@ bool userHasApp(Map<String, dynamic> data, String? appId, {String? empresaId}) {
   return false;
 }
 
-/// Empresas en las que la cuenta está habilitada y la persona sigue activa.
+/// Empresas en las que la persona puede entrar: sus membresías menos las
+/// apagadas por un traslado (`empresasDetalle.{empresa}.activo: false`) y
+/// menos aquellas donde Talento Humano la inhabilitó.
 ///
 /// Una empresa apagada se queda en `empresas` para conservar lo que la
 /// persona registró allí, pero ya no se ofrece al iniciar sesión ni al
 /// cambiar de empresa: quien pasó "solo a la nueva" no debe seguir entrando
-/// a la antigua. Si ninguna está habilitada, no hay empresa seleccionable.
+/// a la antigua. Un inhabilitado no entra a esa empresa hasta que lo
+/// habiliten; si lo está en todas, la lista queda vacía y no entra a la app
+/// (ver [motivoAccesoBloqueado]). Si todas están apagadas por traslado,
+/// tampoco se reactiva ninguna por defecto.
+///
+/// Espejo en el servidor: `functions/src/acceso.ts`.
 List<String> empresasSeleccionables(Map<String, dynamic> data) {
   return [
     for (final e in extractUserEmpresaIds(data))
       if (personaHabilitadaEn(data, e)) e,
   ];
+}
+
+/// Mensaje para quien tiene la cuenta inhabilitada.
+const String kMensajeCuentaInhabilitada =
+    'Tu usuario está inhabilitado. Comunícate con Talento Humano o con el '
+    'administrador para que te habiliten de nuevo.';
+
+/// Mensaje para quien está inhabilitado en todas sus empresas.
+const String kMensajeInhabilitadoEnEmpresas =
+    'Estás inhabilitado en tu empresa. Comunícate con Talento Humano para '
+    'que te habiliten de nuevo.';
+
+/// Por qué la persona NO puede entrar a la app; null si puede.
+///
+/// Regla: un inhabilitado no entra hasta que lo habiliten otra vez. Vale la
+/// cuenta apagada en Administración (`activo: false` o un `estado` global
+/// distinto de activo) y la inhabilitación de Talento Humano en todas sus
+/// empresas. Si queda habilitado en alguna, entra solo a esa.
+///
+/// La aplican el servidor al iniciar sesión (`functions/src/acceso.ts`),
+/// la reanudación de sesión y el vigilante de la sesión abierta.
+String? motivoAccesoBloqueado(Map<String, dynamic> usuario) {
+  if (cuentaInhabilitada(usuario)) return kMensajeCuentaInhabilitada;
+  if (extractUserEmpresaIds(usuario).isNotEmpty &&
+      empresasSeleccionables(usuario).isEmpty) {
+    return kMensajeInhabilitadoEnEmpresas;
+  }
+  return null;
 }
 
 String? resolveValidEmpresaId({
@@ -683,17 +718,71 @@ bool isPersonaActivaEnEmpresa(Map<String, dynamic> data, String? empresaId) {
   return global.isEmpty || global == kEstadoPersonaActivo;
 }
 
-/// Para documentos de `TBL_USUARIOS`: exige una cuenta habilitada además
-/// del vínculo laboral vigente en la empresa. Un bloque activo no puede
-/// reactivar una cuenta bloqueada globalmente.
-///
-/// No usar con `TBL_ESTRUCTURA_ORGANIZACIONAL`: allí el estado raíz describe
-/// la empresa principal, por lo que corresponde [isPersonaActivaEnEmpresa].
-/// La pertenencia a la empresa se valida por separado.
+/// La cuenta está apagada para toda la app: el interruptor global de
+/// Administración (`activo: false`) o un `estado` global distinto de activo.
+bool cuentaInhabilitada(Map<String, dynamic> usuario) {
+  if (usuario['activo'] == false) return true;
+  // Mismo criterio que el servidor (`functions/src/acceso.ts`): `estado` o,
+  // en registros viejos, `status`; "active" también vale.
+  String texto(Object? v) => (v ?? '').toString().trim().toLowerCase();
+  final estado = texto(usuario['estado']);
+  final global = estado.isNotEmpty ? estado : texto(usuario['status']);
+  return global.isNotEmpty &&
+      global != kEstadoPersonaActivo &&
+      global != 'active';
+}
+
+/// Para TBL_USUARIOS: exige cuenta habilitada y vínculo vigente en la empresa.
+/// La pertenencia se valida por separado. La estructura organizacional sigue
+/// usando [isPersonaActivaEnEmpresa], pues su estado raíz es de la principal.
 bool personaHabilitadaEn(Map<String, dynamic> data, String? empresaId) {
-  final estado = (data['estado'] ?? '').toString().trim().toLowerCase();
-  if (estado.isNotEmpty && estado != kEstadoPersonaActivo) return false;
-  return isPersonaActivaEnEmpresa(data, empresaId);
+  if (cuentaInhabilitada(data)) return false;
+  final empresa = normalizeEmpresaId(empresaId);
+  if (empresa == null) return true;
+  return getUserCompanyDetail(data, empresa)?['activo'] != false &&
+      !personaInhabilitadaEn(data, empresa);
+}
+
+bool _estadoInactivo(Map<String, dynamic>? bloque) {
+  if (bloque == null) return false;
+  for (final key in const ['estadoLaboral', 'estado']) {
+    final value = (bloque[key] ?? '').toString().trim().toLowerCase();
+    if (value.isEmpty) continue;
+    return value == kEstadoPersonaInactivo;
+  }
+  return false;
+}
+
+/// ¿Talento Humano inhabilitó a la persona en [empresaId]?
+///
+/// Inhabilitar (`PersonnelStatusService.changeStatus`) escribe el estado en
+/// `TBL_USUARIOS` (`empresasDetalle.{empresa}.estadoLaboral`) y en
+/// `TBL_ESTRUCTURA_ORGANIZACIONAL`, que es lo que lista Talento Humano. Basta
+/// con que uno de los dos diga inactivo. En la estructura también vale el
+/// campo literal con punto que dejó una versión anterior: es la última
+/// decisión que tomó Talento Humano.
+///
+/// No es lo mismo que una empresa apagada por un traslado: esa no es un
+/// retiro.
+bool personaInhabilitadaEn(
+  Map<String, dynamic> usuario,
+  String empresaId, {
+  Map<String, dynamic>? estructura,
+}) {
+  if (_estadoInactivo(getUserCompanyDetail(usuario, empresaId))) return true;
+  if (estructura == null) return false;
+  final literal = (estructura['empresasDetalle.$empresaId.estado'] ?? '')
+      .toString()
+      .trim()
+      .toLowerCase();
+  if (literal.isNotEmpty) return literal == kEstadoPersonaInactivo;
+  final bloque =
+      getUserCompanyDetail(estructura, empresaId) ??
+      (raizEsDeEmpresa(estructura, empresaId) &&
+              extractUserEmpresaIds(estructura).isNotEmpty
+          ? estructura
+          : null);
+  return _estadoInactivo(bloque);
 }
 
 /// Marca con la que Talento Humano saca a alguien de los desplegables de

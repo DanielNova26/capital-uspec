@@ -29,6 +29,7 @@ const functions = __importStar(require("firebase-functions/v1"));
 const crypto_1 = require("crypto");
 const util_1 = require("util");
 const apps_por_empresa_1 = require("./apps_por_empresa");
+const acceso_1 = require("./acceso");
 const scrypt = (0, util_1.promisify)(crypto_1.scrypt);
 const usersCollection = "TBL_USUARIOS";
 const credentialsCollection = "TBL_AUTH_CREDENTIALS";
@@ -58,9 +59,9 @@ function textList(value) {
         return [];
     return value.map((item) => clean(item)).filter(Boolean);
 }
+// Activo = puede entrar a la app (ver acceso.ts): un inhabilitado no.
 function isActive(data) {
-    const state = normalized(data.estado || data.status);
-    return state === "" || state === "activo" || state === "active";
+    return (0, acceso_1.motivoAccesoBloqueado)(data) === null;
 }
 function isDeveloper(data) {
     if (data.desarrollador === true || data.developer === true)
@@ -247,7 +248,10 @@ exports.securityAdminOverview = functions
             cedula: clean(raw.cedula || doc.id),
             area: scopedText(raw, caller.empresaId, ["areaNombre", "area", "area_name"]),
             cargo: scopedText(raw, caller.empresaId, ["cargoNombre", "cargo", "cargo_name"]),
-            active: isActive(raw),
+            // En esta empresa: inhabilitado aquí sale inactivo aunque pueda
+            // entrar a otra de sus empresas.
+            active: isActive(raw) &&
+                (0, acceso_1.empresasSeleccionables)(raw).includes(caller.empresaId),
             migrated: Number(raw.authVersion || 0) === 2 && migratedIds.has(doc.id),
             needsPasswordChange: raw.needsPasswordChange === true,
             recoveryConfigured: Boolean(clean(raw.pregunta_seguridad_1) && clean(raw.pregunta_seguridad_2)),

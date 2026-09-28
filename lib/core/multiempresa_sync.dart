@@ -1774,10 +1774,38 @@ DestinoTraslado situacionTraslado(
   return DestinoTraslado.soloAntigua;
 }
 
+/// Por qué la persona no puede pasar de una empresa a otra; null si puede.
+///
+/// Regla: personal inhabilitado no se traslada. Cuenta inhabilitada en toda
+/// la app, o inhabilitada por Talento Humano en cualquiera de [empresas]
+/// (la de origen y la de destino). Volver a habilitarla es decisión de
+/// Talento Humano, no de un traslado.
+String? motivoNoTraslada({
+  required Map<String, dynamic> usuario,
+  Map<String, dynamic>? estructura,
+  required Iterable<String> empresas,
+  Map<String, String> nombresEmpresa = const {},
+}) {
+  if (cuentaInhabilitada(usuario)) {
+    return 'Su cuenta está inhabilitada: no se traslada.';
+  }
+  for (final e in {...empresas}) {
+    if (personaInhabilitadaEn(usuario, e, estructura: estructura)) {
+      final n = (nombresEmpresa[e] ?? '').trim();
+      return 'Inhabilitada en ${n.isEmpty ? e : n}: no se traslada.';
+    }
+  }
+  return null;
+}
+
 /// Lo que hay que escribir para dejar a una persona en [DestinoTraslado].
 class PlanTraslado {
   final String cedula;
   final DestinoTraslado decision;
+
+  /// Si no se puede trasladar (ver [motivoNoTraslada]), el porqué. El plan
+  /// queda vacío.
+  final String? bloqueo;
 
   /// Área, cargo y centros que se llevan de la antigua a la nueva (vacío si
   /// no entra a la nueva o si ya estaba activa allá).
@@ -1800,6 +1828,7 @@ class PlanTraslado {
     this.usuario = const {},
     this.estructura = const {},
     this.nuevaPrincipal,
+    this.bloqueo,
   });
 
   bool get vacio => puesto.vacio && usuario.isEmpty && estructura.isEmpty;
@@ -1845,6 +1874,22 @@ PlanTraslado planearTraslado({
       cedula: persona.cedula,
       decision: decision,
       puesto: sinPuesto,
+    );
+  }
+  // Personal inhabilitado no pasa: ni se lleva a la nueva ni se le mueve
+  // nada. La pantalla ya no deja elegirlo; esto es la última barrera.
+  final bloqueo = motivoNoTraslada(
+    usuario: usuario,
+    estructura: estructura,
+    empresas: [origenId, destinoId],
+    nombresEmpresa: nombresEmpresa,
+  );
+  if (bloqueo != null) {
+    return PlanTraslado(
+      cedula: persona.cedula,
+      decision: decision,
+      puesto: sinPuesto,
+      bloqueo: bloqueo,
     );
   }
   final d = persona.puesto(destinoId);

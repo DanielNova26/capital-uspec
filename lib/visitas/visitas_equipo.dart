@@ -518,7 +518,11 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
   // ── Grupos ─────────────────────────────────────────────────────────────
 
   Widget _grupos(List<VisitaGrupo> grupos, String? error, bool cargandoGrupos) {
-    final nombreCentro = {for (final c in _centros) c.id: c.nombre};
+    // Un grupo puede tener un centro entero o solo alguno de sus subcentros
+    // (28 sep 2026); la clave es la de la visita (`centro` o `centro|sub`).
+    final nombreCentro = {
+      for (final e in establecimientosDe(_centros)) e.clave: e.nombre,
+    };
     final puedeCrear = widget.esDesarrollador || _areaJefe.isNotEmpty;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -863,26 +867,75 @@ class _GrupoDialogState extends State<_GrupoDialog> {
       );
     }
     final q = areaClave(_buscarCentro);
-    final centros = [
-      for (final c in todos)
-        if (q.isEmpty || areaClave(c.nombre).contains(q)) c,
-    ];
-    if (centros.isEmpty) {
-      return const Center(child: Text('Ningún establecimiento coincide.'));
-    }
-    return ListView(
-      children: [
-        for (final c in centros)
-          CheckboxListTile(
-            dense: true,
-            value: _centros.contains(c.id),
-            title: Text(c.nombre),
-            onChanged: (v) => setState(
-              () => v == true ? _centros.add(c.id) : _centros.remove(c.id),
+    bool coincide(String nombre) => q.isEmpty || areaClave(nombre).contains(q);
+    // Un centro sale si coincide él o alguno de sus subcentros; debajo, sus
+    // subcentros (todos si coincide el centro, si no solo los que coinciden).
+    final filas = <Widget>[];
+    for (final c in todos) {
+      final subs = c.subcentrosActivos;
+      final centroCoincide = coincide(c.nombre);
+      final subsVisibles = [
+        for (final s in subs)
+          if (centroCoincide || coincide(s.nombre)) s,
+      ];
+      if (!centroCoincide && subsVisibles.isEmpty) continue;
+      final entero = _centros.contains(c.id);
+      filas.add(
+        CheckboxListTile(
+          dense: true,
+          value: entero,
+          title: Text(c.nombre),
+          subtitle: subs.isEmpty
+              ? null
+              : Text(
+                  entero
+                      ? 'Todo el establecimiento, con sus ${subs.length} '
+                            'subcentro${subs.length == 1 ? '' : 's'}'
+                      : '${subs.length} subcentro${subs.length == 1 ? '' : 's'}',
+                  style: const TextStyle(fontSize: 11),
+                ),
+          onChanged: (v) => setState(() {
+            if (v == true) {
+              _centros.add(c.id);
+              // El centro entero ya trae sus subcentros.
+              _centros.removeWhere((k) => k.startsWith('${c.id}|'));
+            } else {
+              _centros.remove(c.id);
+            }
+          }),
+        ),
+      );
+      for (final s in subsVisibles) {
+        final clave = EstablecimientoVisita(c, s).clave;
+        filas.add(
+          Padding(
+            padding: const EdgeInsets.only(left: 28),
+            child: CheckboxListTile(
+              dense: true,
+              value: entero || _centros.contains(clave),
+              title: Text(s.nombre),
+              subtitle: entero
+                  ? const Text(
+                      'Incluido con el establecimiento',
+                      style: TextStyle(fontSize: 11),
+                    )
+                  : null,
+              onChanged: entero
+                  ? null
+                  : (v) => setState(
+                      () => v == true
+                          ? _centros.add(clave)
+                          : _centros.remove(clave),
+                    ),
             ),
           ),
-      ],
-    );
+        );
+      }
+    }
+    if (filas.isEmpty) {
+      return const Center(child: Text('Ningún establecimiento coincide.'));
+    }
+    return ListView(children: filas);
   }
 
   @override
@@ -891,6 +944,7 @@ class _GrupoDialogState extends State<_GrupoDialog> {
     final faltaNombre = _nombre.text.trim().isEmpty;
     final faltaArea = _area.isEmpty;
     final todos = _todos ?? const <VisitaCentro>[];
+    final vigentes = [for (final e in establecimientosDe(todos)) e.clave];
     return AlertDialog(
       title: Text(widget.grupo.id.isEmpty ? 'Nuevo grupo' : 'Editar grupo'),
       content: SizedBox(
@@ -1039,11 +1093,12 @@ class _GrupoDialogState extends State<_GrupoDialog> {
                     areaId: _area,
                     areaNombre: widget.areas[_area] ?? widget.grupo.areaNombre,
                     centroIds: [
-                      for (final c in todos)
-                        if (_centros.contains(c.id)) c.id,
-                      // Centros que ya no están habilitados se conservan.
-                      for (final c in _centros)
-                        if (!todos.any((x) => x.id == c)) c,
+                      for (final k in vigentes)
+                        if (_centros.contains(k)) k,
+                      // Centros o subcentros que ya no están habilitados se
+                      // conservan.
+                      for (final k in _centros)
+                        if (!vigentes.contains(k)) k,
                     ],
                     profesionalIds: _profesionales.toList(),
                   ),

@@ -447,9 +447,7 @@ class _AdminMultiempresaPanelState extends State<AdminMultiempresaPanel> {
       style: _estilo(12, color: _kMuted),
     );
     final boton = FilledButton.icon(
-      onPressed: _ocupado || widget.empresas.length < 2
-          ? null
-          : _abrirTraslado,
+      onPressed: _ocupado || widget.empresas.length < 2 ? null : _abrirTraslado,
       icon: const Icon(Icons.move_up_rounded),
       label: const Text('Trasladar personal'),
     );
@@ -2113,18 +2111,30 @@ class _AdminMultiempresaPanelState extends State<AdminMultiempresaPanel> {
     var destino = candidatas.first.empresaId;
     var campos = const CamposSincronizacion();
 
+    // Personal inhabilitado no pasa a otra empresa. Quien ya está en el
+    // destino no "pasa": solo se sincroniza su puesto.
+    String? bloqueoDe(PersonaMultiempresa p) => p.puesto(destino) != null
+        ? null
+        : motivoNoTraslada(
+            usuario: datos.usuarios[p.cedula] ?? const {},
+            estructura: datos.estructuras[p.cedula],
+            empresas: [?p.referenciaSugerida],
+            nombresEmpresa: _nombresEmpresa,
+          );
+
     List<PlanPersona> planear(Map<String, CatalogoEmpresa> catalogos) => [
       for (final p in personas)
-        planearSincronizacion(
-          persona: p,
-          usuario: datos.usuarios[p.cedula] ?? const {},
-          estructura: datos.estructuras[p.cedula],
-          referenciaId: p.referenciaSugerida ?? p.empresaIds.first,
-          destinos: {destino},
-          catalogos: catalogos,
-          campos: campos,
-          nombresEmpresa: _nombresEmpresa,
-        ),
+        if (bloqueoDe(p) == null)
+          planearSincronizacion(
+            persona: p,
+            usuario: datos.usuarios[p.cedula] ?? const {},
+            estructura: datos.estructuras[p.cedula],
+            referenciaId: p.referenciaSugerida ?? p.empresaIds.first,
+            destinos: {destino},
+            catalogos: catalogos,
+            campos: campos,
+            nombresEmpresa: _nombresEmpresa,
+          ),
     ];
 
     final ok = await showDialog<bool>(
@@ -2132,10 +2142,14 @@ class _AdminMultiempresaPanelState extends State<AdminMultiempresaPanel> {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setLocal) {
           final planes = planear(copiarCatalogos(datos.catalogos));
+          final bloqueadas = [
+            for (final p in personas)
+              if (bloqueoDe(p) case final motivo?) (p, motivo),
+          ];
           final nuevas = planes
               .where((pl) => pl.ajustes.any((a) => a.vincular))
               .length;
-          final yaEstaban = personas.length - nuevas;
+          final yaEstaban = planes.length - nuevas;
           final catalogo = {
             for (final pl in planes)
               for (final n in pl.nuevas)
@@ -2191,7 +2205,27 @@ class _AdminMultiempresaPanelState extends State<AdminMultiempresaPanel> {
                       'principal no cambia.',
                       style: _estilo(13),
                     ),
-                    if (personas.length == 1) ...[
+                    if (bloqueadas.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: _kWarnBg,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          personas.length == 1
+                              ? bloqueadas.single.$2
+                              : '${bloqueadas.length} inhabilitada(s) no se '
+                                    'envían: '
+                                    '${bloqueadas.take(10).map((b) => _nombre(b.$1.cedula)).join(', ')}'
+                                    '${bloqueadas.length > 10 ? ' y ${bloqueadas.length - 10} más' : ''}.',
+                          style: _estilo(12, color: _kWarn),
+                        ),
+                      ),
+                    ],
+                    if (personas.length == 1 && planes.isNotEmpty) ...[
                       const SizedBox(height: 10),
                       _vistaPrevia(_lineasPlan(personas.single, planes.single)),
                     ] else if (catalogo.isNotEmpty) ...[
@@ -2213,7 +2247,7 @@ class _AdminMultiempresaPanelState extends State<AdminMultiempresaPanel> {
                 child: const Text('Cancelar'),
               ),
               FilledButton(
-                onPressed: planes.every((pl) => pl.vacio)
+                onPressed: planes.isEmpty || planes.every((pl) => pl.vacio)
                     ? null
                     : () => Navigator.pop(ctx, true),
                 child: const Text('Enviar'),

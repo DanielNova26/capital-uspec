@@ -108,7 +108,11 @@ class _MultiempresaTrasladoScreenState
   _Hoy? _hoyFiltro;
   DestinoTraslado? _decisionFiltro;
   bool _soloCambios = false;
-  bool _incluirRetirados = false;
+  bool _verInhabilitados = false;
+
+  /// Por qué cada persona no se puede trasladar (null = sí se puede). Se
+  /// calcula una vez por par de empresas.
+  final Map<String, String?> _bloqueos = {};
 
   /// Lo que el usuario eligió; quien no está aquí queda como está hoy.
   final Map<String, DestinoTraslado> _decisiones = {};
@@ -189,18 +193,36 @@ class _MultiempresaTrasladoScreenState
   /// ¿Hay algo que escribir para esta persona? Quien está apagada en las
   /// dos cambia con cualquier decisión explícita.
   bool _cambia(PersonaMultiempresa p) {
+    if (_bloqueo(p) != null) return false;
     final d = _decisiones[p.cedula];
     if (d == null) return false;
     return d != _situacion(p) || _hoy(p) == _Hoy.ninguna;
   }
 
   void _decidir(PersonaMultiempresa p, DestinoTraslado? d) {
+    // Personal inhabilitado no pasa: su decisión no se puede cambiar.
+    if (_bloqueo(p) != null) {
+      _decisiones.remove(p.cedula);
+      return;
+    }
     if (d == null || (d == _situacion(p) && _hoy(p) != _Hoy.ninguna)) {
       _decisiones.remove(p.cedula);
     } else {
       _decisiones[p.cedula] = d;
     }
   }
+
+  /// Por qué no se puede trasladar (inhabilitada en alguna de las dos o con
+  /// la cuenta apagada); null si se puede. Ver `motivoNoTraslada`.
+  String? _bloqueo(PersonaMultiempresa p) => _bloqueos.putIfAbsent(
+    p.cedula,
+    () => motivoNoTraslada(
+      usuario: widget.datos.usuarios[p.cedula] ?? const <String, dynamic>{},
+      estructura: widget.datos.estructuras[p.cedula],
+      empresas: [_origen!, _destino!],
+      nombresEmpresa: _nombresEmpresa,
+    ),
+  );
 
   /// El puesto que se mira para filtrar: el de la antigua.
   PuestoEmpresa? _puesto(PersonaMultiempresa p) => p.puesto(_origen!);
@@ -250,9 +272,7 @@ class _MultiempresaTrasladoScreenState
         : areas.opciones.where((o) => o.id == _areaFiltro).firstOrNull;
     return candidatas.where((p) {
       final x = _puesto(p)!;
-      if (!_incluirRetirados && x.estado == EstadoMembresia.retirada) {
-        return false;
-      }
+      if (!_verInhabilitados && _bloqueo(p) != null) return false;
       if (area != null &&
           !area.contiene(x.area.entrada?.id) &&
           !area.contiene(x.area.id) &&
@@ -287,6 +307,7 @@ class _MultiempresaTrasladoScreenState
     cambio();
     _decisiones.clear();
     _seleccion.clear();
+    _bloqueos.clear();
     _areaFiltro = null;
     _cargoFiltro = null;
     _centroFiltro = null;
@@ -514,42 +535,60 @@ class _MultiempresaTrasladoScreenState
   }
 
   Widget _resumen(List<PersonaMultiempresa> candidatas) {
+    // Los inhabilitados van aparte: no se trasladan, así que no se cuentan
+    // en cómo está hoy el personal que sí se puede mover.
     final conteo = <_Hoy, int>{for (final h in _Hoy.values) h: 0};
+    var inhabilitados = 0;
     for (final p in candidatas) {
-      conteo[_hoy(p)] = conteo[_hoy(p)]! + 1;
+      if (_bloqueo(p) != null) {
+        inhabilitados++;
+      } else {
+        conteo[_hoy(p)] = conteo[_hoy(p)]! + 1;
+      }
     }
+    Widget tarjeta({
+      required int valor,
+      required String etiqueta,
+      required Color color,
+      required bool activo,
+      required VoidCallback onTap,
+    }) => InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: activo ? color : _kBorder,
+            width: activo ? 2 : 1,
+          ),
+          color: Colors.white,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '$valor',
+              style: _estilo(20, weight: FontWeight.w900, color: color),
+            ),
+            Text(etiqueta, style: _estilo(11.5, color: _kMuted)),
+          ],
+        ),
+      ),
+    );
+
     Widget dato(_Hoy h, Color color) {
       final activo = _hoyFiltro == h;
-      return InkWell(
-        borderRadius: BorderRadius.circular(10),
+      final t = _hoyTexto(h);
+      return tarjeta(
+        valor: conteo[h]!,
+        // Solo la inicial en minúscula: el nombre de la empresa se escribe
+        // como es.
+        etiqueta: 'Hoy ${t[0].toLowerCase()}${t.substring(1)}',
+        color: color,
+        activo: activo,
         onTap: () => _filtro(() => _hoyFiltro = activo ? null : h),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: activo ? color : _kBorder,
-              width: activo ? 2 : 1,
-            ),
-            color: Colors.white,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '${conteo[h]}',
-                style: _estilo(20, weight: FontWeight.w900, color: color),
-              ),
-              Text(
-                // Solo la inicial en minúscula: el nombre de la empresa se
-                // escribe como es.
-                'Hoy ${_hoyTexto(h)[0].toLowerCase()}'
-                '${_hoyTexto(h).substring(1)}',
-                style: _estilo(11.5, color: _kMuted),
-              ),
-            ],
-          ),
-        ),
       );
     }
 
@@ -561,6 +600,20 @@ class _MultiempresaTrasladoScreenState
         dato(_Hoy.ambas, _kAccent),
         dato(_Hoy.soloNueva, _kOk),
         if (conteo[_Hoy.ninguna]! > 0) dato(_Hoy.ninguna, _kWarn),
+        if (inhabilitados > 0)
+          Tooltip(
+            message: _verInhabilitados
+                ? 'Toca para ocultarlos'
+                : 'Toca para verlos en la lista (no se pueden trasladar)',
+            child: tarjeta(
+              valor: inhabilitados,
+              etiqueta: 'Inhabilitados: no se trasladan',
+              color: Colors.red,
+              activo: _verInhabilitados,
+              onTap: () =>
+                  _filtro(() => _verInhabilitados = !_verInhabilitados),
+            ),
+          ),
       ],
     );
   }
@@ -647,9 +700,9 @@ class _MultiempresaTrasladoScreenState
           onSelected: (v) => _filtro(() => _soloCambios = v),
         ),
         FilterChip(
-          label: Text('Incluir retirados', style: _estilo(12)),
-          selected: _incluirRetirados,
-          onSelected: (v) => _filtro(() => _incluirRetirados = v),
+          label: Text('Ver inhabilitados', style: _estilo(12)),
+          selected: _verInhabilitados,
+          onSelected: (v) => _filtro(() => _verInhabilitados = v),
         ),
       ],
     );
@@ -719,13 +772,15 @@ class _MultiempresaTrasladoScreenState
   }
 
   Widget _accionesLote(List<PersonaMultiempresa> filtradas) {
-    final seleccionadas = filtradas
+    // El lote nunca alcanza a un inhabilitado, aunque se esté viendo.
+    final trasladables = filtradas.where((p) => _bloqueo(p) == null).toList();
+    final seleccionadas = trasladables
         .where((p) => _seleccion.contains(p.cedula))
         .toList();
-    final objetivo = seleccionadas.isNotEmpty ? seleccionadas : filtradas;
+    final objetivo = seleccionadas.isNotEmpty ? seleccionadas : trasladables;
     final quien = seleccionadas.isNotEmpty
         ? 'los ${seleccionadas.length} seleccionados'
-        : 'los ${filtradas.length} del filtro';
+        : 'los ${trasladables.length} del filtro';
     void aplicar(DestinoTraslado? d) => setState(() {
       for (final p in objetivo) {
         _decidir(p, d);
@@ -755,10 +810,10 @@ class _MultiempresaTrasladoScreenState
                   onPressed: () => setState(_seleccion.clear),
                   child: const Text('Quitar selección'),
                 )
-              else if (filtradas.isNotEmpty)
+              else if (trasladables.isNotEmpty)
                 TextButton(
                   onPressed: () => setState(
-                    () => _seleccion.addAll(filtradas.map((p) => p.cedula)),
+                    () => _seleccion.addAll(trasladables.map((p) => p.cedula)),
                   ),
                   child: const Text('Seleccionar todos'),
                 ),
@@ -797,30 +852,51 @@ class _MultiempresaTrasladoScreenState
     );
   }
 
-  Widget _selectorDecision(PersonaMultiempresa p) =>
-      SegmentedButton<DestinoTraslado>(
-        segments: [
-          for (final d in DestinoTraslado.values)
-            ButtonSegment(
-              value: d,
-              tooltip: switch (d) {
-                DestinoTraslado.soloNueva => 'Solo en ${_empresa(_destino)}',
-                DestinoTraslado.ambas => 'En las dos empresas',
-                DestinoTraslado.soloAntigua => 'Solo en ${_empresa(_origen)}',
-              },
-              label: Text(d.corto, style: _estilo(11.5)),
-            ),
-        ],
-        selected: {_decision(p)},
-        showSelectedIcon: false,
-        style: const ButtonStyle(
-          visualDensity: VisualDensity.compact,
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+  /// Dónde queda. A un inhabilitado no se le ofrece: en su lugar va el
+  /// porqué.
+  Widget _selectorDecision(PersonaMultiempresa p) {
+    final bloqueo = _bloqueo(p);
+    if (bloqueo == null) return _segmentos(p);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.block_rounded, size: 16, color: Colors.red),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            bloqueo,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: _estilo(11.5, weight: FontWeight.w700, color: Colors.red),
+          ),
         ),
-        onSelectionChanged: _ocupado
-            ? null
-            : (s) => setState(() => _decidir(p, s.first)),
-      );
+      ],
+    );
+  }
+
+  Widget _segmentos(PersonaMultiempresa p) => SegmentedButton<DestinoTraslado>(
+    segments: [
+      for (final d in DestinoTraslado.values)
+        ButtonSegment(
+          value: d,
+          tooltip: switch (d) {
+            DestinoTraslado.soloNueva => 'Solo en ${_empresa(_destino)}',
+            DestinoTraslado.ambas => 'En las dos empresas',
+            DestinoTraslado.soloAntigua => 'Solo en ${_empresa(_origen)}',
+          },
+          label: Text(d.corto, style: _estilo(11.5)),
+        ),
+    ],
+    selected: {_decision(p)},
+    showSelectedIcon: false,
+    style: const ButtonStyle(
+      visualDensity: VisualDensity.compact,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    ),
+    onSelectionChanged: _ocupado
+        ? null
+        : (s) => setState(() => _decidir(p, s.first)),
+  );
 
   Widget _texto(ValorCatalogo v) => Text(
     v.vacio ? '—' : v.nombre,
@@ -881,11 +957,14 @@ class _MultiempresaTrasladoScreenState
             DataRow(
               selected: _seleccion.contains(p.cedula),
               color: WidgetStatePropertyAll(_cambia(p) ? _kCambio : null),
-              onSelectChanged: (v) => setState(
-                () => v == true
-                    ? _seleccion.add(p.cedula)
-                    : _seleccion.remove(p.cedula),
-              ),
+              // Un inhabilitado no se puede seleccionar: no entra al lote.
+              onSelectChanged: _bloqueo(p) != null
+                  ? null
+                  : (v) => setState(
+                      () => v == true
+                          ? _seleccion.add(p.cedula)
+                          : _seleccion.remove(p.cedula),
+                    ),
               cells: [
                 DataCell(_persona(p, radio: 15)),
                 DataCell(_estadoHoy(p, corto: true)),
@@ -941,7 +1020,7 @@ class _MultiempresaTrasladoScreenState
   /// tooltip) para que quepa la columna de la decisión.
   Widget _estadoHoy(PersonaMultiempresa p, {bool corto = false}) {
     final h = _hoy(p);
-    final retirada = _puesto(p)!.estado == EstadoMembresia.retirada;
+    final inhabilitada = _bloqueo(p) != null;
     final chip = _chip(
       corto
           ? switch (h) {
@@ -963,7 +1042,7 @@ class _MultiempresaTrasladoScreenState
       runSpacing: 4,
       children: [
         if (corto) Tooltip(message: _hoyTexto(h), child: chip) else chip,
-        if (retirada) _chip('Retirada', Colors.red),
+        if (inhabilitada) _chip('Inhabilitado', Colors.red),
       ],
     );
   }
@@ -988,11 +1067,13 @@ class _MultiempresaTrasladoScreenState
               children: [
                 Checkbox(
                   value: _seleccion.contains(p.cedula),
-                  onChanged: (v) => setState(
-                    () => v == true
-                        ? _seleccion.add(p.cedula)
-                        : _seleccion.remove(p.cedula),
-                  ),
+                  onChanged: _bloqueo(p) != null
+                      ? null
+                      : (v) => setState(
+                          () => v == true
+                              ? _seleccion.add(p.cedula)
+                              : _seleccion.remove(p.cedula),
+                        ),
                 ),
                 Padding(
                   padding: const EdgeInsets.only(top: 4),

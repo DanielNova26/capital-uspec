@@ -49,13 +49,15 @@ void main() {
     });
 
     test('conserva cuentas antiguas y normaliza el estado global', () {
-      for (final estado in [null, '', ' ACTIVO ']) {
+      for (final estado in [null, '', ' ACTIVO ', 'active']) {
         expect(
           personaHabilitadaEn({...usuario(), 'estado': estado}, 'EMP2'),
           isTrue,
         );
       }
       expect(personaHabilitadaEn({}, 'EMP1'), isTrue);
+      expect(personaHabilitadaEn({'status': 'active'}, 'EMP1'), isTrue);
+      expect(personaHabilitadaEn({'status': 'inactive'}, 'EMP1'), isFalse);
       expect(personaHabilitadaEn({'estado': 'inactivo'}, null), isFalse);
     });
   });

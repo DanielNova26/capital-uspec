@@ -1,49 +1,52 @@
-# Entrega: usuarios habilitados por empresa
+# Publicación de la integración 2.6.9 (23)
 
-Se completó el pendiente indicado en la captura de Claude sobre sincronización multiempresa.
+## Por qué seguía apareciendo 2.6.6 (20)
 
-## Cambios
+El commit local `97344ae` sí existía. El mensaje «no changes added to commit» correspondía a intentar confirmar sin nuevos archivos preparados. Sin embargo, `main` local tenía un commit propio y le faltaban siete commits de GitHub, que ya incluían la versión 2.6.9+23.
 
-- `personaHabilitadaEn` valida el estado global de la cuenta y el vínculo laboral en la empresa. Un bloque activo no reactiva una cuenta globalmente inhabilitada.
-- Se aplicó a las lecturas de usuarios de Admin, Talento Humano, tareas, Rutas, Visitas, Facturación, Correspondencia, Planillas e Interventoría, y al diagnóstico de membresías.
-- Los selectores de inicio de sesión, cambio de empresa, Gerencia y copia a otra empresa en Biblioteca e Interventoría excluyen las empresas inhabilitadas. Si no queda ninguna, el selector queda vacío y la resolución de empresa devuelve `null`.
-- El control de entrada a módulos también rechaza la inhabilitación al abrir directamente, incluso con rol de desarrollador. Un desarrollador habilitado conserva su excepción de acceso.
-- La lectura de `TBL_ESTRUCTURA_ORGANIZACIONAL` conserva su regla independiente: el estado de la empresa consultada prevalece sobre el estado de la principal. No se eliminan membresías ni registros históricos.
+La carpeta local y la compilación web seguían en 2.6.6+20. Se comprobó directamente que `https://to-do-gestion.web.app/version.json` también entregaba 2.6.6 (20). Un push normal de las ramas divergentes no puede completarse y publicar el build anterior mantiene esa versión. No se dispone aquí de la salida del intento de push o deploy del usuario para atribuirle un error de consola específico.
 
-## Verificación
+## Solución preparada
 
-- Suite completa: `flutter test --no-pub --reporter expanded`, **1.069 pruebas aprobadas**.
-- Revisión final: pruebas de acceso, persistencia de empresa, sincronización, personal activo y puesto por empresa, **69 pruebas aprobadas**. Incluye los dos archivos de pruebas nuevos, añadidos después de iniciar la suite completa.
-- Análisis de la lógica común y de acceso: sin incidencias.
-- Análisis de los archivos modificados: sin errores; 6 advertencias y 15 avisos de estilo/deprecación en código preexistente.
-- `git diff --check -- lib test`: correcto.
-- `flutter build web --release --no-pub`: correcto, `Built build/web`. Flutter informó incompatibilidades de dependencias con el chequeo opcional de WebAssembly; la compilación web JavaScript terminó correctamente.
-- `node tool/verificar_build_web.js`: correcto, la web compilada coincide con `2.6.6+20`.
+Se integró `origin/main` (`4d3246a`) con el commit local, mediante un merge pendiente de commit. Los conflictos de Admin y de las reglas comunes de acceso quedaron resueltos. Se conservan las correcciones de ambas ramas, la expulsión de cuentas inhabilitadas, las mejoras de Visitas y la versión 2.6.9+23.
 
-Las pruebas se ejecutaron localmente. No se hizo una prueba manual con cuentas reales contra producción ni se modificaron datos de Firestore.
+La aplicación y Functions usan el mismo criterio: una cuenta bloqueada no tiene empresas seleccionables; si todas sus empresas están apagadas tampoco se reactiva ninguna automáticamente. Se mantuvo la compatibilidad de los estados antiguos `status` y `active`.
 
-## Commit y publicación por el usuario
+No se modificó la distribución visual del calendario.
 
-Los cambios de esta entrega están en `lib/`, `test/` y este documento. La carpeta principal ya tenía cambios en `functions/` y archivos temporales antes de esta revisión; no forman parte de esta entrega. Revisar el contenido preparado antes del commit.
+## Validación de esta integración
 
-Desde PowerShell en `C:\Desarrollo\capital-uspec`, ejecutar cada paso cuando el anterior termine correctamente:
+- Pruebas Flutter: **1.105 aprobadas**, sin fallos.
+- TypeScript compilado y 94 pruebas de Functions aprobadas.
+- Lint de Functions: sin errores, cuatro advertencias preexistentes. Análisis Dart de acceso y sesión: sin errores, cuatro avisos de estilo/deprecación preexistentes.
+- Compilación web 2.6.9+23: correcta, `Built build/web`. El chequeo previo a publicación confirma que la web compilada coincide con `pubspec.yaml`.
+
+## Pasos para el usuario
+
+Los archivos de la integración quedan preparados en el índice. Ejecutar cada comando solo si el anterior terminó correctamente:
 
 ```powershell
-git add -- lib test docs/entrega-multiempresa-2026-09-28.md
 git diff --cached --stat
-git commit -m "fix(multiempresa): respetar usuarios y empresas inhabilitados"
+git commit -m "merge: integrar version 2.6.9 y correcciones multiempresa"
 git push origin main
-flutter build web --release
-firebase deploy --only hosting --project integra360-94704
+node tool/verificar_build_web.js
+firebase deploy --only "functions,hosting" --project integra360-94704
 ```
 
-El despliegue usa el sitio `to-do-gestion` configurado en `firebase.json`. Este cambio no requiere publicar Functions ni reglas nuevas. Se conserva la versión actual del proyecto, `2.6.6+20`.
+La web ya se compila durante esta entrega. Si se modifica código después, volver a ejecutar `flutter build web --release` antes de publicar. No usar `git add .`: quedan archivos temporales y pruebas previas ajenas a esta integración.
 
-## Comprobación funcional después de publicar
+Esta vez se incluyen Functions porque la versión nueva de GitHub incorpora cambios en autenticación y búsqueda de lugares. El hosting usa el sitio `to-do-gestion` de `firebase.json`. No hay cambios nuevos de reglas de Firestore en esta integración.
 
-1. Cuenta activa en B y retirada en A: solo B aparece en los selectores y la persona no figura como candidata operativa en A.
-2. Cuenta globalmente inhabilitada con un bloque empresarial activo: no aparece como candidata ni obtiene acceso al módulo.
-3. Todas las empresas inhabilitadas: ninguna vuelve a aparecer por una selección guardada; no se reanuda una empresa inválida.
-4. Persona retirada en la empresa principal y vigente en otra dentro de la estructura organizacional: el organigrama de la segunda conserva su comportamiento.
+Para comprobar la versión después de que Firebase informe que el deploy terminó:
 
-No se realizó `git add`, commit, push ni despliegue durante esta entrega.
+```powershell
+Invoke-RestMethod ("https://to-do-gestion.web.app/version.json?check=" + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
+```
+
+Debe responder `version: 2.6.9` y `build_number: 23`. Si el push indica nuevos cambios remotos, detenerse y volver a integrar antes de publicar; no forzar el push.
+
+## Cambios previos conservados
+
+Los cambios locales previos de `functions/` se guardaron en el stash llamado `codex-respaldo-functions-antes-integracion-20260928`. La diferencia funcional era una dependencia local `capital-uspec: file:..` y su lockfile; se conserva en ese respaldo y queda fuera de la entrega para no empaquetar el repositorio como dependencia de Functions. Los archivos temporales y las tres pruebas previamente no rastreadas siguen en su sitio. No se eliminó ningún stash previo.
+
+No se hizo commit, push ni despliegue: esos pasos quedan para el usuario.

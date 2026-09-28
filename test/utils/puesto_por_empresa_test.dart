@@ -215,6 +215,174 @@ void main() {
     });
   });
 
+  // Los mismos casos que functions/test/acceso.test.js: la app y el servidor
+  // deben decidir igual quién entra.
+  group('motivoAccesoBloqueado', () {
+    Map<String, dynamic> persona(
+      Map<String, dynamic> detalle, [
+      Map<String, dynamic> extra = const {},
+    ]) => {
+      'empresaId': 'A',
+      'empresas': ['A', 'B'],
+      'empresasDetalle': detalle,
+      ...extra,
+    };
+
+    test('activo en sus empresas: entra', () {
+      expect(motivoAccesoBloqueado(persona({'A': {}, 'B': {}})), isNull);
+    });
+
+    test('cuenta apagada en Administración: no entra', () {
+      expect(
+        motivoAccesoBloqueado(persona({'A': {}}, {'activo': false})),
+        kMensajeCuentaInhabilitada,
+      );
+      expect(cuentaInhabilitada({'status': 'inactive'}), isTrue);
+      expect(cuentaInhabilitada({'estado': 'active'}), isFalse);
+      expect(cuentaInhabilitada({'estado': '', 'status': 'activo'}), isFalse);
+    });
+
+    test('inhabilitado por Talento Humano en todas: no entra', () {
+      final u = persona({
+        'A': {'estadoLaboral': 'inactivo'},
+        'B': {'estado': 'inactivo'},
+      });
+      expect(empresasSeleccionables(u), isEmpty);
+      expect(motivoAccesoBloqueado(u), kMensajeInhabilitadoEnEmpresas);
+      expect(resolveValidEmpresaId(data: u, preferredEmpresaId: 'A'), isNull);
+    });
+
+    test('inhabilitado en una: entra solo a la otra', () {
+      final u = persona({
+        'A': {'estadoLaboral': 'inactivo'},
+        'B': {},
+      });
+      expect(empresasSeleccionables(u), ['B']);
+      expect(motivoAccesoBloqueado(u), isNull);
+      expect(resolveValidEmpresaId(data: u, selectedEmpresaId: 'A'), 'B');
+    });
+
+    test('reactivado: estadoLaboral activo manda', () {
+      final u = persona({
+        'A': {'estadoLaboral': 'activo', 'estado': 'inactivo'},
+      });
+      expect(motivoAccesoBloqueado(u), isNull);
+    });
+
+    test('apagada por traslado + inhabilitada en la otra: no entra', () {
+      final u = persona({
+        'A': {'activo': false},
+        'B': {'estadoLaboral': 'inactivo'},
+      });
+      expect(motivoAccesoBloqueado(u), kMensajeInhabilitadoEnEmpresas);
+    });
+
+    test('todas apagadas por traslado: ninguna se reactiva por defecto', () {
+      final u = persona({
+        'A': {'activo': false},
+        'B': {'activo': false},
+      });
+      expect(empresasSeleccionables(u), isEmpty);
+      expect(motivoAccesoBloqueado(u), kMensajeInhabilitadoEnEmpresas);
+    });
+
+    test('registro viejo sin empresas: no se bloquea por empresas', () {
+      expect(motivoAccesoBloqueado({'nombres': 'X'}), isNull);
+    });
+  });
+
+  group('personaInhabilitadaEn', () {
+    test('lo dice TBL_USUARIOS por empresa', () {
+      final u = {
+        ..._persona(),
+        'empresasDetalle': {
+          'A': {'estadoLaboral': 'inactivo'},
+          'B': {'estadoLaboral': 'activo'},
+        },
+      };
+      expect(personaInhabilitadaEn(u, 'A'), isTrue);
+      expect(personaInhabilitadaEn(u, 'B'), isFalse);
+    });
+
+    test('o la estructura: bloque, raíz de la principal o campo literal', () {
+      final u = _persona();
+      expect(
+        personaInhabilitadaEn(
+          u,
+          'B',
+          estructura: {
+            'empresaId': 'A',
+            'empresas': ['A', 'B'],
+            'empresasDetalle': {
+              'B': {'estado': 'inactivo'},
+            },
+          },
+        ),
+        isTrue,
+      );
+      expect(
+        personaInhabilitadaEn(
+          u,
+          'A',
+          estructura: {
+            'empresaId': 'A',
+            'empresas': ['A'],
+            'estado': 'inactivo',
+          },
+        ),
+        isTrue,
+      );
+      // El literal con punto es la última decisión: gana sobre el bloque.
+      expect(
+        personaInhabilitadaEn(
+          u,
+          'A',
+          estructura: {
+            'empresaId': 'A',
+            'empresas': ['A'],
+            'empresasDetalle.A.estado': 'activo',
+            'empresasDetalle': {
+              'A': {'estado': 'inactivo'},
+            },
+          },
+        ),
+        isFalse,
+      );
+    });
+
+    test('la raíz de la estructura no habla por otra empresa', () {
+      expect(
+        personaInhabilitadaEn(
+          _persona(),
+          'B',
+          estructura: {
+            'empresaId': 'A',
+            'empresas': ['A', 'B'],
+            'estado': 'inactivo',
+          },
+        ),
+        isFalse,
+      );
+    });
+
+    test('apagada por traslado no es inhabilitada', () {
+      final u = {
+        ..._persona(),
+        'empresasDetalle': {
+          'A': {'activo': false, 'trasladadoA': 'B'},
+        },
+      };
+      expect(personaInhabilitadaEn(u, 'A'), isFalse);
+    });
+
+    test('cuenta inhabilitada', () {
+      expect(cuentaInhabilitada({'activo': false}), isTrue);
+      expect(cuentaInhabilitada({'estado': 'inactivo'}), isTrue);
+      expect(cuentaInhabilitada({'estado': 'activo'}), isFalse);
+      expect(cuentaInhabilitada(_persona()), isFalse);
+    });
+  });
+
   test('ser Gerente en A no da todas las áreas en B', () {
     expect(canCreateTasksAcrossAreas(_persona(), empresaId: 'A'), isTrue);
     expect(canCreateTasksAcrossAreas(_persona(), empresaId: 'B'), isFalse);

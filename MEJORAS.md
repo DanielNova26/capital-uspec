@@ -6,6 +6,63 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Visitas: Google Maps y subcentros como establecimiento — 28 sep 2026 (Claude)
+
+Pedido: "que se busquen los lugares con Google Maps (busco Buen Pastor, sale
+cuál es, lo selecciono y trae los datos), que los subcentros se puedan
+agregar como visitas, y que esté relacionado al generar y asignar la visita".
+Versión 2.6.9 (23).
+
+### Ubicaciones (Desarrollo y Gerencia)
+- **Buscar en Google Maps**: la búsqueda va por la función
+  `visitasBuscarLugar` (Places API New, Text Search), así sirve igual en web
+  y en el teléfono y la clave no queda en la app. Orienta la búsqueda hacia el
+  centro (50 km) cuando ya tiene ubicación. Al elegir un resultado se llenan
+  dirección, ciudad y coordenadas, y se guarda el lugar de Google (`placeId`,
+  `nombreGoogle`) para abrirlo exacto después.
+- **Mapa** en el diálogo: marcador que se arrastra, círculo con el radio
+  permitido, tocar el mapa mueve el punto, y "Abrir en Google Maps".
+- **Agregar subcentro** desde la fila del centro: queda en el maestro de
+  centros de costo (`TBL_CENTROS_COSTOS.subcentros`, el mismo de
+  Administración), sin nombres repetidos, y enseguida se le busca la
+  ubicación. Un subcentro sin ubicación propia usa la del centro.
+- Si Google rechaza la búsqueda (clave o API sin habilitar), el diálogo dice
+  exactamente qué falta.
+
+### Equipo > Grupos
+- Cada establecimiento muestra debajo sus subcentros activos. Marcar el
+  centro es todo el sitio (sus subcentros quedan incluidos); se puede marcar
+  solo un subcentro (`centroIds` guarda `centro|subcentro`, la misma clave
+  de la visita). Buscar un subcentro trae su centro.
+
+### Agregar visitas
+- Un solo desplegable con el centro y, debajo, sus subcentros (solo los del
+  grupo del profesional; un centro entero trae los suyos). La visita queda
+  con `centroId` y `subcentroId`.
+- Cada día dice la **dirección** que quedó en Ubicaciones, o avisa "sin
+  ubicación: no se podrá iniciar", y arriba cuántos días están así.
+
+### Iniciar visita
+- El recuadro de la ubicación de referencia muestra el lugar y la dirección,
+  con **Cómo llegar (Google Maps)**.
+
+### Despliegue
+- `firebase deploy --only functions:visitasBuscarLugar,hosting`. Las reglas
+  no cambian.
+- La clave de servidor sale de `VISITAS_GOOGLE_API_KEY` o
+  `MOVILIDAD_GOOGLE_API_KEY` (en `functions/.env`), o de la configuración de
+  Movilidad de la empresa. En Google Cloud debe tener habilitada
+  **Places API (New)**.
+
+### Pruebas
+- `test/visitas/visitas_ubicaciones_test.dart`: buscar y elegir el lugar,
+  error de Google, agregar subcentro en el teléfono, claves de
+  establecimiento, ubicación que aplica, enlace de Maps.
+- `test/visitas/visitas_programar_equipo_test.dart`: subcentros en el grupo
+  y al programar, dirección y aviso sin ubicación, teléfono.
+- `functions/test/visitas_lugares.test.js`: lectura de la respuesta de
+  Places.
+
 ## Visitas: documento "Cambios módulo visitas" — 28 sep 2026 (Claude)
 
 Revisión punto por punto del documento que envió la dirección. Versión 2.6.5

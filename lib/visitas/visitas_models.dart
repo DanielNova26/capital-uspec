@@ -1451,6 +1451,11 @@ class VisitaUbicacion {
   final String direccion;
   final String actualizadoPor;
 
+  /// El lugar de Google Maps elegido al buscar (28 sep 2026): con el id se
+  /// abre exacto en el mapa; el nombre es el que Google le da.
+  final String placeId;
+  final String nombreGoogle;
+
   const VisitaUbicacion({
     this.id = '',
     required this.empresaId,
@@ -1464,7 +1469,14 @@ class VisitaUbicacion {
     this.ciudad = '',
     this.direccion = '',
     this.actualizadoPor = '',
+    this.placeId = '',
+    this.nombreGoogle = '',
   });
+
+  /// Para abrirla en Google Maps (ver el sitio o "cómo llegar").
+  String get mapsUrl =>
+      'https://www.google.com/maps/search/?api=1&query=$lat,$lng'
+      '${placeId.isEmpty ? '' : '&query_place_id=${Uri.encodeQueryComponent(placeId)}'}';
 
   static String docId(String empresaId, String centroId, String subcentroId) =>
       subcentroId.isEmpty
@@ -1483,6 +1495,8 @@ class VisitaUbicacion {
     'ciudad': ciudad,
     'direccion': direccion,
     'actualizadoPor': actualizadoPor,
+    'placeId': placeId,
+    'nombreGoogle': nombreGoogle,
   };
 
   factory VisitaUbicacion.fromMap(String id, Map<String, dynamic> d) =>
@@ -1501,7 +1515,55 @@ class VisitaUbicacion {
         ciudad: (d['ciudad'] ?? '').toString(),
         direccion: (d['direccion'] ?? '').toString(),
         actualizadoPor: (d['actualizadoPor'] ?? '').toString(),
+        placeId: (d['placeId'] ?? '').toString(),
+        nombreGoogle: (d['nombreGoogle'] ?? '').toString(),
       );
+}
+
+/// Un resultado de la búsqueda en Google Maps (`visitasBuscarLugar`, 28 sep
+/// 2026): "si busco Buen Pastor, que muestre cuál sale y al elegirlo traiga
+/// los datos".
+class LugarGoogle {
+  final String placeId;
+  final String nombre;
+  final String direccion;
+  final double lat;
+  final double lng;
+  final String ciudad;
+  final String departamento;
+  final String mapsUrl;
+
+  const LugarGoogle({
+    required this.placeId,
+    required this.nombre,
+    required this.direccion,
+    required this.lat,
+    required this.lng,
+    this.ciudad = '',
+    this.departamento = '',
+    this.mapsUrl = '',
+  });
+
+  factory LugarGoogle.fromMap(Map<String, dynamic> d) => LugarGoogle(
+    placeId: (d['placeId'] ?? '').toString(),
+    nombre: (d['nombre'] ?? '').toString(),
+    direccion: (d['direccion'] ?? '').toString(),
+    lat: (d['lat'] as num?)?.toDouble() ?? 0,
+    lng: (d['lng'] as num?)?.toDouble() ?? 0,
+    ciudad: (d['ciudad'] ?? '').toString(),
+    departamento: (d['departamento'] ?? '').toString(),
+    mapsUrl: (d['mapsUrl'] ?? '').toString(),
+  );
+}
+
+/// Lo que se busca en Google para un establecimiento: su nombre (con el
+/// subcentro) y la ciudad si ya se sabe. "Cómbita · Alta" → "Cómbita Alta".
+String textoBusquedaLugar(String nombre, {String ciudad = ''}) {
+  final base = nombre.replaceAll('·', ' ').replaceAll(RegExp(r'\s+'), ' ');
+  final c = ciudad.trim();
+  final t = base.trim();
+  if (c.isEmpty || areaClave(t).contains(areaClave(c))) return t;
+  return '$t, $c';
 }
 
 /// Distancia en metros entre dos puntos (haversine). Pura, para poder
@@ -2923,6 +2985,27 @@ class FilaProgramacion {
         centroId: centroId ?? this.centroId,
         subcentroId: subcentroId ?? this.subcentroId,
       );
+
+  /// La misma clave de establecimiento que la visita (`centro` o
+  /// `centro|sub`).
+  String get clave => subcentroId.isEmpty ? centroId : '$centroId|$subcentroId';
+}
+
+/// La ubicación que va a usar la visita al iniciar, igual que
+/// `VisitasService.ubicacionPara`: la del subcentro si tiene la suya, si no
+/// la del centro. Null = no se podrá iniciar (salvo que sea de prueba).
+VisitaUbicacion? ubicacionQueAplica(
+  Iterable<VisitaUbicacion> ubicaciones,
+  String centroId, {
+  String subcentroId = '',
+}) {
+  VisitaUbicacion? delCentro;
+  for (final u in ubicaciones) {
+    if (u.centroId != centroId) continue;
+    if (subcentroId.isNotEmpty && u.subcentroId == subcentroId) return u;
+    if (u.subcentroId.isEmpty) delCentro = u;
+  }
+  return delCentro;
 }
 
 /// Qué impide programar el lote. Vacío = se puede.

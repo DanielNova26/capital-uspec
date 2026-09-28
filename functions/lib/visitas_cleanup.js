@@ -24,6 +24,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.visitasEliminarPrueba = exports.visitasEliminarFormato = void 0;
+exports.requireManager = requireManager;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 const crypto_1 = require("crypto");
@@ -67,6 +68,14 @@ function belongsToCompany(data, empresaId) {
         (Array.isArray(data.empresas) && data.empresas.includes(empresaId)) ||
         !!data.empresasDetalle?.[empresaId];
 }
+/**
+ * Sesión segura y jefatura de Visitas (jefe, Gerencia o Desarrollo).
+ * `developer` es true para Desarrollo y Gerencia: administran todas las
+ * áreas y el maestro de ubicaciones.
+ * @param {unknown} raw Datos del callable (lleva `empresaId`).
+ * @param {functions.https.CallableContext} context Contexto del callable.
+ * @return {Promise<object>} Empresa, área del rol y si es Desarrollo/Gerencia.
+ */
 async function requireManager(raw, context) {
     const empresaId = id(raw?.empresaId);
     const userId = id(context.auth?.token?.userDocId);

@@ -14,6 +14,11 @@
 //    (los de su grupo en Equipo), no todos los de la empresa.
 //  - Sin formato: el profesional lo elige al momento de la visita.
 //
+// 28 sep 2026: los subcentros se programan como un establecimiento más (un
+// solo desplegable con el centro y, debajo, sus subcentros), y cada día dice
+// la dirección que quedó en Ubicaciones o avisa que no tiene: sin ubicación
+// el profesional no puede iniciar la visita.
+//
 // Web y móvil: en pantallas angostas el diálogo ocupa toda la pantalla; la
 // lógica (qué se puede programar) es la misma y vive en `visitas_models.dart`
 // (`validarProgramacion`) y en el servicio (`programarVarias`).
@@ -92,6 +97,10 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
   List<VisitaPersona> _equipo = const [];
   List<VisitaCentro> _centros = const [];
   List<VisitaGrupo> _grupos = const [];
+
+  /// Ubicaciones cargadas (Visitas > Ubicaciones). Null si no se pudieron
+  /// leer: entonces no se avisa nada en vez de avisar de más.
+  List<VisitaUbicacion>? _ubicaciones;
   Map<String, String> _areas = const {};
   String _areaJefe = '';
   bool _cargando = true;
@@ -137,6 +146,14 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
           )
           .first;
       final areas = await widget.svc.areasDeEmpresa(widget.empresaId);
+      List<VisitaUbicacion>? ubicaciones;
+      try {
+        ubicaciones = await widget.svc
+            .streamUbicaciones(widget.empresaId)
+            .first;
+      } catch (_) {
+        // Solo es informativo: programar no depende de esto.
+      }
       if (!mounted) return;
       setState(() {
         _equipo = equipo;
@@ -144,6 +161,7 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
         _centros = centros;
         _grupos = grupos;
         _areas = areas;
+        _ubicaciones = ubicaciones;
         _cargando = false;
       });
     } catch (e) {
@@ -188,28 +206,48 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
         ];
 
   /// Los establecimientos a los que está asociado el profesional: los de su
-  /// grupo. Solo esos se pueden programar.
-  List<VisitaCentro> get _centrosPermitidos {
+  /// grupo, con los subcentros (un centro entero trae los suyos). Solo esos
+  /// se pueden programar.
+  List<EstablecimientoVisita> get _permitidos {
     final p = _profesional;
     if (p == null) return const [];
-    final delGrupo = centrosDelProfesional(p.id, _grupos);
-    return [
-      for (final c in _centros)
-        if (delGrupo.contains(c.id)) c,
-    ];
+    return establecimientosDeClaves(
+      _centros,
+      centrosDelProfesional(p.id, _grupos),
+    );
   }
+
+  EstablecimientoVisita? _establecimiento(String clave) =>
+      _permitidos.where((e) => e.clave == clave).firstOrNull;
+
+  FilaProgramacion _conEstablecimiento(
+    FilaProgramacion f,
+    EstablecimientoVisita? e,
+  ) => f.copyWith(
+    centroId: e?.centro.id ?? '',
+    subcentroId: e?.subcentroId ?? '',
+  );
+
+  /// La ubicación con la que se va a iniciar; null si no tiene. Sin leer
+  /// las ubicaciones no se sabe: tampoco se avisa.
+  VisitaUbicacion? _ubicacionDe(EstablecimientoVisita e) => ubicacionQueAplica(
+    _ubicaciones ?? const [],
+    e.centro.id,
+    subcentroId: e.subcentroId,
+  );
 
   void _elegirProfesional(VisitaPersona? p) {
     setState(() {
       _profesional = p;
-      final permitidos = {for (final c in _centrosPermitidos) c.id};
+      final permitidos = _permitidos;
+      final claves = {for (final e in permitidos) e.clave};
       for (final k in _filas.keys.toList()) {
         final f = _filas[k]!;
         // Un establecimiento de otro profesional no se queda puesto.
-        if (!permitidos.contains(f.centroId)) {
-          _filas[k] = FilaProgramacion(
-            fecha: f.fecha,
-            centroId: permitidos.length == 1 ? permitidos.first : '',
+        if (!claves.contains(f.clave)) {
+          _filas[k] = _conEstablecimiento(
+            FilaProgramacion(fecha: f.fecha),
+            permitidos.length == 1 ? permitidos.first : null,
           );
         }
       }
@@ -224,14 +262,17 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
         // El establecimiento del último día elegido se repite: casi siempre
         // se programan tandas al mismo sitio o a los del grupo.
         final ultimo = _filasOrdenadas.lastOrNull;
-        final permitidos = _centrosPermitidos;
-        _filas[d] = FilaProgramacion(
-          fecha: d,
-          centroId:
-              ultimo?.centroId ??
-              (permitidos.length == 1 ? permitidos.first.id : ''),
-          subcentroId: ultimo?.subcentroId ?? '',
-        );
+        final permitidos = _permitidos;
+        _filas[d] = ultimo != null
+            ? FilaProgramacion(
+                fecha: d,
+                centroId: ultimo.centroId,
+                subcentroId: ultimo.subcentroId,
+              )
+            : _conEstablecimiento(
+                FilaProgramacion(fecha: d),
+                permitidos.length == 1 ? permitidos.first : null,
+              );
       }
     });
   }
@@ -239,10 +280,12 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
   List<FilaProgramacion> get _filasOrdenadas =>
       _filas.values.toList()..sort((a, b) => a.fecha.compareTo(b.fecha));
 
-  void _mismoParaTodas(String centroId) {
+  void _mismoParaTodas(String clave) {
+    final e = _establecimiento(clave);
+    if (e == null) return;
     setState(() {
       for (final k in _filas.keys.toList()) {
-        _filas[k] = _filas[k]!.copyWith(centroId: centroId, subcentroId: '');
+        _filas[k] = _conEstablecimiento(_filas[k]!, e);
       }
     });
   }
@@ -258,8 +301,8 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
       _aviso(errores.first);
       return;
     }
-    final permitidos = {for (final c in _centrosPermitidos) c.id};
-    if (_filasOrdenadas.any((f) => !permitidos.contains(f.centroId))) {
+    final permitidos = {for (final e in _permitidos) e.clave: e};
+    if (_filasOrdenadas.any((f) => !permitidos.containsKey(f.clave))) {
       _aviso('Solo se programan los establecimientos del profesional.');
       return;
     }
@@ -268,10 +311,9 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
       final visitas = [
         for (final fila in _filasOrdenadas)
           () {
-            final centro = _centros.firstWhere((c) => c.id == fila.centroId);
-            final sub = centro.subcentros
-                .where((s) => s.id == fila.subcentroId)
-                .firstOrNull;
+            final e = permitidos[fila.clave]!;
+            final centro = e.centro;
+            final sub = e.subcentro;
             return VisitaProfesional(
               empresaId: widget.empresaId,
               formatoId: '',
@@ -388,7 +430,7 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
             'se lo vuelva a asignar en Roles y permisos para poder '
             'programarlos.',
           ),
-        if (p != null && _centrosPermitidos.isEmpty)
+        if (p != null && _permitidos.isEmpty)
           _nota(
             '${p.nombre} no tiene establecimientos asignados. Ponlo en un '
             'grupo con sus establecimientos en Equipo > Grupos y '
@@ -446,11 +488,69 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
     ),
   );
 
+  /// Dirección (o aviso) del establecimiento del día.
+  Widget? _lineaUbicacion(EstablecimientoVisita? e) {
+    if (e == null || _ubicaciones == null) return null;
+    final u = _ubicacionDe(e);
+    final sinUbicacion = u == null;
+    final texto = sinUbicacion
+        ? 'Sin ubicación en Visitas > Ubicaciones: no se podrá iniciar.'
+        : [
+            if (u.direccion.trim().isNotEmpty)
+              u.direccion.trim()
+            else
+              'Ubicación cargada',
+            if (u.ciudad.trim().isNotEmpty &&
+                !u.direccion.contains(u.ciudad.trim()))
+              u.ciudad.trim(),
+            if (e.subcentro != null && u.subcentroId.isEmpty)
+              '(la del establecimiento)',
+          ].join(' · ');
+    return Row(
+      children: [
+        Icon(
+          sinUbicacion ? Icons.location_off_outlined : Icons.place_outlined,
+          size: 14,
+          color: sinUbicacion ? _kAviso : Colors.black54,
+        ),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Text(
+            texto,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 11,
+              color: sinUbicacion ? _kAviso : Colors.black54,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  List<DropdownMenuItem<String>> _opciones(
+    List<EstablecimientoVisita> establecimientos,
+  ) => [
+    for (final e in establecimientos)
+      DropdownMenuItem(
+        value: e.clave,
+        child: Padding(
+          // El subcentro va debajo de su centro, corrido a la derecha.
+          padding: EdgeInsets.only(left: e.subcentro == null ? 0 : 14),
+          child: Text(
+            e.subcentro == null ? e.nombre : '↳ ${e.subcentro!.nombre}',
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ),
+  ];
+
   Widget _fila(FilaProgramacion fila) {
-    final centros = _centrosPermitidos;
-    final centro = centros.where((c) => c.id == fila.centroId).firstOrNull;
-    final subs = centro?.subcentrosActivos ?? const [];
-    final falta = centro == null;
+    final permitidos = _permitidos;
+    final e = permitidos.where((x) => x.clave == fila.clave).firstOrNull;
+    final falta = e == null;
+    final ubicacion = _lineaUbicacion(e);
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
@@ -475,63 +575,42 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
             ),
           ),
           Expanded(
-            flex: 3,
-            child: DropdownButtonFormField<String>(
-              key: ValueKey(
-                'c-${fila.fecha}-${fila.centroId}-${centros.length}',
-              ),
-              initialValue: centro?.id,
-              isExpanded: true,
-              isDense: true,
-              decoration: InputDecoration(
-                hintText: _profesional == null
-                    ? 'Elige primero el profesional'
-                    : 'Establecimiento',
-                border: InputBorder.none,
-              ),
-              items: [
-                for (final c in centros)
-                  DropdownMenuItem(
-                    value: c.id,
-                    child: Text(c.nombre, overflow: TextOverflow.ellipsis),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                DropdownButtonFormField<String>(
+                  key: ValueKey(
+                    'c-${fila.fecha}-${fila.clave}-${permitidos.length}',
                   ),
-              ],
-              onChanged: (id) => setState(
-                () => _filas[fila.fecha] = fila.copyWith(
-                  centroId: id ?? '',
-                  subcentroId: '',
+                  initialValue: e?.clave,
+                  isExpanded: true,
+                  isDense: true,
+                  decoration: InputDecoration(
+                    hintText: _profesional == null
+                        ? 'Elige primero el profesional'
+                        : 'Establecimiento',
+                    border: InputBorder.none,
+                  ),
+                  // Cerrado se ve el nombre completo ("Centro · Subcentro").
+                  selectedItemBuilder: (_) => [
+                    for (final x in permitidos)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(x.nombre, overflow: TextOverflow.ellipsis),
+                      ),
+                  ],
+                  items: _opciones(permitidos),
+                  onChanged: (clave) => setState(
+                    () => _filas[fila.fecha] = _conEstablecimiento(
+                      fila,
+                      clave == null ? null : _establecimiento(clave),
+                    ),
+                  ),
                 ),
-              ),
+                ?ubicacion,
+              ],
             ),
           ),
-          if (subs.isNotEmpty) ...[
-            const SizedBox(width: 6),
-            Expanded(
-              flex: 2,
-              child: DropdownButtonFormField<String>(
-                key: ValueKey('s-${fila.fecha}-${fila.centroId}'),
-                initialValue: fila.subcentroId,
-                isExpanded: true,
-                isDense: true,
-                decoration: const InputDecoration(border: InputBorder.none),
-                items: [
-                  const DropdownMenuItem(
-                    value: '',
-                    child: Text('Todo el sitio'),
-                  ),
-                  for (final s in subs)
-                    DropdownMenuItem(
-                      value: s.id,
-                      child: Text(s.nombre, overflow: TextOverflow.ellipsis),
-                    ),
-                ],
-                onChanged: (v) => setState(
-                  () =>
-                      _filas[fila.fecha] = fila.copyWith(subcentroId: v ?? ''),
-                ),
-              ),
-            ),
-          ],
           IconButton(
             tooltip: 'Quitar este día',
             icon: const Icon(Icons.close, size: 18),
@@ -544,7 +623,14 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
 
   Widget _dias() {
     final filas = _filasOrdenadas;
-    final centros = _centrosPermitidos;
+    final permitidos = _permitidos;
+    final porClave = {for (final e in permitidos) e.clave: e};
+    final sinUbicacion = _ubicaciones == null
+        ? 0
+        : filas.where((f) {
+            final e = porClave[f.clave];
+            return e != null && _ubicacionDe(e) == null;
+          }).length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -559,7 +645,7 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
             style: TextStyle(fontSize: 12, color: Colors.black54),
           )
         else ...[
-          if (filas.length > 1 && centros.length > 1)
+          if (filas.length > 1 && permitidos.length > 1)
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: DropdownButtonFormField<String>(
@@ -570,26 +656,33 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
                   isDense: true,
                   border: OutlineInputBorder(),
                 ),
-                items: [
-                  for (final c in centros)
-                    DropdownMenuItem(
-                      value: c.id,
-                      child: Text(c.nombre, overflow: TextOverflow.ellipsis),
+                selectedItemBuilder: (_) => [
+                  for (final x in permitidos)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(x.nombre, overflow: TextOverflow.ellipsis),
                     ),
                 ],
-                onChanged: (id) {
-                  if (id != null) _mismoParaTodas(id);
+                items: _opciones(permitidos),
+                onChanged: (clave) {
+                  if (clave != null) _mismoParaTodas(clave);
                 },
               ),
             ),
-          if (centros.isNotEmpty)
+          if (permitidos.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(bottom: 6),
               child: Text(
-                'Solo salen los ${centros.length} establecimiento'
-                '${centros.length == 1 ? '' : 's'} del grupo del profesional.',
+                'Solo salen los establecimientos y subcentros del grupo del '
+                'profesional (${permitidos.length}).',
                 style: const TextStyle(fontSize: 11, color: Colors.black54),
               ),
+            ),
+          if (sinUbicacion > 0)
+            _nota(
+              '$sinUbicacion día${sinUbicacion == 1 ? '' : 's'} sin ubicación: '
+              'el profesional no podrá iniciar esa visita hasta que '
+              'Desarrollo o Gerencia la carguen en Visitas > Ubicaciones.',
             ),
           for (final f in filas) _fila(f),
         ],

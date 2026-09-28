@@ -22,6 +22,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:image_picker/image_picker.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:table_calendar/table_calendar.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../core/area_directory.dart' show areaClave;
 import '../services/company_branding_service.dart';
@@ -2877,6 +2878,18 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
   Widget _estadoReferencia() {
     final ref = _referencia;
     final ok = ref != null;
+    final color = ok ? const Color(0xFF166534) : const Color(0xFF991B1B);
+    // Dónde queda el sitio (28 sep 2026): la dirección que se trajo de Google
+    // Maps en Ubicaciones y el botón para llegar.
+    final donde = ok
+        ? [
+            if (ref.nombreGoogle.trim().isNotEmpty) ref.nombreGoogle.trim(),
+            if (ref.direccion.trim().isNotEmpty) ref.direccion.trim(),
+            if (ref.ciudad.trim().isNotEmpty &&
+                !ref.direccion.contains(ref.ciudad.trim()))
+              ref.ciudad.trim(),
+          ].join(' · ')
+        : '';
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(10),
@@ -2884,32 +2897,76 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
         color: ok ? const Color(0xFFDCFCE7) : const Color(0xFFFEE2E2),
         borderRadius: BorderRadius.circular(10),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Icon(
-            ok ? Icons.where_to_vote_outlined : Icons.location_off_outlined,
-            color: ok ? const Color(0xFF166534) : const Color(0xFF991B1B),
+          Row(
+            children: [
+              Icon(
+                ok ? Icons.where_to_vote_outlined : Icons.location_off_outlined,
+                color: color,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  !_referenciaBuscada
+                      ? 'Buscando la ubicación del establecimiento…'
+                      : ok
+                      ? 'Ubicación de referencia cargada · radio ${ref.radioMetros.round()} m. '
+                            'Debes estar dentro para iniciar.'
+                      : 'Este establecimiento no tiene ubicación en el maestro. '
+                            'No se puede iniciar hasta que Desarrollo o '
+                            'Gerencia la carguen en Visitas > Ubicaciones.',
+                  style: TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 12,
+                    color: color,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              !_referenciaBuscada
-                  ? 'Buscando la ubicación del establecimiento…'
-                  : ok
-                  ? 'Ubicación de referencia cargada · radio ${ref.radioMetros.round()} m. '
-                        'Debes estar dentro para iniciar.'
-                  : 'Este establecimiento no tiene ubicación en el maestro. '
-                        'No se puede iniciar hasta que Desarrollo la cargue.',
-              style: TextStyle(
-                fontFamily: _kFont,
-                fontSize: 12,
-                color: ok ? const Color(0xFF166534) : const Color(0xFF991B1B),
+          if (ok) ...[
+            if (donde.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(left: 32, top: 4),
+                child: Text(
+                  donde,
+                  style: TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: color,
+                  ),
+                ),
+              ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 24),
+                child: TextButton.icon(
+                  onPressed: () => _abrirEnMaps(ref),
+                  icon: const Icon(Icons.directions_outlined, size: 18),
+                  label: const Text('Cómo llegar (Google Maps)'),
+                ),
               ),
             ),
-          ),
+          ],
         ],
       ),
     );
+  }
+
+  Future<void> _abrirEnMaps(VisitaUbicacion ref) async {
+    final ok = await launchUrl(
+      Uri.parse(ref.mapsUrl),
+      mode: LaunchMode.externalApplication,
+    );
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudo abrir Google Maps.')),
+      );
+    }
   }
 
   /// Formato a diligenciar, cuando la visita llegó sin él (28 sep 2026: "el
