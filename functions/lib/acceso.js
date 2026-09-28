@@ -11,8 +11,8 @@
  *   (`empresasDetalle.{empresa}.estadoLaboral` o `estado` = inactivo).
  *   Si queda habilitado en alguna, entra solo a esa.
  * - Una empresa apagada por un traslado (`activo: false` en su bloque) no es
- *   una inhabilitación: si todas están apagadas y ninguna inhabilitada, no se
- *   bloquea (dato a medias; la app lo resuelve).
+ *   un retiro laboral, pero tampoco permite entrar. Si todas están apagadas,
+ *   ninguna se reactiva por defecto.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.MENSAJE_INHABILITADO_EN_EMPRESAS = exports.MENSAJE_CUENTA_INHABILITADA = void 0;
@@ -77,13 +77,10 @@ function empresasDe(usuario) {
 }
 // Empresas a las que puede entrar. Vacío = no entra a ninguna.
 function empresasSeleccionables(usuario) {
-    const todas = empresasDe(usuario);
-    const abiertas = todas.filter((e) => bloque(usuario, e)?.activo !== false && !inhabilitadaEn(usuario, e));
-    if (abiertas.length > 0)
-        return abiertas;
-    if (todas.some((e) => inhabilitadaEn(usuario, e)))
+    if (cuentaInhabilitada(usuario))
         return [];
-    return todas;
+    const todas = empresasDe(usuario);
+    return todas.filter((e) => bloque(usuario, e)?.activo !== false && !inhabilitadaEn(usuario, e));
 }
 // Por qué no puede entrar a la app; null si puede.
 function motivoAccesoBloqueado(usuario) {

@@ -159,7 +159,7 @@ void main() {
       );
     });
 
-    test('si todas están apagadas no deja a nadie sin empresa', () {
+    test('si todas están apagadas no reactiva ninguna empresa', () {
       final todas = {
         ...trasladada(),
         'empresasDetalle': {
@@ -167,7 +167,51 @@ void main() {
           'B': {'activo': false},
         },
       };
-      expect(empresasSeleccionables(todas), ['A', 'B']);
+      expect(empresasSeleccionables(todas), isEmpty);
+      expect(
+        resolveValidEmpresaId(
+          data: todas,
+          selectedEmpresaId: 'A',
+          preferredEmpresaId: 'B',
+        ),
+        isNull,
+      );
+      final result = const EmpresaResolver().validateOrFallback(
+        userData: todas,
+        storedEmpresaId: 'A',
+      );
+      expect(result.allowedEmpresaIds, isEmpty);
+      expect(result.empresaId, isNull);
+      expect(extractUserEmpresaIds(todas), ['A', 'B']);
+    });
+
+    test('el retiro laboral también excluye la empresa del selector', () {
+      final retirada = {
+        ...trasladada(),
+        'empresasDetalle': {
+          'A': {'estadoLaboral': 'inactivo'},
+          'B': {'estadoLaboral': 'activo'},
+        },
+      };
+      expect(empresasSeleccionables(retirada), ['B']);
+      final result = const EmpresaResolver().validateOrFallback(
+        userData: retirada,
+        storedEmpresaId: 'A',
+      );
+      expect(result.allowedEmpresaIds, ['B']);
+      expect(result.empresaId, 'B');
+      expect(result.usedFallback, isTrue);
+    });
+
+    test('una cuenta globalmente bloqueada no ofrece empresas activas', () {
+      expect(
+        empresasSeleccionables({...trasladada(), 'estado': 'inactivo'}),
+        isEmpty,
+      );
+      expect(
+        empresasSeleccionables({...trasladada(), 'activo': false}),
+        isEmpty,
+      );
     });
   });
 
@@ -233,13 +277,13 @@ void main() {
       expect(motivoAccesoBloqueado(u), kMensajeInhabilitadoEnEmpresas);
     });
 
-    test('todas apagadas por traslado, sin inhabilitación: no se bloquea', () {
+    test('todas apagadas por traslado: ninguna se reactiva por defecto', () {
       final u = persona({
         'A': {'activo': false},
         'B': {'activo': false},
       });
-      expect(empresasSeleccionables(u), ['A', 'B']);
-      expect(motivoAccesoBloqueado(u), isNull);
+      expect(empresasSeleccionables(u), isEmpty);
+      expect(motivoAccesoBloqueado(u), kMensajeInhabilitadoEnEmpresas);
     });
 
     test('registro viejo sin empresas: no se bloquea por empresas', () {

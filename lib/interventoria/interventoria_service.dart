@@ -3221,7 +3221,7 @@ class InterventoriaService {
   /// Empresas del usuario, distintas de [origenId], a las que podría copiar
   /// las reglas del maestro.
   ///
-  /// Se devuelven TODAS las empresas del usuario y no solo las que administra:
+  /// Se devuelven las empresas habilitadas del usuario, incluso las que no administra:
   /// ver la empresa deshabilitada con el motivo es mejor que preguntarse por
   /// qué no aparece. Cada una trae sus reglas y sus cargos para que la pantalla
   /// avise qué se va a pisar y qué cargos no existen allí.

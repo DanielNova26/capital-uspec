@@ -54,10 +54,16 @@ test('apagada por traslado + inhabilitada en la otra: no entra', () => {
   assert.equal(motivoAccesoBloqueado(u), MENSAJE_INHABILITADO_EN_EMPRESAS);
 });
 
-test('todas apagadas por traslado, sin inhabilitación: no se bloquea', () => {
+test('todas apagadas por traslado: ninguna se reactiva por defecto', () => {
   const u = persona({A: {activo: false}, B: {activo: false}});
-  assert.deepEqual(empresasSeleccionables(u), ['A', 'B']);
-  assert.equal(motivoAccesoBloqueado(u), null);
+  assert.deepEqual(empresasSeleccionables(u), []);
+  assert.equal(motivoAccesoBloqueado(u), MENSAJE_INHABILITADO_EN_EMPRESAS);
+});
+
+test('cuenta bloqueada no ofrece empresas aunque tengan un bloque activo', () => {
+  for (const bloqueo of [{estado: 'inactivo'}, {activo: false}, {status: 'inactive'}]) {
+    assert.deepEqual(empresasSeleccionables(persona({A: {estadoLaboral: 'activo'}}, bloqueo)), []);
+  }
 });
 
 test('registro viejo sin empresas: no se bloquea por empresas', () => {

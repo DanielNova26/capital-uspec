@@ -10,8 +10,8 @@
  *   (`empresasDetalle.{empresa}.estadoLaboral` o `estado` = inactivo).
  *   Si queda habilitado en alguna, entra solo a esa.
  * - Una empresa apagada por un traslado (`activo: false` en su bloque) no es
- *   una inhabilitación: si todas están apagadas y ninguna inhabilitada, no se
- *   bloquea (dato a medias; la app lo resuelve).
+ *   un retiro laboral, pero tampoco permite entrar. Si todas están apagadas,
+ *   ninguna se reactiva por defecto.
  */
 
 type Datos = Record<string, unknown>;
@@ -75,13 +75,11 @@ export function empresasDe(usuario: Datos): string[] {
 
 // Empresas a las que puede entrar. Vacío = no entra a ninguna.
 export function empresasSeleccionables(usuario: Datos): string[] {
+  if (cuentaInhabilitada(usuario)) return [];
   const todas = empresasDe(usuario);
-  const abiertas = todas.filter(
+  return todas.filter(
     (e) => bloque(usuario, e)?.activo !== false && !inhabilitadaEn(usuario, e)
   );
-  if (abiertas.length > 0) return abiertas;
-  if (todas.some((e) => inhabilitadaEn(usuario, e))) return [];
-  return todas;
 }
 
 // Por qué no puede entrar a la app; null si puede.

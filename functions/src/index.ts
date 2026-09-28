@@ -114,6 +114,7 @@ export {
   interventoriaEliminarActa,
 } from "./interventoria_deletion";
 export {visitasEliminarFormato, visitasEliminarPrueba} from "./visitas_cleanup";
+export {visitasBuscarLugar} from "./visitas_lugares";
 export {
   rutasResumenEvidencia,
   rutasGenerarInforme,

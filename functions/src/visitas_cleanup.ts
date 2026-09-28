@@ -52,7 +52,15 @@ function belongsToCompany(data: FirebaseFirestore.DocumentData, empresaId: strin
     !!data.empresasDetalle?.[empresaId];
 }
 
-async function requireManager(
+/**
+ * Sesión segura y jefatura de Visitas (jefe, Gerencia o Desarrollo).
+ * `developer` es true para Desarrollo y Gerencia: administran todas las
+ * áreas y el maestro de ubicaciones.
+ * @param {unknown} raw Datos del callable (lleva `empresaId`).
+ * @param {functions.https.CallableContext} context Contexto del callable.
+ * @return {Promise<object>} Empresa, área del rol y si es Desarrollo/Gerencia.
+ */
+export async function requireManager(
   raw: unknown,
   context: functions.https.CallableContext
 ): Promise<{empresaId: string; areaId: string; developer: boolean}> {

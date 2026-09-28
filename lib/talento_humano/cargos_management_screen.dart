@@ -1321,10 +1321,7 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
       final data = q.docs.first.data();
       final n = _nombreDeUsuario(data);
       if (n.isNotEmpty) {
-        return (
-          nombre: n,
-          activa: personaHabilitadaEn(data, widget.empresaId),
-        );
+        return (nombre: n, activa: personaHabilitadaEn(data, widget.empresaId));
       }
     }
     // fallback: muestra la cédula si no hay nombre

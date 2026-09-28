@@ -4568,7 +4568,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   /// Humano, con la cuenta apagada o trasladado a otra empresa— no entra a
   /// la app (`motivoAccesoBloqueado`), así que no hay a quién darle accesos
   /// ni roles.
-  bool _habilitado(Map<String, dynamic> d) => personaHabilitadaEn(d, _empresaId);
+  bool _habilitado(Map<String, dynamic> d) =>
+      personaHabilitadaEn(d, _empresaId);
 
   /// Personal habilitado: lo que ven las listas de accesos, módulos, roles y
   /// sesiones. Las herramientas de mantenimiento (migraciones, limpiezas,

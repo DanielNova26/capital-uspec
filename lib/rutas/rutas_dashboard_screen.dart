@@ -320,7 +320,9 @@ class _RutasDeveloperHome extends StatelessWidget {
                         child: Row(
                           children: [
                             CircleAvatar(
-                              backgroundColor: kRutasColor.withValues(alpha: 0.15),
+                              backgroundColor: kRutasColor.withValues(
+                                alpha: 0.15,
+                              ),
                               foregroundColor: kRutasColor,
                               child: Icon(profile.icon),
                             ),

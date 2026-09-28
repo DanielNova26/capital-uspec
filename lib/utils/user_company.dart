@@ -217,7 +217,8 @@ class AppsPorEmpresaPlan {
 
   /// Para `update()`: rutas con punto, no toca el resto de cada bloque.
   Map<String, dynamic> comoRutas() => {
-    for (final e in porEmpresa.entries) 'empresasDetalle.${e.key}.apps': e.value,
+    for (final e in porEmpresa.entries)
+      'empresasDetalle.${e.key}.apps': e.value,
     'apps': raiz,
     kCampoAppsPorEmpresa: true,
   };
@@ -258,9 +259,10 @@ AppsPorEmpresaPlan planearAppsPorEmpresa(
       final heredadas = quitarHeredadas
           ? appsHeredadasEnEmpresa(data, e)
           : const <String>[];
-      lista = extractUserApps(data, empresaId: e).where(
-        (app) => !heredadas.any((h) => appIdsEquivalent(h, app)),
-      );
+      lista = extractUserApps(
+        data,
+        empresaId: e,
+      ).where((app) => !heredadas.any((h) => appIdsEquivalent(h, app)));
     }
     porEmpresa[e] = normalizeAppIdList(lista.toList()).ids..sort();
   }
@@ -400,22 +402,15 @@ bool userHasApp(Map<String, dynamic> data, String? appId, {String? empresaId}) {
 /// cambiar de empresa: quien pasó "solo a la nueva" no debe seguir entrando
 /// a la antigua. Un inhabilitado no entra a esa empresa hasta que lo
 /// habiliten; si lo está en todas, la lista queda vacía y no entra a la app
-/// (ver [motivoAccesoBloqueado]). Solo si todas están apagadas por traslado,
-/// sin inhabilitación, se devuelven todas para no dejar a nadie sin empresa
-/// por un dato a medias.
+/// (ver [motivoAccesoBloqueado]). Si todas están apagadas por traslado,
+/// tampoco se reactiva ninguna por defecto.
 ///
 /// Espejo en el servidor: `functions/src/acceso.ts`.
 List<String> empresasSeleccionables(Map<String, dynamic> data) {
-  final todas = extractUserEmpresaIds(data);
-  final abiertas = [
-    for (final e in todas)
-      if (getUserCompanyDetail(data, e)?['activo'] != false &&
-          !personaInhabilitadaEn(data, e))
-        e,
+  return [
+    for (final e in extractUserEmpresaIds(data))
+      if (personaHabilitadaEn(data, e)) e,
   ];
-  if (abiertas.isNotEmpty) return abiertas;
-  if (todas.any((e) => personaInhabilitadaEn(data, e))) return const [];
-  return todas;
 }
 
 /// Mensaje para quien tiene la cuenta inhabilitada.
@@ -723,18 +718,6 @@ bool isPersonaActivaEnEmpresa(Map<String, dynamic> data, String? empresaId) {
   return global.isEmpty || global == kEstadoPersonaActivo || global == 'active';
 }
 
-/// ¿Es personal habilitado en [empresaId]? Es la regla de las listas y
-/// selectores de TODOS los módulos para fichas de `TBL_USUARIOS`.
-///
-/// Suma a [isPersonaActivaEnEmpresa] (retiro por empresa en Talento Humano,
-/// traslado) la cuenta: con la cuenta inhabilitada no entra a la app (ver
-/// [motivoAccesoBloqueado]), así que no es personal activo en ninguna
-/// empresa aunque su bloque diga activo. [isPersonaActivaEnEmpresa] solo no
-/// lo mira porque también se usa sobre la estructura organizacional, donde
-/// el `estado` raíz es el de la empresa principal y no el de la cuenta.
-bool personaHabilitadaEn(Map<String, dynamic> usuario, String? empresaId) =>
-    !cuentaInhabilitada(usuario) && isPersonaActivaEnEmpresa(usuario, empresaId);
-
 /// La cuenta está apagada para toda la app: el interruptor global de
 /// Administración (`activo: false`) o un `estado` global distinto de activo.
 bool cuentaInhabilitada(Map<String, dynamic> usuario) {
@@ -747,6 +730,17 @@ bool cuentaInhabilitada(Map<String, dynamic> usuario) {
   return global.isNotEmpty &&
       global != kEstadoPersonaActivo &&
       global != 'active';
+}
+
+/// Para TBL_USUARIOS: exige cuenta habilitada y vínculo vigente en la empresa.
+/// La pertenencia se valida por separado. La estructura organizacional sigue
+/// usando [isPersonaActivaEnEmpresa], pues su estado raíz es de la principal.
+bool personaHabilitadaEn(Map<String, dynamic> data, String? empresaId) {
+  if (cuentaInhabilitada(data)) return false;
+  final empresa = normalizeEmpresaId(empresaId);
+  if (empresa == null) return true;
+  return getUserCompanyDetail(data, empresa)?['activo'] != false &&
+      !personaInhabilitadaEn(data, empresa);
 }
 
 bool _estadoInactivo(Map<String, dynamic>? bloque) {
