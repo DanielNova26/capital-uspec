@@ -39,14 +39,55 @@ class VisitaCentro {
   final String id;
   final String nombre;
   final List<SubcentroCosto> subcentros;
+
+  /// Id del documento en TBL_CENTROS_COSTOS (casi siempre igual a [id]);
+  /// con él se le agregan subcentros.
+  final String docId;
   const VisitaCentro({
     required this.id,
     required this.nombre,
     this.subcentros = const [],
+    this.docId = '',
   });
   List<SubcentroCosto> get subcentrosActivos =>
       subcentros.where((s) => s.enabled).toList();
 }
+
+/// Un establecimiento que se visita: el centro entero o uno de sus
+/// subcentros (28 sep 2026: "que los subcentros se puedan agregar como
+/// visitas"). La clave es la misma de la visita (`centro` o `centro|sub`).
+class EstablecimientoVisita {
+  final VisitaCentro centro;
+  final SubcentroCosto? subcentro;
+  const EstablecimientoVisita(this.centro, [this.subcentro]);
+
+  String get clave =>
+      subcentro == null ? centro.id : '${centro.id}|${subcentro!.id}';
+  String get nombre => subcentro == null
+      ? centro.nombre
+      : '${centro.nombre} · ${subcentro!.nombre}';
+  String get subcentroId => subcentro?.id ?? '';
+}
+
+/// Todos los establecimientos visitables de la lista: cada centro y, debajo,
+/// sus subcentros activos.
+List<EstablecimientoVisita> establecimientosDe(List<VisitaCentro> centros) => [
+  for (final c in centros) ...[
+    EstablecimientoVisita(c),
+    for (final s in c.subcentrosActivos) EstablecimientoVisita(c, s),
+  ],
+];
+
+/// Los establecimientos de un grupo (o de un profesional) según sus claves.
+/// Un centro elegido entero trae también sus subcentros; un subcentro
+/// elegido solo, solo ese.
+List<EstablecimientoVisita> establecimientosDeClaves(
+  List<VisitaCentro> centros,
+  Set<String> claves,
+) => [
+  for (final e in establecimientosDe(centros))
+    if (claves.contains(e.clave) || claves.contains(e.centro.id)) e,
+];
 
 class VisitaPersona {
   final String id;
@@ -307,6 +348,7 @@ class VisitasService {
                 id: (d.data()['centroId'] ?? d.id).toString(),
                 nombre: (d.data()['nombre'] ?? d.id).toString(),
                 subcentros: subcentrosDesdeData(d.data()['subcentros']),
+                docId: d.id,
               ),
             )
             .toList();
@@ -584,6 +626,83 @@ class VisitasService {
       }, SetOptions(merge: true));
 
   Future<void> eliminarUbicacion(String id) => _ubicaciones.doc(id).delete();
+
+  /// Busca el lugar en Google Maps (Places) desde el backend: por nombre del
+  /// establecimiento o por dirección (28 sep 2026). [cerca] orienta la
+  /// búsqueda hacia donde ya están los establecimientos.
+  Future<List<LugarGoogle>> buscarLugares({
+    required String empresaId,
+    required String texto,
+    VisitaUbicacion? cerca,
+  }) async {
+    final HttpsCallableResult<dynamic> res;
+    try {
+      res = await FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('visitasBuscarLugar')
+          .call({
+            'empresaId': empresaId,
+            'texto': texto,
+            if (cerca != null) 'lat': cerca.lat,
+            if (cerca != null) 'lng': cerca.lng,
+          });
+    } on FirebaseFunctionsException catch (e) {
+      // El callable dice qué configurar (clave, API habilitada, permiso).
+      throw VisitasException(
+        (e.message ?? '').trim().isEmpty
+            ? 'No se pudo buscar en Google Maps (${e.code}).'
+            : e.message!.trim(),
+      );
+    }
+    final data = res.data;
+    final lista = data is Map ? data['lugares'] : null;
+    return [
+      for (final l in (lista is List ? lista : const []))
+        if (l is Map) LugarGoogle.fromMap(Map<String, dynamic>.from(l)),
+    ];
+  }
+
+  /// Agrega un subcentro al centro de costo (28 sep 2026): el mismo que
+  /// administra Administración en el maestro de centros, así lo ven también
+  /// Interventoría y Facturación. Se lee y se escribe en una transacción para
+  /// no pisar uno que alguien acabe de agregar. Devuelve el subcentro nuevo.
+  Future<SubcentroCosto> agregarSubcentro(
+    VisitaCentro centro,
+    String nombre,
+  ) async {
+    final limpio = nombre.trim();
+    if (limpio.length < 2) {
+      throw const VisitasException('Escribe el nombre del subcentro.');
+    }
+    final base = slugSubcentro(limpio);
+    if (base.isEmpty) {
+      throw const VisitasException('El nombre necesita letras o números.');
+    }
+    final ref = _db
+        .collection('TBL_CENTROS_COSTOS')
+        .doc(centro.docId.isEmpty ? centro.id : centro.docId);
+    return _db.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      if (!snap.exists) {
+        throw const VisitasException('El establecimiento ya no existe.');
+      }
+      final actuales = subcentrosDesdeData(snap.data()?['subcentros']);
+      if (actuales.any((s) => areaClave(s.nombre) == areaClave(limpio))) {
+        throw VisitasException('${centro.nombre} ya tiene "$limpio".');
+      }
+      var id = base;
+      for (var i = 2; actuales.any((s) => s.id == id); i++) {
+        id = '${base}_$i';
+      }
+      final nuevo = SubcentroCosto(id: id, nombre: limpio);
+      tx.set(ref, {
+        'subcentros': [
+          for (final s in [...actuales, nuevo]) s.toMap(),
+        ],
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      return nuevo;
+    });
+  }
 
   /// La referencia que aplica a una visita: la del subcentro si tiene la
   /// suya, si no la del centro. Null si no hay ninguna.

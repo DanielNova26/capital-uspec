@@ -3,9 +3,8 @@
 // Maestro de ubicaciones de los establecimientos (17 sep 2026).
 //
 // Lo pidió el usuario tal cual: "traer los establecimientos y cargar las
-// ubicaciones", con un radio corto, y que solo Desarrollo lo toque. Por eso
-// esta pestaña aparece únicamente para el desarrollador y las reglas de
-// Firestore solo le dejan escribir a él.
+// ubicaciones", con un radio corto. Lo cargan Desarrollo y Gerencia (26 sep
+// 2026); las reglas de Firestore solo les dejan escribir a ellos.
 //
 // Trae los centros de costo de la empresa (con sus subcentros) y a cada
 // uno le deja poner lat/lng, radio y ciudad. Un subcentro sin ubicación
@@ -13,13 +12,22 @@
 // establecimiento no se puede iniciar: la lista lo marca en rojo para que
 // se vea de una qué falta.
 //
-// Web y móvil: la pantalla es la misma. "Usar mi ubicación" sirve en las
-// dos (en web el navegador pide permiso); "Buscar dirección" solo en
-// móvil, porque el plugin de geocodificación no corre en web.
+// 28 sep 2026: "buscar los lugares con Google Maps, porque se le da buscar y
+// no encuentra la dirección o el establecimiento. Si busco Buen Pastor, que
+// me muestre cuál sale en Google Maps, se selecciona y traiga los datos".
+// El buscador del teléfono solo entendía direcciones y en web no corría.
+// Ahora se busca en Google Places desde el backend (`visitasBuscarLugar`),
+// igual en web y en móvil: salen los lugares con su dirección, se elige uno
+// y quedan las coordenadas, la dirección, la ciudad y el lugar de Google;
+// el mapa lo muestra con el radio y se puede afinar tocando el punto exacto.
+// También se agregan subcentros desde aquí, para visitarlos como
+// establecimiento propio.
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:geocoding/geocoding.dart' as geocoding;
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../widgets/paged_list.dart';
 import 'visitas_models.dart';
@@ -28,15 +36,29 @@ import 'visitas_service.dart';
 const String _kFont = 'Arial';
 const Color _kColor = Color(0xFF7C3AED);
 
+void _snack(BuildContext context, String m, {bool error = false}) {
+  ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+    SnackBar(
+      content: Text(m),
+      backgroundColor: error ? const Color(0xFFB91C1C) : null,
+    ),
+  );
+}
+
 class VisitasUbicacionesTab extends StatefulWidget {
   final VisitasService svc;
   final String empresaId;
   final String userId;
+
+  /// El mapa de Google en el diálogo. Las pruebas no tienen mapa.
+  final bool mostrarMapa;
+
   const VisitasUbicacionesTab({
     super.key,
     required this.svc,
     required this.empresaId,
     required this.userId,
+    this.mostrarMapa = true,
   });
 
   @override
@@ -71,13 +93,9 @@ class _VisitasUbicacionesTabState extends State<VisitasUbicacionesTab> {
             final porId = {for (final u in us.data!) u.id: u};
             final filas = <_Fila>[];
             for (final c in cs.data!) {
-              filas.add(
-                _Fila(
-                  centro: c,
-                  ubicacion:
-                      porId[VisitaUbicacion.docId(widget.empresaId, c.id, '')],
-                ),
-              );
+              final delCentro =
+                  porId[VisitaUbicacion.docId(widget.empresaId, c.id, '')];
+              filas.add(_Fila(centro: c, ubicacion: delCentro));
               for (final s in c.subcentrosActivos) {
                 filas.add(
                   _Fila(
@@ -90,6 +108,7 @@ class _VisitasUbicacionesTabState extends State<VisitasUbicacionesTab> {
                           c.id,
                           s.id,
                         )],
+                    ubicacionCentro: delCentro,
                   ),
                 );
               }
@@ -103,6 +122,8 @@ class _VisitasUbicacionesTabState extends State<VisitasUbicacionesTab> {
             final sinUbicacion = filas
                 .where((r) => r.subcentroId.isEmpty && r.ubicacion == null)
                 .length;
+            // Para orientar la búsqueda de Google hacia donde ya hay sitios.
+            final alguna = us.data!.isEmpty ? null : us.data!.first;
             return ListView(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
               children: [
@@ -119,7 +140,8 @@ class _VisitasUbicacionesTabState extends State<VisitasUbicacionesTab> {
                         ? 'Todos los establecimientos tienen ubicación. '
                               'Radio por defecto: ${kVisitasRadioDefectoMetros.round()} m.'
                         : '$sinUbicacion establecimiento(s) sin ubicación: a esos '
-                              'no se les puede iniciar visita hasta cargarla.',
+                              'no se les puede iniciar visita hasta cargarla. '
+                              'Tócalo y búscalo en Google Maps.',
                     style: TextStyle(
                       fontFamily: _kFont,
                       fontSize: 12,
@@ -133,7 +155,7 @@ class _VisitasUbicacionesTabState extends State<VisitasUbicacionesTab> {
                 TextField(
                   decoration: const InputDecoration(
                     prefixIcon: Icon(Icons.search),
-                    hintText: 'Buscar establecimiento',
+                    hintText: 'Filtrar establecimientos de la lista',
                     isDense: true,
                     border: OutlineInputBorder(),
                   ),
@@ -145,10 +167,17 @@ class _VisitasUbicacionesTabState extends State<VisitasUbicacionesTab> {
                   etiqueta: 'establecimientos',
                   itemBuilder: (context, r, _) => _FilaCard(
                     fila: r,
-                    onEditar: () => _editar(r),
+                    onEditar: () =>
+                        _editar(r, cerca: r.ubicacionCentro ?? alguna),
                     onQuitar: r.ubicacion == null
                         ? null
                         : () => _quitar(r.ubicacion!),
+                    onAgregarSubcentro: r.esSubcentro
+                        ? null
+                        : () => _agregarSubcentro(
+                            r,
+                            cerca: r.ubicacion ?? alguna,
+                          ),
                   ),
                 ),
               ],
@@ -159,7 +188,7 @@ class _VisitasUbicacionesTabState extends State<VisitasUbicacionesTab> {
     );
   }
 
-  Future<void> _editar(_Fila r) async {
+  Future<void> _editar(_Fila r, {VisitaUbicacion? cerca}) async {
     final u = await showDialog<VisitaUbicacion>(
       context: context,
       builder: (_) => _UbicacionDialog(
@@ -167,25 +196,48 @@ class _VisitasUbicacionesTabState extends State<VisitasUbicacionesTab> {
         empresaId: widget.empresaId,
         fila: r,
         userId: widget.userId,
+        cerca: cerca,
+        mostrarMapa: widget.mostrarMapa,
       ),
     );
     if (u == null) return;
     try {
       await widget.svc.guardarUbicacion(u);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ubicación de ${r.nombre} guardada.')),
-        );
-      }
+      if (mounted) _snack(context, 'Ubicación de ${r.nombre} guardada.');
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('No se pudo guardar: $e'),
-            backgroundColor: const Color(0xFFB91C1C),
-          ),
-        );
-      }
+      if (mounted) _snack(context, 'No se pudo guardar: $e', error: true);
+    }
+  }
+
+  /// Un subcentro nuevo del centro (Cómbita Alta, Picota ERE 2): queda en el
+  /// maestro de centros de costo y enseguida se le busca la ubicación.
+  Future<void> _agregarSubcentro(_Fila r, {VisitaUbicacion? cerca}) async {
+    final nombre = await showDialog<String>(
+      context: context,
+      builder: (_) => _NombreSubcentroDialog(centro: r.centro.nombre),
+    );
+    if (nombre == null || nombre.isEmpty || !mounted) return;
+    try {
+      final sub = await widget.svc.agregarSubcentro(r.centro, nombre);
+      if (!mounted) return;
+      _snack(
+        context,
+        'Subcentro ${sub.nombre} agregado. Búscale la ubicación.',
+      );
+      await _editar(
+        _Fila(
+          centro: r.centro,
+          subcentroId: sub.id,
+          subcentroNombre: sub.nombre,
+          ubicacion: null,
+          ubicacionCentro: r.ubicacion,
+        ),
+        cerca: cerca,
+      );
+    } on VisitasException catch (e) {
+      if (mounted) _snack(context, e.mensaje, error: true);
+    } catch (e) {
+      if (mounted) _snack(context, 'No se pudo agregar: $e', error: true);
     }
   }
 
@@ -219,16 +271,82 @@ class _VisitasUbicacionesTabState extends State<VisitasUbicacionesTab> {
   }
 }
 
+/// Nombre del subcentro nuevo. Es un widget propio para que el campo viva
+/// lo mismo que el diálogo (se cierra con animación).
+class _NombreSubcentroDialog extends StatefulWidget {
+  final String centro;
+  const _NombreSubcentroDialog({required this.centro});
+
+  @override
+  State<_NombreSubcentroDialog> createState() => _NombreSubcentroDialogState();
+}
+
+class _NombreSubcentroDialogState extends State<_NombreSubcentroDialog> {
+  final _ctrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text('Nuevo subcentro de ${widget.centro}'),
+    content: SizedBox(
+      width: 400,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: _ctrl,
+            autofocus: true,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(
+              labelText: 'Nombre del subcentro',
+              hintText: 'Alta, ERE 2, Patio 3…',
+            ),
+            onSubmitted: (v) => Navigator.pop(context, v.trim()),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Se visita como un establecimiento propio y se puede poner '
+            'en los grupos. Es el mismo subcentro que ve Administración '
+            'en el maestro de centros de costo.',
+            style: TextStyle(fontSize: 12, color: Colors.black54),
+          ),
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancelar'),
+      ),
+      FilledButton(
+        style: FilledButton.styleFrom(backgroundColor: _kColor),
+        onPressed: () => Navigator.pop(context, _ctrl.text.trim()),
+        child: const Text('Agregar'),
+      ),
+    ],
+  );
+}
+
 class _Fila {
   final VisitaCentro centro;
   final String subcentroId;
   final String subcentroNombre;
   final VisitaUbicacion? ubicacion;
+
+  /// La del centro, que hereda un subcentro sin ubicación propia.
+  final VisitaUbicacion? ubicacionCentro;
   const _Fila({
     required this.centro,
     this.subcentroId = '',
     this.subcentroNombre = '',
     required this.ubicacion,
+    this.ubicacionCentro,
   });
   bool get esSubcentro => subcentroId.isNotEmpty;
   String get nombre =>
@@ -239,7 +357,13 @@ class _FilaCard extends StatelessWidget {
   final _Fila fila;
   final VoidCallback onEditar;
   final VoidCallback? onQuitar;
-  const _FilaCard({required this.fila, required this.onEditar, this.onQuitar});
+  final VoidCallback? onAgregarSubcentro;
+  const _FilaCard({
+    required this.fila,
+    required this.onEditar,
+    this.onQuitar,
+    this.onAgregarSubcentro,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -271,10 +395,12 @@ class _FilaCard extends StatelessWidget {
           u == null
               ? (fila.esSubcentro
                     ? 'Hereda la ubicación del centro'
-                    : 'Sin ubicación')
-              : '${u.lat.toStringAsFixed(5)}, ${u.lng.toStringAsFixed(5)} · '
-                    'radio ${u.radioMetros.round()} m'
-                    '${u.ciudad.isEmpty ? '' : ' · ${u.ciudad}'}',
+                    : 'Sin ubicación: tócalo para buscarlo en Google Maps')
+              : [
+                  if (u.direccion.isNotEmpty) u.direccion,
+                  'radio ${u.radioMetros.round()} m',
+                  if (u.ciudad.isNotEmpty) u.ciudad,
+                ].join(' · '),
           style: TextStyle(
             fontFamily: _kFont,
             fontSize: 12,
@@ -284,9 +410,15 @@ class _FilaCard extends StatelessWidget {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (onAgregarSubcentro != null)
+              IconButton(
+                tooltip: 'Agregar subcentro',
+                icon: const Icon(Icons.add_home_work_outlined, size: 20),
+                onPressed: onAgregarSubcentro,
+              ),
             if (onQuitar != null)
               IconButton(
-                tooltip: 'Quitar',
+                tooltip: 'Quitar ubicación',
                 icon: const Icon(Icons.delete_outline, size: 20),
                 onPressed: onQuitar,
               ),
@@ -303,11 +435,17 @@ class _UbicacionDialog extends StatefulWidget {
   final String empresaId;
   final _Fila fila;
   final String userId;
+
+  /// Hacia dónde orientar la búsqueda (el centro, u otro establecimiento).
+  final VisitaUbicacion? cerca;
+  final bool mostrarMapa;
   const _UbicacionDialog({
     required this.svc,
     required this.empresaId,
     required this.fila,
     required this.userId,
+    required this.cerca,
+    required this.mostrarMapa,
   });
 
   @override
@@ -315,12 +453,19 @@ class _UbicacionDialog extends StatefulWidget {
 }
 
 class _UbicacionDialogState extends State<_UbicacionDialog> {
+  late final TextEditingController _buscar;
   late final TextEditingController _lat;
   late final TextEditingController _lng;
   late final TextEditingController _radio;
   late final TextEditingController _ciudad;
   late final TextEditingController _direccion;
+  String _placeId = '';
+  String _nombreGoogle = '';
   bool _ocupado = false;
+  bool _buscando = false;
+  List<LugarGoogle>? _resultados;
+  String? _errorBusqueda;
+  GoogleMapController? _mapa;
 
   @override
   void initState() {
@@ -331,86 +476,149 @@ class _UbicacionDialogState extends State<_UbicacionDialog> {
     _radio = TextEditingController(
       text: (u?.radioMetros ?? kVisitasRadioDefectoMetros).round().toString(),
     );
-    _ciudad = TextEditingController(text: u?.ciudad ?? '');
+    final ciudad = u?.ciudad ?? widget.fila.ubicacionCentro?.ciudad ?? '';
+    _ciudad = TextEditingController(text: ciudad);
     _direccion = TextEditingController(text: u?.direccion ?? '');
+    _placeId = u?.placeId ?? '';
+    _nombreGoogle = u?.nombreGoogle ?? '';
+    _buscar = TextEditingController(
+      text: textoBusquedaLugar(widget.fila.nombre, ciudad: ciudad),
+    );
   }
 
   @override
   void dispose() {
-    _lat.dispose();
-    _lng.dispose();
-    _radio.dispose();
-    _ciudad.dispose();
-    _direccion.dispose();
+    for (final c in [_buscar, _lat, _lng, _radio, _ciudad, _direccion]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
-  void _aviso(String m, {bool error = false}) {
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(
-        content: Text(m),
-        backgroundColor: error ? const Color(0xFFB91C1C) : null,
-      ),
-    );
+  double? get _latV => double.tryParse(_lat.text.trim().replaceAll(',', '.'));
+  double? get _lngV => double.tryParse(_lng.text.trim().replaceAll(',', '.'));
+  double get _radioV =>
+      double.tryParse(_radio.text.trim()) ?? kVisitasRadioDefectoMetros;
+
+  LatLng? get _punto {
+    final lat = _latV, lng = _lngV;
+    if (lat == null || lng == null || lat.abs() > 90 || lng.abs() > 180) {
+      return null;
+    }
+    return LatLng(lat, lng);
+  }
+
+  void _ponerPunto(double lat, double lng, {bool mover = true}) {
+    setState(() {
+      _lat.text = lat.toStringAsFixed(6);
+      _lng.text = lng.toStringAsFixed(6);
+    });
+    if (mover) {
+      _mapa?.animateCamera(CameraUpdate.newLatLngZoom(LatLng(lat, lng), 17));
+    }
+  }
+
+  Future<void> _buscarEnGoogle() async {
+    final q = _buscar.text.trim();
+    if (q.length < 3) {
+      _snack(context, 'Escribe al menos 3 letras para buscar.');
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      _buscando = true;
+      _errorBusqueda = null;
+    });
+    try {
+      final r = await widget.svc.buscarLugares(
+        empresaId: widget.empresaId,
+        texto: q,
+        cerca: widget.cerca,
+      );
+      if (mounted) setState(() => _resultados = r);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _resultados = null;
+        _errorBusqueda = e is VisitasException ? e.mensaje : _mensajeDeError(e);
+      });
+    } finally {
+      if (mounted) setState(() => _buscando = false);
+    }
+  }
+
+  /// El error del callable dice qué configurar; se muestra tal cual.
+  String _mensajeDeError(Object e) {
+    final t = e.toString();
+    final i = t.indexOf(']');
+    return i >= 0 && i < t.length - 1 ? t.substring(i + 1).trim() : t;
+  }
+
+  void _elegir(LugarGoogle l) {
+    setState(() {
+      _placeId = l.placeId;
+      _nombreGoogle = l.nombre;
+      if (l.direccion.isNotEmpty) _direccion.text = l.direccion;
+      if (l.ciudad.isNotEmpty) _ciudad.text = l.ciudad;
+      _resultados = null;
+    });
+    _ponerPunto(l.lat, l.lng);
   }
 
   Future<void> _miUbicacion() async {
     setState(() => _ocupado = true);
     try {
       final p = await widget.svc.posicionActual();
+      if (!mounted) return;
       if (p == null) {
-        _aviso('No se pudo leer el GPS. Revisa permisos.', error: true);
+        _snack(
+          context,
+          'No se pudo leer el GPS. Revisa permisos.',
+          error: true,
+        );
         return;
       }
-      _lat.text = p.latitude.toStringAsFixed(6);
-      _lng.text = p.longitude.toStringAsFixed(6);
-      _aviso('Coordenadas tomadas (±${p.accuracy.round()} m).');
+      // Un punto tomado a mano ya no es el lugar de Google.
+      _placeId = '';
+      _nombreGoogle = '';
+      _ponerPunto(p.latitude, p.longitude);
+      _snack(context, 'Coordenadas tomadas (±${p.accuracy.round()} m).');
     } finally {
       if (mounted) setState(() => _ocupado = false);
     }
   }
 
-  Future<void> _buscarDireccion() async {
-    final dir = _direccion.text.trim();
-    if (dir.isEmpty) {
-      _aviso('Escribe la dirección primero.');
-      return;
-    }
-    if (kIsWeb) {
-      _aviso(
-        'Buscar por dirección no está disponible en web: usa "Mi ubicación" '
-        'desde el sitio o escribe las coordenadas.',
-      );
-      return;
-    }
-    setState(() => _ocupado = true);
-    try {
-      final ciudad = _ciudad.text.trim();
-      final q = ciudad.isEmpty ? '$dir, Colombia' : '$dir, $ciudad, Colombia';
-      final res = await geocoding.locationFromAddress(q);
-      if (res.isEmpty) {
-        _aviso('Sin resultados para esa dirección.');
-        return;
-      }
-      _lat.text = res.first.latitude.toStringAsFixed(6);
-      _lng.text = res.first.longitude.toStringAsFixed(6);
-    } catch (e) {
-      _aviso('No se pudo buscar: $e', error: true);
-    } finally {
-      if (mounted) setState(() => _ocupado = false);
-    }
+  Future<void> _abrirEnMaps() async {
+    final p = _punto;
+    if (p == null) return;
+    final u = VisitaUbicacion(
+      empresaId: widget.empresaId,
+      centroId: widget.fila.centro.id,
+      centroNombre: widget.fila.centro.nombre,
+      lat: p.latitude,
+      lng: p.longitude,
+      placeId: _placeId,
+    );
+    await launchUrl(Uri.parse(u.mapsUrl), mode: LaunchMode.externalApplication);
   }
 
   void _guardar() {
-    final lat = double.tryParse(_lat.text.trim().replaceAll(',', '.'));
-    final lng = double.tryParse(_lng.text.trim().replaceAll(',', '.'));
+    final lat = _latV;
+    final lng = _lngV;
     final radio = double.tryParse(_radio.text.trim());
     if (lat == null || lng == null || lat.abs() > 90 || lng.abs() > 180) {
-      _aviso('Latitud y longitud no son válidas.', error: true);
+      _snack(
+        context,
+        'Busca el lugar en Google Maps o escribe latitud y longitud.',
+        error: true,
+      );
       return;
     }
     if (radio == null || radio < 20 || radio > 2000) {
-      _aviso('El radio debe estar entre 20 y 2000 metros.', error: true);
+      _snack(
+        context,
+        'El radio debe estar entre 20 y 2000 metros.',
+        error: true,
+      );
       return;
     }
     Navigator.pop(
@@ -427,7 +635,182 @@ class _UbicacionDialogState extends State<_UbicacionDialog> {
         ciudad: _ciudad.text.trim(),
         direccion: _direccion.text.trim(),
         actualizadoPor: widget.userId,
+        placeId: _placeId,
+        nombreGoogle: _nombreGoogle,
       ),
+    );
+  }
+
+  Widget _buscador() {
+    final r = _resultados;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text(
+          'Buscar en Google Maps',
+          style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 6),
+        TextField(
+          controller: _buscar,
+          textInputAction: TextInputAction.search,
+          onSubmitted: (_) => _buscarEnGoogle(),
+          decoration: InputDecoration(
+            isDense: true,
+            border: const OutlineInputBorder(),
+            hintText: 'Nombre del establecimiento o dirección',
+            prefixIcon: const Icon(Icons.travel_explore_outlined),
+            suffixIcon: _buscando
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                : IconButton(
+                    tooltip: 'Buscar',
+                    icon: const Icon(Icons.search),
+                    onPressed: _buscarEnGoogle,
+                  ),
+          ),
+        ),
+        if (_errorBusqueda != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              _errorBusqueda!,
+              style: const TextStyle(fontSize: 12, color: Color(0xFFB91C1C)),
+            ),
+          ),
+        if (r != null) ...[
+          const SizedBox(height: 6),
+          if (r.isEmpty)
+            const Text(
+              'Google no encontró ese lugar. Prueba con el nombre y la '
+              'ciudad, o con la dirección.',
+              style: TextStyle(fontSize: 12, color: Colors.black54),
+            )
+          else
+            Container(
+              constraints: const BoxConstraints(maxHeight: 240),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.black12),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final l in r)
+                    ListTile(
+                      dense: true,
+                      leading: const Icon(
+                        Icons.place,
+                        color: Color(0xFFDC2626),
+                      ),
+                      title: Text(
+                        l.nombre.isEmpty ? l.direccion : l.nombre,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      subtitle: Text(
+                        l.direccion,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onTap: () => _elegir(l),
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ],
+    );
+  }
+
+  Widget _vistaMapa() {
+    final p = _punto;
+    if (!widget.mostrarMapa) return const SizedBox.shrink();
+    if (p == null) {
+      return Container(
+        height: 90,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: const Color(0xFFF5F3FF),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: const Text(
+          'Busca el lugar o usa tu ubicación para verlo en el mapa.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 12, color: Colors.black54),
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: SizedBox(
+            height: 240,
+            child: GoogleMap(
+              initialCameraPosition: CameraPosition(target: p, zoom: 17),
+              onMapCreated: (c) => _mapa = c,
+              // Dentro del diálogo con scroll, el mapa se arrastra igual.
+              gestureRecognizers: {
+                Factory<OneSequenceGestureRecognizer>(
+                  () => EagerGestureRecognizer(),
+                ),
+              },
+              markers: {
+                Marker(
+                  markerId: const MarkerId('sitio'),
+                  position: p,
+                  draggable: true,
+                  infoWindow: InfoWindow(
+                    title: _nombreGoogle.isEmpty
+                        ? widget.fila.nombre
+                        : _nombreGoogle,
+                  ),
+                  onDragEnd: (x) =>
+                      _ponerPunto(x.latitude, x.longitude, mover: false),
+                ),
+              },
+              circles: {
+                Circle(
+                  circleId: const CircleId('radio'),
+                  center: p,
+                  radius: _radioV,
+                  strokeWidth: 2,
+                  strokeColor: _kColor,
+                  fillColor: _kColor.withValues(alpha: .12),
+                ),
+              },
+              onTap: (x) => _ponerPunto(x.latitude, x.longitude, mover: false),
+              myLocationButtonEnabled: false,
+              mapToolbarEnabled: false,
+              zoomControlsEnabled: true,
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'El círculo es el radio permitido. Toca el mapa o arrastra el '
+                'marcador para poner la puerta exacta.',
+                style: TextStyle(fontSize: 11, color: Colors.black54),
+              ),
+            ),
+            TextButton.icon(
+              onPressed: _abrirEnMaps,
+              icon: const Icon(Icons.open_in_new, size: 16),
+              label: const Text('Abrir en Google Maps'),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -439,22 +822,32 @@ class _UbicacionDialogState extends State<_UbicacionDialog> {
         style: const TextStyle(fontFamily: _kFont, fontSize: 16),
       ),
       content: SizedBox(
-        width: 440,
+        width: 540,
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              _buscador(),
+              const SizedBox(height: 12),
+              _vistaMapa(),
+              if (_nombreGoogle.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    'Lugar de Google: $_nombreGoogle',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 10),
               TextField(
                 controller: _direccion,
-                decoration: InputDecoration(
-                  labelText: 'Dirección (referencia)',
+                decoration: const InputDecoration(
+                  labelText: 'Dirección',
                   isDense: true,
-                  suffixIcon: IconButton(
-                    tooltip: 'Buscar coordenadas por dirección',
-                    icon: const Icon(Icons.travel_explore_outlined),
-                    onPressed: _ocupado ? null : _buscarDireccion,
-                  ),
                 ),
               ),
               const SizedBox(height: 8),
@@ -472,6 +865,7 @@ class _UbicacionDialogState extends State<_UbicacionDialog> {
                   Expanded(
                     child: TextField(
                       controller: _lat,
+                      onChanged: (_) => setState(() {}),
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                         signed: true,
@@ -486,6 +880,7 @@ class _UbicacionDialogState extends State<_UbicacionDialog> {
                   Expanded(
                     child: TextField(
                       controller: _lng,
+                      onChanged: (_) => setState(() {}),
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                         signed: true,
@@ -501,6 +896,7 @@ class _UbicacionDialogState extends State<_UbicacionDialog> {
               const SizedBox(height: 8),
               TextField(
                 controller: _radio,
+                onChanged: (_) => setState(() {}),
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(
                   labelText: 'Radio permitido (metros)',
@@ -519,7 +915,8 @@ class _UbicacionDialogState extends State<_UbicacionDialog> {
               ),
               const SizedBox(height: 4),
               const Text(
-                'Lo más exacto es tomarla parado en la puerta del establecimiento.',
+                'Si estás parado en la puerta del establecimiento, tu ubicación '
+                'es lo más exacto.',
                 style: TextStyle(
                   fontFamily: _kFont,
                   fontSize: 11,

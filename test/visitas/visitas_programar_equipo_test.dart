@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:todo/core/subcentros_costo.dart';
 import 'package:todo/visitas/visitas_equipo.dart';
 import 'package:todo/visitas/visitas_models.dart';
 import 'package:todo/visitas/visitas_programar.dart';
@@ -11,9 +12,15 @@ import 'package:todo/visitas/visitas_service.dart';
 ///   sus establecimientos, y sin formato.
 /// - Equipo: el rol y el departamento son de consulta; los grupos se arman
 ///   aquí y sus establecimientos cargan.
+///
+/// 28 sep 2026: los subcentros se asignan en el grupo y se programan como un
+/// establecimiento más, con la dirección de Ubicaciones.
 const _area = 'AREA_003_talento_humano';
 
 class _SvcFalso implements VisitasService {
+  final programadas = <VisitaProfesional>[];
+  final grupos = <VisitaGrupo>[];
+
   @override
   Future<List<VisitaPersona>> equipoVisitas(String empresaId) async => const [
     VisitaPersona(
@@ -58,9 +65,50 @@ class _SvcFalso implements VisitasService {
   Stream<List<VisitaCentro>> streamCentros(String empresaId) =>
       Stream.value(const [
         VisitaCentro(id: 'buen_pastor', nombre: 'Buen Pastor'),
-        VisitaCentro(id: 'choconta', nombre: 'Chocontá'),
-        VisitaCentro(id: 'ipiales', nombre: 'Ipiales'),
+        VisitaCentro(
+          id: 'choconta',
+          nombre: 'Chocontá',
+          subcentros: [
+            SubcentroCosto(id: 'pabellon_a', nombre: 'Pabellón A'),
+            SubcentroCosto(id: 'viejo', nombre: 'Viejo', enabled: false),
+          ],
+        ),
+        VisitaCentro(
+          id: 'ipiales',
+          nombre: 'Ipiales',
+          subcentros: [SubcentroCosto(id: 'sanidad', nombre: 'Sanidad')],
+        ),
       ]);
+
+  @override
+  Stream<List<VisitaUbicacion>> streamUbicaciones(String empresaId) =>
+      Stream.value(const [
+        VisitaUbicacion(
+          empresaId: 'e',
+          centroId: 'buen_pastor',
+          centroNombre: 'Buen Pastor',
+          lat: 4.68,
+          lng: -74.07,
+          direccion: 'Cra. 58 #80-95, Bogotá',
+          ciudad: 'Bogotá',
+        ),
+      ]);
+
+  @override
+  Future<List<String>> programarVarias(List<VisitaProfesional> visitas) async {
+    programadas.addAll(visitas);
+    return [for (var i = 0; i < visitas.length; i++) 'v$i'];
+  }
+
+  @override
+  Future<String> guardarGrupo(
+    VisitaGrupo g, {
+    required String actorId,
+    List<VisitaGrupo> otros = const [],
+  }) async {
+    grupos.add(g);
+    return 'g-nuevo';
+  }
 
   @override
   Stream<List<VisitaGrupo>> streamGrupos(String empresaId, {String? areaId}) =>
@@ -71,7 +119,8 @@ class _SvcFalso implements VisitasService {
           nombre: 'Boyacá',
           areaId: _area,
           areaNombre: 'Talento Humano',
-          centroIds: ['buen_pastor', 'choconta'],
+          // Chocontá entero (con Pabellón A) y de Ipiales solo Sanidad.
+          centroIds: ['buen_pastor', 'choconta', 'ipiales|sanidad'],
           profesionalIds: ['yesika'],
         ),
       ]);
@@ -94,6 +143,7 @@ void main() {
     tester,
   ) async {
     await tamano(tester, const Size(1300, 900));
+    final svc = _SvcFalso();
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(
@@ -102,7 +152,7 @@ void main() {
               child: FilledButton(
                 onPressed: () => programarVisitas(
                   context,
-                  svc: _SvcFalso(),
+                  svc: svc,
                   empresaId: 'e',
                   jefeId: 'zuly',
                   jefeNombre: 'Zuly',
@@ -134,22 +184,58 @@ void main() {
     await tester.tap(find.textContaining('Yesika Cárdenas').last);
     await tester.pumpAndSettle();
 
-    // El día elegido: solo los establecimientos de su grupo.
+    // El día elegido: solo los establecimientos de su grupo, con los
+    // subcentros debajo (el inactivo no).
     await tester.tap(find.byType(DropdownButtonFormField<String>).last);
     await tester.pumpAndSettle();
     expect(find.text('Buen Pastor'), findsWidgets);
     expect(find.text('Chocontá'), findsWidgets);
+    expect(find.text('↳ Pabellón A'), findsWidgets);
+    expect(find.text('↳ Sanidad'), findsWidgets);
+    expect(find.text('↳ Viejo'), findsNothing);
+    // De Ipiales solo Sanidad: el centro entero no es del grupo.
     expect(find.text('Ipiales'), findsNothing);
+
+    // El subcentro sin ubicación avisa que no se podrá iniciar.
+    await tester.tap(find.text('↳ Sanidad').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Ipiales · Sanidad'), findsOneWidget);
+    expect(find.textContaining('no se podrá iniciar'), findsOneWidget);
+    expect(find.textContaining('1 día sin ubicación'), findsOneWidget);
+
+    // Buen Pastor muestra la dirección que se trajo de Google Maps.
+    await tester.tap(find.byType(DropdownButtonFormField<String>).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Buen Pastor').last);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Cra. 58 #80-95, Bogotá'), findsOneWidget);
+    expect(find.textContaining('día sin ubicación'), findsNothing);
+
+    // Se programa el subcentro con su centro.
+    await tester.tap(find.byType(DropdownButtonFormField<String>).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('↳ Sanidad').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Programar'));
+    await tester.pumpAndSettle();
+    expect(svc.programadas, hasLength(1));
+    final v = svc.programadas.single;
+    expect(v.centroId, 'ipiales');
+    expect(v.centroNombre, 'Ipiales');
+    expect(v.subcentroId, 'sanidad');
+    expect(v.subcentroNombre, 'Sanidad');
+    expect(v.formatoId, isEmpty);
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('Equipo: el rol no se edita y los grupos cargan', (tester) async {
     await tamano(tester, const Size(1300, 900));
+    final svc = _SvcFalso();
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: VisitasEquipoTab(
-            svc: _SvcFalso(),
+            svc: svc,
             empresaId: 'e',
             userId: 'zuly',
             esDesarrollador: false,
@@ -165,13 +251,91 @@ void main() {
     await tester.tap(find.text('Grupos y establecimientos'));
     await tester.pumpAndSettle();
     expect(find.text('Boyacá · Talento Humano'), findsOneWidget);
-    expect(find.textContaining('Buen Pastor, Chocontá'), findsOneWidget);
+    expect(
+      find.textContaining('Buen Pastor, Chocontá, Ipiales · Sanidad'),
+      findsOneWidget,
+    );
 
     await tester.tap(find.text('Nuevo grupo'));
     await tester.pumpAndSettle();
-    // El departamento no se vuelve a escoger y los establecimientos están.
+    // El departamento no se vuelve a escoger y los establecimientos están,
+    // con sus subcentros activos debajo.
     expect(find.text('Departamento: Talento Humano'), findsOneWidget);
     expect(find.widgetWithText(CheckboxListTile, 'Ipiales'), findsOneWidget);
+    expect(find.widgetWithText(CheckboxListTile, 'Pabellón A'), findsOneWidget);
+    expect(find.widgetWithText(CheckboxListTile, 'Viejo'), findsNothing);
+
+    // Chocontá entero ya trae su subcentro: queda marcado y sin tocarse.
+    await tester.tap(find.widgetWithText(CheckboxListTile, 'Chocontá'));
+    await tester.pumpAndSettle();
+    final pabellon = tester.widget<CheckboxListTile>(
+      find.widgetWithText(CheckboxListTile, 'Pabellón A'),
+    );
+    expect(pabellon.value, isTrue);
+    expect(pabellon.onChanged, isNull);
+
+    // Buscar un subcentro trae su centro y él debajo; de Ipiales solo
+    // Sanidad.
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Buscar establecimiento'),
+      'sani',
+    );
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(CheckboxListTile, 'Buen Pastor'), findsNothing);
+    expect(find.widgetWithText(CheckboxListTile, 'Ipiales'), findsOneWidget);
+    await tester.tap(find.widgetWithText(CheckboxListTile, 'Sanidad'));
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Nombre del grupo'),
+      'Norte',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Guardar'));
+    await tester.pumpAndSettle();
+    expect(svc.grupos, hasLength(1));
+    expect(svc.grupos.single.centroIds, ['choconta', 'ipiales|sanidad']);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Agregar visitas en el teléfono: subcentro y aviso caben', (
+    tester,
+  ) async {
+    await tamano(tester, const Size(390, 844));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: FilledButton(
+                onPressed: () => programarVisitas(
+                  context,
+                  svc: _SvcFalso(),
+                  empresaId: 'e',
+                  jefeId: 'zuly',
+                  jefeNombre: 'Zuly',
+                  esDesarrollador: false,
+                  diaInicial: DateTime.now().add(const Duration(days: 1)),
+                ),
+                child: const Text('abrir'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('abrir'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Profesional de visita'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Yesika Cárdenas').last);
+    await tester.pumpAndSettle();
+    final fila = find.byType(DropdownButtonFormField<String>).last;
+    await tester.ensureVisible(fila);
+    await tester.pumpAndSettle();
+    await tester.tap(fila);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('↳ Sanidad').last);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('no se podrá iniciar'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
