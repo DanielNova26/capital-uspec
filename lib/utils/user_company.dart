@@ -368,10 +368,17 @@ bool userHasApp(Map<String, dynamic> data, String? appId, {String? empresaId}) {
   // destructiva; las asignaciones nuevas usan el appId independiente.
   if (appIdsEquivalent(target, 'planillaspagodashboard')) {
     final detail = getUserCompanyDetail(data, empresaId);
-    return (detail?['rolPlanillas'] ?? data['rolPlanillas'] ?? '')
-        .toString()
-        .trim()
-        .isNotEmpty;
+    // Los roles nuevos ya conceden la app explícita. La compatibilidad es
+    // solo para asignaciones históricas, y no restituye una app retirada.
+    if ((detail?['rolPlanillasId'] ?? '').toString().trim().isNotEmpty) {
+      return false;
+    }
+    final rawRole = detail?.containsKey('rolPlanillas') == true
+        ? detail!['rolPlanillas']
+        : raizEsDeEmpresa(data, empresaId)
+        ? data['rolPlanillas']
+        : null;
+    return (rawRole ?? '').toString().trim().isNotEmpty;
   }
 
   // Compatibilidad durante la separación de Biblioteca y Correspondencia:
@@ -384,10 +391,12 @@ bool userHasApp(Map<String, dynamic> data, String? appId, {String? empresaId}) {
       (candidate) => appIdsEquivalent(candidate, 'gestiondocumentaldashboard'),
     );
     final detail = getUserCompanyDetail(data, empresaId);
-    final rolDocumental =
-        (detail?['rolDocumental'] ?? data['rolDocumental'] ?? '')
-            .toString()
-            .trim();
+    final rawRole = detail?.containsKey('rolDocumental') == true
+        ? detail!['rolDocumental']
+        : raizEsDeEmpresa(data, empresaId)
+        ? data['rolDocumental']
+        : null;
+    final rolDocumental = (rawRole ?? '').toString().trim();
     return hadCombinedModule && rolDocumental.isNotEmpty;
   }
   return false;

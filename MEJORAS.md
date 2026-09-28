@@ -6,6 +6,698 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Admin: roles configurables de Correspondencia — 28 sep 2026 (Codex ↔ Claude)
+
+**Estado: IMPLEMENTADO Y VERIFICADO LOCALMENTE POR CODEX.**
+Cuarta etapa del centro de Apps, roles y permisos. Se conservan Usuarios, Tareas,
+Biblioteca y Planillas. Coordinación exclusivamente por este archivo. Las reglas
+y Functions actuales necesitan validación de Claude antes de publicar.
+
+### Entrega funcional
+
+- Creador en **Admin → Apps, roles y permisos → Correo y Correspondencia**: nombre,
+  descripción, nivel, activo/inactivo, alta, edición, asignación, sincronización
+  y reintento de las personas vinculadas. Los cuatro roles iniciales son
+  opcionales e idempotentes; no se autoasignan ni migran personas masivamente.
+- Niveles de la jerarquía existente: **Visor** consulta tablero e histórico;
+  **Operador** trabaja expedientes asignados; **Clasificador y asignador** añade
+  radicación, clasificación, responsables y fechas límite; **Administrador del
+  módulo** añade tipos documentales, filtros y cierre de expedientes ajenos.
+  Se mantienen las validaciones por responsable, revisor y estado. Cambiar el
+  nombre del rol no agrega capacidades; Desarrollador conserva su excepción
+  existente y no es un nivel que pueda crearse desde este formulario.
+- La app es `correodashboard`. Esta entrega consolida sus niveles operativos;
+  no sustituye la configuración de cuentas personales, OAuth, Gmail o WhatsApp.
+- Asignar escribe **en la misma transacción** la ficha por empresa, su vínculo,
+  la app y la asignación canónica `TBL_CORREO_ROLES/{empresaId}_{userId}`. Esta
+  tabla tiene prioridad en Functions. La raíz se refleja únicamente si la
+  empresa activa es la principal. No cambia perfiles generales, otras empresas
+  ni roles de otros módulos.
+- Edición conserva el identificador y exige revisión vigente. Sincronización
+  relee definición, ficha y asignación; respeta una reasignación concurrente,
+  informa fallos parciales y permite reintento. No concede de nuevo una app
+  retirada. Procesa al actor al final para evitar degradarlo antes de completar
+  las demás asignaciones.
+- Inactivar materializa **Visor** en ambas fuentes. Un valor vacío o borrar la
+  asignación podría recuperar Operador o un administrador heredado. Se conserva
+  el vínculo para sincronizar una reactivación posterior y se conserva la app.
+- Cambiar a nivel individual elimina `rolCorreoId/Nombre/Version` de ficha y
+  tabla en la misma transacción. Elegir «Nivel individual» conserva el nivel
+  actual. Retirar el nivel escribe Visor; no elimina la asignación canónica.
+- Las entradas anteriores de **Roles de Correspondencia** usan este mismo
+  creador y repositorio. Volver al nivel por defecto desvincula y materializa
+  Operador explícito. Ya no existe un CRUD independiente que deje metadata
+  antigua o borre el documento y recupere un permiso heredado.
+- Inventario y matriz leen asignaciones anteriores por empresa/usuario. El
+  documento canónico tiene prioridad sobre duplicados históricos. Crear un rol
+  no reescribe asignaciones anteriores hasta que se asigne a una persona.
+- Detalle, tablero y pantalla de Correo observan ficha y asignación canónica;
+  descartan respuestas atrasadas del resolvedor y actualizan acciones tras un
+  cambio. Revocar app, pertenencia o habilitación cierra el acceso local.
+  Visor deja de editar alias/respuestas, adjuntar/quitar archivos, resolver
+  solicitudes, agregar comentarios, vincular documentos o cerrar procesos.
+  Los filtros de administración desaparecen al reducir el nivel.
+- Alias, borrador, adjuntos, colaboración y maestro de tipos releen el acceso
+  antes de escribir. Verifican empresa del expediente; resolver una solicitud
+  también relee su empresa, expediente y solicitante/revisor. Se conserva
+  trazabilidad y etapa del proceso. Retirar un adjunto de Biblioteca no borra
+  su archivo; solo se permite intentar borrado de Storage dentro de la ruta de
+  respuesta del propio expediente.
+- El cliente resuelve primero `correoMiRol`; `permission-denied` y
+  `unauthenticated` **no** activan un respaldo con permisos mayores. El respaldo
+  disponible lee tabla canónica, asignaciones históricas y ficha por empresa;
+  una decisión específica vacía o desconocida no hereda administrador raíz.
+
+### Contrato para Claude — servidor pendiente antes de publicar
+
+- Definiciones en `TBL_ROLES/{empresaId}_mod_correspondencia_{nombreNormalizado}`:
+  `type='module_role'`, `moduleId='correodashboard'`, `moduleName='Correspondencia'`,
+  `empresaId`, `roleId`, `moduleRole`, `nombre`, `descripcion`, `baseRole`,
+  `enabled`, `revision >= 1`, `createdBy/At`, `updatedBy/At`. Los únicos valores
+  nuevos de `baseRole` son `visor`, `operador`, `clasificador`, `administrador`.
+- Ficha: `empresasDetalle[empresaId].rolCorreo` y
+  `rolCorreoId/rolCorreoNombre/rolCorreoVersion`. Raíz: solo `rolCorreo` cuando
+  corresponde a la empresa principal. Tabla canónica: `empresaId`, `usuarioId`,
+  `rol`, `rolCorreoId/Nombre/Version`, `actualizadoPor`, `actualizadoAt`.
+  `usuarioId` es el ID real de `TBL_USUARIOS`, no una cédula aportada por cliente.
+  Roles inactivos guardan `rol='visor'` manteniendo metadata y revisión.
+- Revisar autorización de definición, tabla y ficha como una operación coherente.
+  El cliente admite administración de empresa desde Admin y administración del
+  módulo vigente. Las reglas de `TBL_CORREO_ROLES` y tipos documentales hoy solo
+  aceptan Desarrollador o `isCorreoAdmin`, que exige una asignación canónica
+  previa; un administrador con acceso únicamente a Admin puede ser rechazado.
+  También revisar `TBL_ROLES` y actualización de usuarios para un administrador
+  del módulo que no tiene Admin. Cualquier rechazo deja la transacción sin
+  concesiones parciales, pero impide completar el flujo en servidor.
+- En `functions/src/correo.ts`, `requireCorreoAccess` y `correoMiRol` todavía
+  pueden usar `userId/cedula` enviado por cliente si no encuentran el UID de Auth.
+  Vincular identidad a claims verificados de Auth v2 (`userDocId`, `authVersion`)
+  y validar persona activa, pertenencia y app de empresa antes de resolver nivel.
+  Tener un UID anónimo y una identidad laboral aportada no acredita esa identidad.
+- `resolveCorreoRole` conserva `scoped?.rolCorreo || user.rolCorreo` y la resolución
+  general heredada: al faltar nivel, puede recuperar raíz de otra empresa o
+  ignorar una decisión vacía. Alinear con el contrato por empresa; verificar
+  campos `empresaId/usuarioId` del documento canónico y normalización de alias.
+  El cliente conserva Operador cuando no hay decisión explícita, mientras
+  `requireCorreoAccess` actualmente rechaza un nivel `null`; resolver esta
+  diferencia en servidor conservando las asignaciones individuales existentes.
+- Los nuevos niveles asignados se materializan en el documento canónico para
+  que las acciones actuales de Functions consuman el nivel actualizado. Verificar
+  jerarquía y validaciones de clasificación, respuesta, revisión y cierre con
+  pruebas de servidor, incluida retirada de app con un rol canónico todavía
+  presente. Retirar la app no elimina la definición ni el vínculo: ningún
+  resolvedor del servidor debe conceder acceso solo porque queda esa tabla.
+- Conservar prioridad canónica sobre históricos y establecer cómo reconciliar
+  duplicados y decisiones externas. Si tabla y ficha aún apuntan al mismo rol,
+  sincronización repara niveles/revisión. Si la tabla apunta a otro rol o se ha
+  desvinculado individualmente, no la pisa. Si falta tabla y la ficha sigue
+  vinculada, la recrea: borrar solo la tabla **no** constituye revocación completa.
+  Un cambio externo debe actualizar ambas fuentes o retirar la app/habilitación.
+- Auditar reglas específicas de expedientes, eventos, vínculos, colaboración,
+  tipos documentales y Storage. Los controles nuevos del cliente no sustituyen
+  seguridad del servidor ni hacen atómica la comprobación de permiso con una
+  escritura posterior. Revisar especialmente versiones de Biblioteca que se
+  pueden vincular/consultar y publicación antes de usar un archivo como soporte.
+- No se modificaron ni desplegaron reglas o Functions, no se ejecutaron
+  migraciones, y no se usó Firestore real ni emulador en esta etapa.
+
+### Verificación local
+
+- **43 pruebas nuevas**: 17 de definiciones/asignación/sincronización, cuatro del
+  creador en escritorio/móvil, 13 de resolución y observación de permisos, y
+  nueve de servicios frente a nivel antiguo, retirada de app, empresa ajena,
+  tipos documentales, respuesta, alias y colaboración.
+- `flutter test --no-pub --reporter expanded`: **1.247 pruebas aprobadas** en
+  toda la suite, incluidas las 43 nuevas de esta etapa.
+- Análisis dirigido de las 17 rutas afectadas de código y pruebas: **sin errores**;
+  quedan diez avisos previos (seis de Admin, uno de colaboración, uno del tablero
+  y dos del detalle). Los archivos nuevos y pruebas de Correspondencia no
+  introducen diagnósticos. `git diff --check` sin incidencias en los archivos
+  modificados de esta etapa.
+- Las pruebas usan Firestore en memoria y callables controlados. No acreditan
+  reglas de producción, claims, Storage, OAuth o integración con Firebase real.
+- Archivos nuevos: `lib/admin/correspondence_module_role.dart`,
+  `correspondence_module_roles_repository.dart`, `correspondence_module_roles_panel.dart`
+  y `lib/gestion_documental/correspondencia/gd_correspondencia_role_access.dart`.
+  Integración: Admin, pantalla anterior de roles, permisos, servicios de
+  Correspondencia/colaboración, detalle, tablero y pantalla de Correo.
+
+---
+
+## Admin: roles configurables de Planillas de Pago — 28 sep 2026 (Codex ↔ Claude)
+
+**Estado: IMPLEMENTADO Y VERIFICADO LOCALMENTE POR CODEX.**
+Tercera etapa del centro de Apps, roles y permisos. Validación del servidor
+pendiente de Claude antes de publicar. El usuario pidió continuar con otro
+módulo; se conservan Usuarios, Tareas y Biblioteca. Coordinación exclusivamente
+por este archivo.
+
+### Entrega funcional
+
+- Creador en **Admin → Apps, roles y permisos → Planillas de Pago**: nombre,
+  descripción, nivel operativo y activo/inactivo; alta, edición, asignación,
+  sincronización y reintento de las personas vinculadas. Los niveles individuales
+  anteriores se conservan hasta asignar un rol. Los cuatro roles iniciales son
+  opcionales, idempotentes y nunca se autoasignan.
+- Niveles: **Tesorería, Auditoría, Gerencia y Administrador documental**. El
+  formulario y el detalle de permisos muestran las acciones existentes de
+  `PpRoles.permisosAccion`. No se inventan permisos al cambiar el nombre ni se
+  modifica la secuencia carga → auditoría → firma de gerencia.
+- Tesorería conserva carga/generación, nombre, envío y correcciones. Auditoría
+  conserva observación, aprobación/rechazo y envío a gerencia. Gerencia conserva
+  firma/rechazo final. Administrador documental conserva las acciones de su
+  mapa. Desarrollador mantiene su bypass general existente, sin poder crearlo
+  como nivel del módulo; **no puede eliminar logos**, igual que antes.
+- Asignación concede `planillaspagodashboard` únicamente en la empresa activa y
+  materializa `rolPlanillas`; no cambia perfiles generales, otros módulos ni
+  otras empresas. Edición comprueba revisión y sincroniza mediante transacciones
+  que releen definición y vínculo. Una reasignación concurrente no se pisa; los
+  fallos parciales quedan pendientes para reintento.
+- Un rol inactivo materializa `rolPlanillas=''`, conserva la app y bloquea el
+  flujo. Planillas no implementa un nivel Consulta. Cambiar un nivel individual
+  desvincula el rol creado; elegir «Nivel individual» conserva el nivel actual.
+- Retirar el módulo desde la matriz, operaciones de grupo o el editor general
+  de Apps retira también nivel y metadata del rol en la misma transacción de
+  Planillas. Activar únicamente la app no restaura el nivel retirado. El editor
+  general relee la persona y exige administración en las empresas seleccionadas;
+  una falta de autoridad rechaza la selección completa, sin escritura parcial.
+- Resolución común en `pp_role_access.dart`: vacío explícito o nivel desconocido
+  no recupera la raíz; la raíz solo sirve a su propia empresa. Compatibilidad
+  histórica de `userHasApp` conserva roles antiguos; **un rol creado necesita
+  la app explícita**. Sincronizar nunca concede apps retiradas. Home y el resumen
+  de usuario en Admin usan esa resolución por empresa.
+- El detalle escucha la ficha actual y oculta el flujo si cambia el acceso;
+  valida empresa de la planilla, incluyendo entrada directa. El servicio relee
+  actor, membresía, nivel, app y empresa/lote antes de las acciones existentes,
+  para rechazar formularios que conservaron un rol anterior. También aplica a
+  guardar/activar/eliminar logos; se valida la ruta de logo de la empresa.
+- Los avisos de etapa del cliente filtran por nivel efectivo de la empresa,
+  sin recuperar una raíz revocada o de otra empresa. Preparación/reparación
+  automática de las pantallas empieza únicamente tras comprobar acceso;
+  preparación del detalle también verifica la empresa del documento.
+- Cuentas bancarias conservan sus permisos propios: Auditoría y Gerencia no
+  obtienen acceso a números de cuenta. `talento_humano` del maestro de cuentas
+  no es un rol del flujo PDF; puede editar banco según su política existente,
+  sin acceso al número completo. No se modifican esas reglas ni colecciones.
+- El panel reutiliza navegación lateral en Web y selector compacto en Móvil.
+  El detalle mantiene PDF con panel lateral en Web y foco compacto en Móvil.
+
+### Contrato y pendientes para Claude
+
+1. Definiciones en `TBL_ROLES/{empresaId}_mod_planillas_{nombreNormalizado}`:
+   `type=module_role`, `moduleId=planillaspagodashboard`, `moduleName`, `empresaId`,
+   `moduleRole`, `roleId`, `nombre`, `descripcion`, `baseRole` (uno de los cuatro
+   niveles), `enabled` booleano, `revision` entero positivo, `updatedBy`,
+   `updatedAt`/`createdAt`. ID estable al renombrar. Los registros inválidos o
+   históricos permanecen en Fuentes sin convertirse automáticamente en roles.
+2. Asignación en `TBL_USUARIOS.empresasDetalle[empresaId]`: `rolPlanillasId`,
+   `rolPlanillasNombre`, `rolPlanillasVersion` y capacidad efectiva `rolPlanillas`.
+   Solo se espeja `rolPlanillas` en la raíz cuando pertenece a esa empresa.
+   Desvinculación borra las tres claves de metadata. Revocación escribe vacío
+   explícito, también en raíz de la principal; no borrar ese vacío ni recuperar
+   un rol raíz anterior. `planearAppsPorEmpresa` preserva otras empresas.
+3. Sincronización consulta `empresasDetalle.{empresaId}.rolPlanillasId`, relee
+   cada persona/definición y nunca concede apps. Mantener revisión y vínculo
+   concurrente; reparar copia raíz de la principal. Decidir sincronización
+   garantizada en Functions para edición externa del catálogo/fallos parciales.
+4. **Revisar autorización de servidor antes de publicar:** nuevo contrato en
+   `TBL_ROLES`/`TBL_USUARIOS`/`TBL_APPS`, empresa, niveles/campos válidos, acceso al
+   catálogo, asignación y revocación. Vincular actor a `authVersion=2`/`userDocId`;
+   `actorId` del servicio sigue siendo un parámetro de cliente. Las comprobaciones
+   locales no reemplazan reglas ni son atómicas con la operación posterior.
+5. Revisar `TBL_PP_LOTES`, `TBL_PP_PLANILLAS`, historial append-only `TBL_PP_FLUJO`,
+   `TBL_PP_CONFIG` y Storage: empresa del actor/documento/lote, app habilitada,
+   nivel vigente, transiciones/firma y cambios concurrentes. Revisar también
+   métodos históricos de mantenimiento, metadata/reparación de PDF y generación
+   que escriben fuera de la comprobación de flujo. Sincronización por usuario
+   y editor general hacen transacciones; firma/PDF/Storage no se hacen atómicos
+   en esta entrega.
+6. `firestore.rules → planillasRole` aún permite respaldo raíz sin comprobar
+   empresa principal cuando falta nivel específico. Alinear esa resolución con
+   el contrato nuevo y revisar reglas de `TBL_PAGOS_BENEFICIARIOS` y
+   `TBL_PAGOS_BENEFICIARIOS_CUENTA`: conservar separación banco/número, retiro de
+   acceso y autorización actual. Nunca conceder números a Auditoría/Gerencia ni
+   elevar `talento_humano` a un rol operativo de PDF.
+7. `functions/src/pp_notifications.ts → resolvePlanillasRole` aún usa
+   `scopedRol || globalRol`: puede recuperar una raíz tras vacío explícito o de
+   otra empresa. Alinear empresa principal, vacío, membresía/app y bypass real;
+   revisar alias histórico `gerente` sin introducirlo como nuevo nivel del
+   creador. Esta etapa corrige avisos del cliente, **no el recordatorio programado
+   del servidor**. No editar únicamente el JS compilado de `functions/lib`.
+8. No se han desplegado reglas/Functions ni usado Firestore real o emuladores.
+   Claude debe validar contrato y seguridad del servidor antes de publicar.
+
+### Archivos y validación
+
+**Codex tomó y terminó:** `lib/admin/payment_module_role.dart`,
+`payment_module_roles_repository.dart`, `payment_module_roles_panel.dart`,
+integración en `admin_dashboard_screen.dart`,
+`lib/gestion_documental/planillas/pp_role_access.dart`, `pp_dashboard_screen.dart`,
+`pp_planilla_detail_screen.dart`, `pp_service.dart`, `pp_generar_desde_excel_screen.dart`,
+resolución en `lib/home/home_screen.dart` y `lib/utils/user_company.dart`.
+Repositorios/validaciones de integración preparados localmente; arquitectura y
+contrato de servidor para revisión de Claude.
+
+- Pruebas nuevas en `test/admin/payment_module_roles_test.dart`,
+  `payment_module_roles_panel_test.dart`,
+  `test/gestion_documental/planillas/pp_role_access_test.dart` y
+  `pp_current_role_service_test.dart`: aislamiento por empresa, niveles reales,
+  revocación, sincronización/reintento, cambios concurrentes, revisión obsoleta,
+  niveles individuales, formularios abiertos, permisos de cuentas/logo y
+  transición con historial. Creador probado en escritorio y móvil de 390×844.
+- Ampliado el doble local `test/support/memory_firestore.dart` para escrituras
+  directas y eventos del servicio real; no simula reglas de servidor.
+- **35 pruebas nuevas** aprobadas (16 de repositorio, 4 de formulario,
+  6 de resolución/permisos y 9 del servicio). Regresión de **311 pruebas**
+  aprobadas con `flutter test --no-pub --reporter expanded test/admin
+  test/gestion_documental test/core/task_permissions_test.dart
+  test/utils/user_company_test.dart test/core/multiempresa_sync_test.dart`.
+- `flutter analyze --no-pub` sobre los archivos cambiados y pruebas: sin errores
+  ni diagnósticos nuevos; mantiene 17 advertencias/informaciones existentes
+  (6 en Admin, 1 en generación Excel y 10 en Home). `git diff --check` aprobado.
+  Salidas locales en `.codex-tmp/planillas-roles-test-output.txt` y
+  `.codex-tmp/planillas-roles-analyze-output.txt`.
+- Sin commits, push ni despliegue en esta etapa.
+
+---
+
+## Admin: roles configurables de Biblioteca Documental — 28 sep 2026 (Codex ↔ Claude)
+
+**Estado: IMPLEMENTADO Y VERIFICADO LOCALMENTE POR CODEX.** Contrato y
+validación del servidor pendientes de Claude antes de publicar. El usuario
+pidió continuar con otro módulo; Biblioteca es la segunda etapa, preservando
+Tareas y Usuarios. Coordinación exclusivamente por este archivo.
+
+### Entrega funcional
+
+- Biblioteca ofrece el creador en **Admin → Apps, roles y permisos → Biblioteca**:
+  nombre propio, descripción, nivel operativo y activo/inactivo; alta, edición,
+  asignación y sincronización/reintento sobre las personas vinculadas.
+- Niveles soportados: Consulta de publicados, Redactor, Revisor, Aprobador,
+  Firmante y Administrador documental. El formulario muestra las acciones
+  reales de `GdRoles.permisosAccion`; cambiar el nombre no inventa permisos.
+  Se respetan las etapas documentales existentes. Los roles iniciales son
+  opcionales e idempotentes y nunca se autoasignan al personal.
+- Redactor: cargar, enviar/reenviar y crear versiones. Revisor: observar y
+  validar formato. Aprobador: observar, aprobar, validar y marcar vigente.
+  Firmante: firmar y marcar vigente. Administrador documental: las diez
+  acciones del mapa, incluida eliminación/copia de biblioteca. Las validaciones
+  existentes por estado, autoría y documento siguen aplicando.
+- Asignar concede la app de Biblioteca solo en esa empresa y materializa el
+  nivel que consumen el listado, el detalle y el servicio. No se altera el
+  perfil general, Tareas, Planillas ni las asignaciones de otras empresas.
+- Editar sincroniza a quienes conservan el rol, con revisión del catálogo y
+  transacciones que releen la persona y la definición. Se rechaza una edición
+  vieja y se respeta una reasignación concurrente. Los fallos se reportan y
+  permanecen disponibles para reintento.
+- Un rol inactivo materializa `rolDocumental=''`: conserva la app y deja
+  consulta de publicados, sin acciones de flujo. Sincronizar no vuelve a
+  habilitar una app retirada. El bypass existente de Desarrollador se conserva;
+  ese nivel no puede crearse ni asignarse mediante el creador de Biblioteca.
+- Los niveles individuales existentes se conservan hasta asignar un rol propio.
+  Cambiar el nivel individual desvincula el rol creado y aplica el elegido;
+  elegir «Nivel individual» conserva el nivel actual. Retirar el nivel escribe
+  un vacío explícito para que no reaparezca un rol raíz anterior.
+- Resolución común en `gd_role_access.dart`: un campo por empresa vacío,
+  Consulta o desconocido no recupera el rol raíz. El respaldo raíz sirve solo
+  para su propia empresa. Corregidos también la compatibilidad de acceso desde
+  el antiguo módulo combinado y el resumen documental en la ficha de Admin.
+- Consulta ve documentos vigentes y su versión publicada, sin mostrar versiones
+  en proceso ni de otra empresa/documento. El detalle verifica acceso actual,
+  incluyendo enlaces directos. Los niveles operativos conservan su historial.
+- El servicio relee el nivel materializado, membresía y acceso a Biblioteca antes
+  de cada acción para rechazar formularios que conservaron un rol anterior.
+  Esta comprobación funcional de cliente no reemplaza reglas de servidor ni
+  vuelve atómicas la lectura del rol y la operación documental posterior.
+- Formulario probado en escritorio y móvil, integrado en la navegación lateral
+  de Web y en el selector compacto de Móvil que ya usa el centro de accesos.
+
+### Contrato para Claude
+
+1. Definiciones en `TBL_ROLES/{empresaId}_mod_biblioteca_{nombreNormalizado}`:
+   `type=module_role`, `moduleId=bibliotecadocumentaldashboard`, `moduleName`,
+   `empresaId`, `moduleRole` (nombre normalizado), `roleId`, `nombre`,
+   `descripcion`, `baseRole` (uno de los seis niveles), `enabled` booleano,
+   `revision` entero positivo y metadatos de actualización. ID estable al
+   renombrar. Definiciones históricas inválidas siguen visibles en Fuentes,
+   sin importarse automáticamente como roles nuevos. Los perfiles generales
+   siguen separados mediante `AdminRepository.loadAccessRoles`.
+2. Asignaciones en `TBL_USUARIOS.empresasDetalle[empresaId]`:
+   `rolBibliotecaId`, `rolBibliotecaNombre`, `rolBibliotecaVersion` y
+   `rolDocumental`. `rolDocumental` es la capacidad efectiva compatible con el
+   módulo actual; `baseRole=consulta` resuelve sin acciones operativas.
+   Solo se actualiza la copia raíz de `rolDocumental` cuando corresponde a
+   esa empresa. Una desvinculación elimina la metadata de rol creado y
+   conserva/aplica el nivel individual, incluyendo el vacío explícito.
+3. Asignación y niveles individuales usan `planearAppsPorEmpresa` en la misma
+   transacción. Sincronización consulta
+   `empresasDetalle.{empresaId}.rolBibliotecaId`, no concede apps y relee cada
+   asignación/definición. Incluye reparación de una copia raíz desactualizada
+   en la empresa principal y reporte de fallos por persona.
+4. **Claude debe revisar autorización de servidor antes de publicar:** el
+   comodín actual de `firestore.rules` no valida este nuevo contrato para
+   `TBL_ROLES`/`TBL_USUARIOS`/`TBL_APPS` ni el nivel documental de estas
+   operaciones. Vincular actor a `authVersion=2`/`userDocId`, validar empresa,
+   tipos/campos, niveles, asignaciones, revocación, lecturas de documentos y
+   versiones, y rutas de Storage. El control nuevo del servicio recibe un
+   `actorId` de cliente; la identidad autenticada debe validarse en servidor.
+   Revisar también la autorización de empresa destino del flujo existente
+   `copiarBibliotecaAEmpresa` y cambios entre comprobación y escritura.
+5. Sigue pendiente decidir sincronización garantizada en Functions para
+   ediciones externas del catálogo y fallos parciales. Admin ejecuta el copiado
+   al guardar y ofrece reintento; una definición nueva no tiene efecto sobre
+   una copia de usuario hasta sincronizarla. No se han desplegado reglas ni
+   ejecutado pruebas de emulador/Firestore real en esta etapa.
+
+### Archivos y validación
+
+**Codex tomó y terminó:** `lib/admin/library_module_role.dart`,
+`library_module_roles_repository.dart`, `library_module_roles_panel.dart`,
+integración en `admin_dashboard_screen.dart`, resolución y control de acceso
+`lib/gestion_documental/gd_role_access.dart`, integración en
+`gd_dashboard_screen.dart`, `gd_detail_screen.dart`, `gd_service.dart` y la
+compatibilidad de Biblioteca en `lib/utils/user_company.dart`. Claude debe
+registrar aquí qué archivos toma antes de cambiar contratos o persistencia;
+Dashboard/navegación siguen reservados a Codex.
+
+- **27 pruebas nuevas de esta etapa:** 12 de repositorio, 4 de formulario,
+  6 de niveles/lectura/versiones y 5 de comprobación del rol vigente al operar.
+- **275 pruebas de regresión aprobadas**, más la nueva prueba de versión
+  publicada: **276 pruebas distintas aprobadas**. Último ajuste de consulta
+  verificado con las 15 pruebas de acceso y lógica de Biblioteca.
+- Regresión: `flutter test --no-pub --reporter expanded test/admin
+  test/gestion_documental test/core/task_permissions_test.dart
+  test/utils/user_company_test.dart test/core/multiempresa_sync_test.dart`.
+- Ajuste final: `flutter test --no-pub --reporter expanded
+  test/gestion_documental/gd_role_access_test.dart
+  test/gestion_documental/gd_library_logic_test.dart`.
+- Análisis dirigido sin errores ni diagnósticos nuevos. Permanecen seis
+  diagnósticos anteriores del dashboard y nueve avisos anteriores de nombres
+  de enums en `gd_models.dart` (sus valores persistidos se conservan).
+  `git diff --check` aprobado.
+- **Claude:** pendiente de respuesta/revisión técnica de Biblioteca y Tareas.
+- Sin cambios en datos reales, despliegue, commit ni push. Otros módulos
+  continúan con sus niveles existentes hasta su propia etapa.
+
+---
+
+## Admin: consolidar Apps, roles y niveles de acceso por módulo — 28 sep 2026 (Codex ↔ Claude)
+
+**Estado: BASE CONSOLIDADA Y TAREAS IMPLEMENTADOS Y VERIFICADOS LOCALMENTE.**
+Revisión técnica de Claude y validación del servidor pendientes antes de publicar.
+Segunda mejora solicitada después de unificar Usuarios.
+Coordinación exclusivamente por este archivo; avanzar y validar módulo por
+módulo, conservando los cambios de la primera mejora.
+
+### Pedido
+
+- Unificar catálogo de Apps, roles y permisos en un centro organizado por módulo.
+- Poder crear y editar roles propios de cada módulo y definir su nivel de
+  acceso, incluyendo los módulos que hoy no tienen roles explícitos.
+- Traer y conciliar lo existente en `TBL_APPS`, catálogo de código,
+  `TBL_ROLES`, campos por empresa de la ficha y tablas internas de roles.
+- Cada rol debe tener un efecto verificable en el módulo y mantener el
+  aislamiento por empresa. Un perfil general que agrupa módulos no sustituye
+  un rol operativo; no asignar el mismo campo general a todos los módulos.
+- La sincronización debe conservar identidades, roles actuales y fuentes
+  efectivas. Mostrar conflictos y roles desconocidos antes de resolverlos;
+  no reemplazar datos ni conceder acceso masivo al importar el inventario.
+
+### Inventario inicial verificado
+
+| Módulo | Fuente efectiva actual | Nivel/rol actual |
+|---|---|---|
+| Tareas | Ficha por empresa + `task_permissions.dart` | Alcance de áreas y vista del equipo; sin catálogo de roles propios |
+| Biblioteca Documental | `empresasDetalle.rolDocumental` | Roles operativos definidos en código |
+| Planillas de Pago | `empresasDetalle.rolPlanillas` | Etapas/roles definidos en código |
+| Compras | `TBL_COMPRAS_ROLES` | Roles internos definidos en código |
+| Interventoría | `TBL_INTERVENTORIA_ROLES` | Roles internos definidos en código |
+| Rutas | `TBL_RUTAS_ROLES` | Roles internos definidos en código |
+| Visitas | `TBL_VISITAS_ROLES` + ficha/cargo | Roles internos, área y Gerencia efectiva por ficha |
+| Correo y Correspondencia | `TBL_CORREO_ROLES` + fallbacks de ficha | Roles internos y acceso operativo predeterminado |
+| Facturación | `empresasDetalle.rolFac` + establecimiento | Rol interno y ámbito de establecimiento |
+| Tokens DIAN | Ficha/autorización de personal | Lista autorizada; revisar contrato del módulo |
+| Admin, Talento Humano, Gerencia, Nutrición, Gestión de Correspondencia | Acceso a Apps + lógica interna por revisar | No todos ofrecen rol editable en la matriz actual |
+
+`AdminRepository.loadAccessRoles` excluye los roles funcionales de `TBL_ROLES`
+para evitar confundirlos con perfiles generales. El creador actual solo crea
+perfiles de módulos visibles; no crea roles efectivos dentro de cada módulo.
+El inventario nuevo debe contemplar ambas clases sin volver a mezclarlas.
+
+### Ejecución por etapas y reparto
+
+1. **Codex:** consolidación de navegación y catálogo; inventario de fuentes y
+   correspondencia con roles efectivos. Preparar el creador por módulo y las
+   pruebas de integración del primer módulo elegido por el usuario.
+2. **Primer módulo:** cerrar definición, alta/edición de roles, asignación,
+   sincronización y validación antes de avanzar al siguiente. Registrar aquí
+   qué niveles se soportan y qué decisiones requieren revisión técnica.
+3. **Claude:** revisión de contrato de persistencia, repositorios, reglas de
+   Firestore y sincronización. Dejar respuestas y archivos tomados aquí antes
+   de editar. Dashboard/navegación son de Codex durante esta mejora.
+4. **Siguientes módulos:** incorporar uno por uno las fuentes y permisos reales;
+   mantener visible su estado de revisión, sin fingir que un nombre nuevo de
+   rol ya cambia la autorización del módulo.
+
+### Primera etapa elegida: Tareas
+
+El usuario confirmó **Tareas**, cuyo nivel actual se administra mediante
+permisos. Esta etapa agrega nombres y definiciones de rol sobre los dos
+permisos que ya consume el flujo: `crearTareasTodasAreas` y `puedeVerEquipo`.
+No inventa un permiso de cerrar tareas ajenas: avance/finalización siguen
+requiriendo ser responsable mediante `isTaskAssignedToUser`.
+
+### Entrega local de Codex
+
+- Un centro **Admin → Apps, roles y permisos** con Módulos, Configuración de
+  apps y Perfiles generales. Los accesos desde Usuarios y desde una app abren
+  este mismo centro; desde la ficha se conserva el filtro de esa persona.
+- Inventario que une `kAppCatalog`, registros originales de `TBL_APPS`,
+  definiciones funcionales de `TBL_ROLES` y apps asignadas al personal.
+  Incluye apps propias, concilia alias solo para presentar y expone estados
+  contradictorios sin eliminar ni reemplazar documentos. El documento
+  canónico tiene prioridad para mostrar el estado cuando existe.
+- Roles/asignaciones internas de Compras, Interventoría, Rutas, Visitas,
+  Correo, Biblioteca, Planillas y Facturación continúan leyéndose de sus
+  fuentes efectivas. Cada módulo indica su fuente y revisión pendiente;
+  sus creadores se implementarán uno por uno después de Tareas.
+- Acción de registrar módulos conocidos faltantes: los crea **desactivados**,
+  respeta alias y estados existentes, no asigna apps ni roles a personas.
+- Tareas permite crear, editar, activar/desactivar y asignar roles; incluye
+  iniciales opcionales Personal (false/false), Líder de equipo (false/true) y
+  Coordinación transversal (true/true), sin autoasignaciones. Agregarlos de
+  nuevo conserva las definiciones ya configuradas.
+- Editar sincroniza los asignados. Un rol inactivo materializa false/false;
+  conserva el acceso básico a Tareas y la operación sobre tareas propias.
+  No se retira ni se vuelve a conceder la app durante la sincronización.
+- Los permisos individuales anteriores siguen vigentes hasta asignar un rol.
+  Cambiar un interruptor individual desvincula su rol y conserva el otro
+  permiso. Elegir «Permisos individuales» conserva ambos permisos actuales.
+- Control de versión al guardar y transacciones al asignar/sincronizar:
+  una edición vieja se rechaza y una reasignación concurrente no se pisa.
+  Fallos de sincronización se reportan y los casos pendientes ofrecen
+  reintento. Los permisos y campos de otras empresas se conservan.
+- Corregida la lectura de permisos/equipo raíz de Tareas: los de la empresa
+  principal no habilitan otra empresa. Un false explícito de la empresa
+  activa prevalece sobre cargo, jerarquía y datos heredados.
+- Web conserva navegación lateral y listas detalladas; móvil usa selector
+  compacto por tarea. El formulario de roles se probó en ambos tamaños.
+
+### Contrato para revisión de Claude
+
+**No se han desplegado reglas ni alterado datos reales.** Estos repositorios
+preparan la integración funcional; Claude debe revisar persistencia y reglas
+antes de declarar lista la autorización del servidor.
+
+1. `TBL_ROLES/{empresaId}_mod_tareas_{nombreNormalizado}`: `type=module_role`,
+   `moduleId=tareasdashboard`, `empresaId`, `moduleName`, `moduleRole`,
+   `roleId`, `nombre`, `descripcion`, `permissions` con los dos booleanos,
+   `enabled`, `revision` entero positivo y metadatos de actualización.
+   El ID permanece estable al renombrar. Las definiciones históricas que no
+   cumplen el contrato se muestran como pendientes y no se asignan como
+   roles configurables. `AdminRepository.loadAccessRoles` sigue excluyendo
+   roles funcionales para no mezclarlos con perfiles generales.
+2. Asignación en `TBL_USUARIOS.empresasDetalle[empresaId]`: `rolTareasId`,
+   `rolTareasNombre`, `rolTareasVersion` y ambos permisos. Esos permisos son
+   los que consume Tareas, no el nombre del rol. Se copian también a raíz
+   **solo cuando la raíz pertenece a esa empresa**, para compatibilidad.
+   Nunca se cambia `role`, `roleId` general ni roles de otros módulos.
+3. Asignar comprueba administrador, persona habilitada, empresa del rol y
+   rol activo; habilita Tareas mediante `planearAppsPorEmpresa`, conservando
+   los accesos efectivos de las otras empresas. Sincronizar consulta la
+   vinculación `empresasDetalle.{empresaId}.rolTareasId` y vuelve a leer
+   usuario y definición dentro de cada transacción.
+4. **Hallazgo verificable:** `firestore.rules` mantiene el comodín final para
+   las colecciones que no excluye; `TBL_ROLES`, `TBL_APPS`, `TBL_USUARIOS`
+   y Tareas no tienen una validación específica de este nuevo contrato.
+   Los controles del repositorio son controles de cliente y no acreditan
+   autorización de servidor. Revisar con `authVersion=2` / `userDocId` la
+   pertenencia/administración por empresa, tipos y campos permitidos, acceso
+   a definiciones/asignaciones, restricción de actualizaciones y revocación.
+   Preservar compatibilidad de perfiles generales y otros flujos de usuario.
+   Añadir las pruebas del emulador al resolver las reglas; no se ejecutaron
+   pruebas de reglas ni integración contra Firestore real en esta etapa.
+5. Si se requiere sincronización garantizada desde Functions o al editar
+   fuera de Admin, definirla aquí con idempotencia, revisión y reintento.
+   Actualmente Admin ejecuta la sincronización al guardar y permite volver
+   a sincronizar los usuarios con copia desactualizada; una edición externa
+   del catálogo necesita ese reintento para materializar permisos nuevos.
+
+Archivos preparados por Codex:
+`lib/admin/admin_access_workspace.dart`, `admin_module_inventory.dart`,
+`task_module_role.dart`, `task_module_roles_repository.dart`,
+`task_module_roles_panel.dart`, integración en `admin_dashboard_screen.dart`
+y ajuste de `lib/core/task_permissions.dart`. Dashboard/navegación siguen
+reservados a Codex. Claude debe indicar aquí qué archivos toma antes de editar.
+
+### Validación y seguimiento
+
+- **111 pruebas aprobadas**: Admin, permisos de Tareas, usuarios por empresa y
+  sincronización multiempresa. Casos nuevos: catálogo/alias/conflictos,
+  alta/edición/asignación/revocación, rol inactivo, aislamiento por empresa,
+  concurrencia, fallos/reintento, permisos individuales y formulario Web/Móvil.
+- Comando: `flutter test --no-pub --reporter expanded test/admin
+  test/core/task_permissions_test.dart test/utils/user_company_test.dart
+  test/core/multiempresa_sync_test.dart`.
+- Análisis dirigido sin errores en los archivos de esta etapa; permanecen
+  seis diagnósticos anteriores del dashboard. `git diff --check` aprobado.
+- **Codex:** base y primer módulo cerrados en local; otros módulos pendientes
+  de su etapa específica. Sin commit, push, publicación ni migración real.
+- **Claude:** pendiente de respuesta técnica en esta sección. Solo Codex hace Git.
+
+---
+
+## Dashboard Atlas / Admin: unificar gestión de usuarios — 28 sep 2026 (Codex ↔ Claude)
+
+**Estado: IMPLEMENTADO Y VERIFICADO LOCALMENTE por Codex.**
+Revisión técnica de Claude pendiente de respuesta en este archivo. Sin publicar.
+La coordinación de esta mejora se hace exclusivamente por `MEJORAS.md`.
+Cada responsable deja aquí sus avances, contratos, bloqueos y validaciones;
+este registro no significa que Claude ya haya leído o ejecutado el trabajo.
+
+### Pedido y objetivo funcional
+
+Reunir en una sola entrada **Usuarios** lo relacionado con administrar
+personas: crear y editar usuarios, organización, accesos, roles y permisos,
+perfiles generales, Salud usuarios y Salud cargos. Hoy hay demasiados lugares
+para gestionar a la misma persona. Conservar las funciones existentes y darles
+una navegación interna clara, con la empresa activa como contexto común.
+
+- **Organización**: centro de costos, departamento y cargo de la persona.
+  Los roles de módulos se administran en la sección de accesos correspondiente.
+- **Accesos y perfiles**: reunir asignación de módulos, roles por módulo y
+  perfiles generales, con acceso desde la ficha de la persona.
+- **Salud de datos**: incorporar Salud usuarios y Salud cargos dentro del
+  espacio Usuarios, conservando diagnóstico, revisión y correcciones.
+- **Crear usuario**: ofrecer una entrada visible desde Usuarios y reutilizar
+  el flujo existente de alta y vinculación a empresa, después de verificarlo.
+- Revisar Membresía, Multiempresa y las migraciones de personal para que sus
+  operaciones sobre personas sean localizables desde el mismo espacio;
+  las herramientas generales de sistema pueden conservar su sección propia.
+
+**Aclaración del usuario recibida:** "Sí, Admin y Planillas de Pago; mover esos
+roles". La mejora aplica a `AdminDashboardScreen`. Quitar del formulario
+Organización los editores de Biblioteca Documental y Planillas de Pago;
+conservar su gestión en Usuarios > Roles y permisos y sus datos existentes.
+
+### Inventario inicial comprobado por Codex
+
+- `lib/admin/admin_dashboard_screen.dart`: navegación principal con Usuarios,
+  Roles y permisos, Salud usuarios, Salud cargos, Membresía y Multiempresa en
+  entradas separadas; `_editUserOrg` mezcla organización con roles de módulos.
+- El mismo archivo ya contiene la matriz de accesos y perfiles generales.
+  Revisar estas operaciones antes de añadir otras pantallas equivalentes.
+- `lib/admin/users_management_screen.dart`: pantalla antigua de edición global,
+  sin alta ni puntos de entrada encontrados. No reutilizarla para este flujo.
+- El alta vigente está en `lib/talento_humano/zeus_export_screen.dart` y
+  `zeus_export_service.dart`. Se reutiliza su formulario y servicio.
+- Revisar `lib/admin/admin_repository.dart`, `lib/utils/user_company.dart` y
+  los servicios multiempresa para conservar el aislamiento por empresa.
+
+### Reparto y límites de edición para esta mejora
+
+- **Codex**: navegación y flujo de Usuarios, jerarquía de acceso, integración,
+  pruebas funcionales y consolidación. Responsable de
+  `lib/admin/admin_dashboard_screen.dart` durante esta mejora. Solo Codex hace
+  `git add`, `git commit` y `git push`.
+- **Claude**: revisar altas, repositorios, validaciones, sincronización entre
+  ficha/estructura/cargos/empresa y reglas de Firestore. Registrar aquí el
+  contrato propuesto y los archivos que vaya a editar antes de intervenir;
+  evitar editar el dashboard a la vez que Codex. No hacer Git.
+- **Gemini**, si interviene: diseño y componentes según `AGENTS.md`, con
+  archivos acordados aquí para evitar escrituras simultáneas. No hacer Git.
+
+### Criterios de aceptación
+
+- Una entrada Usuarios permite encontrar alta, ficha, organización, accesos,
+  perfiles generales y salud de datos sin recorrer pestañas principales
+  desconectadas; cada operación existente conserva su alcance y validaciones.
+- Cambiar centro, departamento o cargo no modifica roles de Biblioteca o
+  Planillas ni los permisos de otra empresa. Mover un editor no borra su dato.
+- Los accesos se respetan tanto al navegar como al guardar, incluidos usuarios
+  inactivos y restricciones administrativas. Los filtros y la persona elegida
+  mantienen un contexto coherente al cambiar de sección.
+- Web: lista/tabla con filtros y detalle de la persona aprovechando el ancho.
+  Móvil: lista compacta, ficha y acciones por tarea. Compartir lógica,
+  empresa y permisos; diferenciar presentación y navegación.
+- Verificar alta y edición, roles/perfiles, diagnósticos, cambio de empresa y
+  navegación en escritorio y teléfono con las pruebas pertinentes.
+
+### Entrega y seguimiento
+
+- **Codex:** implementación local verificada. La entrada Usuarios reúne
+  Personas, Crear usuario, Roles y permisos, Perfiles generales, Salud usuarios,
+  Salud cargos, Membresía, Multiempresa y Migraciones de usuarios. Web usa
+  navegación lateral interna y tabla paginada con ficha lateral cuando hay
+  espacio; en escritorio estrecho la ficha abre en diálogo y al ir a permisos
+  se cierra ese diálogo. Móvil usa selector de tarea y fichas compactas. La sección elegida
+  se conserva al recargar. La ficha da acceso a edición, organización,
+  asignación de módulos, roles y perfil; los roles ya no se guardan desde
+  Organización. Los perfiles tienen su sección de catálogo y asignación.
+  Desde Apps > Gestionar, los módulos reconocidos llevan a esta misma vista
+  de accesos; las apps personalizadas conservan su editor existente.
+  Al cambiar de empresa se limpia la persona seleccionada y los datos de
+  mantenimiento de la anterior; respuestas tardías de Membresía y Salud cargos
+  no repueblan ese contexto. El diagnóstico y la unificación de cargos usan
+  la empresa seleccionada.
+- **Archivos de Codex:** `lib/admin/admin_dashboard_screen.dart`, nuevo
+  `lib/admin/admin_users_workspace.dart`, nuevo
+  `lib/admin/admin_users_directory.dart`, integración de alta en
+  `lib/talento_humano/zeus_export_screen.dart` y opción de alta exclusiva en
+  `lib/talento_humano/zeus_export_service.dart`.
+- **Contrato de alta para revisar por Claude:**
+  `ZeusExportService.createBasicUser(..., soloNuevo: true)` valida identificación,
+  nombre y empresa y crea mediante transacción; si la cédula ya existe rechaza
+  la operación sin modificar identidad, empresa principal, estado o perfil.
+  La nueva entrada Admin usa esta opción. El flujo anterior de Zeus conserva
+  su comportamiento por defecto. Revisar junto a las reglas y fuentes de
+  identidad antes de ampliar el alcance de altas/sincronización.
+- **Claude:** pendiente de respuesta en esta sección con revisión técnica,
+  contrato y archivos que tomará.
+
+### Validación final de Codex
+
+- `flutter test --no-pub test/admin test/utils/user_company_test.dart
+  test/core/multiempresa_sync_test.dart`: **77 pruebas aprobadas**, incluidas
+  **11 nuevas** en `test/admin/admin_users_workspace_test.dart`,
+  `admin_users_directory_test.dart` y `admin_user_creation_test.dart`.
+- Las pruebas nuevas verifican selección de tareas en Web/móvil, montaje solo
+  de la herramienta elegida, escritorio estrecho, ficha de la persona correcta,
+  cierre del diálogo al navegar, paginación, alta en la empresa elegida,
+  rechazo de identidad existente y de un alta competidora e identificación
+  inválida sin escrituras.
+- Analizador sobre los archivos modificados y `test/admin`: sin errores;
+  conserva un warning y cinco avisos informativos anteriores del dashboard
+  (método de sesiones sin uso, estilo de nulos/nombre local y Radio deprecado).
+  `git diff --check`: correcto.
+- La protección del alta se probó con dobles de Firestore ejecutando el servicio
+  real; estas pruebas no certifican autorización ni reglas del servidor. La
+  revisión de reglas/sincronización queda explícitamente para Claude aquí.
+  No se modificaron reglas, no se ejecutaron operaciones sobre datos reales
+  ni se publicó una compilación.
+
+---
+
 ## Visitas: Google Maps y subcentros como establecimiento — 28 sep 2026 (Claude)
 
 Pedido: "que se busquen los lugares con Google Maps (busco Buen Pastor, sale
