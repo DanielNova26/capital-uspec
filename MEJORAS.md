@@ -11,7 +11,7 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 Pedido: "que se busquen los lugares con Google Maps (busco Buen Pastor, sale
 cuál es, lo selecciono y trae los datos), que los subcentros se puedan
 agregar como visitas, y que esté relacionado al generar y asignar la visita".
-Versión 2.6.8 (22).
+Versión 2.6.9 (23).
 
 ### Ubicaciones (Desarrollo y Gerencia)
 - **Buscar en Google Maps**: la búsqueda va por la función

@@ -9,6 +9,7 @@ export {
   authCambiarClave,
   authPrepararRecuperacion,
   authCompletarRecuperacion,
+  authCerrarSesionInhabilitado,
 } from "./auth";
 
 // Centro de Seguridad — operaciones administrativas sin exponer secretos.

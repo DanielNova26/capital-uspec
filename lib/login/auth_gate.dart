@@ -20,6 +20,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../services/auth_prefs.dart';
 import '../services/session_audit_service.dart';
 import '../state/empresa_scope.dart';
+import '../utils/user_company.dart';
 import '../theme/app_typography.dart';
 import '../home/home_screen.dart';
 import 'login_screen.dart';
@@ -63,7 +64,10 @@ class _AuthGateState extends State<AuthGate> {
     }
   }
 
-  Future<void> _goLogin({bool cerrarSesionFirebase = true}) async {
+  Future<void> _goLogin({
+    bool cerrarSesionFirebase = true,
+    String? aviso,
+  }) async {
     // Cuando la causa es transitoria (aún no se restauró la sesión, no hay
     // red) NO se cierra la sesión de Firebase: hacerlo destruiría una sesión
     // válida y el próximo arranque tampoco podría reanudar.
@@ -73,9 +77,9 @@ class _AuthGateState extends State<AuthGate> {
       } catch (_) {}
     }
     if (!mounted) return;
-    Navigator.of(
-      context,
-    ).pushReplacement(MaterialPageRoute(builder: (_) => const LoginScreen()));
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => LoginScreen(aviso: aviso)),
+    );
   }
 
   /// Espera a que Firebase Auth termine de restaurar la sesión persistida.
@@ -167,11 +171,12 @@ class _AuthGateState extends State<AuthGate> {
         return;
       }
 
-      // Usuario deshabilitado (estado distinto de 'activo' si está definido).
-      final estado = (data['estado'] ?? '').toString().trim().toLowerCase();
-      if (estado.isNotEmpty && estado != 'activo') {
+      // Inhabilitado: cuenta apagada o inhabilitado por Talento Humano en
+      // todas sus empresas. No entra hasta que lo habiliten otra vez.
+      final bloqueo = motivoAccesoBloqueado(data);
+      if (bloqueo != null) {
         await AuthPrefs.instance.clearSession();
-        await _goLogin();
+        await _goLogin(aviso: bloqueo);
         return;
       }
 

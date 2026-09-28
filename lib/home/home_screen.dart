@@ -10,6 +10,7 @@ import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:todo/login/vigilante_acceso.dart';
 import 'package:todo/state/empresa_scope.dart';
 import 'package:todo/services/app_update_service.dart';
 import 'package:todo/services/notification_service.dart';
@@ -82,6 +83,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool _didRegisterToken = false;
   StreamSubscription<String>? _tokenSub;
+
+  /// Saca de la app al instante si lo inhabilitan (ver VigilanteAcceso).
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _vigilanteSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _notifSub;
   final Set<String> _seenNotifIds = <String>{};
   bool _notifsPrimed = false;
@@ -997,6 +1001,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _focusedDay = DateTime.now();
     _selectedDay = DateTime.now();
+    _vigilanteSub = VigilanteAcceso.iniciar(context, widget.username);
 
     // El aviso de actualización se consulta aquí y no en main(): una consulta
     // de red antes de runApp() es lo que dejaba la app en pantalla blanca
@@ -1008,6 +1013,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _vigilanteSub?.cancel();
     _tokenSub?.cancel();
     _notifSub?.cancel();
     _citasSub?.cancel();
