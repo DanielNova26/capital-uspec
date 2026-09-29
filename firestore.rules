@@ -266,12 +266,20 @@ service cloud.firestore {
     //
     // Vive en el propio usuario (`empresasDetalle[empresa].rolPlanillas`, o
     // `rolPlanillas` en la raíz), que es donde lo lee la aplicación.
+    //
+    // 28 sep 2026 (contrato de Admin): el nivel de la empresa manda, también
+    // vacío (se lo quitaron: no se recupera la raíz), y la raíz solo cuenta
+    // si es de esta empresa (la principal). Antes daba el rol de la raíz en
+    // cualquier empresa y fallaba si la ficha no tenía `empresasDetalle`.
     function planillasRole(empresaId) {
-      return isSignedIn() && currentUser().empresasDetalle is map
-          && empresaId in currentUser().empresasDetalle
-          && currentUser().empresasDetalle[empresaId].rolPlanillas is string
-        ? currentUser().empresasDetalle[empresaId].rolPlanillas
-        : (currentUser().rolPlanillas is string ? currentUser().rolPlanillas : '');
+      let u = currentUser();
+      let detalle = u.get('empresasDetalle', {});
+      let bloque = detalle is map ? detalle.get(empresaId, {}) : {};
+      let propio = bloque is map ? bloque.get('rolPlanillas', null) : null;
+      let raiz = u.get('rolPlanillas', '');
+      return isSignedIn() && propio is string
+        ? propio
+        : (raizEsDeEmpresa(u, empresaId) && raiz is string ? raiz : '');
     }
 
     // Desarrollador marcado DENTRO de la empresa (`empresasDetalle[e].roleKey`
@@ -309,6 +317,75 @@ service cloud.firestore {
 
     function correoRolePath(empresaId) {
       return /databases/$(database)/documents/TBL_CORREO_ROLES/$(empresaId + '_' + request.auth.token.userDocId);
+    }
+
+    // ── Roles configurables por módulo (28 sep 2026, trabajo de Codex) ─────
+    // Espejo de `userHasApp(u, 'admindashboard', empresaId)` en
+    // lib/utils/user_company.dart: con módulos por empresa solo cuenta la
+    // lista de la empresa (o la raíz si es la principal y no hay lista
+    // propia); sin esa marca, la raíz y la de la empresa.
+    function tieneAppAdminEn(empresaId) {
+      let u = currentUser();
+      let detalle = u.get('empresasDetalle', {});
+      let bloque = detalle is map ? detalle.get(empresaId, {}) : {};
+      let propias = bloque is map ? bloque.get('apps', null) : null;
+      let raiz = u.get('apps', []);
+      let admin = ['admindashboard', 'admin'];
+      return u.get('appsPorEmpresa', false) == true
+        ? (propias is list
+          ? propias.hasAny(admin)
+          : (raizEsDeEmpresa(u, empresaId) && raiz is list && raiz.hasAny(admin)))
+        : ((raiz is list && raiz.hasAny(admin))
+          || (propias is list && propias.hasAny(admin)));
+    }
+
+    // Administrador de Correspondencia por su asignación canónica. Sin mirar
+    // la empresa: se usa después de un `belongsToCompany`.
+    function esAdminCorreoEn(empresaId) {
+      return exists(correoRolePath(empresaId))
+        && get(correoRolePath(empresaId)).data.rol in [
+          'administrador', 'admin', 'manager', 'gestor', 'superadmin',
+          'desarrollador', 'developer'
+        ];
+    }
+
+    // Quién crea, edita y asigna roles de módulo: igual que
+    // `canManageModuleRoles` del cliente (Desarrollo, o la app Admin en la
+    // empresa) y, para los de Correspondencia, su administrador del módulo.
+    function gestionaRolesDeModulo(empresaId, moduleId) {
+      return belongsToCompany(empresaId)
+        && (tieneAppAdminEn(empresaId)
+          || (moduleId == 'correodashboard' && esAdminCorreoEn(empresaId))
+          || isDeveloper() || isDeveloperIn(empresaId));
+    }
+
+    function esRolDeModulo(data) {
+      return data.get('type', '') == 'module_role';
+    }
+
+    // Contrato de Codex para `TBL_ROLES/{empresaId}_mod_{módulo}_{nombre}`.
+    function rolDeModuloValido(docId, data) {
+      return data.get('empresaId', '') is string
+        && data.empresaId.size() > 0
+        && docId.size() > data.empresaId.size() + 5
+        && docId[0:data.empresaId.size() + 5] == data.empresaId + '_mod_'
+        && data.get('moduleId', '') in ['correodashboard',
+          'planillaspagodashboard', 'bibliotecadocumentaldashboard',
+          'tareasdashboard']
+        && data.get('enabled', null) is bool
+        && data.get('revision', null) is int && data.revision >= 1
+        && data.get('nombre', '') is string
+        && data.nombre.size() > 0 && data.nombre.size() <= 120;
+    }
+
+    // Asignación canónica de Correspondencia que escribe Admin: su id es
+    // `{empresa}_{usuario}` y el nivel es uno de los cuatro del módulo.
+    function asignacionCorreoValida(docId, data) {
+      return data.get('empresaId', '') is string
+        && data.get('usuarioId', '') is string
+        && docId == data.empresaId + '_' + data.usuarioId
+        && data.get('rol', '') in ['visor', 'operador', 'clasificador',
+          'administrador'];
     }
 
     function isCorreoAdmin(empresaId) {
@@ -950,13 +1027,44 @@ service cloud.firestore {
       // Mismo caso: quien no tiene rol asignado lee un documento inexistente.
       allow get: if resource == null || belongsToCompany(resource.data.empresaId);
       allow list: if belongsToCompany(resource.data.empresaId);
+      // 28 sep 2026: también Admin de la empresa (Admin > Apps, roles y
+      // permisos > Correo y Correspondencia), con el contrato validado.
       allow create: if isDeveloperFor(request.resource.data.get('empresaId', null))
-        || isCorreoAdmin(request.resource.data.empresaId);
+        || isCorreoAdmin(request.resource.data.empresaId)
+        || (asignacionCorreoValida(docId, request.resource.data)
+          && gestionaRolesDeModulo(request.resource.data.empresaId, 'correodashboard'));
       allow update: if resource.data.empresaId == request.resource.data.empresaId
         && (isDeveloperFor(resource.data.empresaId)
-          || isCorreoAdmin(resource.data.empresaId));
+          || isCorreoAdmin(resource.data.empresaId)
+          || (asignacionCorreoValida(docId, request.resource.data)
+            && gestionaRolesDeModulo(resource.data.empresaId, 'correodashboard')));
       allow delete: if isDeveloperFor(resource.data.get('empresaId', null))
         || isCorreoAdmin(resource.data.empresaId);
+    }
+
+    // Roles (28 sep 2026). Hasta hoy los cubría la regla general. Los perfiles
+    // generales siguen igual (cualquier sesión, como antes); los roles
+    // configurables por módulo solo los crea, edita o borra quien los
+    // administra en su empresa, y con el contrato de Codex. Un perfil general
+    // no se puede convertir en rol de módulo (ni al revés) para saltarse esto.
+    match /TBL_ROLES/{docId} {
+      allow read: if isSignedIn();
+      allow create: if esRolDeModulo(request.resource.data)
+        ? (rolDeModuloValido(docId, request.resource.data)
+          && gestionaRolesDeModulo(request.resource.data.empresaId,
+            request.resource.data.moduleId))
+        : isSignedIn();
+      allow update: if (esRolDeModulo(resource.data)
+          || esRolDeModulo(request.resource.data))
+        ? (esRolDeModulo(resource.data) && esRolDeModulo(request.resource.data)
+          && resource.data.empresaId == request.resource.data.empresaId
+          && resource.data.moduleId == request.resource.data.moduleId
+          && rolDeModuloValido(docId, request.resource.data)
+          && gestionaRolesDeModulo(resource.data.empresaId, resource.data.moduleId))
+        : isSignedIn();
+      allow delete: if esRolDeModulo(resource.data)
+        ? gestionaRolesDeModulo(resource.data.empresaId, resource.data.moduleId)
+        : isSignedIn();
     }
 
     match /TBL_GD_TIPOS_DOCUMENTALES/{docId} {
@@ -1276,6 +1384,7 @@ service cloud.firestore {
           'TBL_VISITAS_UBICACIONES',
           'TBL_VISITAS_GRUPOS',
           'TBL_CORREO_ROLES',
+          'TBL_ROLES',
           'TBL_GD_TIPOS_DOCUMENTALES',
           'TBL_GD_EXPEDIENTES_EVENTOS',
           'TBL_GD_COLABORACION',

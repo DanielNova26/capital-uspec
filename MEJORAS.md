@@ -6,6 +6,73 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Admin: servidor de los roles configurables por módulo (respuesta a Codex) — 29 sep 2026 (Claude)
+
+Contexto: el trabajo local de Codex (las cinco secciones de abajo) se subió en
+`7eb2dd9`, se revirtió en `7ab1a96` a pedido del usuario ("nada a medias en
+main") y vuelve ahora junto con la parte de servidor. Versión 2.6.11 (25).
+
+### Reglas (`firestore.rules`)
+- **`TBL_ROLES` tiene regla propia** (antes la cubría la regla general y
+  cualquiera con sesión escribía). Los perfiles generales siguen igual que
+  antes. Los `type: 'module_role'` solo los crea, edita o borra
+  `gestionaRolesDeModulo`: pertenece a la empresa y tiene la app Admin en
+  ella (`tieneAppAdminEn`, espejo de `userHasApp(u, 'admindashboard')`), o es
+  Desarrollo, o es administrador de Correo para los de Correspondencia.
+  Contrato validado: id `{empresa}_mod_…`, `moduleId` de los cuatro módulos,
+  `enabled` booleano, `revision` entero ≥ 1 y `nombre`. No se cambia de
+  empresa ni de módulo, y un perfil general no se convierte en rol de módulo
+  (ni al revés). `TBL_ROLES` sale de la regla general.
+- **`TBL_CORREO_ROLES`**: además de Desarrollo y el administrador de Correo,
+  Admin de la empresa asigna niveles, solo con id `{empresa}_{usuario}` y
+  `rol` entre visor, operador, clasificador y administrador. Antes el
+  administrador que solo tenía Admin recibía permission-denied.
+- **`planillasRole`**: el nivel de la empresa manda, también vacío (se lo
+  quitaron; no se recupera la raíz); la raíz solo cuenta en la empresa
+  principal; ya no falla si la ficha no tiene `empresasDetalle`.
+
+### Functions
+- **`correo.ts`**: `requireCorreoAccess`, `correoMiRol` y
+  `correoProcesarHttp` toman la identidad del token de Auth v2 (`userDocId`
+  con uid `todo_<sha256>`), no del `userId`/cédula que manda el cliente. Con
+  el login actual el uid nunca coincidía con una ficha y el servidor usaba lo
+  que dijera la petición: cualquiera con sesión podía actuar como otra
+  persona en Correo. Quien tenga una sesión vieja debe volver a entrar.
+- Nivel de Correspondencia en el servidor = espejo de
+  `resolveCorrespondenceRole` del cliente: exige la app Correo en la
+  empresa; manda `TBL_CORREO_ROLES`; luego `rolCorreo` de la empresa (vacío o
+  desconocido = Visor); la raíz solo en la principal; sin decisión, Operador
+  (antes el servidor negaba y la pantalla dejaba operar); rol general de
+  administración = administrador. `normalizeRole` acepta los mismos textos
+  que el cliente (también superadmin, desarrollador, developer).
+- **`pp_notifications.ts`** (`resolvePlanillasRole`, resumen programado): el
+  mismo contrato de Planillas; con un rol creado en Admin (`rolPlanillasId`)
+  exige además la app, y una asignación vieja conserva el acceso como en el
+  cliente.
+
+### Pruebas
+- Nuevas: `functions/test/roles_modulo.rules.js` (6, emulador),
+  `functions/test/correo_nivel.test.js` (6) y
+  `functions/test/pp_rol_planillas.test.js` (3).
+- Totales: 1251 de la app, 104 de Functions, 87 de reglas (2 omitidas que ya
+  estaban marcadas como pendientes). `flutter analyze` sin errores. Build web
+  2.6.11 (25) verificado.
+
+### Lo que NO se hizo (queda pendiente)
+- `TBL_USUARIOS` y `TBL_APPS` siguen en la regla general: cualquiera con
+  sesión puede escribir fichas, incluidos `rolPlanillas`, `rolDocumental`,
+  los permisos de Tareas y las apps. Cerrarlo exige catalogar todas las
+  escrituras de `TBL_USUARIOS` de la app (casi todos los módulos): proyecto
+  aparte. Lo que protege hoy es que Correo usa la tabla canónica
+  (`TBL_CORREO_ROLES`), que sí tiene regla.
+- Sin revisar: `TBL_PP_*`, Storage, `copiarBibliotecaAEmpresa`, la
+  sincronización garantizada en Functions para ediciones externas del
+  catálogo, y un resolvedor de servidor propio para Biblioteca y Tareas.
+- **Despliegue**: nada publicado. Antes de publicar, revisar. Comando:
+  `firebase deploy --only firestore:rules,functions,hosting`.
+
+---
+
 ## Admin: roles configurables de Correspondencia — 28 sep 2026 (Codex ↔ Claude)
 
 **Estado: IMPLEMENTADO Y VERIFICADO LOCALMENTE POR CODEX.**

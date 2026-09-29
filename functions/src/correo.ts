@@ -11,6 +11,7 @@ import { getDownloadURL } from "firebase-admin/storage";
 import { correoAlertOmission, correspondenceHasResponse, canRegisterExternalResponse } from "./correo_alert_policy";
 import { gdCierreEventDetail, validateGdCierre } from "./gd_cierre_policy";
 import {empresasDe, empresasSeleccionables, motivoAccesoBloqueado} from "./acceso";
+import {appsDeEmpresa, raizEsDeEmpresa} from "./apps_por_empresa";
 import {
   createCipheriv,
   createDecipheriv,
@@ -410,7 +411,11 @@ function userBelongsToEmpresa(
  */
 export function normalizeRole(value: unknown): CorreoRole | null {
   const role = normalizeText(value);
-  if (["administrador", "admin", "manager", "gestor"].includes(role)) {
+  // Los mismos textos que `GdRolCorrespondencia.desdeTexto` del cliente.
+  if ([
+    "administrador", "admin", "manager", "gestor", "superadmin",
+    "desarrollador", "developer",
+  ].includes(role)) {
     return "administrador";
   }
   // "clasificador y asignador" es como se nombró el rol en la reunión; se
@@ -448,6 +453,59 @@ async function findUserByIdentity(identity: string) {
   return byCedula.empty ? null : byCedula.docs[0];
 }
 
+const CORREO_APPS = new Set(["correodashboard", "correo"]);
+
+/**
+ * ¿Tiene el módulo Correo en esta empresa? Con los módulos por empresa, igual
+ * que `userHasApp(user, 'correodashboard', empresaId)` del cliente.
+ *
+ * @param {object} user Ficha de TBL_USUARIOS.
+ * @param {string} empresaId Empresa activa.
+ * @return {boolean} true si la app está asignada en esa empresa.
+ */
+export function tieneAppCorreo(
+  user: admin.firestore.DocumentData,
+  empresaId: string
+): boolean {
+  return appsDeEmpresa(user, empresaId)
+    .some((app) => CORREO_APPS.has(normalizeText(app)));
+}
+
+/**
+ * Nivel que dice la ficha cuando no hay asignación en TBL_CORREO_ROLES. Es
+ * espejo de `resolveCorrespondenceRole` (gd_permisos.dart), 28 sep 2026:
+ *  - La empresa manda: un `rolCorreo` escrito en el bloque de la empresa se
+ *    usa tal cual, y si está vacío o no se reconoce es Visor (se le quitó el
+ *    nivel a propósito; no se recupera el de la raíz).
+ *  - La raíz solo cuenta si es de esta empresa (la principal).
+ *  - Sin ninguna decisión: Operador, salvo que su rol general sea de
+ *    administración.
+ *
+ * @param {object} user Ficha de TBL_USUARIOS.
+ * @param {string} empresaId Empresa activa.
+ * @return {CorreoRole} Nivel efectivo por la ficha.
+ */
+export function nivelCorreoDeFicha(
+  user: admin.firestore.DocumentData,
+  empresaId: string
+): CorreoRole {
+  const detalle = user.empresasDetalle && typeof user.empresasDetalle === "object"
+    ? user.empresasDetalle[empresaId]
+    : null;
+  const scoped = detalle && typeof detalle === "object" ? detalle : null;
+  if (scoped && Object.prototype.hasOwnProperty.call(scoped, "rolCorreo")) {
+    return normalizeRole(scoped.rolCorreo) ?? "visor";
+  }
+  const raiz = raizEsDeEmpresa(user, empresaId);
+  if (raiz) {
+    const root = normalizeRole(user.rolCorreo);
+    if (root) return root;
+  }
+  const general = scoped?.roleKey ?? scoped?.role ?? scoped?.rol ??
+    (raiz ? (user.role ?? user.rol ?? user.tipoUsuario) : undefined);
+  return normalizeRole(general) === "administrador" ? "administrador" : "operador";
+}
+
 async function resolveCorreoRole(
   userId: string,
   user: admin.firestore.DocumentData,
@@ -462,52 +520,67 @@ async function resolveCorreoRole(
       !empresasSeleccionables(user).includes(empresaId)) {
     return null;
   }
-  const scoped =
-    user.empresasDetalle && typeof user.empresasDetalle === "object"
-      ? user.empresasDetalle[empresaId]
-      : null;
-  // Manda `TBL_CORREO_ROLES` sobre `rolCorreo` del usuario.
-  //
-  // El backend lo tenia al reves que el cliente, y el comentario del cliente
-  // decia ser "un espejo del control que hace el backend". No lo era: a quien
-  // tuviera los dos puestos con valores distintos, la pantalla y el servidor le
-  // daban permisos distintos, asi que se le enseñaba u ocultaba lo que no
-  // correspondia.
-  //
-  // Manda la coleccion porque es lo que escribe la pantalla de roles del
-  // modulo: es la asignacion explicita y la mas reciente. `rolCorreo` en el
-  // usuario es el camino viejo, de cuando el rol se ponia a mano.
+  // Sin el módulo en esta empresa no hay nivel, aunque quede una asignación
+  // vieja en TBL_CORREO_ROLES: retirar la app retira el acceso.
+  if (!userBelongsToEmpresa(user, empresaId) || !tieneAppCorreo(user, empresaId)) {
+    return null;
+  }
+  // Manda `TBL_CORREO_ROLES` (la asignación canónica, protegida por reglas)
+  // sobre `rolCorreo` de la ficha: es lo que escribe Admin > Roles de
+  // Correspondencia y lo mismo que usa el cliente.
   const byId = await db()
     .collection("TBL_CORREO_ROLES")
     .doc(`${safeId(empresaId)}_${safeId(userId)}`)
     .get();
-  const fromDoc = byId.exists ? normalizeRole(byId.get("rol")) : null;
+  const fromDoc = byId.exists && text(byId.get("empresaId")) === empresaId
+    ? normalizeRole(byId.get("rol"))
+    : null;
   if (fromDoc) return fromDoc;
 
   const byFields = await db()
     .collection("TBL_CORREO_ROLES")
     .where("empresaId", "==", empresaId)
     .where("usuarioId", "==", userId)
-    .limit(1)
+    .limit(5)
     .get();
-  const fromFields = byFields.empty
-    ? null
-    : normalizeRole(byFields.docs[0].get("rol"));
-  if (fromFields) return fromFields;
+  for (const doc of byFields.docs) {
+    const fromFields = normalizeRole(doc.get("rol"));
+    if (fromFields) return fromFields;
+  }
 
-  // Un texto que no se reconoce NO corta aqui: se sigue buscando, igual que en
-  // el cliente. Antes un documento con el rol mal escrito devolvia null y
-  // denegaba todo, mientras la pantalla seguia mostrando el rol por defecto.
-  const fromUser = normalizeRole(scoped?.rolCorreo || user.rolCorreo);
-  if (fromUser) return fromUser;
+  // Un texto que no se reconoce en la tabla NO corta aquí: se sigue con la
+  // ficha, igual que en el cliente.
+  return nivelCorreoDeFicha(user, empresaId);
+}
 
-  // Permite la configuración inicial del módulo al administrador existente.
-  // Se mira el rol DE LA EMPRESA y no solo el de la raíz, por lo mismo que
-  // explica `scopedRoleKey`.
-  const global = scopedRoleKey(user, empresaId);
-  return ["administrador", "admin", "superadmin"].includes(global)
-    ? "administrador"
-    : null;
+/**
+ * Id de la ficha de quien llama, sacado del token de Auth v2 que firma
+ * `authIniciarSesion` (claim `userDocId`, uid `todo_<sha256>`). Nunca se
+ * toma del cuerpo de la petición: con eso cualquiera con sesión podía actuar
+ * como otra persona (28 sep 2026).
+ *
+ * @param {string|undefined} uid UID de Firebase Auth.
+ * @param {object|undefined} claims Claims del token.
+ * @return {string} El id de TBL_USUARIOS, o vacío si el token no lo acredita.
+ */
+export function userDocIdDelToken(
+  uid: string | undefined,
+  claims: Record<string, unknown> | undefined
+): string {
+  const userDocId = text(claims?.userDocId);
+  if (!uid || !userDocId || claims?.authVersion !== 2) return "";
+  const esperado = `todo_${createHash("sha256").update(userDocId, "utf8").digest("hex")}`;
+  return uid === esperado ? userDocId : "";
+}
+
+async function fichaDelToken(
+  uid: string | undefined,
+  claims: Record<string, unknown> | undefined
+) {
+  const userDocId = userDocIdDelToken(uid, claims);
+  if (!userDocId) return null;
+  const snap = await db().collection("TBL_USUARIOS").doc(userDocId).get();
+  return snap.exists ? snap : null;
 }
 
 /**
@@ -533,33 +606,23 @@ async function requireCorreoAccess(
   allowedRoles: CorreoRole[]
 ): Promise<{ empresaId: string; userId: string; role: CorreoRole }> {
   const empresaId = text(data?.empresaId);
-  // Las acciones de Correo manejan OAuth y envíos externos: la identidad de
-  // aplicación nunca puede sustituir un token válido de Firebase Auth.
-  const authUid = text(context.auth?.uid);
-  const appIdentity = text(
-    data?.userId || data?.appUserId || data?.usuario || data?.cedula
-  );
-  if (!empresaId || !authUid) {
+  // Las acciones de Correo manejan OAuth y envíos externos: la identidad sale
+  // del token de Auth v2, nunca de un userId o cédula que mande el cliente.
+  if (!empresaId || !context.auth) {
     throw new functions.https.HttpsError(
       "unauthenticated",
       "Se requiere una sesión autenticada y empresaId."
     );
   }
-
-  let userSnap = await findUserByIdentity(authUid);
-  if (!userSnap?.exists && appIdentity) {
-    const candidate = await findUserByIdentity(appIdentity);
-    // La aplicación usa Firebase Auth anónimo y mantiene la identidad laboral
-    // en TBL_USUARIOS. La sesión anónima sigue siendo obligatoria; después se
-    // valida que la identidad interna exista, pertenezca a la empresa y tenga
-    // el rol requerido. Esto evita que el UID anónimo bloquee todas las
-    // operaciones OAuth/Correo.
-    if (candidate?.exists) {
-      userSnap = candidate;
-    }
-  }
-  if (!userSnap?.exists) {
-    throw new functions.https.HttpsError("unauthenticated", "Usuario no encontrado.");
+  const userSnap = await fichaDelToken(
+    context.auth.uid,
+    context.auth.token as Record<string, unknown>
+  );
+  if (!userSnap) {
+    throw new functions.https.HttpsError(
+      "unauthenticated",
+      "Se requiere una sesión segura. Cierra sesión y vuelve a entrar."
+    );
   }
   const user = userSnap.data() ?? {};
   if (!userBelongsToEmpresa(user, empresaId)) {
@@ -4423,7 +4486,10 @@ export const correoProcesarHttp = functions
       if (!idToken) return res.status(401).json({ error: "unauthenticated" });
       const decoded = await admin.auth().verifyIdToken(idToken);
       const companyId = text(req.body?.empresaId);
-      const userSnap = await findUserByIdentity(decoded.uid);
+      const userSnap = await fichaDelToken(
+        decoded.uid,
+        decoded as unknown as Record<string, unknown>
+      );
       if (!companyId || !userSnap?.exists) return res.status(401).json({ error: "unauthenticated" });
       const user = userSnap.data() ?? {};
       const role = await resolveCorreoRole(userSnap.id, user, companyId);
@@ -4550,21 +4616,21 @@ export const correoMiRol = functions
   .region(REGION)
   .https.onCall(async (data: any, context: functions.https.CallableContext) => {
     const empresaId = text(data?.empresaId);
-    const authUid = text(context.auth?.uid);
-    const appIdentity = text(data?.userId || data?.cedula);
-    if (!empresaId || !authUid) {
+    if (!empresaId || !context.auth) {
       throw new functions.https.HttpsError(
         "unauthenticated",
         "Se requiere una sesión autenticada y empresaId."
       );
     }
-    let userSnap = await findUserByIdentity(authUid);
-    if (!userSnap?.exists && appIdentity) {
-      const candidate = await findUserByIdentity(appIdentity);
-      if (candidate?.exists) userSnap = candidate;
-    }
-    if (!userSnap?.exists) {
-      throw new functions.https.HttpsError("unauthenticated", "Usuario no encontrado.");
+    const userSnap = await fichaDelToken(
+      context.auth.uid,
+      context.auth.token as Record<string, unknown>
+    );
+    if (!userSnap) {
+      throw new functions.https.HttpsError(
+        "unauthenticated",
+        "Se requiere una sesión segura. Cierra sesión y vuelve a entrar."
+      );
     }
     const user = userSnap.data() ?? {};
     if (!userBelongsToEmpresa(user, empresaId)) {

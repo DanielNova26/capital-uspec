@@ -17,6 +17,7 @@
 
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
+import {appsDeEmpresa, raizEsDeEmpresa} from "./apps_por_empresa";
 
 const getDb = () => admin.firestore();
 
@@ -210,14 +211,40 @@ function buildResumenMessage(
   };
 }
 
-function resolvePlanillasRole(
+/**
+ * Rol de Planillas en la empresa, con el contrato de Admin (28 sep 2026):
+ *  - La empresa manda: un `rolPlanillas` en su bloque se usa tal cual, y si
+ *    está vacío es "sin rol" (se lo quitaron; no se recupera la raíz).
+ *  - La raíz solo cuenta si es de esta empresa (la principal).
+ *  - Con un rol creado en Admin (`rolPlanillasId`) hace falta además la app;
+ *    una asignación vieja sin él conserva el acceso, como en el cliente
+ *    (`userHasApp` de lib/utils/user_company.dart).
+ *
+ * @param {object} data Ficha de TBL_USUARIOS.
+ * @param {string} empresaId Empresa.
+ * @return {string} Rol normalizado, o vacío.
+ */
+export function resolvePlanillasRole(
   data: admin.firestore.DocumentData,
   empresaId: string
 ): string {
-  const scopedRol = data.empresasDetalle?.[empresaId]?.rolPlanillas ?? "";
-  const globalRol = data.rolPlanillas ?? "";
-  return normalizePlanillasRole(scopedRol || globalRol);
+  const detalle = data.empresasDetalle?.[empresaId];
+  const bloque = detalle && typeof detalle === "object" ? detalle : null;
+  const rol = bloque && Object.prototype.hasOwnProperty.call(bloque, "rolPlanillas")
+    ? normalizePlanillasRole(bloque.rolPlanillas)
+    : raizEsDeEmpresa(data, empresaId)
+      ? normalizePlanillasRole(data.rolPlanillas)
+      : "";
+  if (!rol) return "";
+  const rolCreado = ((bloque?.rolPlanillasId ?? "") as string).toString().trim();
+  if (rolCreado) {
+    const apps = appsDeEmpresa(data, empresaId).map((a) => a.trim().toLowerCase());
+    if (!apps.some((a) => PLANILLAS_APPS.has(a))) return "";
+  }
+  return rol;
 }
+
+const PLANILLAS_APPS = new Set(["planillaspagodashboard", "planillaspago", "planillas"]);
 
 function normalizePlanillasRole(raw: unknown): string {
   const role = (raw ?? "").toString().trim().toLowerCase();

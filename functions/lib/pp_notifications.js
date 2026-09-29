@@ -40,8 +40,10 @@ var __importStar = (this && this.__importStar) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ppNotificaciones1600 = exports.ppNotificaciones1200 = exports.ppNotificaciones0800 = void 0;
+exports.resolvePlanillasRole = resolvePlanillasRole;
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
+const apps_por_empresa_1 = require("./apps_por_empresa");
 const getDb = () => admin.firestore();
 const ROLE_AUDITORIA = "auditoria";
 const ROLE_GERENCIA = "gerencia";
@@ -180,11 +182,38 @@ function buildResumenMessage(hora, rol, count) {
         cuerpo: `Tienes ${count} planilla${plural} ${pendientes} de firma de gerencia.`,
     };
 }
+/**
+ * Rol de Planillas en la empresa, con el contrato de Admin (28 sep 2026):
+ *  - La empresa manda: un `rolPlanillas` en su bloque se usa tal cual, y si
+ *    está vacío es "sin rol" (se lo quitaron; no se recupera la raíz).
+ *  - La raíz solo cuenta si es de esta empresa (la principal).
+ *  - Con un rol creado en Admin (`rolPlanillasId`) hace falta además la app;
+ *    una asignación vieja sin él conserva el acceso, como en el cliente
+ *    (`userHasApp` de lib/utils/user_company.dart).
+ *
+ * @param {object} data Ficha de TBL_USUARIOS.
+ * @param {string} empresaId Empresa.
+ * @return {string} Rol normalizado, o vacío.
+ */
 function resolvePlanillasRole(data, empresaId) {
-    const scopedRol = data.empresasDetalle?.[empresaId]?.rolPlanillas ?? "";
-    const globalRol = data.rolPlanillas ?? "";
-    return normalizePlanillasRole(scopedRol || globalRol);
+    const detalle = data.empresasDetalle?.[empresaId];
+    const bloque = detalle && typeof detalle === "object" ? detalle : null;
+    const rol = bloque && Object.prototype.hasOwnProperty.call(bloque, "rolPlanillas")
+        ? normalizePlanillasRole(bloque.rolPlanillas)
+        : (0, apps_por_empresa_1.raizEsDeEmpresa)(data, empresaId)
+            ? normalizePlanillasRole(data.rolPlanillas)
+            : "";
+    if (!rol)
+        return "";
+    const rolCreado = (bloque?.rolPlanillasId ?? "").toString().trim();
+    if (rolCreado) {
+        const apps = (0, apps_por_empresa_1.appsDeEmpresa)(data, empresaId).map((a) => a.trim().toLowerCase());
+        if (!apps.some((a) => PLANILLAS_APPS.has(a)))
+            return "";
+    }
+    return rol;
 }
+const PLANILLAS_APPS = new Set(["planillaspagodashboard", "planillaspago", "planillas"]);
 function normalizePlanillasRole(raw) {
     const role = (raw ?? "").toString().trim().toLowerCase();
     if (role === ROLE_GERENTE_ALIAS)
