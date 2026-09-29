@@ -88,6 +88,20 @@ class PurchaseModuleRolesRepository {
     }
   }
 
+  Future<void> _requireOtherActorForModuleAdmin(
+    String empresaId,
+    String userId,
+  ) async {
+    if (userId != actorId) return;
+    final actor = await _db.collection('TBL_USUARIOS').doc(actorId).get();
+    if (actor.data() == null ||
+        !canManageModuleRoles(actor.data()!, empresaId)) {
+      throw StateError(
+        'El administrador de Compras no puede cambiar su propio nivel.',
+      );
+    }
+  }
+
   Future<PurchaseModuleRole> save({
     required String empresaId,
     required String name,
@@ -197,6 +211,7 @@ class PurchaseModuleRolesRepository {
     required String roleId,
   }) async {
     await _requireAdmin(empresaId);
+    await _requireOtherActorForModuleAdmin(empresaId, userId);
     final userRef = _db.collection('TBL_USUARIOS').doc(userId);
     final roleRef = _db.collection('TBL_ROLES').doc(roleId);
     await _db.runTransaction((transaction) async {
@@ -245,6 +260,7 @@ class PurchaseModuleRolesRepository {
     String? level,
   }) async {
     await _requireAdmin(empresaId);
+    await _requireOtherActorForModuleAdmin(empresaId, userId);
     if (level != null &&
         level.isNotEmpty &&
         !comprasRoleLevelLabels.containsKey(level)) {

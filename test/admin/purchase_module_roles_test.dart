@@ -356,4 +356,37 @@ void main() {
       await expectLater(create(empresaId: 'B'), throwsStateError);
     },
   );
+  test(
+    'Admin Documental asigna a otros sin poder cambiar su propio nivel',
+    () async {
+      final actor = db.documents['TBL_USUARIOS/admin']!;
+      actor['empresasDetalle']['A']['apps'] = ['comprasdashboard'];
+      db.documents['TBL_COMPRAS_ROLES/A_admin'] = {
+        'empresaId': 'A',
+        'userId': 'admin',
+        'rol': 'admin',
+      };
+      final manager = PurchaseModuleRolesRepository(db: db, actorId: 'admin');
+      final role = await manager.save(
+        empresaId: 'A',
+        name: 'Delegación',
+        level: 'bodega',
+      );
+      await manager.assign(empresaId: 'A', userId: 'persona', roleId: role.id);
+      expect(table()['rol'], 'bodega');
+      await expectLater(
+        manager.assign(empresaId: 'A', userId: 'admin', roleId: role.id),
+        throwsStateError,
+      );
+      await expectLater(
+        manager.setIndividualLevel(
+          empresaId: 'A',
+          userId: 'admin',
+          level: 'compras',
+        ),
+        throwsStateError,
+      );
+      expect(db.documents['TBL_COMPRAS_ROLES/A_admin']!['rol'], 'admin');
+    },
+  );
 }

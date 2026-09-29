@@ -91,6 +91,9 @@ class _Query extends Fake implements Query<Map<String, dynamic>> {
   final List<(String, Object?)> filters;
 
   @override
+  Query<Map<String, dynamic>> limit(int limit) => this;
+
+  @override
   Query<Map<String, dynamic>> where(
     Object field, {
     Object? isEqualTo,

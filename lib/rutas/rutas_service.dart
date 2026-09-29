@@ -1518,6 +1518,17 @@ class RutasService {
   // ─── ROLES ─────────────────────────────────────────────────────────────────
 
   Future<RutaRolDoc?> getRolUsuario(String empresaId, String userId) async {
+    // El documento `{empresa}_{usuario}` es el que asigna Admin y el único
+    // que ven las reglas: manda sobre copias viejas, también con el rol vacío
+    // de un rol configurable inactivo.
+    final canonico = await _db
+        .collection(_cRoles)
+        .doc('${empresaId}_$userId')
+        .get();
+    final data = canonico.data();
+    if (data != null && (data['empresaId'] ?? '') == empresaId) {
+      return RutaRolDoc.fromMap(canonico.id, data);
+    }
     final byUserId = await _db
         .collection(_cRoles)
         .where('empresaId', isEqualTo: empresaId)

@@ -6,6 +6,37 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Integración de Compras con el trabajo paralelo — 29 sep 2026 (Codex)
+
+El centro **Admin → Apps, roles y permisos** presenta **un solo panel de
+Compras**, el específico de esta entrega: incluye la consolidación manual de
+niveles históricos, asignaciones canónicas, roles creados y nivel individual.
+El panel configurable compartido de Claude queda para **Rutas,
+Interventoría y Visitas**; se conservaron sus contratos, pruebas y cambios de
+servidor. La configuración de Compras permanece disponible como definición
+del contrato de tabla y para las pruebas del repositorio compartido, pero no
+genera una segunda entrada en Admin.
+
+Las reglas de Compras usan una única ruta canónica y excluyen sus colecciones
+de la regla general. El administrador documental puede gestionar a otras
+personas, pero no modificar su propio nivel. Revocar escribe Consultas o
+retira la app; borrar la asignación permitiría que volviera a mandar el cargo
+histórico. El contador `marcaSeq` acepta a Bodega, que puede operar las marcas
+en el flujo actual, sin abrirle cambios de configuración administrativa.
+Se corrigieron las llamadas duplicadas al historial de aprobaciones que
+impedían compilar Web tras integrar ambas entregas.
+
+Validación del estado integrado: **1.304 pruebas Flutter aprobadas**;
+**98 reglas Firestore aprobadas, 2 omitidas, 0 fallidas** en el emulador;
+**compilación Web correcta** con `flutter build web --no-pub
+--no-wasm-dry-run`. La suite dirigida del contrato de tablas pasó 7/7.
+
+La sección de Claude más abajo registra su propuesta original de cuatro
+paneles compartidos. Este apartado describe el estado integrado que queda en
+`main`. El despliegue de reglas y Web es una coordinación operativa pendiente.
+
+---
+
 ## Admin: roles configurables de Compras — 29 sep 2026 (Codex ↔ Claude)
 
 **Estado: IMPLEMENTADO Y VERIFICADO EN CÓDIGO.** Quinta etapa del centro
@@ -88,6 +119,86 @@ Se incorporaron los pendientes de su revisión de Compras.
   publicación en Firebase queda pendiente de coordinación operativa.
 
 ---
+
+## Admin: roles configurables de Compras, Rutas, Interventoría y Visitas — 29 sep 2026 (Claude)
+
+Siguiente tanda del centro **Admin → Apps, roles y permisos** (Codex hizo
+Tareas, Biblioteca, Planillas y Correspondencia). Versión sin cambiar.
+
+### Una sola implementación para los módulos con tabla propia
+Compras, Rutas, Interventoría y Visitas guardan el rol igual: un documento
+`{tabla}/{empresa}_{usuario}` con `empresaId`, `userId` y `rol`. En vez de
+cuatro copias del creador de Correspondencia hay una configurable:
+`lib/admin/table_module_role.dart` (niveles y textos de cada módulo),
+`table_module_roles_repository.dart` y `table_module_roles_panel.dart`. Mismo
+contrato que Correspondencia:
+- Definición en `TBL_ROLES/{empresa}_mod_{compras|rutas|interventoria|visitas}_{nombre}`
+  (`type: module_role`, `moduleId`, `baseRole`, `enabled`, `revision`).
+- Asignar escribe en **una transacción** la tabla del módulo (nivel +
+  `rol{Módulo}Id/Nombre/Version`), la ficha de la empresa (`rolCompras`,
+  `rolRutas`, `rolInterventoria`, `rolVisitas` y el vínculo; la raíz solo en
+  la principal) y la app del módulo.
+- Rol individual desvincula; "Sin rol" borra la asignación. Editar un rol
+  sincroniza a sus personas y no pisa a quien reasignaron por fuera.
+- Inactivar: Compras queda en **Consultas** (sin tabla, Compras volvería a
+  deducir el rol del cargo y podría devolver uno mayor); Rutas,
+  Interventoría y Visitas quedan **sin rol** (rol vacío en la tabla).
+- Niveles del creador: Compras (Consultas, Bodega, Compras, Director de
+  Calidad, Admin Documental), Rutas (Conductor, Calidad, Administrador,
+  Administrador y Calidad), Interventoría (sus seis roles activos) y Visitas
+  (Consulta, Firmante, Profesional, Jefe). Desarrollador y Gerencia de
+  Visitas no se crean: los da Desarrollo (Gerencia también sale del cargo).
+- Visitas: Jefe y Profesional llevan el área (`areaParaRol`), igual que antes
+  en la matriz; sin área, no se asigna.
+- Administra: Admin de la empresa, Desarrollo o el administrador del propio
+  módulo, que no se cambia a sí mismo.
+
+### Los módulos leen primero la asignación canónica
+`getRolUsuario` de Compras, Rutas e Interventoría busca primero
+`{empresa}_{usuario}` (Visitas ya lo hacía): una copia vieja con otro id ya no
+le devuelve a alguien un rol que le quitaron. Admin (`_loadModuleRoleMap`)
+aplica la misma prioridad. En Admin se quitaron las ramas viejas que
+escribían estas tablas sin vínculo.
+
+### Servidor (reglas)
+- `TBL_ROLES` acepta los cuatro módulos nuevos; `gestionaRolesDeModulo`
+  incluye al administrador del módulo por su tabla.
+- **`TBL_COMPRAS_ROLES` tiene regla propia** (antes, cualquiera se daba el
+  rol de admin): lee la empresa; asignan Admin, Desarrollo o el admin de
+  Compras (a otros), con id `{empresa}_{usuario}` y un nivel válido.
+- **Compras queda por empresa**: sus 14 colecciones salen de la regla
+  general (`documentoDeSuEmpresa`; la configuración por el id). Para eso dos
+  consultas ahora filtran por empresa: el historial de aprobaciones
+  (`compras_aprobaciones.dart`) y las entregas de una recepción al borrarla
+  (`compras_service.dart`). Todavía no se exige rol por acción: quien tiene el
+  rol deducido del cargo no está en la tabla. Cuando todos tengan su
+  asignación en Admin, se puede cerrar por rol, empezando por borrar.
+- Rutas, Interventoría y Visitas: Admin de la empresa asigna con el contrato
+  (sin perfil de desarrollo ni Gerencia) y se acepta el rol vacío.
+  Interventoría deja preguntar por un rol que no existe (el módulo lo hace
+  ahora primero) y Admin puede leer la lista de roles de Visitas (antes solo
+  Desarrollo y los jefes; la carga de Admin fallaba sin eso).
+- Visitas es lo más cercano al tope de 1000 expresiones: la comprobación de
+  Admin va justo después de Desarrollo. Todas las pruebas de reglas siguen
+  pasando con la comprobación de habilitado duplicada a propósito.
+
+### Pruebas
+- Nuevas: `test/admin/table_module_roles_test.dart` (18) y
+  `functions/test/roles_tabla.rules.js` (7; contra las reglas anteriores
+  fallan las 6 de Compras, Rutas e Interventoría). `test/support/memory_firestore.dart`
+  aprendió `delete` y `limit`.
+- Totales: 1.269 de la app, 104 de Functions, 92 de reglas (2 omitidas desde
+  antes). `flutter analyze` sin errores.
+
+### Despliegue
+`firebase deploy --only firestore:rules,hosting` (reglas y app juntas: las
+reglas de Compras exigen las dos consultas corregidas).
+
+### Pendiente
+- Facturación (rol en la ficha, `rolFac`, con alcance por establecimiento) y
+  Tokens DIAN: otro modelo, no entran en este esquema.
+- `TBL_USUARIOS` y `TBL_APPS` en la regla general (P0).
+- Reglas de Storage (fotos de Rutas, soportes de Compras).
 
 ## Admin: servidor de los roles configurables por módulo (respuesta a Codex) — 29 sep 2026 (Claude)
 
