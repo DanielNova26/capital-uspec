@@ -8,12 +8,22 @@ import {
 import {promisify} from "util";
 import {appsDeEmpresa, raizEsDeEmpresa} from "./apps_por_empresa";
 import {empresasSeleccionables, motivoAccesoBloqueado} from "./acceso";
+import {
+  CLAVE_INICIAL,
+  creadoPorDe,
+  dispositivoDe,
+  empresasDe,
+  nuncaHaIniciadoSesion,
+  ultimoIngresoMs,
+} from "./ingresos";
 
 const scrypt = promisify(nodeScrypt);
 const usersCollection = "TBL_USUARIOS";
 const credentialsCollection = "TBL_AUTH_CREDENTIALS";
 const attemptsCollection = "TBL_AUTH_LOGIN_ATTEMPTS";
 const auditCollection = "TBL_AUTH_ADMIN_AUDIT";
+const sessionsCollection = "TBL_LOGIN_SESIONES";
+const diasIngresos = 30;
 const scryptKeyLength = 64;
 
 type Caller = {
@@ -251,7 +261,12 @@ export const securityAdminOverview = functions
   .runWith({timeoutSeconds: 60, memory: "512MB"})
   .https.onCall(async (data: any, context) => {
     const caller = await requireAdmin(data, context);
-    const [usersSnap, credentialsSnap, attemptsSnap, auditSnap] = await Promise.all([
+    const desde = admin.firestore.Timestamp.fromMillis(
+      Date.now() - diasIngresos * 24 * 60 * 60 * 1000
+    );
+    const auditBase = db().collection(auditCollection)
+      .where("empresaId", "==", caller.empresaId);
+    const [usersSnap, credentialsSnap, attemptsSnap, auditSnap, sessionsSnap] = await Promise.all([
       db().collection(usersCollection).get(),
       db().collection(credentialsCollection).select("userDocId", "updatedAt").get(),
       db().collection(attemptsCollection).where(
@@ -259,9 +274,17 @@ export const securityAdminOverview = functions
         ">",
         admin.firestore.Timestamp.now()
       ).get(),
-      db().collection(auditCollection)
-        .where("empresaId", "==", caller.empresaId)
-        .limit(100)
+      // Lo más reciente primero (índice empresaId + createdAt). Mientras el
+      // índice se construye, lo de antes: 100 sin orden.
+      auditBase.orderBy("createdAt", "desc").limit(200).get()
+        .catch(() => auditBase.limit(100).get())
+        .catch(() => null),
+      // Ingresos de los últimos días de todas las empresas (índice simple) y
+      // se filtra la activa aquí: no hace falta un índice compuesto.
+      db().collection(sessionsCollection)
+        .where("loginAt", ">=", desde)
+        .orderBy("loginAt", "desc")
+        .limit(4000)
         .get()
         .catch(() => null),
     ]);
@@ -301,25 +324,54 @@ export const securityAdminOverview = functions
             clean(raw.pregunta_seguridad_1) && clean(raw.pregunta_seguridad_2)
           ),
           blocked: identifiers.some((value) => blockedHashes.has(digest(normalized(value)))),
-          lastLoginAt: millis(raw.lastLoginAt || raw.ultimoIngresoAt),
+          lastLoginAt: ultimoIngresoMs(raw),
           lastLoginPlatform: clean(raw.lastLoginPlatform || raw.ultimaPlataforma),
+          lastLoginDevice: dispositivoDe(raw),
+          neverLoggedIn: nuncaHaIniciadoSesion(raw, migratedIds.has(doc.id)),
+          initialPassword: raw.claveInicialAsignadaAt != null &&
+            raw.needsPasswordChange === true,
+          createdAt: millis(raw.createdAt),
         };
       })
       .sort((left, right) => left.nombre.localeCompare(right.nombre, "es"));
 
     const audit = (auditSnap?.docs || []).map((doc) => {
       const raw = doc.data();
+      const meta = raw.metadata && typeof raw.metadata === "object" ?
+        raw.metadata : {};
       return {
         id: doc.id,
         action: clean(raw.action),
         actorUserDocId: clean(raw.actorUserDocId),
         targetUserDocId: clean(raw.targetUserDocId),
         createdAt: millis(raw.createdAt),
+        // Solo conteos y marcas: la bitácora nunca lleva contraseñas.
+        count: typeof meta.count === "number" ? meta.count :
+          typeof meta.candidates === "number" ? meta.candidates : null,
+        initialPassword: meta.claveInicial === true,
       };
     }).sort((left, right) =>
       (right.createdAt || 0) - (left.createdAt || 0)
-    ).slice(0, 40);
-    return {users, audit};
+    ).slice(0, 100);
+
+    const empresaUsers = new Set(users.map((user) => user.userDocId));
+    const sessions = (sessionsSnap?.docs || [])
+      .filter((doc) => clean(doc.data().empresaId) === caller.empresaId)
+      .slice(0, 400)
+      .map((doc) => {
+        const raw = doc.data();
+        const userDocId = clean(raw.userId, 512);
+        return {
+          id: doc.id,
+          userDocId,
+          nombre: clean(raw.nombre, 300) || userDocId,
+          known: empresaUsers.has(userDocId),
+          loginAt: millis(raw.loginAt),
+          source: clean(raw.source, 40),
+          device: dispositivoDe(raw),
+        };
+      });
+    return {users, audit, sessions, sessionDays: diasIngresos};
   });
 
 export const securityAdminRequirePasswordChange = functions
@@ -421,6 +473,135 @@ export const securityAdminResetTemporaryPassword = functions
     await writeAudit(caller, "temporary_password_reset", target.id);
     // Se entrega una sola vez y nunca se persiste en texto plano.
     return {ok: true, temporaryPassword: password};
+  });
+
+// Escrituras de la clave inicial para una persona: la credencial cifrada
+// (nunca la clave en texto) y la ficha, que pide cambiarla al entrar.
+async function initialPasswordWrites(
+  batch: FirebaseFirestore.WriteBatch,
+  userRef: FirebaseFirestore.DocumentReference,
+  actorUserDocId: string
+) {
+  const passwordData = await hashPassword(CLAVE_INICIAL);
+  batch.set(db().collection(credentialsCollection).doc(credentialId(userRef.id)), {
+    userDocId: userRef.id,
+    authUid: authUid(userRef.id),
+    passwordAlgorithm: passwordData.algorithm,
+    passwordSalt: passwordData.salt,
+    passwordHash: passwordData.hash,
+    migratedAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, {merge: true});
+  batch.set(userRef, {
+    uid: authUid(userRef.id),
+    authVersion: 2,
+    needsPasswordChange: true,
+    claveInicialAsignadaAt: admin.firestore.FieldValue.serverTimestamp(),
+    claveInicialAsignadaPor: actorUserDocId,
+    securityUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    securityUpdatedBy: actorUserDocId,
+    password: admin.firestore.FieldValue.delete(),
+  }, {merge: true});
+}
+
+// Clave inicial (123456) para quien nunca ha iniciado sesión en la empresa
+// activa: una persona (`targetUserDocId`) o todas de una vez. Deben cambiarla
+// al entrar. Nunca toca a quien ya entró o ya puso su propia clave: a esos
+// se les sigue generando una contraseña temporal (29 sep 2026).
+export const securityAdminAssignInitialPassword = functions
+  .region("us-central1")
+  .runWith({timeoutSeconds: 540, memory: "1GB"})
+  .https.onCall(async (data: any, context) => {
+    const caller = await requireAdmin(data, context);
+    const targetId = clean(data?.targetUserDocId, 512);
+    const credentialsSnap = await db().collection(credentialsCollection)
+      .select("userDocId").get();
+    const conCredencial = new Set(
+      credentialsSnap.docs.map((doc) => clean(doc.data().userDocId)).filter(Boolean)
+    );
+    let candidatos: FirebaseFirestore.DocumentSnapshot[];
+    if (targetId) {
+      const target = await targetForCaller(caller, targetId);
+      if (!nuncaHaIniciadoSesion(target.data() || {}, conCredencial.has(target.id))) {
+        throw new functions.https.HttpsError(
+          "failed-precondition",
+          "Esta persona ya inició sesión o ya tiene su propia clave. Genera " +
+            "una contraseña temporal."
+        );
+      }
+      candidatos = [target];
+    } else {
+      const snap = await db().collection(usersCollection).get();
+      candidatos = snap.docs.filter((doc) => {
+        const raw = doc.data();
+        return doc.id !== caller.userDocId &&
+          !isDeveloper(raw) &&
+          belongsToCompany(raw, caller.empresaId) &&
+          isActive(raw) &&
+          empresasSeleccionables(raw).includes(caller.empresaId) &&
+          nuncaHaIniciadoSesion(raw, conCredencial.has(doc.id));
+      });
+    }
+    // De a 100 personas por lote (200 escrituras). El cifrado (scrypt, ~16 MB
+    // cada uno) va de a 10 en paralelo para no agotar la memoria.
+    const ids: string[] = [];
+    for (let i = 0; i < candidatos.length; i += 100) {
+      const lote = candidatos.slice(i, i + 100);
+      const batch = db().batch();
+      for (let j = 0; j < lote.length; j += 10) {
+        await Promise.all(lote.slice(j, j + 10).map((doc) =>
+          initialPasswordWrites(batch, doc.ref, caller.userDocId)));
+      }
+      await batch.commit();
+      ids.push(...lote.map((doc) => doc.id));
+    }
+    if (targetId) {
+      await writeAudit(caller, "initial_password_assigned", targetId, {
+        claveInicial: true,
+      });
+    } else {
+      await writeAudit(caller, "initial_password_bulk", "*", {
+        count: ids.length,
+        claveInicial: true,
+        userDocIds: ids.slice(0, 500),
+      });
+    }
+    return {ok: true, assigned: ids.length};
+  });
+
+// Registro de cada persona nueva en la actividad de Seguridad de sus
+// empresas, venga de Admin, de Talento Humano o de una carga. Si llega sin
+// forma de entrar, recibe la clave inicial; si llega con la inicial en texto
+// (así la escriben las altas), se guarda cifrada y se borra el texto.
+export const securityRegistrarUsuarioNuevo = functions
+  .region("us-central1")
+  .firestore.document(`${usersCollection}/{userDocId}`)
+  .onCreate(async (snap) => {
+    const raw = snap.data() || {};
+    const actor = creadoPorDe(raw);
+    const credencial = await db().collection(credentialsCollection)
+      .doc(credentialId(snap.id)).get();
+    const textoPlano = clean(raw.password, 1024);
+    const sinIngreso = ultimoIngresoMs(raw) === null;
+    const batch = db().batch();
+    let claveInicial = false;
+    if (!credencial.exists && sinIngreso &&
+        (textoPlano === "" || textoPlano === CLAVE_INICIAL)) {
+      await initialPasswordWrites(batch, snap.ref, actor);
+      claveInicial = true;
+    }
+    for (const empresaId of empresasDe(raw)) {
+      batch.set(db().collection(auditCollection).doc(), {
+        empresaId,
+        actorUserDocId: actor,
+        targetUserDocId: snap.id,
+        targetUserHash: digest(snap.id),
+        action: "user_created",
+        metadata: {claveInicial},
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    await batch.commit();
   });
 
 export const securityAdminClearLoginBlocks = functions

@@ -6,6 +6,81 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Admin › Seguridad: clave inicial y registro de accesos — 29 sep 2026 (Claude)
+
+Admin queda para Daniel y Oscar. Pedido: dejar de generar claves temporales
+una por una, registrar a cada persona nueva y ver con claridad quién entra,
+quién no y desde qué equipo.
+
+### Clave inicial 123456
+- **Botón "Asignar 123456 a N"** en Seguridad, para todos los que **nunca
+  han iniciado sesión** en la empresa activa. También por persona (menú de
+  la tarjeta). Función `securityAdminAssignInitialPassword`.
+- "Nunca ha iniciado sesión" (`functions/src/ingresos.ts`): sin ningún
+  ingreso registrado **y** sin clave propia (sin credencial, o con una
+  temporal o inicial aún sin cambiar). A quien ya entró o ya puso su clave
+  no se le toca: a esos se les sigue generando la contraseña temporal.
+- La clave se guarda **cifrada** en `TBL_AUTH_CREDENTIALS` (nunca en texto)
+  y la persona queda con cambio obligatorio: al entrar crea su contraseña
+  (8 o más caracteres) y sus preguntas de seguridad. Se excluyen
+  inhabilitados, Desarrollo y quien la ejecuta. Queda en la actividad.
+- El servidor ahora marca cada ingreso (`ultimoIngresoSeguroAt`), así
+  "nunca ha entrado" no depende de que la app alcance a registrarlo.
+
+### Personas nuevas
+- Trigger `securityRegistrarUsuarioNuevo`: toda persona creada (Admin,
+  Talento Humano o carga) deja un registro **"Persona nueva"** en la
+  actividad de Seguridad de sus empresas, con quién la creó (`creadoPor`,
+  que ahora escribe el alta de Admin/TH). Si llega sin clave o con 123456 en
+  texto, la clave queda cifrada y se borra el texto.
+- Corregido: activar de nuevo a alguien que ya entró (Talento Humano) o
+  pasar por "primera vez" le volvía a poner 123456 y a exigir el cambio,
+  aunque ya tuviera su propia clave (y esa 123456 no le servía). Ahora la
+  conserva y el mensaje lo dice.
+
+### Registro de accesos
+- La app guarda en cada ingreso **el equipo**: computador, celular o
+  tablet; marca y modelo del celular (Samsung SM-A515F, iPhone 15 Pro…),
+  sistema (Android 14, iOS 17.5, Windows 11…) y si fue por la app o por
+  navegador (cuál). En la app instalada con `device_info_plus` (dependencia
+  nueva); en el navegador por el user agent y, en Chrome/Edge, las "client
+  hints", que traen el modelo que el user agent ya no trae. Safari no dice
+  el modelo del iPhone: sale "iPhone".
+- Seguridad muestra:
+  - **Accesos a la app**: Nunca han entrado · Ya entraron · Desde computador
+    · Desde celular (cada tarjeta filtra la lista) y los celulares por marca.
+  - En cada persona: último ingreso ("Hoy 10:32", "Hace 3 días") con su
+    equipo, "Nunca ha iniciado sesión", "Clave inicial 123456" pendiente y
+    "Nuevo" (creada hace 30 días o menos).
+  - **Registro de ingresos** de los últimos 30 días: quién, cuándo, cómo
+    (contraseña, sesión guardada, huella/rostro) y desde qué equipo, con
+    filtro por tipo y de a 20.
+  - **Actividad administrativa** con nombres (no cédulas), las acciones
+    nuevas, de a 20 y ordenada por el servidor.
+- Los ingresos anteriores solo guardaban "web/android": salen como "sin
+  detalle" hasta el próximo ingreso de cada persona.
+
+### Servidor (reglas)
+- `TBL_LOGIN_SESIONES` sale de la regla general: cada quien agrega su
+  propio ingreso; lo lee Admin de esa empresa o Desarrollo; nadie lo edita
+  ni lo borra. Antes cualquiera veía y borraba los ingresos de todas las
+  empresas.
+- Índice nuevo `TBL_AUTH_ADMIN_AUDIT` (`empresaId` + `createdAt`
+  descendente). Sin él, la actividad se ve como antes.
+
+### Pruebas
+- Nuevas: `test/services/device_descriptor_test.dart` (11),
+  `test/admin/security_access_test.dart` (8),
+  `functions/test/ingresos.test.js` (6) y
+  `functions/test/login_sesiones.rules.js` (3).
+- Totales: 1.358 de la app, 110 de Functions, 108 de reglas (2 omitidas
+  desde antes). `flutter analyze` sin errores. `flutter build web` compila.
+
+### Despliegue
+`firebase deploy --only firestore:rules,firestore:indexes,functions,hosting`.
+La app Android/iOS toma la dependencia nueva en su próxima compilación
+(`flutter pub get`; en iOS, `pod install`).
+
 ## Admin: Migraciones y Logs revisados — 29 sep 2026 (Claude)
 
 Se revisó para qué sirve cada herramienta hoy. Lo que ya no cumple un papel

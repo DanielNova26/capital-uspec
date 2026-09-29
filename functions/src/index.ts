@@ -21,6 +21,8 @@ export {
   securityAdminRevokeDisabledSessions,
   securityAdminResetTemporaryPassword,
   securityAdminClearLoginBlocks,
+  securityAdminAssignInitialPassword,
+  securityRegistrarUsuarioNuevo,
 } from "./security_admin";
 
 // ICD-11 token broker + proxy (Fase B)

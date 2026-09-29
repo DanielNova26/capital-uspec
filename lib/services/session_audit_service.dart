@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
 import '../utils/user_company.dart';
+import 'device_descriptor.dart';
+import 'device_info_reader.dart';
 
 const String kLoginSessionsCollection = 'TBL_LOGIN_SESIONES';
 
@@ -19,6 +21,9 @@ class LoginSessionDoc {
   final String appContext;
   final Timestamp loginAt;
 
+  /// Equipo del ingreso; los registros anteriores al 29 sep 2026 no lo traen.
+  final DispositivoIngreso dispositivo;
+
   const LoginSessionDoc({
     this.id = '',
     required this.empresaId,
@@ -32,6 +37,7 @@ class LoginSessionDoc {
     this.isWeb = false,
     this.appContext = '',
     required this.loginAt,
+    this.dispositivo = const DispositivoIngreso.desconocido(),
   });
 
   factory LoginSessionDoc.fromMap(String id, Map<String, dynamic> data) {
@@ -48,6 +54,11 @@ class LoginSessionDoc {
       isWeb: data['isWeb'] as bool? ?? false,
       appContext: (data['appContext'] ?? '').toString(),
       loginAt: data['loginAt'] as Timestamp? ?? Timestamp.now(),
+      dispositivo: DispositivoIngreso.fromMap(
+        data['dispositivo'] is Map
+            ? Map<String, dynamic>.from(data['dispositivo'] as Map)
+            : null,
+      ),
     );
   }
 }
@@ -55,8 +66,13 @@ class LoginSessionDoc {
 class SessionAuditService {
   final FirebaseFirestore _db;
 
-  SessionAuditService({FirebaseFirestore? db})
-    : _db = db ?? FirebaseFirestore.instance;
+  SessionAuditService({
+    FirebaseFirestore? db,
+    Future<DispositivoIngreso> Function()? lectorDispositivo,
+  }) : _db = db ?? FirebaseFirestore.instance,
+       _lectorDispositivo = lectorDispositivo ?? leerDispositivo;
+
+  final Future<DispositivoIngreso> Function() _lectorDispositivo;
 
   Future<void> recordLogin({
     required String userId,
@@ -89,6 +105,17 @@ class SessionAuditService {
       'area_nombre',
     ]);
     final platform = kIsWeb ? 'web' : defaultTargetPlatform.name.toLowerCase();
+    // Computador o celular, y cuál: lo muestra Admin › Seguridad. Si no se
+    // alcanza a leer, el ingreso se registra igual.
+    DispositivoIngreso dispositivo;
+    try {
+      dispositivo = await _lectorDispositivo().timeout(
+        const Duration(seconds: 4),
+      );
+    } catch (_) {
+      dispositivo = const DispositivoIngreso.desconocido();
+    }
+    final equipo = dispositivo.toMap();
 
     final now = Timestamp.now();
     final data = <String, dynamic>{
@@ -103,6 +130,7 @@ class SessionAuditService {
       'platform': platform,
       'isWeb': kIsWeb,
       'appContext': appContext,
+      'dispositivo': equipo,
       'loginAt': now,
       'createdAt': FieldValue.serverTimestamp(),
     };
@@ -115,13 +143,15 @@ class SessionAuditService {
       'lastLoginSource': source,
       'lastLoginPlatform': platform,
       'lastLoginIsWeb': kIsWeb,
+      'lastLoginDevice': equipo,
       // set(merge) no interpreta los puntos: el bloque va anidado para que
-      // el merge profundo toque solo estas tres claves de la empresa.
+      // el merge profundo toque solo estas claves de la empresa.
       'empresasDetalle': {
         cleanEmpresaId: {
           'lastLoginAt': now,
           'lastLoginSource': source,
           'lastLoginPlatform': platform,
+          'lastLoginDevice': equipo,
         },
       },
     }, SetOptions(merge: true));

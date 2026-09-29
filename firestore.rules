@@ -496,6 +496,22 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Registro de ingresos (29 sep 2026): cada quien agrega el suyo al
+    // entrar, con su equipo; lo lee Admin de esa empresa o Desarrollo. Antes
+    // estaba en la regla general: cualquiera veía y borraba los ingresos (y
+    // los equipos) de todas las empresas. Nadie lo edita ni lo borra.
+    match /TBL_LOGIN_SESIONES/{sesionId} {
+      allow read: if isDeveloperFor(resource.data.get('empresaId', ''))
+        || (belongsToCompany(resource.data.get('empresaId', ''))
+          && tieneAppAdminEn(resource.data.empresaId));
+      allow create: if isSignedIn()
+        && request.resource.data.get('userId', '')
+          == request.auth.token.userDocId
+        && request.resource.data.get('empresaId', '') is string
+        && request.resource.data.empresaId.size() > 0;
+      allow update, delete: if false;
+    }
+
     // ── Nutrición (28 sep 2026) ───────────────────────────────────────────
     // Pacientes, valoraciones, patologías e historial son datos de salud y
     // solo pedían sesión: cualquiera, de cualquier empresa, los leía y
@@ -1632,6 +1648,7 @@ service cloud.firestore {
           'TBL_AUTH_LOGIN_ATTEMPTS',
           'TBL_AUTH_RECOVERY_CHALLENGES',
           'TBL_AUTH_ADMIN_AUDIT',
+          'TBL_LOGIN_SESIONES',
           'TBL_PAGOS_BENEFICIARIOS',
           'TBL_PAGOS_BENEFICIARIOS_CUENTA',
           'TBL_RUTAS',

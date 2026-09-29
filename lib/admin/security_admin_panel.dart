@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:intl/intl.dart';
 
+import '../services/device_descriptor.dart';
+import '../widgets/paged_list.dart';
 import '../widgets/user_avatar.dart';
 import 'security_admin_service.dart';
 
@@ -14,6 +16,29 @@ enum _SecurityFilter {
   passwordChange,
   blocked,
   inactive,
+  neverLoggedIn,
+  loggedIn,
+  desktop,
+  mobile,
+}
+
+IconData _iconoDispositivo(DispositivoIngreso d) => switch (d.tipo) {
+  TipoDispositivo.computador => Icons.computer_rounded,
+  TipoDispositivo.celular => Icons.smartphone_rounded,
+  TipoDispositivo.tablet => Icons.tablet_android_rounded,
+  TipoDispositivo.desconocido => Icons.devices_other_rounded,
+};
+
+/// "Hoy 10:32", "Ayer 08:10", "Hace 3 días", "12/08/26".
+String haceCuanto(DateTime fecha, DateTime ahora) {
+  final hoy = DateTime(ahora.year, ahora.month, ahora.day);
+  final dia = DateTime(fecha.year, fecha.month, fecha.day);
+  final dias = hoy.difference(dia).inDays;
+  final hora = DateFormat('HH:mm').format(fecha);
+  if (dias <= 0) return 'Hoy $hora';
+  if (dias == 1) return 'Ayer $hora';
+  if (dias < 7) return 'Hace $dias días';
+  return DateFormat('dd/MM/yy').format(fecha);
 }
 
 class SecurityAdminPanel extends StatefulWidget {
@@ -110,6 +135,15 @@ class _SecurityAdminPanelState extends State<SecurityAdminPanel> {
           return user.blocked;
         case _SecurityFilter.inactive:
           return !user.active;
+        case _SecurityFilter.neverLoggedIn:
+          return user.active && user.neverLoggedIn;
+        case _SecurityFilter.loggedIn:
+          return user.hasLoggedIn;
+        case _SecurityFilter.desktop:
+          return user.hasLoggedIn &&
+              user.lastLoginDevice.tipo == TipoDispositivo.computador;
+        case _SecurityFilter.mobile:
+          return user.hasLoggedIn && user.lastLoginDevice.esMovil;
         case _SecurityFilter.all:
           return true;
       }
@@ -297,6 +331,63 @@ class _SecurityAdminPanelState extends State<SecurityAdminPanel> {
     ),
   );
 
+  bool _asignandoClaveInicial = false;
+
+  /// Clave inicial para todos los que nunca han iniciado sesión.
+  Future<void> _assignInitialPasswordAll(int cuantos) async {
+    if (!await _confirm(
+      'Asignar clave inicial $kClaveInicial',
+      '$cuantos persona(s) nunca han iniciado sesión. Todas podrán entrar '
+          'con su cédula y la clave $kClaveInicial, y al entrar la app les '
+          'pedirá crear su propia contraseña (8 caracteres o más) y sus '
+          'preguntas de seguridad.\n\nNo cambia la clave de quien ya entró '
+          'o ya puso la suya. Queda registrado en la actividad.',
+      'Asignar a $cuantos',
+    )) {
+      return;
+    }
+    setState(() => _asignandoClaveInicial = true);
+    try {
+      final asignadas = await _service.assignInitialPassword(
+        empresaId: widget.empresaId,
+      );
+      if (!mounted) return;
+      _message(
+        asignadas == 0
+            ? 'No había personas pendientes.'
+            : 'Clave $kClaveInicial asignada a $asignadas persona(s).',
+      );
+      await _load();
+    } on FirebaseFunctionsException catch (error) {
+      if (mounted) {
+        _message(
+          error.message ?? 'No fue posible asignar la clave inicial.',
+          error: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _asignandoClaveInicial = false);
+    }
+  }
+
+  Future<void> _assignInitialPassword(SecurityUserStatus user) async {
+    if (!await _confirm(
+      'Asignar clave inicial',
+      '${user.nombre} podrá entrar con su cédula y la clave $kClaveInicial. '
+          'Al entrar deberá crear su propia contraseña.',
+      'Asignar',
+    )) {
+      return;
+    }
+    await _runForUser(user, () async {
+      await _service.assignInitialPassword(
+        empresaId: widget.empresaId,
+        targetUserDocId: user.userDocId,
+      );
+      if (mounted) _message('Clave $kClaveInicial asignada a ${user.nombre}.');
+    });
+  }
+
   Future<void> _clearBlocks(SecurityUserStatus user) async {
     await _runForUser(user, () async {
       final cleared = await _service.clearLoginBlocks(
@@ -430,6 +521,9 @@ class _SecurityAdminPanelState extends State<SecurityAdminPanel> {
         .length;
     final blocked = users.where((user) => user.blocked).length;
     final inhabilitados = users.where((user) => user.accessBlocked).length;
+    final nuncaEntraron = users
+        .where((user) => user.active && user.neverLoggedIn)
+        .length;
     final filtered = _filteredUsers;
     final pageCount = filtered.isEmpty
         ? 1
@@ -446,6 +540,8 @@ class _SecurityAdminPanelState extends State<SecurityAdminPanel> {
         padding: EdgeInsets.all(mobile ? 12 : 20),
         children: [
           _hero(),
+          const SizedBox(height: 12),
+          _accessSection(users, nuncaEntraron, mobile),
           const SizedBox(height: 12),
           _summaryGrid(
             users.length,
@@ -471,6 +567,8 @@ class _SecurityAdminPanelState extends State<SecurityAdminPanel> {
             _pager(filtered.length, pageCount),
           ],
           const SizedBox(height: 14),
+          _sessionsPanel(),
+          const SizedBox(height: 12),
           _auditPanel(),
           const SizedBox(height: 28),
         ],
@@ -531,6 +629,331 @@ class _SecurityAdminPanelState extends State<SecurityAdminPanel> {
           ),
         ],
       ),
+    );
+  }
+
+  /// Clasificación de accesos: quién nunca ha entrado, quién sí, desde qué
+  /// equipo y qué celulares. Cada tarjeta filtra la lista de personas.
+  Widget _accessSection(
+    List<SecurityUserStatus> users,
+    int nuncaEntraron,
+    bool mobile,
+  ) {
+    final resumen = resumenDispositivos(users);
+    final entraron = users.where((u) => u.hasLoggedIn).length;
+    final tarjetas = [
+      (
+        'Nunca han entrado',
+        nuncaEntraron,
+        Icons.person_off_outlined,
+        const Color(0xFFD97706),
+        _SecurityFilter.neverLoggedIn,
+      ),
+      (
+        'Ya entraron',
+        entraron,
+        Icons.how_to_reg_outlined,
+        const Color(0xFF047857),
+        _SecurityFilter.loggedIn,
+      ),
+      (
+        'Desde computador',
+        resumen.computador,
+        Icons.computer_rounded,
+        const Color(0xFF1D4ED8),
+        _SecurityFilter.desktop,
+      ),
+      (
+        'Desde celular',
+        resumen.celular,
+        Icons.smartphone_rounded,
+        const Color(0xFF7C3AED),
+        _SecurityFilter.mobile,
+      ),
+    ];
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Accesos a la app',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 2),
+          const Text(
+            'Según el último ingreso de cada persona. Toca una tarjeta para '
+            'ver quiénes son.',
+            style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+          ),
+          const SizedBox(height: 10),
+          _tarjetasFiltro(tarjetas, mobile ? 2 : 4),
+          if (resumen.marcas.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                const Text(
+                  'Celulares:',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+                ),
+                for (final marca in resumen.marcas)
+                  _statusChip(
+                    '${marca.key} ${marca.value}',
+                    Icons.smartphone_rounded,
+                    const Color(0xFF7C3AED),
+                  ),
+              ],
+            ),
+          ],
+          if (resumen.sinDetalle > 0) ...[
+            const SizedBox(height: 6),
+            Text(
+              '${resumen.sinDetalle} persona(s) entraron antes de que se '
+              'registrara el equipo: se verá en su próximo ingreso.',
+              style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+            ),
+          ],
+          if (nuncaEntraron > 0) ...[
+            const SizedBox(height: 12),
+            _avisoClaveInicial(nuncaEntraron),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _avisoClaveInicial(int cuantos) => Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: const Color(0xFFFFFBEB),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: const Color(0xFFFDE68A)),
+    ),
+    child: Wrap(
+      spacing: 12,
+      runSpacing: 10,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        const Icon(Icons.key_rounded, color: Color(0xFFB45309)),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Text(
+            '$cuantos persona(s) nunca han iniciado sesión. Con la clave '
+            'inicial entran con su cédula y $kClaveInicial, y la app les pide '
+            'cambiarla al entrar.',
+            style: const TextStyle(fontSize: 13, color: Color(0xFF78350F)),
+          ),
+        ),
+        FilledButton.icon(
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFFB45309),
+          ),
+          onPressed: _asignandoClaveInicial
+              ? null
+              : () => _assignInitialPasswordAll(cuantos),
+          icon: _asignandoClaveInicial
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Icon(Icons.password_rounded),
+          label: Text('Asignar $kClaveInicial a $cuantos'),
+        ),
+      ],
+    ),
+  );
+
+  /// Tarjetas con número que filtran la lista (mismo dibujo que Cuentas).
+  Widget _tarjetasFiltro(
+    List<(String, int, IconData, Color, _SecurityFilter)> cards,
+    int columnas,
+  ) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = 10.0;
+        final cardWidth =
+            (constraints.maxWidth - spacing * (columnas - 1)) / columnas;
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: cards.map((card) {
+            final selected = _filter == card.$5;
+            return InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => setState(() {
+                _filter = selected ? _SecurityFilter.all : card.$5;
+                _page = 0;
+              }),
+              child: Container(
+                width: cardWidth,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? card.$4.withValues(alpha: .08)
+                      : const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: selected ? card.$4 : const Color(0xFFE2E8F0),
+                    width: selected ? 1.5 : 1,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(card.$3, color: card.$4),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${card.$2}',
+                            style: TextStyle(
+                              fontSize: 21,
+                              fontWeight: FontWeight.w900,
+                              color: card.$4,
+                            ),
+                          ),
+                          Text(
+                            card.$1,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }).toList(),
+        );
+      },
+    );
+  }
+
+  TipoDispositivo? _tipoIngresos;
+  int _pageIngresos = 0;
+  int _pageAudit = 0;
+
+  /// Registro de ingresos de los últimos días: quién, cuándo, cómo y desde
+  /// qué equipo, de a 20.
+  Widget _sessionsPanel() {
+    final todas = _overview?.sessions ?? const <SecuritySession>[];
+    final dias = _overview?.sessionDays ?? 30;
+    final filtradas = [
+      for (final s in todas)
+        if (_tipoIngresos == null ||
+            (_tipoIngresos == TipoDispositivo.celular
+                ? s.device.esMovil
+                : s.device.tipo == _tipoIngresos))
+          s,
+    ];
+    final pagina = _pageIngresos.clamp(0, pageCountOf(filtradas.length) - 1);
+    final ahora = DateTime.now();
+    Widget filtro(String label, TipoDispositivo? tipo) => ChoiceChip(
+      label: Text(label),
+      selected: _tipoIngresos == tipo,
+      onSelected: (_) => setState(() {
+        _tipoIngresos = tipo;
+        _pageIngresos = 0;
+      }),
+    );
+    return ExpansionTile(
+      initiallyExpanded: true,
+      tilePadding: const EdgeInsets.symmetric(horizontal: 14),
+      childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      collapsedShape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: const BorderSide(color: Color(0xFFE2E8F0)),
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: const BorderSide(color: Color(0xFFE2E8F0)),
+      ),
+      leading: const Icon(Icons.login_rounded),
+      title: const Text(
+        'Registro de ingresos',
+        style: TextStyle(fontWeight: FontWeight.w900),
+      ),
+      subtitle: Text('${todas.length} ingreso(s) en los últimos $dias días.'),
+      children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              filtro('Todos', null),
+              filtro('Computador', TipoDispositivo.computador),
+              filtro('Celular o tablet', TipoDispositivo.celular),
+              filtro('Sin detalle', TipoDispositivo.desconocido),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        if (filtradas.isEmpty)
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('No hay ingresos para este filtro.'),
+          ),
+        for (final sesion in pageOf(filtradas, pagina))
+          ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: UserAvatar(
+              userId: sesion.userDocId,
+              nameHint: sesion.nombre,
+              radius: 18,
+            ),
+            title: Text(
+              sesion.nombre,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+            subtitle: Row(
+              children: [
+                Icon(
+                  _iconoDispositivo(sesion.device),
+                  size: 14,
+                  color: const Color(0xFF64748B),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    '${sesion.device.tipo == TipoDispositivo.desconocido ? 'Equipo sin detalle' : sesion.device.descripcion}'
+                    ' · ${sesion.sourceLabel}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            trailing: Text(
+              sesion.loginAt == null ? '-' : haceCuanto(sesion.loginAt!, ahora),
+              style: const TextStyle(fontSize: 11),
+            ),
+          ),
+        PagerBar(
+          total: filtradas.length,
+          page: pagina,
+          etiqueta: 'ingresos',
+          onPageChanged: (p) => setState(() => _pageIngresos = p),
+        ),
+      ],
     );
   }
 
@@ -698,6 +1121,22 @@ class _SecurityAdminPanelState extends State<SecurityAdminPanel> {
               value: _SecurityFilter.inactive,
               child: Text('Inactivos'),
             ),
+            DropdownMenuItem(
+              value: _SecurityFilter.neverLoggedIn,
+              child: Text('Nunca han entrado'),
+            ),
+            DropdownMenuItem(
+              value: _SecurityFilter.loggedIn,
+              child: Text('Ya entraron'),
+            ),
+            DropdownMenuItem(
+              value: _SecurityFilter.desktop,
+              child: Text('Último ingreso: computador'),
+            ),
+            DropdownMenuItem(
+              value: _SecurityFilter.mobile,
+              child: Text('Último ingreso: celular'),
+            ),
           ],
         ),
         Text(
@@ -780,13 +1219,37 @@ class _SecurityAdminPanelState extends State<SecurityAdminPanel> {
                           Icons.lock_clock_outlined,
                           const Color(0xFFB91C1C),
                         ),
-                      _statusChip(
-                        user.lastLoginAt == null
-                            ? 'Sin ingreso registrado'
-                            : 'Último: ${DateFormat('dd/MM/yy HH:mm').format(user.lastLoginAt!)}',
-                        Icons.history,
-                        const Color(0xFF475569),
-                      ),
+                      if (user.lastLoginAt == null)
+                        _statusChip(
+                          user.neverLoggedIn
+                              ? 'Nunca ha iniciado sesión'
+                              : 'Sin ingreso registrado',
+                          Icons.person_off_outlined,
+                          const Color(0xFFD97706),
+                        )
+                      else
+                        _statusChip(
+                          [
+                            'Último: ${haceCuanto(user.lastLoginAt!, DateTime.now())}',
+                            if (user.lastLoginDevice.tipo !=
+                                TipoDispositivo.desconocido)
+                              user.lastLoginDevice.descripcion,
+                          ].join(' · '),
+                          _iconoDispositivo(user.lastLoginDevice),
+                          const Color(0xFF475569),
+                        ),
+                      if (user.initialPassword)
+                        _statusChip(
+                          'Clave inicial $kClaveInicial',
+                          Icons.key_rounded,
+                          const Color(0xFFB45309),
+                        ),
+                      if (user.esNueva(DateTime.now()))
+                        _statusChip(
+                          'Nuevo · ${DateFormat('dd/MM/yy').format(user.createdAt!)}',
+                          Icons.fiber_new_outlined,
+                          const Color(0xFF0E7490),
+                        ),
                     ],
                   ),
                 ],
@@ -809,6 +1272,9 @@ class _SecurityAdminPanelState extends State<SecurityAdminPanel> {
                     case 'reset':
                       _resetPassword(user);
                       break;
+                    case 'initial':
+                      _assignInitialPassword(user);
+                      break;
                     case 'revoke':
                       _revokeSessions(user);
                       break;
@@ -830,6 +1296,15 @@ class _SecurityAdminPanelState extends State<SecurityAdminPanel> {
                       ),
                     ),
                   ),
+                  if (user.neverLoggedIn && user.active)
+                    const PopupMenuItem(
+                      value: 'initial',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.password_rounded),
+                        title: Text('Asignar clave inicial $kClaveInicial'),
+                      ),
+                    ),
                   const PopupMenuItem(
                     value: 'reset',
                     child: ListTile(
@@ -880,12 +1355,16 @@ class _SecurityAdminPanelState extends State<SecurityAdminPanel> {
         children: [
           Icon(icon, size: 14, color: color),
           const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: color,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],
@@ -919,8 +1398,11 @@ class _SecurityAdminPanelState extends State<SecurityAdminPanel> {
 
   Widget _auditPanel() {
     final entries = _overview?.audit ?? const <SecurityAuditEntry>[];
+    final pagina = _pageAudit.clamp(0, pageCountOf(entries.length) - 1);
+    final ahora = DateTime.now();
     return ExpansionTile(
       tilePadding: const EdgeInsets.symmetric(horizontal: 14),
+      childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
       collapsedShape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
         side: const BorderSide(color: Color(0xFFE2E8F0)),
@@ -935,55 +1417,100 @@ class _SecurityAdminPanelState extends State<SecurityAdminPanel> {
         style: TextStyle(fontWeight: FontWeight.w900),
       ),
       subtitle: const Text(
-        'Las acciones sensibles quedan registradas sin guardar contraseñas.',
+        'Personas nuevas y acciones sensibles. Nunca se guardan contraseñas.',
       ),
-      children: entries.isEmpty
-          ? const [
-              Padding(
-                padding: EdgeInsets.all(20),
-                child: Text('Aún no hay acciones administrativas registradas.'),
-              ),
-            ]
-          : entries
-                .map(
-                  (entry) => ListTile(
-                    dense: true,
-                    leading: const Icon(Icons.shield_outlined, size: 20),
-                    title: Text(_auditLabel(entry.action)),
-                    subtitle: Text(
-                      'Usuario: ${entry.targetUserDocId} · Administró: ${entry.actorUserDocId}',
-                    ),
-                    trailing: Text(
-                      entry.createdAt == null
-                          ? '-'
-                          : DateFormat(
-                              'dd/MM/yy HH:mm',
-                            ).format(entry.createdAt!),
-                      style: const TextStyle(fontSize: 11),
-                    ),
-                  ),
-                )
-                .toList(),
+      children: [
+        if (entries.isEmpty)
+          const Padding(
+            padding: EdgeInsets.all(20),
+            child: Text('Aún no hay acciones administrativas registradas.'),
+          ),
+        for (final entry in pageOf(entries, pagina))
+          ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(_auditIcon(entry.action), size: 20),
+            title: Text(auditLabel(entry)),
+            subtitle: _auditPeople(entry),
+            trailing: Text(
+              entry.createdAt == null
+                  ? '-'
+                  : haceCuanto(entry.createdAt!, ahora),
+              style: const TextStyle(fontSize: 11),
+            ),
+          ),
+        PagerBar(
+          total: entries.length,
+          page: pagina,
+          etiqueta: 'acciones',
+          onPageChanged: (p) => setState(() => _pageAudit = p),
+        ),
+      ],
     );
   }
 
-  String _auditLabel(String action) {
-    switch (action) {
-      case 'require_password_change':
-        return 'Activó cambio obligatorio de contraseña';
-      case 'clear_password_change':
-        return 'Retiró cambio obligatorio de contraseña';
-      case 'temporary_password_reset':
-        return 'Generó una contraseña temporal';
-      case 'revoke_sessions':
-        return 'Cerró sesiones del usuario';
-      case 'clear_login_blocks':
-        return 'Retiró bloqueos de acceso';
-      case 'revoke_disabled_sessions':
-        return 'Cerró las sesiones del personal inhabilitado';
-      default:
-        return action.isEmpty ? 'Acción de seguridad' : action;
-    }
+  /// Persona afectada y quién hizo la acción, por nombre (nunca la cédula).
+  Widget _auditPeople(SecurityAuditEntry entry) {
+    const estilo = TextStyle(fontSize: 12, color: Color(0xFF64748B));
+    final target = entry.targetUserDocId;
+    final actor = entry.actorUserDocId;
+    return Wrap(
+      spacing: 4,
+      children: [
+        if (target.isNotEmpty && target != '*')
+          UserNameText(target, style: estilo, prefix: 'Persona: '),
+        if (actor.isNotEmpty) ...[
+          if (target.isNotEmpty && target != '*')
+            const Text('·', style: estilo),
+          UserNameText(
+            actor,
+            style: estilo,
+            prefix: entry.action == 'user_created' ? 'Creó: ' : 'Hizo: ',
+          ),
+        ] else if (entry.action == 'user_created')
+          const Text('Registro automático', style: estilo),
+      ],
+    );
+  }
+
+  IconData _auditIcon(String action) => switch (action) {
+    'user_created' => Icons.person_add_alt_1_outlined,
+    'initial_password_bulk' ||
+    'initial_password_assigned' => Icons.password_rounded,
+    'temporary_password_reset' => Icons.key_outlined,
+    'revoke_sessions' || 'revoke_disabled_sessions' => Icons.logout_rounded,
+    'clear_login_blocks' => Icons.lock_open_outlined,
+    _ => Icons.shield_outlined,
+  };
+}
+
+/// Texto de una acción de la actividad de Seguridad.
+String auditLabel(SecurityAuditEntry entry) {
+  switch (entry.action) {
+    case 'user_created':
+      return entry.initialPassword
+          ? 'Persona nueva, con clave inicial $kClaveInicial'
+          : 'Persona nueva';
+    case 'initial_password_bulk':
+      return 'Asignó la clave inicial a ${entry.count ?? 0} persona(s) que '
+          'nunca habían entrado';
+    case 'initial_password_assigned':
+      return 'Asignó la clave inicial $kClaveInicial';
+    case 'require_password_change':
+      return 'Activó cambio obligatorio de contraseña';
+    case 'clear_password_change':
+      return 'Retiró cambio obligatorio de contraseña';
+    case 'temporary_password_reset':
+      return 'Generó una contraseña temporal';
+    case 'revoke_sessions':
+      return 'Cerró sesiones del usuario';
+    case 'clear_login_blocks':
+      return 'Retiró bloqueos de acceso';
+    case 'revoke_disabled_sessions':
+      return 'Cerró las sesiones del personal inhabilitado'
+          '${entry.count == null ? '' : ' (${entry.count})'}';
+    default:
+      return entry.action.isEmpty ? 'Acción de seguridad' : entry.action;
   }
 }
 

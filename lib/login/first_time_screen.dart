@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../home/widgets/home_shared_widgets.dart';
 import '../services/anonymous_auth_service.dart';
+import '../talento_humano/personnel_requisition_service.dart'
+    show personnelNeedsTemporaryPassword, personnelTemporaryPassword;
 import '../utils/user_company.dart';
 import 'data_policy_screen.dart';
 
@@ -202,8 +204,13 @@ class _FirstTimeScreenState extends State<FirstTimeScreen> {
     String cedula,
     String empresaId,
   ) async {
-    final password = (data['password'] ?? '').toString().trim();
-    final hasPassword = password.isNotEmpty;
+    // Quien ya tiene su clave cifrada (ya entró o tiene la inicial) no
+    // recibe otra: antes se le volvía a exigir el cambio y se le decía
+    // "123456", que no le servía.
+    final necesitaClave = personnelNeedsTemporaryPassword(data);
+    final claveInicialPendiente =
+        data['needsPasswordChange'] == true &&
+        data['claveInicialAsignadaAt'] != null;
     final payload = <String, dynamic>{
       'usuario': cedula,
       'cedula': cedula,
@@ -216,12 +223,15 @@ class _FirstTimeScreenState extends State<FirstTimeScreen> {
       if ((data['role'] ?? '').toString().trim().isEmpty) 'role': 'usuario',
     };
 
-    if (!hasPassword) {
-      payload.addAll({'password': '123456', 'needsPasswordChange': true});
+    if (necesitaClave) {
+      payload.addAll({
+        'password': personnelTemporaryPassword,
+        'needsPasswordChange': true,
+      });
     }
 
     await ref.set(payload, SetOptions(merge: true));
-    return !hasPassword;
+    return necesitaClave || claveInicialPendiente;
   }
 
   bool _shouldOpenHv(Map<String, dynamic> data) {
