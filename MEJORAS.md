@@ -6,6 +6,73 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Admin: roles configurables de Gerencia — 29 sep 2026 (Claude)
+
+Gerencia no tenía niveles: quien tenía la app veía todo. Decisiones del
+usuario: el rol limita **áreas, empresas, pestañas y exportar**, y lo que se
+agregue después; "solo su área" es **la de su ficha**; **sin rol no ve
+nada**; los **Puntos** salen de lo que el rol deja ver.
+
+### Qué hace
+- **Rol por permisos** (como Tareas, no por niveles). Catálogo único en
+  `lib/gerencia/gerencia_permisos.dart` (`kGerenciaPermisos`): Todas las
+  áreas, Todas sus empresas, Pestaña Dashboard, Pestaña Puntos, Pestaña
+  Interventoría y Exportar. Admin pinta un interruptor por permiso; un
+  permiso nuevo se agrega ahí y queda **apagado** en los roles que ya
+  existían hasta que Admin lo encienda.
+- Definición en `TBL_ROLES/{empresa}_mod_gerencia_{nombre}` con
+  `permissions`. Asignar escribe en la ficha de la empresa
+  `rolGerenciaId/Nombre/Version` y `permisosGerencia`, y la app. Los nombres
+  no chocan con la detección de Gerencia que hace Visitas por el rol
+  general. Archivos: `management_module_role.dart`,
+  `management_module_roles_repository.dart` y
+  `management_module_roles_panel.dart`.
+- **Sin rol no ve nada**, aunque tenga la app: el módulo dice "No tienes un
+  rol de Gerencia en esta empresa" y no carga datos. Desarrollo entra con
+  todo. No hay nivel individual: en la matriz el selector va de "Sin rol
+  (no ve nada)" a los roles creados.
+- **Alcance en el módulo** (`resolverAccesoGerencia`):
+  - Manda el rol de la **empresa activa**: pestañas y exportar.
+  - "Todas sus empresas" suma las otras empresas **solo si allí también
+    tiene rol** de Gerencia; en cada una, el límite de áreas es el de su
+    propio rol.
+  - "Solo su área": tareas, gráficas, ranking de Puntos y hallazgos de
+    Interventoría quedan en el área de su ficha (con el cargo de respaldo,
+    como el resto de Gerencia), comparada por nombre normalizado. Sin área
+    en la ficha no ve registros. Un aviso dice qué área está viendo.
+  - Sin Exportar desaparecen los botones de PDF y Excel de Interventoría.
+- Inactivar un rol deja a sus asignados sin acceso. Editar sincroniza.
+- **Transición**: hoy todos los que tienen la app quedarían sin ver nada.
+  El panel muestra cuántos son y, por rol, un botón **"Asignar a quienes
+  tienen la app sin rol"** (con confirmación). Hay tres roles iniciales:
+  Gerencia general (todo), Director de área (su área, todas las pestañas y
+  exportar) y Consulta de indicadores (su área, solo Dashboard).
+
+### Servidor (reglas)
+- `TBL_ROLES` acepta `gerenciadashboard` (solo Admin de la empresa o
+  Desarrollo).
+- **El límite es del módulo, no del servidor**: Gerencia lee `TBL_TAREAS`,
+  que sigue en la regla general, y los permisos viven en la ficha, que
+  todavía escribe cualquiera (P0 de `TBL_USUARIOS`).
+
+### Pruebas
+- Nuevas: `test/gerencia/gerencia_permisos_test.dart` (11),
+  `test/admin/management_module_roles_test.dart` (8) y
+  `functions/test/gerencia.rules.js` (2).
+- Totales: 1.331 de la app, 104 de Functions, 102 de reglas (2 omitidas
+  desde antes). `flutter analyze` sin errores.
+
+### Despliegue
+`firebase deploy --only firestore:rules,hosting`. **Justo después de
+publicar**, en cada empresa: Admin → Gerencia → "Crear roles iniciales" y
+"Asignar a quienes tienen la app sin rol". Mientras tanto, quien tenga la
+app sin rol no ve datos (las reglas nuevas hacen falta para guardar los
+roles, por eso no se puede hacer antes).
+
+### Quedan sin roles configurables
+Tokens DIAN (lista de autorizados), Talento Humano, Nutrición y
+Administración.
+
 ## Admin: roles configurables de Facturación — 29 sep 2026 (Claude)
 
 Siguiente módulo del centro **Admin → Apps, roles y permisos**. Facturación

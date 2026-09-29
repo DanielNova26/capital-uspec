@@ -53,6 +53,9 @@ import 'library_module_roles_panel.dart';
 import 'correspondence_module_roles_panel.dart';
 import 'payment_module_roles_panel.dart';
 import 'billing_module_role.dart';
+import 'management_module_role.dart';
+import 'management_module_roles_panel.dart';
+import 'management_module_roles_repository.dart';
 import 'billing_module_roles_panel.dart';
 import 'billing_module_roles_repository.dart';
 import 'table_module_role.dart';
@@ -193,6 +196,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       CorrespondenceModuleRolesRepository(actorId: widget.userId);
   List<PaymentModuleRole> _paymentModuleRoles = [];
   List<BillingModuleRole> _billingModuleRoles = [];
+  List<ManagementModuleRole> _managementModuleRoles = [];
+  ManagementModuleRolesRepository get _managementRolesRepo =>
+      ManagementModuleRolesRepository(actorId: widget.userId);
   BillingModuleRolesRepository get _billingRolesRepo =>
       BillingModuleRolesRepository(actorId: widget.userId);
   // Compras, Rutas e Interventoría: roles configurables con tabla propia.
@@ -505,6 +511,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       );
       _paymentModuleRoles = _paymentRolesFromSources(_moduleSources, selected);
       _billingModuleRoles = _billingRolesFromSources(_moduleSources, selected);
+      _managementModuleRoles = _managementRolesFromSources(
+        _moduleSources,
+        selected,
+      );
       _tableModuleRoles = _tableRolesFromSources(_moduleSources, selected);
       _accessRoles = accessRoles;
       _comprasRoleByUser = comprasRoleByUser;
@@ -583,6 +593,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           empresaId,
         );
         _billingModuleRoles = _billingRolesFromSources(
+          _moduleSources,
+          empresaId,
+        );
+        _managementModuleRoles = _managementRolesFromSources(
           _moduleSources,
           empresaId,
         );
@@ -3847,6 +3861,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         _ => const {},
       };
 
+  List<ManagementModuleRole> _managementRolesFromSources(
+    AdminModuleSources sources,
+    String empresaId,
+  ) => [
+    for (final source in sources.roles)
+      if (ManagementModuleRole.fromData(source.id, source.data)
+          case final role?)
+        if (role.empresaId == empresaId) role,
+  ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
   List<BillingModuleRole> _billingRolesFromSources(
     AdminModuleSources sources,
     String empresaId,
@@ -4062,6 +4086,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       'Ficha de la empresa: rolPlanillas. Roles configurables en TBL_ROLES, vinculados por rolPlanillasId.',
     'facturacion' =>
       'Ficha de la empresa: rolFac y establecimientoFacId · Creador pendiente de revisar.',
+    'gerencia' =>
+      'Ficha de la empresa: permisosGerencia. Roles configurables en TBL_ROLES, vinculados por rolGerenciaId. Sin rol no ve datos.',
     _ =>
       'Acceso por Apps. Los niveles internos se revisarán al trabajar este módulo.',
   };
@@ -4482,6 +4508,95 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       },
     );
   }
+
+  /// Gerencia no tiene nivel individual: sin rol no ve nada (29 sep 2026).
+  Widget _managementRoleSelector(
+    QueryDocumentSnapshot<Map<String, dynamic>> user,
+    String empresaId,
+  ) {
+    final current = managementRoleIdOf(user.data(), empresaId);
+    return DropdownButtonFormField<String>(
+      key: ValueKey(
+        'management_role_${user.id}_${current}_$_accessReloadVersion',
+      ),
+      initialValue: current,
+      isExpanded: true,
+      decoration: const InputDecoration(
+        labelText: 'Rol de Gerencia',
+        isDense: true,
+      ),
+      items: [
+        const DropdownMenuItem(value: '', child: Text('Sin rol (no ve nada)')),
+        for (final role in _managementModuleRoles)
+          if (role.enabled || role.id == current)
+            DropdownMenuItem(
+              value: role.id,
+              enabled: role.enabled,
+              child: Text(
+                '${role.name}${role.enabled ? "" : " · Inactivo"}',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+        if (current.isNotEmpty &&
+            !_managementModuleRoles.any((role) => role.id == current))
+          DropdownMenuItem(
+            value: current,
+            enabled: false,
+            child: const Text('Rol sin definición válida'),
+          ),
+      ],
+      onChanged: (value) async {
+        try {
+          if ((value ?? '').isEmpty) {
+            await _managementRolesRepo.removeRole(
+              empresaId: empresaId,
+              userId: user.id,
+            );
+            _snack('Gerencia: rol retirado; la persona ya no ve datos.');
+          } else {
+            await _managementRolesRepo.assign(
+              empresaId: empresaId,
+              userId: user.id,
+              roleId: value!,
+            );
+            _snack('Rol de Gerencia asignado y permisos sincronizados.');
+          }
+        } catch (error) {
+          _snack('No se pudo asignar el rol de Gerencia: $error');
+        }
+        await _reloadAccessMatrix();
+      },
+    );
+  }
+
+  Future<void> _synchronizeManagementRole(
+    String empresaId,
+    ManagementModuleRole role,
+  ) async {
+    try {
+      final result = await _managementRolesRepo.synchronize(empresaId, role.id);
+      _snack(
+        result.failedUserIds.isEmpty
+            ? 'Rol ${role.name} guardado: ${result.updated} personas actualizadas.'
+            : 'Rol guardado: ${result.updated} personas actualizadas y ${result.failedUserIds.length} pendientes. Usa Sincronizar asignados para reintentar.',
+      );
+    } catch (error) {
+      throw StateError(
+        'El rol está guardado; faltó sincronizar sus asignados. Actualiza y reintenta: $error',
+      );
+    } finally {
+      await _reloadAccessMatrix();
+    }
+  }
+
+  /// Quienes tienen la app de Gerencia en la empresa y ningún rol.
+  List<String> _managementAppHoldersWithoutRole(String empresaId) => [
+    for (final user in _users)
+      if (_matrixUserHasApp(user, managementRolesAppId, empresaId) &&
+          managementRoleIdOf(user.data(), empresaId).isEmpty &&
+          personaHabilitadaEn(user.data(), empresaId))
+        user.id,
+  ];
 
   Future<void> _synchronizeBillingRole(
     String empresaId,
@@ -6022,6 +6137,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         return 'Acceso y etapa de firma';
       case 'tokens_dian':
         return 'Personal autorizado';
+      case 'gerencia':
+        return 'Acceso y rol: áreas, empresas, pestañas y exportación';
       case 'visitas':
         return 'Gerencia ve y administra todas las áreas. El jefe (director) programa y administra formatos y equipo de su área; el área se toma de la ficha o del cargo. El firmante es el administrador del establecimiento que firma las visitas desde su módulo.';
       case 'admin':
@@ -6035,6 +6152,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     if (module.key == 'tareas') {
       return {for (final role in _taskModuleRoles) role.id: role.name};
     }
+    if (module.key == 'gerencia') {
+      return {for (final role in _managementModuleRoles) role.id: role.name};
+    }
     if (module.hasPlanillasRole) return kPlanillasRoleLabels;
     return module.roles;
   }
@@ -6047,6 +6167,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       case 'tareas':
         for (final role in _taskModuleRoles) {
           if (role.id == roleKey) return role.effectivePermissions.description;
+        }
+        return 'Definición pendiente de revisar.';
+      case 'gerencia':
+        for (final role in _managementModuleRoles) {
+          if (role.id == roleKey) return role.effectivePermissions.descripcion;
         }
         return 'Definición pendiente de revisar.';
       case 'correo':
@@ -6277,6 +6402,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   bool _matrixModuleHasRoles(_AccessMatrixModule module) =>
       module.key == 'tareas' ||
+      module.key == 'gerencia' ||
       module.hasPlanillasRole ||
       module.roles.isNotEmpty;
 
@@ -6396,6 +6522,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     switch (module.key) {
       case 'tareas':
         final id = taskRoleIdOf(data, empresaId);
+        return id.isEmpty ? null : id;
+      case 'gerencia':
+        final id = managementRoleIdOf(data, empresaId);
         return id.isEmpty ? null : id;
       case 'compras':
         return resolveComprasLevel(
@@ -7003,6 +7132,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   style: TextStyle(fontSize: 11, color: kAdminMuted),
                 ),
               ],
+              if (module.key == 'gerencia') ...[
+                const SizedBox(height: 8),
+                _managementRoleSelector(userDoc, empresaId),
+                const SizedBox(height: 6),
+                const Text(
+                  'Sin rol no ve datos en Gerencia aunque tenga la app.',
+                  style: TextStyle(fontSize: 11, color: kAdminMuted),
+                ),
+              ],
               if (module.key == 'facturacion') ...[
                 const SizedBox(height: 8),
                 _billingRoleSelector(userDoc, empresaId),
@@ -7148,7 +7286,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                         )
                       : null,
                 ),
-              ] else if (!module.hasPlanillasRole)
+              ] else if (!module.hasPlanillasRole && module.key != 'gerencia')
                 const Padding(
                   padding: EdgeInsets.only(top: 4),
                   child: Text(
@@ -8655,6 +8793,60 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 );
                 _snack(
                   '${result.updated} niveles anteriores consolidados; ${result.failedUserIds.length} pendientes de reintento.',
+                );
+              } finally {
+                await _reloadAccessMatrix();
+              }
+            },
+          ),
+          const SizedBox(height: 14),
+        ],
+        if (module.key == 'gerencia') ...[
+          ManagementModuleRolesPanel(
+            key: ValueKey('management_roles_$empresaId'),
+            roles: _managementModuleRoles,
+            pendingSyncCount: (role) => _users
+                .where((u) => managementRoleNeedsSync(u.data(), role))
+                .length,
+            appHoldersWithoutRole: _managementAppHoldersWithoutRole(
+              empresaId,
+            ).length,
+            onSave: (name, description, permissions, enabled, previous) async {
+              final role = await _managementRolesRepo.save(
+                empresaId: empresaId,
+                name: name,
+                description: description,
+                permissions: permissions,
+                enabled: enabled,
+                previous: previous,
+              );
+              await _synchronizeManagementRole(empresaId, role);
+            },
+            onSynchronize: (role) =>
+                _synchronizeManagementRole(empresaId, role),
+            onCreateDefaults: () async {
+              try {
+                final count = await _managementRolesRepo.ensureDefaults(
+                  empresaId,
+                );
+                _snack(
+                  '$count roles iniciales de Gerencia creados. Asigna cada rol a sus personas.',
+                );
+              } finally {
+                await _reloadAccessMatrix();
+              }
+            },
+            onAssignAppHolders: (role) async {
+              try {
+                final result = await _managementRolesRepo.assignMany(
+                  empresaId: empresaId,
+                  roleId: role.id,
+                  userIds: _managementAppHoldersWithoutRole(empresaId),
+                );
+                _snack(
+                  result.failedUserIds.isEmpty
+                      ? '${role.name} asignado a ${result.updated} persona(s).'
+                      : '${role.name} asignado a ${result.updated} persona(s); ${result.failedUserIds.length} no se pudieron asignar.',
                 );
               } finally {
                 await _reloadAccessMatrix();

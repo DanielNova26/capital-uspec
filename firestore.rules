@@ -454,7 +454,7 @@ service cloud.firestore {
           'planillaspagodashboard', 'bibliotecadocumentaldashboard',
           'tareasdashboard', 'comprasdashboard', 'rutasdashboard',
           'interventoriadashboard', 'visitasdashboard',
-          'facturaciondashboard']
+          'facturaciondashboard', 'gerenciadashboard']
         && (data.moduleId != 'comprasdashboard' || data.get('baseRole', '') in ['admin','calidad','compras','bodega','consultas'])
         && data.get('enabled', null) is bool
         && data.get('revision', null) is int && data.revision >= 1

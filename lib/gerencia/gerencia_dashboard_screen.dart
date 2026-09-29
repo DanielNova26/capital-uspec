@@ -17,6 +17,7 @@ import '../core/area_directory.dart';
 import '../widgets/paged_list.dart';
 import 'gerencia_areas.dart';
 import 'gerencia_interventoria_tab.dart';
+import 'gerencia_permisos.dart';
 
 const String kTodasEmpresasValue = '__todas_empresas__';
 const List<InternalModuleTabItem> _kGerenciaModuleTabs = [
@@ -28,6 +29,13 @@ const List<InternalModuleTabItem> _kGerenciaModuleTabs = [
   ),
 ];
 const int _kTabInterventoria = 2;
+
+/// Pestañas que deja ver el rol, en el orden de [_kGerenciaModuleTabs].
+List<int> pestanasGerenciaPermitidas(GerenciaPermisos permisos) => [
+  if (permisos.dashboard) 0,
+  if (permisos.puntos) 1,
+  if (permisos.interventoria) _kTabInterventoria,
+];
 
 DateTime? _toDate(dynamic v) {
   if (v is Timestamp) return v.toDate();
@@ -78,10 +86,6 @@ double _scoreForTask(Map<String, dynamic> task) {
   }
 
   return max(0, score);
-}
-
-Set<String> _empresasDe(Map<String, dynamic> data) {
-  return empresasSeleccionables(data).toSet();
 }
 
 class _PersonScore {
@@ -185,13 +189,24 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         .doc(widget.userId)
         .get();
     final userData = userDoc.data() ?? {};
-    final empresas = _empresasDe(userData);
-    if (empresas.isEmpty) {
-      throw StateError(
-        'No tienes empresas habilitadas para consultar Gerencia.',
+    // El rol de Gerencia de la empresa activa decide qué empresas se cargan:
+    // sin rol no se lee nada más (29 sep 2026).
+    final acceso = resolverAccesoGerencia(
+      userData,
+      (preferredEmpresaId ?? _lastScopedEmpresaId ?? widget.empresaId).trim(),
+    );
+    if (!acceso.permitido) {
+      return _Bootstrap(
+        userDoc: userData,
+        users: const {},
+        areas: const {},
+        empresaId: acceso.empresaActiva,
+        empresas: const {},
+        accesoBase: acceso,
       );
     }
-    final empresaPrincipal = empresas.isNotEmpty ? empresas.first : '';
+    final empresas = acceso.empresas;
+    final empresaPrincipal = acceso.empresaActiva;
 
     final preferred = preferredEmpresaId?.trim();
     _empresaActiva = (preferred != null && empresas.contains(preferred))
@@ -302,6 +317,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         for (final e in cargosPorEmpresa.entries)
           e.key: AreasPorCargo.desde(e.value),
       },
+      accesoBase: acceso,
     );
   }
 
@@ -328,6 +344,16 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
           }
 
           final bootstrap = bootSnap.data!;
+          final acceso = bootstrap.acceso;
+          if (!acceso.permitido) {
+            return EmptyStateWidget(
+              icon: Icons.lock_outline_rounded,
+              title: 'Sin rol de Gerencia',
+              message: acceso.motivo,
+            );
+          }
+          final pestanas = pestanasGerenciaPermitidas(acceso.permisos);
+          if (!pestanas.contains(_selectedTab)) _selectedTab = pestanas.first;
           final empresas = bootstrap.empresas.toList();
           final empresasFiltro = <String>{};
           if (empresas.isNotEmpty) {
@@ -354,7 +380,19 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
                 return const SkeletonList(items: 5);
               }
 
-              final tasks = tasksSnap.data?.docs ?? [];
+              // Solo lo que deja ver el rol: sus empresas y, si es de su área,
+              // las tareas de esa área. El ranking sale de aquí.
+              final tasks = <QueryDocumentSnapshot<Map<String, dynamic>>>[
+                for (final t
+                    in tasksSnap.data?.docs ??
+                        const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
+                  if (acceso.incluye(
+                    (t.data()['empresaId'] ?? t.data()['empresa_id'] ?? '')
+                        .toString(),
+                    bootstrap.etiquetaAreaTarea(t.data()),
+                  ))
+                    t,
+              ];
               final filteredTasks = _applyFilters(
                 tasks,
                 bootstrap,
@@ -390,9 +428,12 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
                 child: Column(
                   children: [
                     InternalModuleTabs(
-                      items: _kGerenciaModuleTabs,
-                      selectedIndex: _selectedTab,
-                      onSelected: (i) => setState(() => _selectedTab = i),
+                      items: [
+                        for (final i in pestanas) _kGerenciaModuleTabs[i],
+                      ],
+                      selectedIndex: pestanas.indexOf(_selectedTab),
+                      onSelected: (i) =>
+                          setState(() => _selectedTab = pestanas[i]),
                       accentColor: _brand,
                       compact: !isDesktop,
                     ),
@@ -411,6 +452,8 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
                               empresaPrincipal:
                                   _lastScopedEmpresaId ?? widget.empresaId,
                               isDesktop: isDesktop,
+                              alcance: acceso,
+                              puedeExportar: acceso.permisos.exportar,
                             )
                           : isDesktop
                           ? _buildDesktopLayout(
@@ -475,6 +518,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
                     children: [
                       // Filters row
                       _buildWebFiltersRow(bootstrap, tasks),
+                      _buildNotaAlcance(bootstrap),
                       const SizedBox(height: 20),
                       if (_selectedTab == 0) ...[
                         _buildSummaryCards(
@@ -566,6 +610,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildHeader(bootstrap.userDoc),
+            _buildNotaAlcance(bootstrap),
             const SizedBox(height: 8),
             _buildSummaryCards(
               filteredTasks,
@@ -605,6 +650,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildHeader(bootstrap.userDoc),
+            _buildNotaAlcance(bootstrap),
             const SizedBox(height: 8),
             _buildAreaFilter(bootstrap, tasks),
             const SizedBox(height: 8),
@@ -612,6 +658,28 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
             const SizedBox(height: 12),
             _buildRankingTable(personScores.values.toList()),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// Recuerda cuando el rol limita a su área: sin ella, una gráfica con una
+  /// sola área parece un error.
+  Widget _buildNotaAlcance(_Bootstrap bootstrap) {
+    final acceso = bootstrap.acceso;
+    if (!acceso.limitadoPorArea) return const SizedBox.shrink();
+    final areas = {
+      for (final e in acceso.porEmpresa.entries)
+        if (!e.value.todasLasAreas) acceso.areaPropia[e.key] ?? 'Sin área',
+    }.join(', ');
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Text(
+        'Tu rol de Gerencia muestra solo tu área: $areas.',
+        style: const TextStyle(
+          fontFamily: kArial,
+          fontSize: 12,
+          color: Colors.black54,
         ),
       ),
     );
@@ -1866,9 +1934,25 @@ class _Bootstrap {
     required this.empresaId,
     required this.empresas,
     this.areasPorCargo = const {},
+    required this.accesoBase,
   }) : catalogo = AreaCatalogo.desde(
          areas.entries.map((e) => (id: e.key, nombre: e.value)),
        );
+
+  final GerenciaAcceso accesoBase;
+
+  /// El acceso con el área de su ficha ya resuelta en cada empresa.
+  late final GerenciaAcceso acceso = accesoBase.conAreaPropia({
+    for (final empresa in accesoBase.empresas)
+      empresa: catalogo.nombreDe(
+        areaDeUsuario(
+          userDoc,
+          empresa,
+          cargos: areasPorCargo[empresa] ?? const AreasPorCargo(),
+        ),
+        empresaId: empresa,
+      ),
+  });
 
   final Map<String, dynamic> userDoc;
   final Map<String, Map<String, dynamic>> users;
