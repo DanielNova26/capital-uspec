@@ -52,6 +52,9 @@ import 'payment_module_roles_repository.dart';
 import 'library_module_roles_panel.dart';
 import 'correspondence_module_roles_panel.dart';
 import 'payment_module_roles_panel.dart';
+import 'billing_module_role.dart';
+import 'billing_module_roles_panel.dart';
+import 'billing_module_roles_repository.dart';
 import 'table_module_role.dart';
 import 'table_module_roles_panel.dart';
 import 'table_module_roles_repository.dart';
@@ -189,6 +192,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   CorrespondenceModuleRolesRepository get _correspondenceRolesRepo =>
       CorrespondenceModuleRolesRepository(actorId: widget.userId);
   List<PaymentModuleRole> _paymentModuleRoles = [];
+  List<BillingModuleRole> _billingModuleRoles = [];
+  BillingModuleRolesRepository get _billingRolesRepo =>
+      BillingModuleRolesRepository(actorId: widget.userId);
   // Compras, Rutas e Interventoría: roles configurables con tabla propia.
   Map<String, List<TableModuleRole>> _tableModuleRoles = {};
   TableModuleRolesRepository _tableRolesRepo(TableModuleRoleConfig config) =>
@@ -498,6 +504,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         selected,
       );
       _paymentModuleRoles = _paymentRolesFromSources(_moduleSources, selected);
+      _billingModuleRoles = _billingRolesFromSources(_moduleSources, selected);
       _tableModuleRoles = _tableRolesFromSources(_moduleSources, selected);
       _accessRoles = accessRoles;
       _comprasRoleByUser = comprasRoleByUser;
@@ -572,6 +579,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           empresaId,
         );
         _paymentModuleRoles = _paymentRolesFromSources(
+          _moduleSources,
+          empresaId,
+        );
+        _billingModuleRoles = _billingRolesFromSources(
           _moduleSources,
           empresaId,
         );
@@ -3836,6 +3847,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         _ => const {},
       };
 
+  List<BillingModuleRole> _billingRolesFromSources(
+    AdminModuleSources sources,
+    String empresaId,
+  ) => [
+    for (final source in sources.roles)
+      if (BillingModuleRole.fromData(source.id, source.data) case final role?)
+        if (role.empresaId == empresaId) role,
+  ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
   List<PaymentModuleRole> _paymentRolesFromSources(
     AdminModuleSources sources,
     String empresaId,
@@ -4390,6 +4410,85 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       final result = await _tableRolesRepo(
         config,
       ).synchronize(empresaId, role.id);
+      _snack(
+        result.failedUserIds.isEmpty
+            ? 'Rol ${role.name} guardado: ${result.updated} personas actualizadas.'
+            : 'Rol guardado: ${result.updated} personas actualizadas y ${result.failedUserIds.length} pendientes. Usa Sincronizar asignados para reintentar.',
+      );
+    } catch (error) {
+      throw StateError(
+        'El rol está guardado; faltó sincronizar sus asignados. Actualiza y reintenta: $error',
+      );
+    } finally {
+      await _reloadAccessMatrix();
+    }
+  }
+
+  Widget _billingRoleSelector(
+    QueryDocumentSnapshot<Map<String, dynamic>> user,
+    String empresaId,
+  ) {
+    final current = billingRoleIdOf(user.data(), empresaId);
+    return DropdownButtonFormField<String>(
+      key: ValueKey('billing_role_${user.id}_${current}_$_accessReloadVersion'),
+      initialValue: current,
+      isExpanded: true,
+      decoration: const InputDecoration(
+        labelText: 'Rol de Facturación',
+        isDense: true,
+      ),
+      items: [
+        const DropdownMenuItem(value: '', child: Text('Nivel individual')),
+        for (final role in _billingModuleRoles)
+          if (role.enabled || role.id == current)
+            DropdownMenuItem(
+              value: role.id,
+              enabled: role.enabled,
+              child: Text(
+                '${role.name}${role.enabled ? "" : " · Inactivo"}',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+        if (current.isNotEmpty &&
+            !_billingModuleRoles.any((role) => role.id == current))
+          DropdownMenuItem(
+            value: current,
+            enabled: false,
+            child: const Text('Rol sin definición válida'),
+          ),
+      ],
+      onChanged: (value) async {
+        try {
+          if ((value ?? '').isEmpty) {
+            await _billingRolesRepo.setIndividualLevel(
+              empresaId: empresaId,
+              userId: user.id,
+            );
+            _snack(
+              'Facturación: se conserva el nivel actual como nivel individual.',
+            );
+          } else {
+            await _billingRolesRepo.assign(
+              empresaId: empresaId,
+              userId: user.id,
+              roleId: value!,
+            );
+            _snack('Rol de Facturación asignado y nivel sincronizado.');
+          }
+        } catch (error) {
+          _snack('No se pudo asignar el rol de Facturación: $error');
+        }
+        await _reloadAccessMatrix();
+      },
+    );
+  }
+
+  Future<void> _synchronizeBillingRole(
+    String empresaId,
+    BillingModuleRole role,
+  ) async {
+    try {
+      final result = await _billingRolesRepo.synchronize(empresaId, role.id);
       _snack(
         result.failedUserIds.isEmpty
             ? 'Rol ${role.name} guardado: ${result.updated} personas actualizadas.'
@@ -6613,6 +6712,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       await _reloadAccessMatrix();
       return;
     }
+    // Facturación: el nivel, su vínculo y el establecimiento en una sola
+    // escritura (el establecimiento se conserva o se deduce del centro).
+    if (module.key == 'facturacion') {
+      await _billingRolesRepo.setIndividualLevel(
+        empresaId: empresaId,
+        userId: userDoc.id,
+        level: hasRole ? cleanRole : '',
+      );
+      _snack('Facturación: nivel individual actualizado.');
+      await _reloadAccessMatrix();
+      return;
+    }
     if (planillas || module.key == 'planillas_pago') {
       await _paymentRolesRepo.setIndividualLevel(
         empresaId: empresaId,
@@ -6623,46 +6734,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       await _reloadAccessMatrix();
       return;
     }
-    if (hasRole) {
-      await _repo.grantUserApps(
-        userId: userDoc.id,
-        empresaId: empresaId,
-        appIds: [module.appId],
-      );
-    }
-
-    {
-      final data = userDoc.data();
-      switch (module.key) {
-        case 'facturacion':
-          final extra = <String, dynamic>{};
-          final deleteFields = <String>[];
-          if (hasRole && cleanRole == kRolEstablecimiento) {
-            final estId = _inferFacturacionEstablecimientoId(data, empresaId);
-            if (estId != null && estId.isNotEmpty) {
-              extra['establecimientoFacId'] = estId;
-            }
-          } else {
-            deleteFields.add('establecimientoFacId');
-          }
-          await _setScopedUserRoleField(
-            userDoc: userDoc,
-            empresaId: empresaId,
-            field: 'rolFac',
-            value: hasRole ? cleanRole : null,
-            extraScoped: extra,
-            deleteScopedFields: deleteFields,
-          );
-          break;
-      }
-    }
-
-    _snack(
-      hasRole
-          ? '${module.label}: rol asignado'
-          : '${module.label}: rol interno retirado',
-    );
-    await _reloadAccessMatrix();
+    // Todos los módulos con rol interno tienen su repositorio arriba.
+    _snack('${module.label}: no tiene un rol interno que asignar aquí.');
   }
 
   Future<void> _setMatrixFacturacionEstablecimiento({
@@ -6927,6 +7000,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 const SizedBox(height: 6),
                 const Text(
                   'El rol individual desvincula el rol creado.',
+                  style: TextStyle(fontSize: 11, color: kAdminMuted),
+                ),
+              ],
+              if (module.key == 'facturacion') ...[
+                const SizedBox(height: 8),
+                _billingRoleSelector(userDoc, empresaId),
+                const SizedBox(height: 6),
+                const Text(
+                  'El nivel individual desvincula el rol creado.',
                   style: TextStyle(fontSize: 11, color: kAdminMuted),
                 ),
               ],
@@ -8573,6 +8655,38 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 );
                 _snack(
                   '${result.updated} niveles anteriores consolidados; ${result.failedUserIds.length} pendientes de reintento.',
+                );
+              } finally {
+                await _reloadAccessMatrix();
+              }
+            },
+          ),
+          const SizedBox(height: 14),
+        ],
+        if (module.key == 'facturacion') ...[
+          BillingModuleRolesPanel(
+            key: ValueKey('billing_roles_$empresaId'),
+            roles: _billingModuleRoles,
+            pendingSyncCount: (role) => _users
+                .where((u) => billingRoleNeedsSync(u.data(), role))
+                .length,
+            onSave: (name, description, level, enabled, previous) async {
+              final role = await _billingRolesRepo.save(
+                empresaId: empresaId,
+                name: name,
+                description: description,
+                level: level,
+                enabled: enabled,
+                previous: previous,
+              );
+              await _synchronizeBillingRole(empresaId, role);
+            },
+            onSynchronize: (role) => _synchronizeBillingRole(empresaId, role),
+            onCreateDefaults: () async {
+              try {
+                final count = await _billingRolesRepo.ensureDefaults(empresaId);
+                _snack(
+                  '$count roles iniciales de Facturación creados. Asigna cada rol a sus personas.',
                 );
               } finally {
                 await _reloadAccessMatrix();
@@ -16543,11 +16657,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
         // Mover cédulas al survivor y eliminar el loser.
         if (cedulas.isNotEmpty) {
-          batch.set(
-            db.collection('TBL_CARGOS').doc(survivor.docId),
-            {'cedulas': FieldValue.arrayUnion(cedulas.toList())},
-            SetOptions(merge: true),
-          );
+          batch.set(db.collection('TBL_CARGOS').doc(survivor.docId), {
+            'cedulas': FieldValue.arrayUnion(cedulas.toList()),
+          }, SetOptions(merge: true));
           writes++;
         }
         batch.delete(db.collection('TBL_CARGOS').doc(l.docId));

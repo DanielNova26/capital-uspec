@@ -6,6 +6,59 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Admin: roles configurables de Facturación — 29 sep 2026 (Claude)
+
+Siguiente módulo del centro **Admin → Apps, roles y permisos**. Facturación
+guarda el rol en la ficha (`empresasDetalle.{empresa}.rolFac`), como
+Planillas, así que sigue ese patrón y no el de tabla.
+
+### Qué hace
+- Creador con los tres niveles que ya resuelve `resolveFacAccessMode`:
+  **Visor** (consulta), **Establecimiento** (carga documentos de un solo
+  establecimiento) y **Gestión de Facturación** (todo el módulo). Textos en
+  `lib/facturacion/fac_role_access.dart`.
+- Definición en `TBL_ROLES/{empresa}_mod_facturacion_{nombre}`. Asignar
+  escribe en una transacción `rolFac` y su vínculo
+  (`rolFacId/Nombre/Version`) en la ficha de la empresa, la raíz solo en la
+  principal, y la app. Archivos: `billing_module_role.dart`,
+  `billing_module_roles_repository.dart` y `billing_module_roles_panel.dart`.
+- **El establecimiento.** Con Establecimiento se conserva el
+  `establecimientoFacId` que tenga o se deduce de su centro de costo en
+  esta empresa (por id, nombre o código del maestro), como hacía la matriz;
+  con otro nivel se retira. Sin centro de costo el módulo sigue diciendo
+  "Falta asignar el establecimiento" y se elige en la matriz, igual que
+  antes.
+- Inactivar deja **Visor** explícito; nivel individual desvincula; "Sin rol"
+  deja `rolFac` vacío (consulta). Editar sincroniza a sus personas.
+- Admin: panel en Facturación, selector de rol en la matriz y el nivel
+  individual por el repositorio. Se quitó el camino viejo que escribía
+  `rolFac` directo (ya no lo usaba ningún módulo).
+- Los avisos a Gestión de Facturación (`_getFacturacionUserIds`) ya no le
+  llegan a quien le retiraron la app.
+
+### Servidor (reglas)
+- `TBL_ROLES` acepta `facturaciondashboard` (solo Admin de la empresa o
+  Desarrollo).
+- **Facturación queda por empresa**: sus 6 colecciones salen de la regla
+  general (`documentoDeSuEmpresa`; `TBL_FAC_CONFIG` por el id). Todas sus
+  consultas ya filtraban por empresa. No se exige nivel por acción: vive en
+  la ficha, que todavía escribe cualquiera (P0).
+
+### Pruebas
+- Nuevas: `test/admin/billing_module_roles_test.dart` (7) y
+  `functions/test/facturacion.rules.js` (2; fallan con las reglas
+  anteriores).
+- Totales: 1.312 de la app, 104 de Functions, 100 de reglas (2 omitidas
+  desde antes), también con la comprobación de habilitado duplicada.
+  `flutter analyze` sin errores.
+
+### Despliegue
+`firebase deploy --only firestore:rules,hosting`.
+
+### Quedan sin roles configurables
+Tokens DIAN (lista de autorizados), Talento Humano, Nutrición, Gerencia y
+Administración: hay que definir primero qué niveles tendrían.
+
 ## Homogeneidad del centro de roles — 29 sep 2026 (Codex)
 
 Se comparó Compras con Correspondencia y el panel compartido de Rutas,

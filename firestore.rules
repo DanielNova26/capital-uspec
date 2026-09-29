@@ -453,7 +453,8 @@ service cloud.firestore {
         && data.get('moduleId', '') in ['correodashboard',
           'planillaspagodashboard', 'bibliotecadocumentaldashboard',
           'tareasdashboard', 'comprasdashboard', 'rutasdashboard',
-          'interventoriadashboard', 'visitasdashboard']
+          'interventoriadashboard', 'visitasdashboard',
+          'facturaciondashboard']
         && (data.moduleId != 'comprasdashboard' || data.get('baseRole', '') in ['admin','calidad','compras','bodega','consultas'])
         && data.get('enabled', null) is bool
         && data.get('revision', null) is int && data.revision >= 1
@@ -1294,6 +1295,38 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ── Facturación (29 sep 2026) ─────────────────────────────────────────
+    // Estaba en la regla general: cualquiera con sesión, de cualquier
+    // empresa, leía y cambiaba obligaciones, revisiones y observaciones.
+    // Ahora cada documento es de su empresa (`documentoDeSuEmpresa`); la
+    // configuración va por el id. El nivel (Gestión, Establecimiento, Visor)
+    // vive en la ficha del usuario, que todavía escribe cualquiera (P0): por
+    // eso no se exige por acción.
+    match /TBL_FAC_CONFIG/{empresaId} {
+      allow read, write: if belongsToCompany(empresaId);
+    }
+
+    match /TBL_FAC_OBLIGACIONES/{docId} {
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
+    }
+    match /TBL_FAC_ESTABLECIMIENTOS/{docId} {
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
+    }
+    match /TBL_FAC_REVISIONES/{docId} {
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
+    }
+    match /TBL_FAC_OBSERVACIONES/{docId} {
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
+    }
+    match /TBL_FAC_AUTORIZACIONES/{docId} {
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
+    }
+
     // ── Rutas (28 sep 2026) ───────────────────────────────────────────────
     // Estaba entero en la regla general: cualquiera con sesión, de cualquier
     // empresa, podía darse el rol de administrador, leer las claves de Google
@@ -1607,7 +1640,13 @@ service cloud.firestore {
           'TBL_INGREDIENTES',
           'TBL_DIRECTORIO_NUTRICION',
           'TBL_CITAS_NUTRICION',
-           'TBL_HISTORIAL_NUTRICION'
+           'TBL_HISTORIAL_NUTRICION',
+          'TBL_FAC_CONFIG',
+          'TBL_FAC_OBLIGACIONES',
+          'TBL_FAC_ESTABLECIMIENTOS',
+          'TBL_FAC_REVISIONES',
+          'TBL_FAC_OBSERVACIONES',
+          'TBL_FAC_AUTORIZACIONES'
         ]);
     }
   }
