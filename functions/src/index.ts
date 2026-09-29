@@ -25,6 +25,9 @@ export {
   securityRegistrarUsuarioNuevo,
 } from "./security_admin";
 
+// Limpieza por módulo de Admin: datos de prueba, con vista previa.
+export { adminLimpiezaModulo } from "./limpieza";
+
 // ICD-11 token broker + proxy (Fase B)
 export { carnetPublico } from "./carnet";
 export { icd11Search } from "./icd11";

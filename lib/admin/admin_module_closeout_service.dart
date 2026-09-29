@@ -14,7 +14,26 @@ extension AdminCloseoutRangeLabel on AdminCloseoutRange {
   };
 }
 
-const Set<String> kAdminCloseoutModules = {'interventoria', 'facturacion'};
+/// Módulos con "Cerrar sin borrar". `tareas` son las creadas a mano, sin
+/// marca de ningún módulo (29 sep 2026).
+const Set<String> kAdminCloseoutModules = {
+  'interventoria',
+  'facturacion',
+  'tareas',
+};
+
+/// Módulos que crean sus propias tareas. Espejo de `moduloDeTarea` en
+/// functions/src/limpieza.ts: una tarea con su marca no es de Tareas.
+const Set<String> _kModulosConTareas = {
+  'interventoria',
+  'facturacion',
+  'visitas',
+  'compras',
+  'gestion_documental',
+  'correo',
+  'planillas_pago',
+  'talento_humano',
+};
 
 String _text(Object? value) => (value ?? '').toString().trim();
 
@@ -24,6 +43,21 @@ String normalizeAdminCloseoutModule(Object? value) {
     'interventoriadashboard': 'interventoria',
     'facturaciondashboard': 'facturacion',
     'facturacion_observacion': 'facturacion',
+    'visita': 'visitas',
+    'visitasdashboard': 'visitas',
+    'comprasdashboard': 'compras',
+    'compras_correccion': 'compras',
+    'compras_bodega': 'compras',
+    'gestiondocumentaldashboard': 'gestion_documental',
+    'correspondencia': 'gestion_documental',
+    'correodashboard': 'correo',
+    'correo_automatico': 'correo',
+    'planillaspagodashboard': 'planillas_pago',
+    'planillas': 'planillas_pago',
+    'talentohumanodashboard': 'talento_humano',
+    'talentohumano': 'talento_humano',
+    'tareasdashboard': 'tareas',
+    'manual': 'tareas',
   };
   return aliases[raw] ?? raw;
 }
@@ -40,11 +74,23 @@ String adminCloseoutModuleFromTask(Map<String, dynamic> data) {
   ];
   for (final candidate in candidates) {
     final module = normalizeAdminCloseoutModule(candidate);
-    if (kAdminCloseoutModules.contains(module)) return module;
+    if (module == 'interventoria' || module == 'facturacion') return module;
   }
-  if (_text(data['hallazgoId']).isNotEmpty) return 'interventoria';
+  if (_text(data['hallazgoId']).isNotEmpty ||
+      _text(data['creador_id']) == 'interventoria_automatica') {
+    return 'interventoria';
+  }
   if (_text(data['facObservacionId']).isNotEmpty) return 'facturacion';
-  return '';
+  // De otro módulo (Visitas, Compras, Correspondencia…): su cierre deja el
+  // origen a medias, así que no entra.
+  if (_text(data['visitaId']).isNotEmpty ||
+      _text(data['correspondenciaId']).isNotEmpty ||
+      candidates.any(
+        (c) => _kModulosConTareas.contains(normalizeAdminCloseoutModule(c)),
+      )) {
+    return '';
+  }
+  return 'tareas';
 }
 
 String adminCloseoutModuleFromNotification(

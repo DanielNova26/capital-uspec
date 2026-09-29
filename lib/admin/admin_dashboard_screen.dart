@@ -53,6 +53,9 @@ import 'library_module_roles_panel.dart';
 import 'correspondence_module_roles_panel.dart';
 import 'payment_module_roles_panel.dart';
 import 'admin_logs_panel.dart';
+import 'estructura_por_empresa.dart';
+import 'module_cleanup_card.dart';
+import 'module_cleanup_service.dart';
 import 'billing_module_role.dart';
 import 'management_module_role.dart';
 import 'management_module_roles_panel.dart';
@@ -340,7 +343,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       AdminModuleCloseoutService();
   DateTime _moduleCloseoutCutoff = DateTime(DateTime.now().year, 9, 1);
   AdminCloseoutRange _moduleCloseoutRange = AdminCloseoutRange.before;
-  Set<String> _moduleCloseoutModules = {'interventoria', 'facturacion'};
+  Set<String> _moduleCloseoutModules = {'tareas'};
+
+  /// Módulo elegido en Limpieza.
+  String _limpiezaModulo = 'tareas';
   AdminModuleCloseoutPreview? _moduleCloseoutPreview;
   bool _moduleCloseoutBusy = false;
 
@@ -1486,102 +1492,36 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     }
   }
 
-  // ---------------- MIGRACIONES: ELIMINAR TODAS LAS TAREAS (EMPRESA ACTIVA) ----------------
-  Future<bool> _confirmDeleteAllTasks(String empresaId) async {
-    final controller = TextEditingController();
-    String typed = '';
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx2, setLocal) {
-            final enabled = typed.trim().toUpperCase() == 'BORRAR';
-
-            return AlertDialog(
-              title: const Text(
-                'Eliminar todas las tareas',
-                style: TextStyle(
-                  fontFamily: kArial,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Empresa activa: $empresaId',
-                    style: const TextStyle(
-                      fontFamily: kArial,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Esta acción eliminará TODAS las tareas de la empresa activa en TBL_TAREAS. '
-                    'No se puede deshacer.',
-                    style: TextStyle(fontFamily: kArial),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Escribe BORRAR para confirmar:',
-                    style: TextStyle(fontFamily: kArial),
-                  ),
-                  const SizedBox(height: 6),
-                  TextField(
-                    controller: controller,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                    ),
-                    style: const TextStyle(fontFamily: kArial),
-                    onChanged: (v) => setLocal(() => typed = v),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text(
-                    'Cancelar',
-                    style: TextStyle(fontFamily: kArial),
-                  ),
-                ),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: kAdminPrimary,
-                  ),
-                  onPressed: enabled ? () => Navigator.pop(ctx, true) : null,
-                  icon: const Icon(Icons.delete_forever),
-                  label: const Text(
-                    'Eliminar',
-                    style: TextStyle(
-                      fontFamily: kArial,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-    return ok == true;
-  }
-
+  // ---------------- REINICIO TOTAL: TODAS LAS TAREAS ----------------
   Future<void> _deleteAllTasksForEmpresa() async {
     final empresaId = _empresaId ?? '';
     if (empresaId.isEmpty) return;
-
-    final ok = await _confirmDeleteAllTasks(empresaId);
+    final total =
+        (await FirebaseFirestore.instance
+                .collection('TBL_TAREAS')
+                .where('empresaId', isEqualTo: empresaId)
+                .count()
+                .get())
+            .count ??
+        0;
+    if (!mounted) return;
+    if (total == 0) {
+      _snack('No hay tareas en esta empresa.');
+      return;
+    }
+    final ok = await confirmarBorrado(
+      context,
+      titulo: 'Borrar todas las tareas',
+      detalle:
+          'Se borrarán las $total tarea(s) de ${_empresaActual?.nombre ?? empresaId}, '
+          'de todos los módulos. Para cerrar sin borrar o borrar solo las de '
+          'un módulo, usa su sección arriba.',
+      boton: 'Borrar $total',
+    );
     if (!ok) return;
-
     setState(() => _loading = true);
-
     const int batchLimit = 400;
     int deleted = 0;
-
     try {
       while (true) {
         final snap = await FirebaseFirestore.instance
@@ -1590,7 +1530,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             .limit(batchLimit)
             .get();
         if (snap.docs.isEmpty) break;
-
         final batch = FirebaseFirestore.instance.batch();
         for (final doc in snap.docs) {
           batch.delete(doc.reference);
@@ -1598,7 +1537,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         await batch.commit();
         deleted += snap.docs.length;
       }
-
       await _mig.logMigration(
         adminUserId: widget.userId,
         empresaId: empresaId,
@@ -1608,8 +1546,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         dryRun: false,
         extra: {'empresaId': empresaId},
       );
-
       _snack('Tareas eliminadas: $deleted');
+    } catch (e) {
+      _snack('No se pudieron borrar todas las tareas: $e');
     } finally {
       await _loadAll(forceEmpresaId: empresaId);
     }
@@ -1620,13 +1559,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     final empresaId = _empresaId ?? '';
     if (empresaId.isEmpty) return;
 
-    final ok = await _confirm(
-      title: '⚠ RESETEAR DATOS DE USUARIOS',
-      message:
-          'Se borrarán Áreas, Cargos, Centros y Jefes solo para la empresa $empresaId en ${_users.length} usuarios.\n\n'
-          'NO se borrarán las cuentas de acceso, ni permisos de otras empresas.\n'
-          'Los usuarios quedarán listos para recibir una carga limpia desde Excel.',
-      confirmText: 'SÍ, RESETEAR DATOS',
+    // Quien lo ejecuta no se incluye: perdería el acceso a Admin a mitad.
+    final personas = [
+      for (final u in _users)
+        if (u.id != widget.userId) u,
+    ];
+    if (personas.isEmpty) {
+      _snack('No hay personas que reiniciar en esta empresa.');
+      return;
+    }
+    final ok = await confirmarBorrado(
+      context,
+      titulo: 'Reiniciar los datos de las personas',
+      detalle:
+          '${personas.length} persona(s) quedarán fuera de '
+          '${_empresaActual?.nombre ?? empresaId}: se les quita el área, '
+          'cargo, centro, jefe y los módulos de esta empresa, para recargar '
+          'el Excel. No se borran sus cuentas, contraseñas ni sus datos en '
+          'otras empresas. Tú no te incluyes.',
+      boton: 'Reiniciar ${personas.length}',
     );
     if (!ok) return;
 
@@ -1643,7 +1594,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       hasWrites = false;
     }
 
-    for (final u in _users) {
+    for (final u in personas) {
       final ref = u.reference;
       final data = u.data();
       final updates = _buildScopedUserReset(data, empresaId);
@@ -1784,86 +1735,151 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     }
   }
 
-  // ---------------- LIMPIEZA: BORRAR CATÁLOGOS ----------------
+  // ---------------- REINICIO TOTAL: CATÁLOGOS ----------------
   Future<void> _purgeCatalogs() async {
     final empresaId = _empresaId ?? '';
     if (empresaId.isEmpty) return;
-
-    final ok = await _confirm(
-      title: '⚠ BORRAR TODOS LOS CATÁLOGOS',
-      message:
-          'Se eliminarán TODAS las Áreas, Cargos y Centros de Costo de la empresa $empresaId.\n\n'
-          'Haz esto solo si vas a volver a subir el archivo Excel completo.\n'
-          '¿Estás seguro?',
-      confirmText: 'BORRAR TODO',
+    const colecciones = {
+      'TBL_AREAS': 'áreas',
+      'TBL_CARGOS': 'cargos',
+      'TBL_CENTROS_COSTOS': 'centros de costo',
+    };
+    final conteos = <String, int>{};
+    for (final c in colecciones.keys) {
+      conteos[c] =
+          (await FirebaseFirestore.instance
+                  .collection(c)
+                  .where('empresaId', isEqualTo: empresaId)
+                  .count()
+                  .get())
+              .count ??
+          0;
+    }
+    final total = conteos.values.fold<int>(0, (a, b) => a + b);
+    if (!mounted) return;
+    if (total == 0) {
+      _snack('Esta empresa no tiene catálogos.');
+      return;
+    }
+    final ok = await confirmarBorrado(
+      context,
+      titulo: 'Borrar los catálogos',
+      detalle:
+          'Se borrarán de ${_empresaActual?.nombre ?? empresaId}: '
+          '${colecciones.entries.map((e) => '${conteos[e.key]} ${e.value}').join(', ')}. '
+          'Hazlo solo si vas a volver a subir el Excel completo.',
+      boton: 'Borrar $total',
     );
     if (!ok) return;
 
     setState(() => _loading = true);
     int deletedCount = 0;
-
-    Future<void> deleteCollection(String collName) async {
-      final snap = await FirebaseFirestore.instance
-          .collection(collName)
-          .where('empresaId', isEqualTo: empresaId)
-          .get();
-      for (final doc in snap.docs) {
-        await doc.reference.delete();
-        deletedCount++;
+    try {
+      for (final c in colecciones.keys) {
+        final snap = await FirebaseFirestore.instance
+            .collection(c)
+            .where('empresaId', isEqualTo: empresaId)
+            .get();
+        for (var i = 0; i < snap.docs.length; i += 400) {
+          final batch = FirebaseFirestore.instance.batch();
+          for (final doc in snap.docs.skip(i).take(400)) {
+            batch.delete(doc.reference);
+          }
+          await batch.commit();
+        }
+        deletedCount += snap.docs.length;
       }
+      await _mig.logMigration(
+        adminUserId: widget.userId,
+        empresaId: empresaId,
+        action: 'PURGE_CATALOGS',
+        scanned: deletedCount,
+        updated: deletedCount,
+        dryRun: false,
+        extra: conteos,
+      );
+      _snack('Catálogos eliminados: $deletedCount documento(s).');
+    } catch (e) {
+      _snack('No se pudieron borrar los catálogos: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+      await _loadAll(forceEmpresaId: empresaId);
     }
-
-    await deleteCollection('TBL_AREAS');
-    await deleteCollection('TBL_CARGOS');
-    await deleteCollection('TBL_CENTROS_COSTOS');
-
-    setState(() => _loading = false);
-    _snack('Catálogos eliminados. Total documentos borrados: $deletedCount');
-    await _loadAll(forceEmpresaId: empresaId);
   }
 
-  // ---------------- LIMPIEZA: BORRAR ESTRUCTURA ORGANIZACIONAL ----------------
+  // ---------------- REINICIO TOTAL: ESTRUCTURA ORGANIZACIONAL ----------------
+  // 29 sep 2026: antes borraba TBL_ESTRUCTURA_ORGANIZACIONAL completa, de
+  // todas las empresas, aunque el texto decía "para esta empresa". Ahora solo
+  // toca la de la empresa activa: quien solo está en ella se borra; quien
+  // está también en otras conserva la de ellas.
   Future<void> _purgeOrganizationalStructure() async {
-    final ok = await _confirm(
-      title: '⚠ BORRAR ESTRUCTURA ORGANIZACIONAL',
-      message:
-          'Se eliminarán TODOS los documentos en TBL_ESTRUCTURA_ORGANIZACIONAL.\n\n'
-          'Úsalo solo si vas a volver a subir la estructura completa.\n'
-          '¿Estás seguro?',
-      confirmText: 'BORRAR ESTRUCTURA',
+    final empresaId = _empresaId ?? '';
+    if (empresaId.isEmpty) return;
+    final db = FirebaseFirestore.instance;
+    final col = db.collection('TBL_ESTRUCTURA_ORGANIZACIONAL');
+    final porLista = await col
+        .where('empresas', arrayContains: empresaId)
+        .get();
+    final porPrincipal = await col
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+    final docs = {
+      for (final d in [...porLista.docs, ...porPrincipal.docs]) d.id: d,
+    }.values.toList();
+    final plan = [
+      for (final d in docs) (d, estructuraSinEmpresa(d.data(), empresaId)),
+    ];
+    final borrar = plan.where((p) => p.$2 == null).length;
+    final ajustar = plan.length - borrar;
+    if (!mounted) return;
+    if (plan.isEmpty) {
+      _snack('Esta empresa no tiene estructura organizacional.');
+      return;
+    }
+    final ok = await confirmarBorrado(
+      context,
+      titulo: 'Borrar la estructura organizacional',
+      detalle:
+          'De ${_empresaActual?.nombre ?? empresaId}: se borran $borrar '
+          'registro(s) de personas que solo están en esta empresa y se quita '
+          'esta empresa de $ajustar que también están en otras (conservan la '
+          'de ellas). Úsalo solo si vas a volver a subir la estructura.',
+      boton: 'Borrar ${plan.length}',
     );
     if (!ok) return;
 
     setState(() => _loading = true);
-
-    int deletedCount = 0;
-    Query<Map<String, dynamic>> query = FirebaseFirestore.instance
-        .collection('TBL_ESTRUCTURA_ORGANIZACIONAL')
-        .limit(400);
-
-    while (true) {
-      final snap = await query.get();
-      if (snap.docs.isEmpty) break;
-
-      WriteBatch batch = FirebaseFirestore.instance.batch();
-      for (final doc in snap.docs) {
-        batch.delete(doc.reference);
-        deletedCount++;
+    try {
+      for (var i = 0; i < plan.length; i += 400) {
+        final batch = db.batch();
+        for (final (doc, cambios) in plan.skip(i).take(400)) {
+          if (cambios == null) {
+            batch.delete(doc.reference);
+          } else {
+            batch.update(doc.reference, cambios);
+          }
+        }
+        await batch.commit();
       }
-      await batch.commit();
-
-      final lastDoc = snap.docs.last;
-      query = FirebaseFirestore.instance
-          .collection('TBL_ESTRUCTURA_ORGANIZACIONAL')
-          .startAfterDocument(lastDoc)
-          .limit(400);
+      await _mig.logMigration(
+        adminUserId: widget.userId,
+        empresaId: empresaId,
+        action: 'PURGE_ESTRUCTURA',
+        scanned: plan.length,
+        updated: plan.length,
+        dryRun: false,
+        extra: {'borrados': borrar, 'ajustados': ajustar},
+      );
+      _snack(
+        'Estructura de la empresa eliminada: $borrar borrados, $ajustar '
+        'ajustados.',
+      );
+    } catch (e) {
+      _snack('No se pudo borrar la estructura: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+      await _loadAll(forceEmpresaId: empresaId);
     }
-
-    setState(() => _loading = false);
-    _snack(
-      'Estructura organizacional eliminada. Total documentos borrados: $deletedCount',
-    );
-    await _loadAll(forceEmpresaId: _empresaId ?? '');
   }
 
   Future<void> _pickDiagnosticosExcel() async {
@@ -2867,10 +2883,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     if (request == null || preview == null) return;
     final date = DateFormat('dd/MM/yyyy').format(request.cutoff);
     final modules = request.modules
-        .map(
-          (module) =>
-              module == 'interventoria' ? 'Interventoría' : 'Facturación',
-        )
+        .map((module) => moduloLimpiezaPorId(module).nombre)
         .join(' y ');
     final confirmed = await _confirm(
       title: 'Confirmar cierre administrativo',
@@ -2879,9 +2892,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           'Módulos: $modules\n'
           'Corte: ${request.range.label.toLowerCase()} $date\n\n'
           'Se finalizarán ${preview.tasks} tarea(s) abierta(s), se marcarán '
-          'como leídas ${preview.notifications} notificación(es) y se darán '
-          'por subsanados ${preview.hallazgosSinAsignar} hallazgo(s) de '
-          'interventoría que nunca se asignaron.\n\n'
+          'como leídas ${preview.notifications} notificación(es)'
+          '${request.modules.contains('interventoria') ? ' y se darán por subsanados ${preview.hallazgosSinAsignar} hallazgo(s) de interventoría que nunca se asignaron' : ''}.\n\n'
           'No se borrarán tareas, avances, adjuntos, actas, documentos ni '
           'notificaciones. La operación quedará auditada.',
       confirmText: 'CERRAR Y MARCAR LEÍDAS',
@@ -2924,8 +2936,21 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     }
   }
 
-  Widget _moduleCloseoutCard() {
+  /// "Cerrar sin borrar" del módulo elegido en Limpieza.
+  Widget _moduleCloseoutCard(ModuloLimpiezaInfo modulo) {
     final preview = _moduleCloseoutPreview;
+    final detalle = switch (modulo.id) {
+      'interventoria' =>
+        'Finaliza las tareas abiertas de Interventoría, da por subsanados sus '
+            'hallazgos (también los que nunca se asignaron) y marca como '
+            'leídas sus notificaciones.',
+      'facturacion' =>
+        'Finaliza las tareas abiertas de Facturación, cierra sus '
+            'observaciones y marca como leídas sus notificaciones.',
+      _ =>
+        'Finaliza las tareas creadas a mano que siguen abiertas y marca como '
+            'leídas sus notificaciones.',
+    };
     final canApply = !_moduleCloseoutBusy && preview != null && preview.hayAlgo;
     return Card(
       color: const Color(0xFFEFF6FF),
@@ -2948,7 +2973,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'Cierre por módulo y fecha',
+                    'Cerrar sin borrar',
                     style: TextStyle(
                       fontFamily: kArial,
                       fontSize: 16,
@@ -2960,10 +2985,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               ],
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Finaliza tareas abiertas y marca sus notificaciones como leídas. '
-              'Conserva avances, archivos y trazabilidad; no elimina información.',
-              style: TextStyle(fontFamily: kArial, fontSize: 13, height: 1.4),
+            Text(
+              '$detalle Conserva avances, archivos y trazabilidad; no borra '
+              'nada.',
+              style: const TextStyle(
+                fontFamily: kArial,
+                fontSize: 13,
+                height: 1.4,
+              ),
             ),
             const SizedBox(height: 16),
             LayoutBuilder(
@@ -3022,40 +3051,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 );
               },
             ),
-            const SizedBox(height: 12),
-            const Text(
-              'Módulos incluidos',
-              style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final entry in const {
-                  'interventoria': 'Interventoría',
-                  'facturacion': 'Facturación',
-                }.entries)
-                  FilterChip(
-                    label: Text(entry.value),
-                    selected: _moduleCloseoutModules.contains(entry.key),
-                    onSelected: _moduleCloseoutBusy
-                        ? null
-                        : (selected) {
-                            setState(() {
-                              final modules = Set<String>.from(
-                                _moduleCloseoutModules,
-                              );
-                              selected
-                                  ? modules.add(entry.key)
-                                  : modules.remove(entry.key);
-                              _moduleCloseoutModules = modules;
-                              _moduleCloseoutPreview = null;
-                            });
-                          },
-                  ),
-              ],
-            ),
             if (preview != null) ...[
               const SizedBox(height: 14),
               Container(
@@ -3087,26 +3082,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                             fontWeight: FontWeight.w800,
                           ),
                         ),
-                        Text(
-                          '${preview.hallazgosSinAsignar} hallazgos sin asignar',
-                          style: const TextStyle(
-                            fontFamily: kArial,
-                            fontWeight: FontWeight.w800,
+                        if (modulo.id == 'interventoria')
+                          Text(
+                            '${preview.hallazgosSinAsignar} hallazgos sin asignar',
+                            style: const TextStyle(
+                              fontFamily: kArial,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
-                        ),
                       ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Interventoría: ${preview.tasksByModule['interventoria'] ?? 0} tareas · '
-                      '${preview.notificationsByModule['interventoria'] ?? 0} avisos  |  '
-                      'Facturación: ${preview.tasksByModule['facturacion'] ?? 0} tareas · '
-                      '${preview.notificationsByModule['facturacion'] ?? 0} avisos',
-                      style: const TextStyle(
-                        fontFamily: kArial,
-                        fontSize: 12,
-                        color: Color(0xFF475569),
-                      ),
                     ),
                   ],
                 ),
@@ -3144,404 +3128,392 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     );
   }
 
+  /// Limpieza por módulo (29 sep 2026): se elige el módulo y se ven solo sus
+  /// herramientas. "Cerrar sin borrar" donde el módulo crea tareas que se
+  /// pueden cerrar sin dejar su origen a medias; "Borrar datos de prueba" en
+  /// todos; y al final, aparte, los reinicios totales de la empresa.
   Widget _tabCleanup() {
+    final empresaId = (_empresaId ?? '').trim();
+    final modulo = moduloLimpiezaPorId(_limpiezaModulo);
+    final isMobile = MediaQuery.sizeOf(context).width < 720;
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(isMobile ? 12 : 16),
       children: [
-        _moduleCloseoutCard(),
-        const SizedBox(height: 24),
-        Card(
-          color: Colors.orange.shade50,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.orange.shade200),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.person_remove_outlined,
-                      color: Colors.orange.shade900,
-                      size: 28,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Resetear datos de Usuarios',
-                        style: TextStyle(
-                          fontFamily: kArial,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.orange.shade900,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Esta opción NO borra al usuario ni su contraseña. Limpia cargos, áreas, centros y jefes solo en la empresa activa.\n'
-                  'Úsalo antes de subir un Excel actualizado.',
-                  style: TextStyle(fontFamily: kArial, height: 1.4),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange.shade800,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    onPressed: _resetUsersData,
-                    icon: const Icon(Icons.cleaning_services),
-                    label: const Text(
-                      'LIMPIAR DATOS DE USUARIOS',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+        const Text(
+          'Limpieza por módulo',
+          style: TextStyle(
+            fontFamily: kArial,
+            fontSize: 20,
+            fontWeight: FontWeight.w900,
           ),
         ),
-        const SizedBox(height: 24),
-        Card(
-          color: Colors.red.shade50,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.red.shade200),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.account_tree_outlined,
-                      color: Colors.red.shade900,
-                      size: 28,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Purgar Estructura Organizacional',
-                        style: TextStyle(
-                          fontFamily: kArial,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.red.shade900,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Elimina TODOS los documentos de TBL_ESTRUCTURA_ORGANIZACIONAL para esta empresa.',
-                  style: TextStyle(fontFamily: kArial, height: 1.4),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red.shade800,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    onPressed: _purgeOrganizationalStructure,
-                    icon: const Icon(Icons.delete_forever),
-                    label: const Text(
-                      'BORRAR ESTRUCTURA',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+        const SizedBox(height: 4),
+        const Text(
+          'Elige el módulo. "Cerrar sin borrar" finaliza lo real y conserva el '
+          'historial; "Borrar datos de prueba" elimina registros de la empresa '
+          'activa por periodo, con vista previa. Todo queda en Logs.',
+          style: TextStyle(fontFamily: kArial, color: Colors.black54),
         ),
+        const SizedBox(height: 12),
+        _cleanupModulePicker(isMobile),
+        const SizedBox(height: 16),
+        if (empresaId.isEmpty)
+          const Text('Selecciona una empresa para limpiar.')
+        else ...[
+          if (modulo.cierre) ...[
+            _moduleCloseoutCard(modulo),
+            const SizedBox(height: 16),
+          ],
+          ModuleTestDataCleanupCard(
+            key: ValueKey('limpieza_${empresaId}_${modulo.id}'),
+            empresaId: empresaId,
+            modulo: modulo,
+          ),
+          if (modulo.id == 'tareas') ...[
+            const SizedBox(height: 16),
+            _notificationsCleanupCard(),
+          ],
+          const SizedBox(height: 28),
+          _reinicioTotalSection(),
+        ],
         const SizedBox(height: 24),
-        Card(
-          color: Colors.red.shade50,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.red.shade200),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.folder_delete_outlined,
-                      color: Colors.red.shade900,
-                      size: 28,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Purgar Catálogos (Áreas/Cargos)',
-                        style: TextStyle(
-                          fontFamily: kArial,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.red.shade900,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Elimina TODAS las Áreas, Cargos y Centros de esta empresa. Úsalo si vas a re-subir la estructura completa.',
-                  style: TextStyle(fontFamily: kArial, height: 1.4),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red.shade800,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    onPressed: _purgeCatalogs,
-                    icon: const Icon(Icons.delete_sweep),
-                    label: const Text(
-                      'BORRAR TODOS LOS CATÁLOGOS',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 24),
-        // ---- Notificaciones ----
-        Card(
-          color: Colors.teal.shade50,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.teal.shade200),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.notifications_off_outlined,
-                      color: Colors.teal.shade900,
-                      size: 28,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Limpiar Notificaciones',
-                        style: TextStyle(
-                          fontFamily: kArial,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.teal.shade900,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Elimina entradas de TBL_NOTIFICACIONES para pruebas limpias. '
-                  'No afecta tareas, usuarios ni otras tablas. '
-                  'Muestra cuántas hay antes de confirmar.',
-                  style: TextStyle(
-                    fontFamily: kArial,
-                    fontSize: 13,
-                    height: 1.4,
-                  ),
-                ),
+      ],
+    );
+  }
 
-                // --- Por empresa activa ---
-                const Divider(height: 28),
-                Text(
-                  'Por empresa activa${_empresaId != null ? " (${_empresaId!})" : ""}',
-                  style: TextStyle(
-                    fontFamily: kArial,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.teal.shade800,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${_users.length} usuario${_users.length == 1 ? "" : "s"} cargados.',
-                  style: TextStyle(
-                    fontFamily: kArial,
-                    fontSize: 12,
-                    color: Colors.teal.shade700,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.teal.shade800,
-                          side: BorderSide(color: Colors.teal.shade400),
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                        ),
-                        onPressed: (_empresaId == null || _users.isEmpty)
-                            ? null
-                            : () => _cleanNotificacionesEmpresa(
-                                soloNoLeidas: true,
-                              ),
-                        icon: const Icon(
-                          Icons.mark_email_unread_outlined,
-                          size: 18,
-                        ),
-                        label: const Text(
-                          'Solo no leídas',
-                          style: TextStyle(fontFamily: kArial, fontSize: 12),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.teal.shade700,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                        ),
-                        onPressed: (_empresaId == null || _users.isEmpty)
-                            ? null
-                            : () => _cleanNotificacionesEmpresa(
-                                soloNoLeidas: false,
-                              ),
-                        icon: const Icon(Icons.delete_sweep, size: 18),
-                        label: const Text(
-                          'Todas',
-                          style: TextStyle(fontFamily: kArial, fontSize: 12),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+  void _seleccionarModuloLimpieza(String id) => setState(() {
+    _limpiezaModulo = id;
+    _moduleCloseoutModules = {id};
+    _moduleCloseoutPreview = null;
+  });
 
-                // --- Por usuario ---
-                const Divider(height: 28),
-                Text(
-                  'Por usuario específico',
+  /// Web: todos los módulos a la vista. Móvil: una lista desplegable.
+  Widget _cleanupModulePicker(bool isMobile) {
+    if (isMobile) {
+      return DropdownButtonFormField<String>(
+        initialValue: _limpiezaModulo,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: 'Módulo',
+          border: OutlineInputBorder(),
+          isDense: true,
+        ),
+        items: [
+          for (final m in kModulosLimpieza)
+            DropdownMenuItem(
+              value: m.id,
+              child: Row(
+                children: [
+                  Icon(m.icono, size: 18, color: m.color),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(m.nombre, overflow: TextOverflow.ellipsis),
+                  ),
+                ],
+              ),
+            ),
+        ],
+        onChanged: (id) {
+          if (id != null) _seleccionarModuloLimpieza(id);
+        },
+      );
+    }
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final m in kModulosLimpieza)
+          ChoiceChip(
+            avatar: Icon(m.icono, size: 18, color: m.color),
+            label: Text(m.nombre),
+            selected: _limpiezaModulo == m.id,
+            onSelected: (_) => _seleccionarModuloLimpieza(m.id),
+          ),
+      ],
+    );
+  }
+
+  Widget _notificationsCleanupCard() => Card(
+    color: Colors.teal.shade50,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+      side: BorderSide(color: Colors.teal.shade200),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.notifications_off_outlined,
+                color: Colors.teal.shade900,
+                size: 28,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Limpiar Notificaciones',
                   style: TextStyle(
                     fontFamily: kArial,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.teal.shade800,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.teal.shade900,
                   ),
                 ),
-                const SizedBox(height: 10),
-                if (_users.isEmpty)
-                  const Text(
-                    'Selecciona una empresa primero para cargar usuarios.',
-                    style: TextStyle(
-                      fontFamily: kArial,
-                      fontSize: 12,
-                      color: Colors.grey,
-                    ),
-                  )
-                else
-                  DropdownButtonFormField<String>(
-                    initialValue: _notifCleanUserId,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Usuario (cédula)',
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      labelStyle: TextStyle(fontFamily: kArial),
-                    ),
-                    items: _users.map((u) {
-                      final data = u.data();
-                      final nombre = _userName(data, u.id);
-                      return DropdownMenuItem<String>(
-                        value: u.id,
-                        child: Text(
-                          '$nombre  (${u.id})',
-                          style: const TextStyle(
-                            fontFamily: kArial,
-                            fontSize: 13,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      );
-                    }).toList(),
-                    onChanged: (v) => setState(() => _notifCleanUserId = v),
-                  ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.teal.shade800,
-                          side: BorderSide(color: Colors.teal.shade400),
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                        ),
-                        onPressed: _notifCleanUserId == null
-                            ? null
-                            : () => _cleanNotificacionesUsuario(
-                                userId: _notifCleanUserId!,
-                                soloNoLeidas: true,
-                              ),
-                        icon: const Icon(
-                          Icons.mark_email_unread_outlined,
-                          size: 18,
-                        ),
-                        label: const Text(
-                          'Solo no leídas',
-                          style: TextStyle(fontFamily: kArial, fontSize: 12),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.teal.shade700,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                        ),
-                        onPressed: _notifCleanUserId == null
-                            ? null
-                            : () => _cleanNotificacionesUsuario(
-                                userId: _notifCleanUserId!,
-                                soloNoLeidas: false,
-                              ),
-                        icon: const Icon(Icons.delete_sweep, size: 18),
-                        label: const Text(
-                          'Todas',
-                          style: TextStyle(fontFamily: kArial, fontSize: 12),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Elimina entradas de TBL_NOTIFICACIONES para pruebas limpias. '
+            'No afecta tareas, usuarios ni otras tablas. '
+            'Muestra cuántas hay antes de confirmar.',
+            style: TextStyle(fontFamily: kArial, fontSize: 13, height: 1.4),
+          ),
+
+          // --- Por empresa activa ---
+          const Divider(height: 28),
+          Text(
+            'Por empresa activa${_empresaId != null ? " (${_empresaId!})" : ""}',
+            style: TextStyle(
+              fontFamily: kArial,
+              fontWeight: FontWeight.w700,
+              color: Colors.teal.shade800,
             ),
           ),
+          const SizedBox(height: 4),
+          Text(
+            '${_users.length} usuario${_users.length == 1 ? "" : "s"} cargados.',
+            style: TextStyle(
+              fontFamily: kArial,
+              fontSize: 12,
+              color: Colors.teal.shade700,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.teal.shade800,
+                    side: BorderSide(color: Colors.teal.shade400),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  onPressed: (_empresaId == null || _users.isEmpty)
+                      ? null
+                      : () => _cleanNotificacionesEmpresa(soloNoLeidas: true),
+                  icon: const Icon(Icons.mark_email_unread_outlined, size: 18),
+                  label: const Text(
+                    'Solo no leídas',
+                    style: TextStyle(fontFamily: kArial, fontSize: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.teal.shade700,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  onPressed: (_empresaId == null || _users.isEmpty)
+                      ? null
+                      : () => _cleanNotificacionesEmpresa(soloNoLeidas: false),
+                  icon: const Icon(Icons.delete_sweep, size: 18),
+                  label: const Text(
+                    'Todas',
+                    style: TextStyle(fontFamily: kArial, fontSize: 12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          // --- Por usuario ---
+          const Divider(height: 28),
+          Text(
+            'Por usuario específico',
+            style: TextStyle(
+              fontFamily: kArial,
+              fontWeight: FontWeight.w700,
+              color: Colors.teal.shade800,
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (_users.isEmpty)
+            const Text(
+              'Selecciona una empresa primero para cargar usuarios.',
+              style: TextStyle(
+                fontFamily: kArial,
+                fontSize: 12,
+                color: Colors.grey,
+              ),
+            )
+          else
+            DropdownButtonFormField<String>(
+              initialValue: _notifCleanUserId,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Usuario (cédula)',
+                border: OutlineInputBorder(),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                labelStyle: TextStyle(fontFamily: kArial),
+              ),
+              items: _users.map((u) {
+                final data = u.data();
+                final nombre = _userName(data, u.id);
+                return DropdownMenuItem<String>(
+                  value: u.id,
+                  child: Text(
+                    '$nombre  (${u.id})',
+                    style: const TextStyle(fontFamily: kArial, fontSize: 13),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                );
+              }).toList(),
+              onChanged: (v) => setState(() => _notifCleanUserId = v),
+            ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.teal.shade800,
+                    side: BorderSide(color: Colors.teal.shade400),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  onPressed: _notifCleanUserId == null
+                      ? null
+                      : () => _cleanNotificacionesUsuario(
+                          userId: _notifCleanUserId!,
+                          soloNoLeidas: true,
+                        ),
+                  icon: const Icon(Icons.mark_email_unread_outlined, size: 18),
+                  label: const Text(
+                    'Solo no leídas',
+                    style: TextStyle(fontFamily: kArial, fontSize: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.teal.shade700,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  onPressed: _notifCleanUserId == null
+                      ? null
+                      : () => _cleanNotificacionesUsuario(
+                          userId: _notifCleanUserId!,
+                          soloNoLeidas: false,
+                        ),
+                  icon: const Icon(Icons.delete_sweep, size: 18),
+                  label: const Text(
+                    'Todas',
+                    style: TextStyle(fontFamily: kArial, fontSize: 12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
+
+  /// Reinicios de toda la empresa: aparte, con conteo previo y BORRAR.
+  Widget _reinicioTotalSection() {
+    Widget item({
+      required IconData icono,
+      required String titulo,
+      required String detalle,
+      required Future<void> Function() accion,
+    }) => ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(icono, color: const Color(0xFF991B1B)),
+      title: Text(
+        titulo,
+        style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800),
+      ),
+      subtitle: Text(detalle, style: const TextStyle(fontFamily: kArial)),
+      trailing: OutlinedButton(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: const Color(0xFFB91C1C),
+        ),
+        onPressed: _loading ? null : accion,
+        child: const Text('Revisar y borrar'),
+      ),
+      isThreeLine: true,
+    );
+    return ExpansionTile(
+      tilePadding: const EdgeInsets.symmetric(horizontal: 14),
+      childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+      collapsedBackgroundColor: const Color(0xFFFEF2F2),
+      backgroundColor: const Color(0xFFFEF2F2),
+      collapsedShape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Color(0xFFFCA5A5)),
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Color(0xFFFCA5A5)),
+      ),
+      leading: const Icon(
+        Icons.warning_amber_rounded,
+        color: Color(0xFFB91C1C),
+      ),
+      title: const Text(
+        'Reinicio total de la empresa',
+        style: TextStyle(
+          fontFamily: kArial,
+          fontWeight: FontWeight.w900,
+          color: Color(0xFF7F1D1D),
+        ),
+      ),
+      subtitle: const Text(
+        'Borra todo lo de un tipo en la empresa activa. Cada uno muestra '
+        'cuánto borra y pide escribir BORRAR.',
+      ),
+      children: [
+        item(
+          icono: Icons.task_alt_rounded,
+          titulo: 'Todas las tareas',
+          detalle: 'Todas las tareas de la empresa, de todos los módulos.',
+          accion: _deleteAllTasksForEmpresa,
+        ),
+        item(
+          icono: Icons.person_remove_outlined,
+          titulo: 'Datos de las personas en la empresa',
+          detalle:
+              'Quita a las personas de esta empresa (área, cargo, centro, jefe '
+              'y módulos) para recargar el Excel. No borra cuentas ni datos de '
+              'otras empresas; tú no te incluyes.',
+          accion: _resetUsersData,
+        ),
+        item(
+          icono: Icons.account_tree_outlined,
+          titulo: 'Estructura organizacional',
+          detalle:
+              'La estructura de esta empresa. Quien está en otras empresas '
+              'conserva la de ellas.',
+          accion: _purgeOrganizationalStructure,
+        ),
+        item(
+          icono: Icons.folder_delete_outlined,
+          titulo: 'Catálogos (áreas, cargos y centros)',
+          detalle:
+              'Todas las áreas, cargos y centros de costo de esta empresa.',
+          accion: _purgeCatalogs,
         ),
       ],
     );
@@ -11705,54 +11677,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       ),
                     ),
                   ],
-                ),
-              ],
-            ),
-          ),
-        ),
-
-        const SizedBox(height: 12),
-
-        Card(
-          color: kAdminCard,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Eliminar todas las tareas (empresa activa)',
-                  style: TextStyle(
-                    fontFamily: kArial,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Útil para reiniciar el entorno en periodo de prueba.',
-                  style: TextStyle(
-                    fontFamily: kArial,
-                    fontSize: 12,
-                    color: Colors.black54,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red.shade700,
-                    ),
-                    onPressed: _deleteAllTasksForEmpresa,
-                    icon: const Icon(Icons.delete_forever),
-                    label: const Text(
-                      'Eliminar todas las tareas',
-                      style: TextStyle(
-                        fontFamily: kArial,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
                 ),
               ],
             ),

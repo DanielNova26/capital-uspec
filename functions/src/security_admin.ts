@@ -133,7 +133,8 @@ function isAdminForCompany(
   return appsDeEmpresa(data, empresaId).some(adminApp);
 }
 
-async function requireAdmin(
+// También la usa Limpieza (limpieza.ts): Admin de la empresa activa.
+export async function requireAdmin(
   data: any,
   context: functions.https.CallableContext
 ): Promise<Caller> {

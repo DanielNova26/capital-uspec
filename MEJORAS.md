@@ -6,6 +6,64 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Admin › Limpieza por módulo — 29 sep 2026 (Claude)
+
+Pedido: enfocar Limpieza a cada módulo y a su necesidad; estamos en pruebas
+y hay muchos datos de prueba en casi todos. Decisiones: las dos cosas
+(cerrar lo real sin borrar y borrar lo de prueba) y los reinicios totales
+aparte, con doble confirmación.
+
+### Cómo queda
+- Arriba se elige el **módulo** (chips en web, lista en móvil): Tareas y
+  notificaciones, Interventoría, Visitas, Facturación, Compras, Rutas,
+  Nutrición, Correspondencia, Correo, Biblioteca documental, Planillas de
+  pago, Talento Humano, Tokens DIAN y WhatsApp. Cada uno muestra solo lo
+  suyo.
+- **Cerrar sin borrar** (Tareas, Interventoría, Facturación): finaliza las
+  tareas abiertas por fecha de corte y da por leídas sus notificaciones;
+  Interventoría además da por subsanados sus hallazgos y Facturación cierra
+  sus observaciones. Nuevo: **tareas creadas a mano** (sin marca de ningún
+  módulo). Visitas, Compras y Correspondencia no lo tienen: cerrar solo su
+  tarea dejaría el origen (visita, recepción, expediente) a medias.
+- **Borrar datos de prueba** (todos): periodo (todo, antes de, desde, entre
+  fechas) → "Ver qué se borraría" con el conteo por colección → escribir
+  BORRAR. Borra los registros del módulo, **sus tareas y sus
+  notificaciones**. Maestros y configuración (productos, proveedores,
+  formatos, rutas, dietas, consecutivos de radicado…) solo con el
+  interruptor "Incluir maestros". Los pacientes se borran con su historial.
+  Registros sin fecha: con un periodo no se tocan (se avisa cuántos); con
+  "Todo" sí.
+- Función `adminLimpiezaModulo` (`functions/src/limpieza.ts`): solo Admin de
+  la empresa, solo documentos con `empresaId` de la empresa activa (los
+  consecutivos, por el prefijo del id). Nunca toca personas, empresas,
+  roles, credenciales, áreas, cargos ni centros. Queda en Logs.
+- Los **adjuntos** (fotos, PDF en Storage) no se borran.
+
+### Reinicio total (aparte, al final)
+Todas las tareas · Datos de las personas en la empresa · Estructura
+organizacional · Catálogos. Cada uno cuenta antes y pide escribir BORRAR.
+- **Corregido (grave):** "Purgar estructura" borraba la estructura
+  organizacional de **todas las empresas**, aunque decía "para esta
+  empresa". Ahora solo la de la empresa activa: quien está también en otras
+  conserva la de ellas.
+- "Datos de las personas" ya no incluye a quien lo ejecuta (perdía su
+  acceso a Admin a mitad) y su texto dice lo que hace de verdad: quita a las
+  personas de la empresa (área, cargo, centro, jefe y módulos) para
+  recargar el Excel.
+- Catálogos y estructura ahora quedan en Logs. "Eliminar todas las tareas"
+  pasó de Migraciones a Reinicio total.
+
+### Pruebas
+- Nuevas: `functions/test/limpieza.test.js` (5; entre ellas que el catálogo
+  nunca toque personas, roles ni credenciales y que cada colección sea de un
+  solo módulo), `test/admin/module_cleanup_test.dart` (6; entre ellas que la
+  lista de módulos de la app sea la del servidor) y 1 en el cierre.
+- Totales: 1.365 de la app, 115 de Functions, 108 de reglas (sin cambios).
+  `flutter analyze` sin errores.
+
+### Despliegue
+`firebase deploy --only functions,hosting`.
+
 ## Admin › Seguridad: clave inicial y registro de accesos — 29 sep 2026 (Claude)
 
 Admin queda para Daniel y Oscar. Pedido: dejar de generar claves temporales

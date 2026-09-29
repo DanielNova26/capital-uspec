@@ -24,6 +24,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.securityAdminClearLoginBlocks = exports.securityRegistrarUsuarioNuevo = exports.securityAdminAssignInitialPassword = exports.securityAdminResetTemporaryPassword = exports.securityAdminRevokeDisabledSessions = exports.securityAdminRevokeSessions = exports.securityAdminRequirePasswordChange = exports.securityAdminOverview = void 0;
+exports.requireAdmin = requireAdmin;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 const crypto_1 = require("crypto");
@@ -125,6 +126,7 @@ function isAdminForCompany(data, empresaId) {
         return true;
     return (0, apps_por_empresa_1.appsDeEmpresa)(data, empresaId).some(adminApp);
 }
+// También la usa Limpieza (limpieza.ts): Admin de la empresa activa.
 async function requireAdmin(data, context) {
     const empresaId = clean(data?.empresaId, 160);
     const userDocId = clean(context.auth?.token?.userDocId, 512);
