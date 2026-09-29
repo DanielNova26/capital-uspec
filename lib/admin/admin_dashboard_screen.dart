@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
-import 'package:todo/services/diagnosticos_service.dart';
 import 'package:todo/services/compras_req_excel_parser.dart';
 import 'package:todo/services/compras_proveedores_excel_parser.dart';
 import 'package:todo/services/compras_productos_excel_parser.dart';
@@ -140,7 +139,6 @@ const List<InternalModuleTabItem> _kAdminModuleTabs = [
   InternalModuleTabItem(label: 'Logs', icon: Icons.history),
   InternalModuleTabItem(label: 'Seguridad', icon: Icons.security_rounded),
   InternalModuleTabItem(label: 'Limpieza', icon: Icons.cleaning_services),
-  InternalModuleTabItem(label: 'Diagnósticos', icon: Icons.medical_information),
   InternalModuleTabItem(label: 'Compras', icon: Icons.shopping_bag_outlined),
   InternalModuleTabItem(label: 'Correo', icon: Icons.alternate_email),
   InternalModuleTabItem(label: 'Tokens DIAN', icon: Icons.vpn_key_outlined),
@@ -308,10 +306,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   Set<String> _selectedMigrationUsers = {};
 
   // Diagnósticos: carga de Excel
-  final DiagnosticosService _diagnosticosService = DiagnosticosService();
-  String? _diagnosticosFileName;
-  Uint8List? _diagnosticosBytes;
-  Map<String, int>? _diagnosticosImportResult;
   bool _importandoReqCompras = false;
   final ComprasReqExcelParser _comprasReqParser = ComprasReqExcelParser();
   String? _reqComprasFileName;
@@ -1882,64 +1876,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     }
   }
 
-  Future<void> _pickDiagnosticosExcel() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['xlsx', 'xlsm', 'xls'],
-      withData: true,
-    );
-
-    if (result == null || result.files.isEmpty) return;
-
-    final file = result.files.single;
-    if (file.bytes == null || file.bytes!.isEmpty) {
-      _snack('No se pudo leer el archivo seleccionado.');
-      return;
-    }
-
-    setState(() {
-      _diagnosticosFileName = file.name;
-      _diagnosticosBytes = file.bytes;
-      _diagnosticosImportResult = null;
-    });
-  }
-
-  Future<void> _importarDiagnosticosExcel() async {
-    final empresaId = _empresaId ?? '';
-    final bytes = _diagnosticosBytes;
-
-    if (empresaId.isEmpty) {
-      _snack('Selecciona una empresa antes de importar diagnósticos.');
-      return;
-    }
-    if (bytes == null || bytes.isEmpty) {
-      _snack('Primero selecciona un archivo Excel.');
-      return;
-    }
-
-    setState(() => _loading = true);
-    try {
-      final result = await _diagnosticosService.importarDiagnosticosDesdeExcel(
-        bytes: bytes,
-        empresaId: empresaId,
-        sobrescribir: true,
-      );
-      if (!mounted) return;
-      setState(() {
-        _diagnosticosImportResult = result;
-      });
-      _snack(
-        'Diagnósticos importados. Médicos: ${result['diagnosticosMedicos'] ?? 0} | Nutricionales: ${result['diagnosticosNutricionales'] ?? 0}',
-      );
-    } catch (e) {
-      _snack('Error importando diagnósticos: $e');
-    } finally {
-      if (mounted) {
-        setState(() => _loading = false);
-      }
-    }
-  }
-
   Future<void> _pickProveedoresExcel() async {
     final picked = await FilePicker.platform.pickFiles(
       withData: true,
@@ -2524,104 +2460,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               ),
             );
           },
-        ),
-      ],
-    );
-  }
-
-  Widget _tabDiagnosticos() {
-    final result = _diagnosticosImportResult;
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Card(
-          color: Colors.teal.shade50,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.teal.shade200),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.upload_file,
-                      color: Colors.teal.shade900,
-                      size: 28,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Actualizar diagnósticos',
-                        style: TextStyle(
-                          fontFamily: kArial,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.teal.shade900,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Sube un Excel con diagnósticos para actualizar el catálogo '
-                  'de diagnósticos en Firestore.\n'
-                  'Después de importar, el buscador de diagnóstico clínico leerá primero desde Firestore.',
-                  style: TextStyle(fontFamily: kArial, height: 1.4),
-                ),
-                const SizedBox(height: 16),
-                OutlinedButton.icon(
-                  onPressed: _pickDiagnosticosExcel,
-                  icon: const Icon(Icons.description_outlined),
-                  label: const Text(
-                    'Seleccionar archivo Excel',
-                    style: TextStyle(
-                      fontFamily: kArial,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  _diagnosticosFileName == null
-                      ? 'Sin archivo seleccionado.'
-                      : 'Archivo: $_diagnosticosFileName',
-                  style: const TextStyle(fontFamily: kArial),
-                ),
-                if (result != null) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    'Última carga → Médicos: ${result['diagnosticosMedicos'] ?? 0} | Nutricionales: ${result['diagnosticosNutricionales'] ?? 0}',
-                    style: const TextStyle(
-                      fontFamily: kArial,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.teal.shade700,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    onPressed: _importarDiagnosticosExcel,
-                    icon: const Icon(Icons.cloud_upload),
-                    label: const Text(
-                      'IMPORTAR DIAGNÓSTICOS',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
         ),
       ],
     );
@@ -3665,7 +3503,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     _tabLogs(),
     SecurityAdminPanel(empresaId: _empresaId ?? widget.empresaId),
     _tabCleanup(),
-    _tabDiagnosticos(),
     _tabReqCompras(),
     AdminCorreoPanel(
       userId: widget.userId,

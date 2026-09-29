@@ -599,6 +599,12 @@ service cloud.firestore {
       allow get: if resource == null || documentoDeSuEmpresa();
       allow list, create, update, delete: if documentoDeSuEmpresa();
     }
+    // Evaluaciones diagnósticas del paciente (29 sep 2026): son datos de
+    // salud y seguían en la regla general, legibles desde cualquier empresa.
+    match /TBL_EVALUACIONES_DIAGNOSTICAS/{docId} {
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
+    }
 
     // Historial del paciente: `{empresa}-{paciente}/registros`. La consulta
     // no filtra por empresa (lee los últimos 20 del paciente), así que la
@@ -1680,6 +1686,7 @@ service cloud.firestore {
           'TBL_INGREDIENTES',
           'TBL_DIRECTORIO_NUTRICION',
           'TBL_CITAS_NUTRICION',
+          'TBL_EVALUACIONES_DIAGNOSTICAS',
            'TBL_HISTORIAL_NUTRICION',
           'TBL_FAC_CONFIG',
           'TBL_FAC_OBLIGACIONES',

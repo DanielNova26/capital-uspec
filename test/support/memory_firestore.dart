@@ -367,7 +367,13 @@ class _Batch extends Fake implements WriteBatch {
   }
 
   @override
-  Future<void> commit() => db.runTransaction((tx) async {
-    (tx as _Transaction).pending.addAll(transaction.pending);
-  });
+  Future<void> commit() {
+    // Como Firestore: un lote no admite más de 500 escrituras.
+    if (transaction.pending.length > 500) {
+      throw StateError('Un lote de Firestore admite hasta 500 escrituras.');
+    }
+    return db.runTransaction((tx) async {
+      (tx as _Transaction).pending.addAll(transaction.pending);
+    });
+  }
 }

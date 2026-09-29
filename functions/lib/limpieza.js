@@ -126,6 +126,7 @@ exports.MODULOS_LIMPIEZA = [
             { id: "TBL_DERIVACIONES_NUTRICION", nombre: "Derivaciones" },
             { id: "TBL_ALERTAS_NUTRICION", nombre: "Alertas" },
             { id: "TBL_EVIDENCIAS_NUTRICION", nombre: "Evidencias" },
+            { id: "TBL_EVALUACIONES_DIAGNOSTICAS", nombre: "Evaluaciones diagnósticas" },
         ],
         maestros: [
             { id: "TBL_DIETAS", nombre: "Dietas" },

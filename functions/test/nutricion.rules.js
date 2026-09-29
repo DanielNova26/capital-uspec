@@ -81,6 +81,9 @@ test.before(async () => {
       }),
       setDoc(doc(db, "TBL_MENUS/m1"), {empresaId: "EMP_A", nombre: "Semana 1"}),
       setDoc(doc(db, "TBL_DIETAS/D1"), {empresaId: "EMP_B", codigo: "D1"}),
+      setDoc(doc(db, "TBL_EVALUACIONES_DIAGNOSTICAS/e1"), {
+        empresaId: "EMP_A", pacienteId: "p1", diagnosticoMedicoCie11: "5A11",
+      }),
       setDoc(doc(db, "TBL_CITAS_NUTRICION/c1"), {
         empresaId: "EMP_A", userId: "empleadoA", estado: "agendada",
       }),
@@ -211,4 +214,27 @@ test("las citas del calendario de Inicio siguen cargando", async () => {
   );
   // Desarrollo entra a cualquier empresa.
   await assertSucceeds(getDoc(doc(auth("dev"), "TBL_PACIENTES/p1")));
+});
+
+test("evaluaciones diagnósticas: solo en su empresa", async () => {
+  await assertSucceeds(
+    getDocs(query(
+      collection(auth("empleadoA"), "TBL_EVALUACIONES_DIAGNOSTICAS"),
+      where("empresaId", "==", "EMP_A"),
+      where("pacienteId", "==", "p1")
+    ))
+  );
+  await assertFails(
+    getDoc(doc(auth("ajeno"), "TBL_EVALUACIONES_DIAGNOSTICAS/e1"))
+  );
+  await assertFails(
+    setDoc(doc(auth("ajeno"), "TBL_EVALUACIONES_DIAGNOSTICAS/e2"), {
+      empresaId: "EMP_A", pacienteId: "p1",
+    })
+  );
+  await assertSucceeds(
+    setDoc(doc(auth("empleadoA"), "TBL_EVALUACIONES_DIAGNOSTICAS/e3"), {
+      empresaId: "EMP_A", pacienteId: "p1",
+    })
+  );
 });

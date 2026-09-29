@@ -6,6 +6,36 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Diagnósticos pasa de Admin a Nutrición — 29 sep 2026 (Claude)
+
+Admin › Diagnósticos no revisaba el sistema: cargaba el catálogo de
+diagnósticos que usa solo Nutrición. Ahora es la pestaña **Nutrición ›
+Diagnósticos** (`lib/nutricion/diagnosticos/nutricion_diagnosticos_screen.dart`).
+
+- Explica qué usa cada búsqueda: los **nutricionales** salen siempre del
+  catálogo; los **médicos** (CIE-11) se buscan primero en línea en la OMS y
+  el catálogo es el respaldo. Muestra cuántos hay cargados o que se usa la
+  plantilla de la app.
+- **Consultar**: médicos o nutricionales, buscador por código, nombre o
+  detalle, de a 20.
+- **Actualizar desde Excel** (solo Admin o Desarrollo; el resto consulta):
+  descargar la plantilla, elegir el archivo e importar.
+- **Corregido:** la importación iba en un solo lote y Firestore no acepta
+  más de 500 escrituras: la plantilla que trae la app (unos 3.600
+  diagnósticos médicos) nunca se podía importar. Ahora va de a 400.
+- El catálogo es uno para todas las empresas: ya no guarda un `empresaId`
+  (que hacía creer que era de una), sino desde qué empresa y quién lo
+  actualizó.
+- **Reglas:** `TBL_EVALUACIONES_DIAGNOSTICAS` (evaluaciones del paciente,
+  datos de salud) seguía en la regla general, legible desde cualquier
+  empresa; ahora queda en su empresa como el resto de Nutrición. También
+  entra en Limpieza › Nutrición.
+- El doble de Firestore de las pruebas ahora rechaza lotes de más de 500,
+  como el real.
+- Pruebas: 1.367 de la app, 115 de Functions, 109 de reglas (2 omitidas
+  desde antes). Despliegue: `firebase deploy --only
+  firestore:rules,functions,hosting`.
+
 ## Admin › Limpieza por módulo — 29 sep 2026 (Claude)
 
 Pedido: enfocar Limpieza a cada módulo y a su necesidad; estamos en pruebas
