@@ -30,6 +30,9 @@ Validación del estado integrado: **1.304 pruebas Flutter aprobadas**;
 **98 reglas Firestore aprobadas, 2 omitidas, 0 fallidas** en el emulador;
 **compilación Web correcta** con `flutter build web --no-pub
 --no-wasm-dry-run`. La suite dirigida del contrato de tablas pasó 7/7.
+`flutter analyze --no-pub lib test`: **0 errores**, 31 advertencias y 182
+avisos del árbol fuente. El análisis sin rutas entra en copias
+recursivas de `functions/node_modules` y no representa el código fuente.
 
 La sección de Claude más abajo registra su propuesta original de cuatro
 paneles compartidos. Este apartado describe el estado integrado que queda en
