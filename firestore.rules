@@ -352,10 +352,48 @@ service cloud.firestore {
     // Quién crea, edita y asigna roles de módulo: igual que
     // `canManageModuleRoles` del cliente (Desarrollo, o la app Admin en la
     // empresa) y, para los de Correspondencia, su administrador del módulo.
+    function esAdminComprasEn(empresaId) {
+      let rolePath = comprasRolePath(empresaId);
+      return tieneAppComprasEn(empresaId) && exists(rolePath)
+        && get(rolePath).data.get('empresaId', '') == empresaId
+        && get(rolePath).data.get('userId', '') == request.auth.token.userDocId
+        && get(rolePath).data.get('rol', '') == 'admin';
+    }
+
+    function comprasRolePath(empresaId) {
+      return /databases/$(database)/documents/TBL_COMPRAS_ROLES/$(empresaId + '_' + request.auth.token.userDocId);
+    }
+
+    function tieneAppComprasEn(empresaId) {
+      let u = currentUser();
+      let detalle = u.get('empresasDetalle', {});
+      let bloque = detalle is map ? detalle.get(empresaId, {}) : {};
+      let propias = bloque is map ? bloque.get('apps', null) : null;
+      let raiz = u.get('apps', []);
+      let apps = ['comprasdashboard', 'compras'];
+      return u.get('appsPorEmpresa', false) == true
+        ? (propias is list ? propias.hasAny(apps)
+          : (raizEsDeEmpresa(u, empresaId) && raiz is list && raiz.hasAny(apps)))
+        : ((raiz is list && raiz.hasAny(apps)) || (propias is list && propias.hasAny(apps)));
+    }
+
+    // La compatibilidad anterior termina individualmente al materializar su rol.
+    // Consultas, desconocido y app retirada no pueden escribir por la regla general.
+    function comprasEscrituraEn(empresaId, niveles) {
+      let path = comprasRolePath(empresaId);
+      return belongsToCompany(empresaId) && ((tieneAppComprasEn(empresaId)
+          && (!exists(path) || (
+          get(path).data.get('empresaId', '') == empresaId
+          && get(path).data.get('userId', '') == request.auth.token.userDocId
+          && get(path).data.get('rol', '') in niveles)))
+        || tieneAppAdminEn(empresaId) || isDeveloper() || isDeveloperIn(empresaId));
+    }
+
     function gestionaRolesDeModulo(empresaId, moduleId) {
       return belongsToCompany(empresaId)
         && (tieneAppAdminEn(empresaId)
           || (moduleId == 'correodashboard' && esAdminCorreoEn(empresaId))
+          || (moduleId == 'comprasdashboard' && esAdminComprasEn(empresaId))
           || isDeveloper() || isDeveloperIn(empresaId));
     }
 
@@ -371,7 +409,8 @@ service cloud.firestore {
         && docId[0:data.empresaId.size() + 5] == data.empresaId + '_mod_'
         && data.get('moduleId', '') in ['correodashboard',
           'planillaspagodashboard', 'bibliotecadocumentaldashboard',
-          'tareasdashboard']
+          'tareasdashboard', 'comprasdashboard']
+        && (data.moduleId != 'comprasdashboard' || data.get('baseRole', '') in ['admin','calidad','compras','bodega','consultas'])
         && data.get('enabled', null) is bool
         && data.get('revision', null) is int && data.revision >= 1
         && data.get('nombre', '') is string
@@ -1047,6 +1086,55 @@ service cloud.firestore {
     // configurables por módulo solo los crea, edita o borra quien los
     // administra en su empresa, y con el contrato de Codex. Un perfil general
     // no se puede convertir en rol de módulo (ni al revés) para saltarse esto.
+    function asignacionComprasValida(docId, data) {
+      return data.get('empresaId', '') is string && data.get('userId', '') is string
+        && data.empresaId.size() > 0 && data.userId.size() > 0
+        && docId == data.empresaId + '_' + data.userId
+        && data.get('rol', '') in ['admin','calidad','compras','bodega','consultas'];
+    }
+    match /TBL_COMPRAS_ROLES/{docId} {
+      allow get: if isSignedIn() && (resource == null || belongsToCompany(resource.data.empresaId));
+      allow list: if belongsToCompany(resource.data.empresaId);
+      allow create: if asignacionComprasValida(docId,request.resource.data)
+        && gestionaRolesDeModulo(request.resource.data.empresaId,'comprasdashboard');
+      allow update: if resource.data.empresaId == request.resource.data.empresaId
+        && asignacionComprasValida(docId,request.resource.data)
+        && gestionaRolesDeModulo(resource.data.empresaId,'comprasdashboard');
+      // Revocar escribe Consultas o retira app/habilitación; borrar resucita
+      // asignaciones históricas o el cargo y no es una revocación completa.
+      allow delete: if false;
+    }
+
+    function esColeccionCompras(collection) {
+      return collection in ['TBL_COMPRAS_PRODUCTOS','TBL_COMPRAS_PROVEEDORES',
+        'TBL_COMPRAS_MARCAS','TBL_COMPRAS_RECEPCIONES','TBL_COMPRAS_APROBACIONES',
+        'TBL_COMPRAS_FICHAS_TECNICAS','TBL_COMPRAS_BODEGAS','TBL_COMPRAS_GRUPOS',
+        'TBL_COMPRAS_REQ_DOCUMENTOS','TBL_COMPRAS_ABASTECIMIENTO',
+        'TBL_COMPRAS_ABASTECIMIENTO_REPORTES','TBL_COMPRAS_AUDITORIA_DOCUMENTOS'];
+    }
+    // Primera fase: aislamiento por empresa compatible con los niveles por
+    // cargo pendientes de consolidación. La escritura por nivel se audita
+    // después de materializar todas las asignaciones anteriores.
+    match /{collection}/{docId} {
+      allow read: if esColeccionCompras(collection) && belongsToCompany(resource.data.empresaId);
+      allow create: if esColeccionCompras(collection) && comprasEscrituraEn(request.resource.data.empresaId, ['admin','calidad','compras','bodega']);
+      allow update: if esColeccionCompras(collection) && resource.data.empresaId == request.resource.data.empresaId
+        && comprasEscrituraEn(resource.data.empresaId, ['admin','calidad','compras','bodega']);
+      allow delete: if esColeccionCompras(collection) && comprasEscrituraEn(resource.data.empresaId, ['admin','compras','bodega']);
+    }
+    match /TBL_COMPRAS_CONFIG/{empresaId} {
+      allow get: if belongsToCompany(empresaId);
+      allow list: if belongsToCompany(resource.data.empresaId);
+      allow create: if (request.resource.data.keys().hasOnly(['marcaSeq']) && request.resource.data.marcaSeq == 1
+          && comprasEscrituraEn(empresaId, ['admin','calidad','compras']))
+        || gestionaRolesDeModulo(empresaId,'comprasdashboard');
+      allow update: if (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['marcaSeq'])
+          && request.resource.data.marcaSeq == resource.data.get('marcaSeq', 0) + 1
+          && comprasEscrituraEn(empresaId, ['admin','calidad','compras']))
+        || gestionaRolesDeModulo(empresaId,'comprasdashboard');
+      allow delete: if gestionaRolesDeModulo(empresaId,'comprasdashboard');
+    }
+
     match /TBL_ROLES/{docId} {
       allow read: if isSignedIn();
       allow create: if esRolDeModulo(request.resource.data)
@@ -1369,7 +1457,9 @@ service cloud.firestore {
     // y no una cadena de `!=`: cuesta una sola expresión.
     match /{collection}/{document=**} {
       allow read, write: if isSignedIn()
+        && !esColeccionCompras(collection)
         && !(collection in [
+          'TBL_COMPRAS_ROLES','TBL_COMPRAS_CONFIG',
           'TBL_WHATSAPP_CONFIG',
           'TBL_CORREO_LISTADOS',
           'TBL_GD_EXPEDIENTES',

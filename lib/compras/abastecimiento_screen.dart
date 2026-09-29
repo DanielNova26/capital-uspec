@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -9,6 +10,7 @@ import 'abastecimiento_models.dart';
 import 'abastecimiento_service.dart';
 import 'compras_excel_download.dart';
 import 'compras_models.dart';
+import 'compras_access_service.dart';
 
 const _abBlue = Color(0xFF0F4C81);
 const _abGreen = Color(0xFF16845B);
@@ -39,7 +41,12 @@ class AbastecimientoScreen extends StatefulWidget {
 }
 
 class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
-  final _service = AbastecimientoService();
+  AbastecimientoService get _service =>
+      AbastecimientoService(actorId: widget.userId);
+  StreamSubscription<ComprasRolDoc?>? _roleSubscription;
+  String? _currentRole;
+  int _roleRevision = 0;
+  bool _roleResolved = false;
   final _parser = ComprasAbastecimientoExcelParser();
   final _searchController = TextEditingController();
   AbastecimientoEstado? _estado;
@@ -55,10 +62,9 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
   bool _importando = false;
   bool _sincronizando = false;
 
-  String? get _rol => normalizeComprasRol(widget.rolCompras);
-  bool get _canImport =>
-      _rol == null || _rol == kRolAdmin || _rol == kRolCompras;
-  bool get _isAdmin => _rol == null || _rol == kRolAdmin;
+  String? get _rol => _currentRole;
+  bool get _canImport => _rol == kRolAdmin || _rol == kRolCompras;
+  bool get _isAdmin => _rol == kRolAdmin;
   bool get _isPurchasing => _isAdmin || _rol == kRolCompras;
   bool get _canReceive => _isAdmin || _rol == kRolBodega;
   bool get _canOperate => _isPurchasing || _canReceive;
@@ -70,9 +76,36 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
       (_rol == kRolCompras && row.estado != AbastecimientoEstado.recibido) ||
       (_rol == kRolBodega && !row.estado.finalizado);
 
+  void _observeRole() {
+    final revision = ++_roleRevision;
+    _roleSubscription?.cancel();
+    _roleResolved = false;
+    _currentRole = null;
+    _roleSubscription = ComprasAccessService()
+        .watch(widget.empresaId, widget.userId)
+        .listen((role) {
+          if (mounted && revision == _roleRevision) {
+            setState(() {
+              _currentRole = role?.rol;
+              _roleResolved = true;
+            });
+          }
+        });
+  }
+
+  @override
+  void didUpdateWidget(AbastecimientoScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.empresaId != widget.empresaId ||
+        oldWidget.userId != widget.userId) {
+      _observeRole();
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    _observeRole();
     if (widget.initialDate != null) {
       _fechaDesde = DateUtils.dateOnly(widget.initialDate!);
       _fechaHasta = _fechaDesde;
@@ -81,12 +114,26 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
 
   @override
   void dispose() {
+    _roleRevision++;
+    _roleSubscription?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (!_roleResolved) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (!comprasRolPuedeVerAbastecimiento(_currentRole)) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Abastecimiento')),
+        body: const Center(
+          child: Text('Tu nivel vigente de Compras no permite Abastecimiento.'),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF4F7FB),
       appBar: AppBar(
@@ -1925,7 +1972,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
         estado: status,
         usuarioId: widget.userId,
         motivo: reasonController.text,
-        rolCompras: widget.rolCompras,
+        rolCompras: _currentRole,
         nuevaFecha: status == AbastecimientoEstado.reprogramado
             ? newDate
             : null,

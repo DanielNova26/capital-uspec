@@ -8,6 +8,7 @@ import '../services/compras_abastecimiento_excel_parser.dart';
 import 'abastecimiento_models.dart';
 import 'abastecimiento_recepcion_sync.dart';
 import 'compras_models.dart';
+import 'compras_access_service.dart';
 import 'compras_recepcion_logic.dart';
 
 class AbastecimientoImportResult {
@@ -45,11 +46,37 @@ class AbastecimientoCatalogValidation {
 class AbastecimientoService {
   final FirebaseFirestore _db;
   final FirebaseFunctions _functions;
+  final String? actorId;
 
-  AbastecimientoService({FirebaseFirestore? db, FirebaseFunctions? functions})
-    : _db = db ?? FirebaseFirestore.instance,
-      _functions =
-          functions ?? FirebaseFunctions.instanceFor(region: 'us-central1');
+  AbastecimientoService({
+    this.actorId,
+    FirebaseFirestore? db,
+    FirebaseFunctions? functions,
+  }) : _db = db ?? FirebaseFirestore.instance,
+       _functions =
+           functions ?? FirebaseFunctions.instanceFor(region: 'us-central1');
+
+  Future<String> _requireCompany(
+    String empresaId,
+    String usuarioId,
+    Set<String> allowed,
+  ) => ComprasAccessService(
+    db: _db,
+  ).require(empresaId, actorId ?? usuarioId, allowed);
+  Future<String> _requireDelivery(
+    String id,
+    String usuarioId,
+    Set<String> allowed,
+  ) async {
+    final data = (await _db.collection(kAbastecimientoCollection).doc(id).get())
+        .data();
+    if (data == null) throw StateError('La entrega ya no existe.');
+    return _requireCompany(
+      (data['empresaId'] ?? '').toString(),
+      usuarioId,
+      allowed,
+    );
+  }
 
   Stream<List<AbastecimientoDoc>> stream(String empresaId) => _db
       .collection(kAbastecimientoCollection)
@@ -115,6 +142,12 @@ class AbastecimientoService {
       });
 
   Future<int> generarReportesAhora({required String empresaId}) async {
+    await _requireCompany(empresaId, actorId ?? '', {
+      kRolCompras,
+      kRolBodega,
+      kRolAdmin,
+    });
+
     final callable = _functions.httpsCallable(
       'comprasGenerarReporteAbastecimiento',
     );
@@ -130,6 +163,12 @@ class AbastecimientoService {
     required String empresaId,
     required String usuarioId,
   }) async {
+    await _requireCompany(empresaId, usuarioId, {
+      kRolCompras,
+      kRolBodega,
+      kRolAdmin,
+    });
+
     final empresa = empresaId.trim();
     final snapshots = await Future.wait([
       _db
@@ -507,6 +546,8 @@ class AbastecimientoService {
     required DateTime consumoDesde,
     required DateTime consumoHasta,
   }) async {
+    await _requireCompany(empresaId, usuarioId, {kRolCompras, kRolAdmin});
+
     final empresa = empresaId.trim();
     if (empresa.isEmpty) throw StateError('No hay una empresa activa.');
     final periodoDesde = DateTime(
@@ -807,6 +848,8 @@ class AbastecimientoService {
     required String ordenCompra,
     required String observaciones,
   }) async {
+    await _requireCompany(empresaId, usuarioId, {kRolCompras, kRolAdmin});
+
     if (proveedorId.trim().isEmpty) {
       throw StateError('Debes seleccionar un proveedor registrado.');
     }
@@ -891,9 +934,15 @@ class AbastecimientoService {
     String? rolCompras,
     DateTime? nuevaFecha,
   }) async {
+    final currentRole = await _requireDelivery(id, usuarioId, {
+      kRolCompras,
+      kRolBodega,
+      kRolAdmin,
+    });
+
     final reason = motivo.trim();
-    final rol = normalizeComprasRol(rolCompras);
-    final esAdmin = rol == null || rol == kRolAdmin;
+    final rol = currentRole;
+    final esAdmin = rol == kRolAdmin;
     final esBodega = rol == kRolBodega;
     final esCompras = rol == kRolCompras;
     if (!esAdmin && esBodega && estado != AbastecimientoEstado.recibido) {
@@ -1008,6 +1057,8 @@ class AbastecimientoService {
     required String usuarioId,
     required String numeroEntrada,
   }) async {
+    await _requireDelivery(id, usuarioId, {kRolCompras, kRolAdmin});
+
     final next = numeroEntrada.trim();
     if (next.isEmpty) {
       throw StateError('Debes indicar el número del documento de entrada.');
@@ -1056,6 +1107,8 @@ class AbastecimientoService {
     required String usuarioId,
     required String observaciones,
   }) async {
+    await _requireDelivery(id, usuarioId, {kRolCompras, kRolBodega, kRolAdmin});
+
     final ref = _db.collection(kAbastecimientoCollection).doc(id);
     await _db.runTransaction((transaction) async {
       final snapshot = await transaction.get(ref);
@@ -1113,6 +1166,8 @@ class AbastecimientoService {
     required String usuarioId,
     required String motivo,
   }) async {
+    await _requireDelivery(id, usuarioId, {kRolCompras, kRolAdmin});
+
     final reason = motivo.trim();
     if (reason.isEmpty) {
       throw StateError('Debes indicar el motivo de la eliminación.');

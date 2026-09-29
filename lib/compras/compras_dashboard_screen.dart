@@ -29,6 +29,7 @@ import 'compras_document_scanner_stub.dart'
     as document_scanner;
 import 'compras_recepcion_logic.dart';
 import 'compras_service.dart';
+import 'compras_access_service.dart';
 import 'compras_req_engine.dart';
 import 'compras_tiempos_calidad.dart';
 import 'compras_validation.dart';
@@ -328,7 +329,7 @@ Future<void> abrirDetalleProveedor(
   String? correccionTaskId,
   String? correccionDocKey,
 }) async {
-  final svc = ComprasService();
+  final svc = ComprasService(actorId: userId);
   ProveedorDoc? prov;
   String empresaId = '';
   try {
@@ -388,7 +389,7 @@ Future<void> abrirDocumentosMarcaCompras(
   required String userId,
   required String marcaId,
 }) async {
-  final svc = ComprasService();
+  final svc = ComprasService(actorId: userId);
   MarcaDoc? marca;
   try {
     final snap = await FirebaseFirestore.instance
@@ -494,7 +495,7 @@ Future<void> abrirDetalleRecepcionCompras(
   final cleanId = recepcionId.replaceFirst('recepcion:', '').trim();
   if (cleanId.isEmpty) return;
 
-  final svc = ComprasService();
+  final svc = ComprasService(actorId: userId);
   RecepcionDoc? recepcion;
   try {
     final snap = await FirebaseFirestore.instance
@@ -558,7 +559,7 @@ Future<bool?> abrirNuevaRecepcionDesdeAbastecimiento(
     MaterialPageRoute(
       builder: (_) => _NuevaRecepcionScreen(
         empresaId: empresaId,
-        svc: ComprasService(),
+        svc: ComprasService(actorId: userId),
         userId: userId,
         abastecimientosIniciales: entregas,
       ),
@@ -644,7 +645,7 @@ Future<bool> abrirCorreccionComprasDesdeTarea(
       if (esRequerimiento &&
           ficha.documentoActual?.aprobadoConRequerimientos == true) {
         var documento = ficha.documentoActual!;
-        final service = ComprasService();
+        final service = ComprasService(actorId: userId);
         await _showComprasAdaptiveSheet<void>(
           context: context,
           title: 'Atender requerimiento de ficha técnica',
@@ -696,7 +697,7 @@ Future<bool> abrirCorreccionComprasDesdeTarea(
         ),
         builder: (_) => _SubirFichaSheet(
           empresaId: ficha.empresaId,
-          svc: ComprasService(),
+          svc: ComprasService(actorId: userId),
           productoId: ficha.productoId,
           productoNombre: ficha.productoNombre,
           productoCategoria: ficha.productoCategoria,
@@ -718,14 +719,77 @@ Future<bool> abrirCorreccionComprasDesdeTarea(
 // COMPRAS DASHBOARD SCREEN — pantalla principal (hub)
 // ══════════════════════════════════════════════════════════════════════════════
 
-class ComprasDashboardScreen extends StatelessWidget {
+/// The role passed by navigation is only a hint; the current company decides.
+class ComprasDashboardScreen extends StatefulWidget {
+  const ComprasDashboardScreen({
+    super.key,
+    required this.userId,
+    required this.empresaId,
+    this.rolCompras,
+  });
+  final String userId;
+  final String empresaId;
+  final String? rolCompras;
+  @override
+  State<ComprasDashboardScreen> createState() => _ComprasDashboardScreenState();
+}
+
+class _ComprasDashboardScreenState extends State<ComprasDashboardScreen> {
+  late Stream<ComprasRolDoc?> _roles;
+  @override
+  void initState() {
+    super.initState();
+    _observe();
+  }
+
+  void _observe() =>
+      _roles = ComprasAccessService().watch(widget.empresaId, widget.userId);
+  @override
+  void didUpdateWidget(ComprasDashboardScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.empresaId != widget.empresaId ||
+        oldWidget.userId != widget.userId) {
+      _observe();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => StreamBuilder<ComprasRolDoc?>(
+    key: ValueKey('${widget.empresaId}_${widget.userId}'),
+    stream: _roles,
+    builder: (context, snapshot) {
+      if (snapshot.connectionState == ConnectionState.waiting) {
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      }
+      final level = snapshot.data?.rol;
+      if (level == null) {
+        return Scaffold(
+          appBar: AppBar(title: const Text('Compras')),
+          body: const Center(
+            child: Text(
+              'Sin acceso o nivel vigente de Compras en esta empresa.',
+            ),
+          ),
+        );
+      }
+      return _ComprasDashboardBody(
+        key: ValueKey(level),
+        userId: widget.userId,
+        empresaId: widget.empresaId,
+        rolCompras: level,
+      );
+    },
+  );
+}
+
+class _ComprasDashboardBody extends StatelessWidget {
   final String userId;
   final String empresaId;
 
-  /// Rol del usuario: 'calidad' | 'compras' | 'bodega' | null (sin restricción)
+  /// Nivel vigente resuelto desde la empresa activa.
   final String? rolCompras;
 
-  const ComprasDashboardScreen({
+  const _ComprasDashboardBody({
     super.key,
     required this.userId,
     required this.empresaId,
@@ -744,7 +808,7 @@ class ComprasDashboardScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final svc = ComprasService();
+    final svc = ComprasService(actorId: userId);
 
     String subtituloRol = 'Gestión de proveedores, productos y recepciones';
     Color colorRol = kComprasPrimary;
@@ -21659,6 +21723,7 @@ class _FichaCalidadCard extends StatelessWidget {
               alignment: Alignment.centerLeft,
               child: HistorialAprobacionesBoton(
                 entidadId: ficha.id,
+                empresaId: ficha.empresaId,
                 docKey: 'fichaTecnica',
                 titulo: 'Historial de aprobaciones · Ficha técnica',
               ),
@@ -22725,6 +22790,7 @@ class _RecepcionCalidadCard extends StatelessWidget {
             alignment: Alignment.centerLeft,
             child: HistorialAprobacionesBoton(
               entidadId: recepcion.id,
+              empresaId: recepcion.empresaId,
               docKey: docKey,
               titulo: 'Historial de aprobaciones · $label',
             ),

@@ -76,7 +76,7 @@ test("un rol de módulo mal formado no entra", async () => {
   const db = auth("admin");
   await assertFails(setDoc(doc(db, "TBL_ROLES/EMP_A_mod_tareas_x"), rol({revision: 0})));
   await assertFails(setDoc(doc(db, "TBL_ROLES/EMP_A_mod_tareas_x"), rol({enabled: "si"})));
-  await assertFails(setDoc(doc(db, "TBL_ROLES/EMP_A_mod_tareas_x"), rol({moduleId: "comprasdashboard"})));
+  await assertFails(setDoc(doc(db, "TBL_ROLES/EMP_A_mod_tareas_x"), rol({moduleId: "modulo_desconocido"})));
   // El id tiene que ser de su empresa.
   await assertFails(setDoc(doc(db, "TBL_ROLES/EMP_B_mod_tareas_x"), rol()));
   // No se cambia de empresa ni de módulo al editar.

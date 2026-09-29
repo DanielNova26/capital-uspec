@@ -19,6 +19,15 @@ import '../widgets/user_avatar.dart';
 
 const String kComprasAprobacionesColl = 'TBL_COMPRAS_APROBACIONES';
 
+Query<Map<String, dynamic>> comprasHistorialQuery(
+  FirebaseFirestore db,
+  String empresaId,
+  String entidadId,
+) => db
+    .collection(kComprasAprobacionesColl)
+    .where('empresaId', isEqualTo: empresaId)
+    .where('entidadId', isEqualTo: entidadId);
+
 /// Acciones registrables. El valor es el que queda guardado en Firestore.
 class ComprasAprobacionAccion {
   static const aprobado = 'aprobado';
@@ -172,6 +181,7 @@ class AprobadoPorLinea extends StatelessWidget {
 /// Botón que abre el historial completo de decisiones de un documento
 /// o de toda una entidad (recepción, proveedor, ficha).
 class HistorialAprobacionesBoton extends StatelessWidget {
+  final String empresaId;
   final String entidadId;
   final String? docKey;
   final String titulo;
@@ -180,6 +190,7 @@ class HistorialAprobacionesBoton extends StatelessWidget {
   const HistorialAprobacionesBoton({
     super.key,
     required this.entidadId,
+    required this.empresaId,
     this.docKey,
     this.titulo = 'Historial de aprobaciones',
     this.compacto = true,
@@ -191,6 +202,7 @@ class HistorialAprobacionesBoton extends StatelessWidget {
       onPressed: () => mostrarHistorialAprobaciones(
         context,
         entidadId: entidadId,
+        empresaId: empresaId,
         docKey: docKey,
         titulo: titulo,
       ),
@@ -211,12 +223,14 @@ class HistorialAprobacionesBoton extends StatelessWidget {
 Future<void> mostrarHistorialAprobaciones(
   BuildContext context, {
   required String entidadId,
+  required String empresaId,
   String? docKey,
   String titulo = 'Historial de aprobaciones',
 }) {
   final ancho = MediaQuery.sizeOf(context).width;
   final contenido = _HistorialAprobacionesLista(
     entidadId: entidadId,
+    empresaId: empresaId,
     docKey: docKey,
   );
 
@@ -269,6 +283,7 @@ Future<void> mostrarHistorialAprobaciones(
           Expanded(
             child: _HistorialAprobacionesLista(
               entidadId: entidadId,
+              empresaId: empresaId,
               docKey: docKey,
               controller: controller,
             ),
@@ -280,25 +295,28 @@ Future<void> mostrarHistorialAprobaciones(
 }
 
 class _HistorialAprobacionesLista extends StatelessWidget {
+  final String empresaId;
   final String entidadId;
   final String? docKey;
   final ScrollController? controller;
 
   const _HistorialAprobacionesLista({
     required this.entidadId,
+    required this.empresaId,
     this.docKey,
     this.controller,
   });
 
   @override
   Widget build(BuildContext context) {
-    // Consulta por igualdad sobre un solo campo: no necesita índice compuesto.
+    // Igualdad por empresa y entidad; orden y filtro documental en cliente.
     // El orden y el filtro por documento se resuelven en memoria porque un
     // expediente no acumula tantos eventos como para que pese.
-    final stream = FirebaseFirestore.instance
-        .collection(kComprasAprobacionesColl)
-        .where('entidadId', isEqualTo: entidadId)
-        .snapshots();
+    final stream = comprasHistorialQuery(
+      FirebaseFirestore.instance,
+      empresaId,
+      entidadId,
+    ).snapshots();
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: stream,

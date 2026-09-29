@@ -1,3 +1,7 @@
+import 'purchase_module_role.dart';
+import 'purchase_module_roles_repository.dart';
+import 'purchase_module_roles_panel.dart';
+import '../compras/compras_role_access.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -193,6 +197,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       AdminModuleInventoryRepository(actorId: widget.userId);
   String? _selectedUserId;
   bool _loading = true;
+  List<PurchaseModuleRole> _purchaseModuleRoles = [];
+  PurchaseModuleRolesRepository get _purchaseRolesRepo =>
+      PurchaseModuleRolesRepository(actorId: widget.userId);
 
   // Empresa
   List<EmpresaItem> _empresas = [];
@@ -237,8 +244,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   String _sessionSearch = '';
 
   // Roles Compras: filtros
-  String _comprasRolesSearch = '';
-  String? _comprasRolesAreaFilter;
 
   // Roles Interventoría: filtros
   String _rolesSearch = '';
@@ -457,6 +462,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         _moduleSources,
         selected,
       );
+      _purchaseModuleRoles = _purchaseRolesFromSources(
+        _moduleSources,
+        selected,
+      );
       _paymentModuleRoles = _paymentRolesFromSources(_moduleSources, selected);
       _accessRoles = accessRoles;
       _comprasRoleByUser = comprasRoleByUser;
@@ -526,6 +535,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           _moduleSources,
           empresaId,
         );
+        _purchaseModuleRoles = _purchaseRolesFromSources(
+          _moduleSources,
+          empresaId,
+        );
         _paymentModuleRoles = _paymentRolesFromSources(
           _moduleSources,
           empresaId,
@@ -585,13 +598,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     for (final doc in snap.docs) {
       final data = doc.data();
       final role = _safe(data['rol']);
-      if (role.isEmpty) continue;
+      if (role.isEmpty && collection != 'TBL_COMPRAS_ROLES') continue;
       final userId = _safe(data['userId']).isNotEmpty
           ? _safe(data['userId'])
           : _safe(data['usuarioId']);
       final cedula = _safe(data['cedula']);
       if (userId.isNotEmpty) {
-        if (collection == 'TBL_CORREO_ROLES') {
+        if (collection == 'TBL_COMPRAS_ROLES') {
+          out.putIfAbsent(userId, () => role);
+          if (doc.id == '${empresaId}_$userId') canonical[userId] = role;
+        } else if (collection == 'TBL_CORREO_ROLES') {
           if (GdRolCorrespondencia.desdeTexto(role) == null) continue;
           if (doc.id == '${empresaId}_$userId') canonical[userId] = role;
           out.putIfAbsent(userId, () => role);
@@ -1992,10 +2008,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         return;
       }
 
-      final result = await ComprasService().importarProveedores(
-        empresaId,
-        parsed.proveedores,
-      );
+      final result = await ComprasService(
+        actorId: widget.userId,
+      ).importarProveedores(empresaId, parsed.proveedores);
       if (!mounted) return;
       setState(() {
         _proveedoresImportResult = {
@@ -2063,10 +2078,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         return;
       }
 
-      final result = await ComprasService().importarProductos(
-        empresaId,
-        parsed.productos,
-      );
+      final result = await ComprasService(
+        actorId: widget.userId,
+      ).importarProductos(empresaId, parsed.productos);
       if (!mounted) return;
       setState(() {
         _productosImportResult = {
@@ -2100,7 +2114,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
     setState(() => _importandoReqCompras = true);
     try {
-      await sembrarReqDocumentos(_empresaId!, ComprasService());
+      await sembrarReqDocumentos(
+        _empresaId!,
+        ComprasService(actorId: widget.userId),
+      );
       _snack('Requisitos de Compras cargados correctamente.');
     } catch (e) {
       _snack('Error al cargar requisitos de Compras: $e');
@@ -2155,7 +2172,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         return;
       }
 
-      await ComprasService().importarReqDocumentos(empresaId, parsed.docs);
+      await ComprasService(
+        actorId: widget.userId,
+      ).importarReqDocumentos(empresaId, parsed.docs);
       if (!mounted) return;
       setState(() {
         _reqComprasImportResult = {
@@ -3775,6 +3794,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     _tabController.animateTo(1);
   }
 
+  List<PurchaseModuleRole> _purchaseRolesFromSources(
+    AdminModuleSources sources,
+    String empresaId,
+  ) => [
+    for (final source in sources.roles)
+      if (PurchaseModuleRole.fromData(source.id, source.data) case final role?)
+        if (role.empresaId == empresaId) role,
+  ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
   Widget _accessWorkspaceShortcut(AdminAccessSection section) => Center(
     child: FilledButton.icon(
       onPressed: () => _openAccessWorkspace(section),
@@ -3812,7 +3840,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             const SizedBox(height: 8),
             const Text(
               'El inventario reúne los módulos de la plataforma, las apps de esta empresa, '
-              'los roles internos registrados y los accesos del personal. Tareas, Biblioteca, Planillas y Correspondencia permiten crear y editar roles; '
+              'los roles internos registrados y los accesos del personal. Tareas, Biblioteca, Planillas, Correspondencia y Compras permiten crear y editar roles; '
               'los demás módulos conservan sus controles actuales y se revisarán por separado.',
             ),
             if (missing > 0) ...[
@@ -3910,6 +3938,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           ) !=
                           null
                     ? 'Rol configurable de Correspondencia'
+                    : PurchaseModuleRole.fromData(source.id, source.data) !=
+                          null
+                    ? 'Rol configurable de Compras'
                     : PaymentModuleRole.fromData(source.id, source.data) != null
                     ? 'Rol configurable de Planillas'
                     : 'Definición existente pendiente de revisar con el módulo',
@@ -3934,7 +3965,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       'Ficha de la empresa: crearTareasTodasAreas y puedeVerEquipo. '
           'Los roles configurables se guardan en TBL_ROLES y se vinculan mediante rolTareasId.',
     'compras' =>
-      'TBL_COMPRAS_ROLES · Roles actuales; creador de roles pendiente de revisar.',
+      'TBL_COMPRAS_ROLES canónica + rolCompras por empresa. Definiciones TBL_ROLES vinculadas mediante rolComprasId.',
     'interventoria' =>
       'TBL_INTERVENTORIA_ROLES · Roles actuales; creador pendiente de revisar.',
     'rutas' =>
@@ -4130,6 +4161,87 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         empresaId,
         role.id,
       );
+      _snack(
+        result.failedUserIds.isEmpty
+            ? 'Rol ${role.name} guardado: ${result.updated} personas actualizadas.'
+            : 'Rol guardado: ${result.updated} personas actualizadas y ${result.failedUserIds.length} pendientes. Usa Sincronizar asignados para reintentar.',
+      );
+    } catch (error) {
+      throw StateError(
+        'El rol está guardado; faltó sincronizar sus asignados. Actualiza y reintenta: $error',
+      );
+    } finally {
+      await _reloadAccessMatrix();
+    }
+  }
+
+  Widget _purchaseRoleSelector(
+    QueryDocumentSnapshot<Map<String, dynamic>> user,
+    String empresaId,
+  ) {
+    final current = purchaseRoleIdOf(user.data(), empresaId);
+    return DropdownButtonFormField<String>(
+      key: ValueKey(
+        'purchase_role_${user.id}_${current}_$_accessReloadVersion',
+      ),
+      initialValue: current,
+      isExpanded: true,
+      decoration: const InputDecoration(
+        labelText: 'Rol de Compras',
+        isDense: true,
+      ),
+      items: [
+        const DropdownMenuItem(value: '', child: Text('Nivel individual')),
+        for (final role in _purchaseModuleRoles)
+          if (role.enabled || role.id == current)
+            DropdownMenuItem(
+              value: role.id,
+              enabled: role.enabled,
+              child: Text(
+                '${role.name}${role.enabled ? "" : " · Inactivo"}',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+        if (current.isNotEmpty &&
+            !_purchaseModuleRoles.any((role) => role.id == current))
+          DropdownMenuItem(
+            value: current,
+            enabled: false,
+            child: const Text('Rol sin definición válida'),
+          ),
+      ],
+      onChanged: (value) async {
+        try {
+          if ((value ?? '').isEmpty) {
+            await _purchaseRolesRepo.setIndividualLevel(
+              empresaId: empresaId,
+              userId: user.id,
+            );
+            _snack(
+              'Compras: se conserva el nivel actual como nivel individual.',
+            );
+          } else {
+            await _purchaseRolesRepo.assign(
+              empresaId: empresaId,
+              userId: user.id,
+              roleId: value!,
+            );
+            _snack('Rol de Compras asignado y nivel sincronizado.');
+          }
+        } catch (error) {
+          _snack('No se pudo asignar el rol de Compras: $error');
+        }
+        await _reloadAccessMatrix();
+      },
+    );
+  }
+
+  Future<void> _synchronizePurchaseRole(
+    String empresaId,
+    PurchaseModuleRole role,
+  ) async {
+    try {
+      final result = await _purchaseRolesRepo.synchronize(empresaId, role.id);
       _snack(
         result.failedUserIds.isEmpty
             ? 'Rol ${role.name} guardado: ${result.updated} personas actualizadas.'
@@ -6039,7 +6151,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         final id = taskRoleIdOf(data, empresaId);
         return id.isEmpty ? null : id;
       case 'compras':
-        return _comprasRoleByUser[userDoc.id] ?? _comprasRoleByUser[cedula];
+        return resolveComprasLevel(
+          data,
+          empresaId,
+          assignedRole:
+              _comprasRoleByUser[userDoc.id] ?? _comprasRoleByUser[cedula],
+        );
       case 'interventoria':
         return _interventoriaRoleByUser[userDoc.id] ??
             _interventoriaRoleByUser[cedula];
@@ -6319,6 +6436,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         );
       }
     }
+    if (module.key == 'compras') {
+      await _purchaseRolesRepo.setIndividualLevel(
+        empresaId: empresaId,
+        userId: userDoc.id,
+        level: cleanRole,
+      );
+      _snack(
+        'Compras: nivel individual actualizado; retirar el nivel deja Consultas.',
+      );
+      await _reloadAccessMatrix();
+      return;
+    }
     if (module.key == 'correo') {
       await _correspondenceRolesRepo.setIndividualLevel(
         empresaId: empresaId,
@@ -6379,14 +6508,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       }
 
       switch (module.key) {
-        case 'compras':
-          final ref = FirebaseFirestore.instance
-              .collection('TBL_COMPRAS_ROLES')
-              .doc('${empresaId}_${userDoc.id}');
-          hasRole
-              ? await ref.set(payload, SetOptions(merge: true))
-              : await ref.delete();
-          break;
         case 'interventoria':
           final ref = FirebaseFirestore.instance
               .collection('TBL_INTERVENTORIA_ROLES')
@@ -6470,14 +6591,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   List<DropdownMenuItem<String>> _roleDropdownItems(
     Map<String, String> labels,
-    String? current,
-  ) {
+    String? current, {
+    String emptyLabel = 'Sin rol',
+  }) {
     final merged = <String, String>{...labels};
     if (current != null && current.isNotEmpty && !merged.containsKey(current)) {
       merged[current] = current;
     }
     return [
-      const DropdownMenuItem<String>(value: '', child: Text('Sin rol')),
+      DropdownMenuItem<String>(value: '', child: Text(emptyLabel)),
       ...merged.entries.map(
         (entry) => DropdownMenuItem<String>(
           value: entry.key,
@@ -6690,6 +6812,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   style: TextStyle(fontSize: 11, color: kAdminMuted),
                 ),
               ],
+              if (module.key == 'compras') ...[
+                const SizedBox(height: 8),
+                _purchaseRoleSelector(userDoc, empresaId),
+                const SizedBox(height: 6),
+                const Text(
+                  'El nivel individual desvincula el rol creado.',
+                  style: TextStyle(fontSize: 11, color: kAdminMuted),
+                ),
+              ],
               if (module.key == 'gestion_documental') ...[
                 const SizedBox(height: 8),
                 _libraryRoleSelector(userDoc, empresaId),
@@ -6702,7 +6833,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               if (module.roles.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
-                  key: module.key == 'correo'
+                  key: module.key == 'compras'
+                      ? ValueKey(
+                          "purchase_level_${userDoc.id}_${currentRole ?? ''}_$_accessReloadVersion",
+                        )
+                      : module.key == 'correo'
                       ? ValueKey(
                           'correspondence_level_${userDoc.id}_${currentRole ?? ''}_$_accessReloadVersion',
                         )
@@ -6716,12 +6851,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   decoration: InputDecoration(
                     labelText:
                         module.key == 'gestion_documental' ||
-                            module.key == 'correo'
+                            module.key == 'correo' ||
+                            module.key == 'compras'
                         ? 'Nivel individual'
                         : 'Rol interno',
                     isDense: true,
                   ),
-                  items: _roleDropdownItems(module.roles, currentRole),
+                  items: _roleDropdownItems(
+                    module.roles,
+                    currentRole,
+                    emptyLabel: module.key == 'compras'
+                        ? 'Restablecer a Consultas'
+                        : 'Sin rol',
+                  ),
                   onChanged: (value) => _setMatrixInternalRole(
                     userDoc: userDoc,
                     module: module,
@@ -8271,6 +8413,64 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 _snack(
                   '$count roles iniciales de Correspondencia creados. Asigna cada rol a sus personas.',
                 );
+              } finally {
+                await _reloadAccessMatrix();
+              }
+            },
+          ),
+          const SizedBox(height: 14),
+        ],
+        if (module.key == 'compras') ...[
+          PurchaseModuleRolesPanel(
+            key: ValueKey('purchase_roles_$empresaId'),
+            roles: _purchaseModuleRoles,
+            pendingSyncCount: (role) => _users
+                .where(
+                  (u) => purchaseRoleNeedsSync(
+                    u.data(),
+                    role,
+                    assignedRole: _comprasRoleByUser[u.id] ?? '',
+                  ),
+                )
+                .length,
+            onSave: (name, description, level, enabled, previous) async {
+              final role = await _purchaseRolesRepo.save(
+                empresaId: empresaId,
+                name: name,
+                description: description,
+                level: level,
+                enabled: enabled,
+                previous: previous,
+              );
+              await _synchronizePurchaseRole(empresaId, role);
+            },
+            onSynchronize: (role) => _synchronizePurchaseRole(empresaId, role),
+            onCreateDefaults: () async {
+              try {
+                final count = await _purchaseRolesRepo.ensureDefaults(
+                  empresaId,
+                );
+                _snack(
+                  '$count roles iniciales de Compras creados. Asigna cada rol a sus personas.',
+                );
+              } finally {
+                await _reloadAccessMatrix();
+              }
+            },
+          ),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.sync),
+            label: const Text('Consolidar niveles anteriores'),
+            onPressed: () async {
+              try {
+                final result = await _purchaseRolesRepo.consolidateExisting(
+                  empresaId,
+                );
+                _snack(
+                  '${result.updated} niveles anteriores consolidados; ${result.failedUserIds.length} pendientes de reintento.',
+                );
+              } catch (error) {
+                _snack('No se pudo consolidar Compras: $error');
               } finally {
                 await _reloadAccessMatrix();
               }
@@ -12088,302 +12288,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   // ignore: unused_element
   Widget _tabRolesCompras() {
     final empresaId = _empresaId ?? '';
-    if (empresaId.isEmpty) {
-      return const Center(
-        child: Text(
-          'Selecciona una empresa',
-          style: TextStyle(fontFamily: kArial),
-        ),
-      );
-    }
-    final svc = ComprasService();
-    final roles = [
-      kRolAdmin,
-      kRolCalidad,
-      kRolCompras,
-      kRolBodega,
-      kRolConsultas,
-    ];
-    final rolesLabels = {
-      kRolAdmin: 'Admin Documental',
-      kRolCalidad: 'Director de Calidad',
-      kRolCompras: 'Compras',
-      kRolBodega: 'Bodega',
-      kRolConsultas: 'Consultas',
-    };
-    final rolesIcons = {
-      kRolAdmin: Icons.admin_panel_settings,
-      kRolCalidad: Icons.verified_user,
-      kRolCompras: Icons.shopping_cart,
-      kRolBodega: Icons.warehouse,
-      kRolConsultas: Icons.search,
-    };
-    final rolesColors = {
-      kRolAdmin: const Color(0xFF7B1FA2),
-      kRolCalidad: Colors.green.shade700,
-      kRolCompras: kAdminPrimary,
-      kRolBodega: Colors.blue.shade700,
-      kRolConsultas: const Color(0xFF283593),
-    };
-
-    return StreamBuilder<List<ComprasRolDoc>>(
-      stream: svc.streamComprasRoles(empresaId),
-      builder: (ctx, snapRoles) {
-        final rolesActuales = snapRoles.data ?? [];
-        return ListView(
-          padding: const EdgeInsets.all(12),
-          children: [
-            Card(
-              color: kAdminCard,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Row(
-                      children: [
-                        Icon(Icons.verified_user, color: kAdminPrimary),
-                        SizedBox(width: 8),
-                        Text(
-                          'Roles en Compras & Bodega',
-                          style: TextStyle(
-                            fontFamily: kArial,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 16,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Asigna a cada usuario su rol en el módulo de Compras. '
-                      'Admin Documental: acceso total + puede eliminar recepciones, fichas y marcas. '
-                      'Director de Calidad: revisa, aprueba o rechaza documentos. Compras: gestiona proveedores/productos. '
-                      'Bodega: recepción de mercancía + consultas. '
-                      'Consultas: solo lectura de la pestaña de consultas.',
-                      style: TextStyle(
-                        fontFamily: kArial,
-                        fontSize: 13,
-                        height: 1.4,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            // Roles actuales
-            if (rolesActuales.isNotEmpty) ...[
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 6),
-                child: Text(
-                  'Roles asignados',
-                  style: TextStyle(
-                    fontFamily: kArial,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-              ...rolesActuales.map(
-                (r) => Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: ListTile(
-                    leading: UserAvatar(
-                      userId: r.cedula,
-                      nameHint: r.nombre,
-                      backgroundColor: (rolesColors[r.rol] ?? kAdminPrimary)
-                          .withValues(alpha: 0.15),
-                      foregroundColor: rolesColors[r.rol] ?? kAdminPrimary,
-                    ),
-                    title: UserNameText(
-                      r.cedula,
-                      fallbackName: r.nombre,
-                      style: const TextStyle(
-                        fontFamily: kArial,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    subtitle: Text(
-                      '${rolesLabels[r.rol] ?? r.rol} · ${r.cedula}',
-                      style: const TextStyle(fontFamily: kArial, fontSize: 12),
-                    ),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.red),
-                      tooltip: 'Quitar rol',
-                      onPressed: () async {
-                        final ok = await _confirm(
-                          title: 'Quitar rol',
-                          message:
-                              '¿Quitar el rol de ${rolesLabels[r.rol]} a ${r.nombre}?',
-                          confirmText: 'Quitar',
-                        );
-                        if (ok) {
-                          await svc.eliminarComprasRol(r.id);
-                          _snack('Rol eliminado');
-                        }
-                      },
-                    ),
-                  ),
-                ),
-              ),
-              const Divider(height: 24),
-            ],
-            // Barra de filtros
-            _buildPersonnelFilterBar(
-              searchHint: 'Nombre, cédula, cargo, área…',
-              searchValue: _comprasRolesSearch,
-              onSearchChanged: (v) =>
-                  setState(() => _comprasRolesSearch = v.trim().toLowerCase()),
-              selectedAreaId: _comprasRolesAreaFilter,
-              onAreaChanged: (v) => setState(() => _comprasRolesAreaFilter = v),
-            ),
-            // Asignar nuevo rol
-            const Padding(
-              padding: EdgeInsets.only(bottom: 6),
-              child: Text(
-                'Asignar rol a usuario',
-                style: TextStyle(
-                  fontFamily: kArial,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                ),
-              ),
-            ),
-            ..._applyPersonnelFilter(
-              _users,
-              search: _comprasRolesSearch,
-              areaId: _comprasRolesAreaFilter,
-            ).map((userDoc) {
-              final data = userDoc.data();
-              final nombre = _userName(data, userDoc.id);
-              final cedula = _safe(data['cedula']);
-              final userId = userDoc.id;
-              // Rol actual del usuario
-              ComprasRolDoc? rolActual;
-              try {
-                rolActual = rolesActuales.firstWhere(
-                  (r) => r.userId == userId || r.cedula == cedula,
-                );
-              } catch (_) {}
-
-              return Card(
-                margin: const EdgeInsets.only(bottom: 6),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              nombre,
-                              style: const TextStyle(
-                                fontFamily: kArial,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 13,
-                              ),
-                            ),
-                            Text(
-                              cedula,
-                              style: const TextStyle(
-                                fontFamily: kArial,
-                                fontSize: 11,
-                                color: Colors.black54,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      DropdownButton<String>(
-                        value: rolActual?.rol,
-                        hint: const Text(
-                          'Sin rol',
-                          style: TextStyle(fontFamily: kArial, fontSize: 12),
-                        ),
-                        items: [
-                          const DropdownMenuItem<String>(
-                            value: null,
-                            child: Text(
-                              'Sin rol',
-                              style: TextStyle(
-                                fontFamily: kArial,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                          ...roles.map(
-                            (r) => DropdownMenuItem<String>(
-                              value: r,
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    rolesIcons[r],
-                                    size: 14,
-                                    color: rolesColors[r],
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    rolesLabels[r] ?? r,
-                                    style: const TextStyle(
-                                      fontFamily: kArial,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                        onChanged: (nuevoRol) async {
-                          try {
-                            if (nuevoRol == null) {
-                              // Quitar rol si existe
-                              if (rolActual != null) {
-                                await svc.eliminarComprasRol(rolActual.id);
-                                _snack('Rol eliminado de $nombre');
-                              }
-                              return;
-                            }
-                            final doc = ComprasRolDoc(
-                              id: rolActual?.id ?? '',
-                              empresaId: empresaId,
-                              userId: userId,
-                              cedula: cedula,
-                              nombre: nombre,
-                              rol: nuevoRol,
-                              createdAt: Timestamp.now(),
-                            );
-                            await svc.guardarComprasRol(
-                              doc,
-                              isNew: rolActual == null,
-                            );
-                            await _repo.grantUserApps(
-                              userId: userId,
-                              empresaId: empresaId,
-                              appIds: const ['comprasdashboard'],
-                            );
-                            _snack(
-                              'Rol ${rolesLabels[nuevoRol]} asignado a $nombre',
-                            );
-                          } catch (e) {
-                            _snack('Error al guardar rol: $e');
-                          }
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }),
-          ],
-        );
-      },
+    return _moduleAccessDetailTab(
+      module: _accessMatrixModules().firstWhere(
+        (module) => module.key == 'compras',
+      ),
+      empresaId: empresaId,
+      companyUsers: _users,
+      isMobile: MediaQuery.sizeOf(context).width < 760,
     );
   }
 

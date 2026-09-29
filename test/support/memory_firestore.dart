@@ -12,6 +12,15 @@ Map<String, dynamic> _copy(Map<String, dynamic> source) => {
         : e.value,
 };
 
+dynamic _stored(dynamic value) {
+  if (value == FieldValue.serverTimestamp()) return Timestamp.now();
+  if (value is Map<String, dynamic>) {
+    return {for (final entry in value.entries) entry.key: _stored(entry.value)};
+  }
+  if (value is List) return value.map(_stored).toList();
+  return value;
+}
+
 /// Observa consultas y escrituras del repositorio real sin conectar a Firebase.
 /// No representa las reglas de seguridad ni los reintentos del servidor.
 class MemoryFirestore extends Fake implements FirebaseFirestore {
@@ -43,7 +52,11 @@ class MemoryFirestore extends Fake implements FirebaseFirestore {
     final transaction = _Transaction(this);
     final result = await handler(transaction);
     for (final entry in transaction.pending.entries) {
-      documents[entry.key] = entry.value;
+      if (entry.value == null) {
+        documents.remove(entry.key);
+      } else {
+        documents[entry.key] = entry.value!;
+      }
       writes++;
     }
     for (final path in transaction.pending.keys) {
@@ -91,7 +104,13 @@ class _Query extends Fake implements Query<Map<String, dynamic>> {
     Iterable<Object?>? whereIn,
     Iterable<Object?>? whereNotIn,
     bool? isNull,
-  }) => _Query(db, path, [...filters, (field.toString(), isEqualTo)]);
+  }) => _Query(db, path, [
+    ...filters,
+    (
+      arrayContains == null ? field.toString() : '${field.toString()}[]',
+      arrayContains ?? isEqualTo,
+    ),
+  ]);
 
   dynamic _value(Map<String, dynamic> data, String field) {
     dynamic value = data;
@@ -102,6 +121,28 @@ class _Query extends Fake implements Query<Map<String, dynamic>> {
   }
 
   @override
+  Stream<QuerySnapshot<Map<String, dynamic>>> snapshots({
+    bool includeMetadataChanges = false,
+    ListenSource source = ListenSource.defaultSource,
+  }) => Stream.multi((controller) {
+    var active = true;
+    void emit() {
+      get().then((value) {
+        if (active) controller.add(value);
+      }, onError: controller.addError);
+    }
+
+    final subscription = db._changes.stream
+        .where((changed) => changed.startsWith('$path/'))
+        .listen((_) => emit());
+    emit();
+    controller.onCancel = () {
+      active = false;
+      return subscription.cancel();
+    };
+  });
+
+  @override
   Future<QuerySnapshot<Map<String, dynamic>>> get([
     GetOptions? options,
   ]) async => _QuerySnapshot([
@@ -109,7 +150,19 @@ class _Query extends Fake implements Query<Map<String, dynamic>> {
       if (entry.key.startsWith('$path/') &&
           entry.key.split('/').length == path.split('/').length + 1 &&
           filters.every(
-            (filter) => _value(entry.value, filter.$1) == filter.$2,
+            (filter) => filter.$1.endsWith('[]')
+                ? (_value(
+                            entry.value,
+                            filter.$1.substring(0, filter.$1.length - 2),
+                          )
+                          is List &&
+                      (_value(
+                                entry.value,
+                                filter.$1.substring(0, filter.$1.length - 2),
+                              )
+                              as List)
+                          .contains(filter.$2))
+                : _value(entry.value, filter.$1) == filter.$2,
           ))
         _QueryDoc(_Document(db, entry.key), _copy(entry.value)),
   ]);
@@ -140,6 +193,11 @@ class _Document extends Fake
         .listen((_) => emit(), onError: controller.addError);
     emit();
     controller.onCancel = subscription.cancel;
+  });
+
+  @override
+  Future<void> delete() => db.runTransaction((tx) async {
+    tx.delete(this);
   });
 
   @override
@@ -196,7 +254,7 @@ class _QuerySnapshot extends Fake
 class _Transaction extends Fake implements Transaction {
   _Transaction(this.db);
   final MemoryFirestore db;
-  final pending = <String, Map<String, dynamic>>{};
+  final pending = <String, Map<String, dynamic>?>{};
   @override
   Future<DocumentSnapshot<T>> get<T extends Object?>(
     DocumentReference<T> reference,
@@ -208,6 +266,15 @@ class _Transaction extends Fake implements Transaction {
                 : _copy(db.documents[reference.path]!),
           )
           as DocumentSnapshot<T>;
+
+  @override
+  Transaction delete(DocumentReference reference) {
+    if (db.rejectWrites.contains(reference.path)) {
+      throw StateError('Escritura rechazada');
+    }
+    pending[reference.path] = null;
+    return this;
+  }
 
   @override
   Transaction set<T>(
@@ -222,7 +289,7 @@ class _Transaction extends Fake implements Transaction {
       ...(options?.merge == true
           ? _copy(db.documents[reference.path] ?? {})
           : <String, dynamic>{}),
-      ...data as Map<String, dynamic>,
+      ..._stored(data) as Map<String, dynamic>,
     };
     return this;
   }
@@ -243,7 +310,7 @@ class _Transaction extends Fake implements Transaction {
       if (entry.value == FieldValue.delete()) {
         current.remove(keys.last);
       } else {
-        current[keys.last] = entry.value;
+        current[keys.last] = _stored(entry.value);
       }
     }
     pending[reference.path] = next;
@@ -255,6 +322,11 @@ class _Batch extends Fake implements WriteBatch {
   _Batch(this.db) : transaction = _Transaction(db);
   final MemoryFirestore db;
   final _Transaction transaction;
+  @override
+  void delete(DocumentReference reference) {
+    transaction.delete(reference);
+  }
+
   @override
   WriteBatch set<T>(
     DocumentReference<T> reference,

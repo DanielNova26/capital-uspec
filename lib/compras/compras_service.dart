@@ -13,8 +13,10 @@ import 'compras_catalog_logic.dart';
 import 'abastecimiento_models.dart';
 import 'abastecimiento_recepcion_sync.dart';
 import 'compras_models.dart';
-import '../utils/user_company.dart'
-    show personaHabilitadaEn, raizEsDeEmpresa;
+import 'compras_access_service.dart';
+import '../admin/purchase_module_roles_repository.dart';
+import '../admin/task_module_role.dart' show canManageModuleRoles;
+import '../utils/user_company.dart' show personaHabilitadaEn, raizEsDeEmpresa;
 import 'compras_recepcion_logic.dart';
 import 'compras_req_engine.dart';
 import 'compras_validation.dart';
@@ -32,12 +34,14 @@ class ComprasService {
   final FirebaseFunctions _functions;
   final FirebaseStorage _storage;
   final TaskService _tasks;
+  final String? actorId;
 
   /// Plazo predeterminado para corregir documentos rechazados. La empresa puede
   /// modificarlo desde Administración > Compras.
   static const int kDiasCorreccionPredeterminado = 30;
 
   ComprasService({
+    this.actorId,
     FirebaseFirestore? db,
     FirebaseFunctions? functions,
     FirebaseStorage? storage,
@@ -45,6 +49,46 @@ class ComprasService {
        _functions = functions ?? FirebaseFunctions.instance,
        _storage = storage ?? FirebaseStorage.instance,
        _tasks = TaskService(db: db, storage: storage);
+
+  static const _gestion = {kRolCompras, kRolBodega, kRolCalidad, kRolAdmin};
+  static const _catalogo = {kRolCompras, kRolCalidad, kRolAdmin};
+  static const _calidad = {kRolCalidad, kRolAdmin};
+  Future<String> _exigirEmpresa(
+    String empresaId,
+    Set<String> allowed, {
+    String? userId,
+    bool configuracion = false,
+  }) async {
+    final actor = actorId ?? userId ?? '';
+    if (configuracion) {
+      final user = await ComprasAccessService(db: _db).userDocument(actor);
+      if (user != null && canManageModuleRoles(user.data()!, empresaId)) {
+        return kRolAdmin;
+      }
+    }
+    return ComprasAccessService(db: _db).require(empresaId, actor, allowed);
+  }
+
+  Future<Map<String, dynamic>> _exigirDocumento(
+    String collection,
+    String id,
+    Set<String> allowed, {
+    String? userId,
+    String? empresaId,
+  }) async {
+    final data = (await _db.collection(collection).doc(id).get()).data();
+    if (data == null || (empresaId != null && data['empresaId'] != empresaId)) {
+      throw StateError(
+        'El registro ya no pertenece a la empresa activa o no existe.',
+      );
+    }
+    await _exigirEmpresa(
+      (data['empresaId'] ?? '').toString(),
+      allowed,
+      userId: userId,
+    );
+    return data;
+  }
 
   /// `runTransaction` que deja ver el error real.
   ///
@@ -207,6 +251,16 @@ class ComprasService {
       });
 
   Future<String> guardarProducto(ProductoDoc p, {required bool isNew}) async {
+    await _exigirEmpresa(p.empresaId, _catalogo);
+    if (!isNew) {
+      await _exigirDocumento(
+        'TBL_COMPRAS_PRODUCTOS',
+        p.id,
+        _catalogo,
+        empresaId: p.empresaId,
+      );
+    }
+
     final ref = isNew
         ? _db.collection('TBL_COMPRAS_PRODUCTOS').doc()
         : _db.collection('TBL_COMPRAS_PRODUCTOS').doc(p.id);
@@ -217,15 +271,20 @@ class ComprasService {
   Future<void> actualizarDocumentosAsociadosProducto({
     required String productoId,
     required Map<String, DocAdjunto> documentos,
-  }) => _db.collection('TBL_COMPRAS_PRODUCTOS').doc(productoId).update({
-    'documentosAsociados': documentos.map(
-      (key, value) => MapEntry(key, value.toMap()),
-    ),
-    'updatedAt': FieldValue.serverTimestamp(),
-  });
+  }) async {
+    await _exigirDocumento('TBL_COMPRAS_PRODUCTOS', productoId, _catalogo);
+    await _db.collection('TBL_COMPRAS_PRODUCTOS').doc(productoId).update({
+      'documentosAsociados': documentos.map(
+        (key, value) => MapEntry(key, value.toMap()),
+      ),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
 
-  Future<void> eliminarProducto(String id) =>
-      _db.collection('TBL_COMPRAS_PRODUCTOS').doc(id).delete();
+  Future<void> eliminarProducto(String id) async {
+    await _exigirDocumento('TBL_COMPRAS_PRODUCTOS', id, {kRolAdmin});
+    await _db.collection('TBL_COMPRAS_PRODUCTOS').doc(id).delete();
+  }
 
   // ─── PROVEEDORES ────────────────────────────────────────────────────────────
 
@@ -246,6 +305,16 @@ class ComprasService {
     required bool isNew,
     String creadoPor = '',
   }) async {
+    await _exigirEmpresa(p.empresaId, _catalogo, userId: creadoPor);
+    if (!isNew) {
+      await _exigirDocumento(
+        'TBL_COMPRAS_PROVEEDORES',
+        p.id,
+        _catalogo,
+        empresaId: p.empresaId,
+      );
+    }
+
     final ref = isNew
         ? _db.collection('TBL_COMPRAS_PROVEEDORES').doc()
         : _db.collection('TBL_COMPRAS_PROVEEDORES').doc(p.id);
@@ -259,22 +328,29 @@ class ComprasService {
     return ref.id;
   }
 
-  Future<void> eliminarProveedor(String id) =>
-      _db.collection('TBL_COMPRAS_PROVEEDORES').doc(id).delete();
+  Future<void> eliminarProveedor(String id) async {
+    await _exigirDocumento('TBL_COMPRAS_PROVEEDORES', id, {kRolAdmin});
+    await _db.collection('TBL_COMPRAS_PROVEEDORES').doc(id).delete();
+  }
 
   Future<void> cambiarEstadoProveedor({
     required String proveedorId,
     required bool activo,
     required String userId,
     String motivo = '',
-  }) => _db.collection('TBL_COMPRAS_PROVEEDORES').doc(proveedorId).update({
-    'activo': activo,
-    'estado': activo ? 'activo' : 'inactivo',
-    'inactivadoAt': activo ? FieldValue.delete() : FieldValue.serverTimestamp(),
-    'inactivadoPor': activo ? FieldValue.delete() : userId,
-    'motivoInactivacion': activo ? FieldValue.delete() : motivo.trim(),
-    'updatedAt': FieldValue.serverTimestamp(),
-  });
+  }) async {
+    await _exigirDocumento('TBL_COMPRAS_PROVEEDORES', proveedorId, _catalogo);
+    await _db.collection('TBL_COMPRAS_PROVEEDORES').doc(proveedorId).update({
+      'activo': activo,
+      'estado': activo ? 'activo' : 'inactivo',
+      'inactivadoAt': activo
+          ? FieldValue.delete()
+          : FieldValue.serverTimestamp(),
+      'inactivadoPor': activo ? FieldValue.delete() : userId,
+      'motivoInactivacion': activo ? FieldValue.delete() : motivo.trim(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
 
   Stream<List<ComprasGrupoDoc>> streamGruposCompras(String empresaId) => _db
       .collection('TBL_COMPRAS_GRUPOS')
@@ -313,6 +389,8 @@ class ComprasService {
     String empresaId,
     List<ProveedorDoc> proveedores,
   ) async {
+    await _exigirEmpresa(empresaId, _catalogo, configuracion: true);
+
     final snap = await _db
         .collection('TBL_COMPRAS_PROVEEDORES')
         .where('empresaId', isEqualTo: empresaId)
@@ -355,6 +433,8 @@ class ComprasService {
     String empresaId,
     List<ProductoDoc> productos,
   ) async {
+    await _exigirEmpresa(empresaId, _catalogo, configuracion: true);
+
     final snap = await _db
         .collection('TBL_COMPRAS_PRODUCTOS')
         .where('empresaId', isEqualTo: empresaId)
@@ -477,9 +557,33 @@ class ComprasService {
       });
 
   Future<void> eliminarRecepcion(String id, {String usuarioId = ''}) async {
+    final data = await _exigirDocumento(
+      'TBL_COMPRAS_RECEPCIONES',
+      id,
+      _gestion,
+      userId: usuarioId,
+    );
+
+    final current = RecepcionDoc.fromMap(id, data);
+    final level = await _exigirEmpresa(
+      current.empresaId,
+      _gestion,
+      userId: usuarioId,
+    );
+    final actor = actorId ?? usuarioId;
+    if (level != kRolAdmin &&
+        !(comprasRolPuedeEliminarPropiasPendientes(level) &&
+            current.creadoPor.trim() == actor.trim() &&
+            estadoRecepcionCompras(current) ==
+                EstadoRecepcionCompras.pendiente)) {
+      throw StateError(
+        'Solo puedes eliminar tus recepciones pendientes de revisión.',
+      );
+    }
     final recepcionRef = _db.collection('TBL_COMPRAS_RECEPCIONES').doc(id);
     final vinculadas = await _db
         .collection(kAbastecimientoCollection)
+        .where('empresaId', isEqualTo: data['empresaId'])
         .where('recepcionId', isEqualTo: id)
         .get();
     final now = Timestamp.now();
@@ -556,6 +660,16 @@ class ComprasService {
       });
 
   Future<String> guardarRecepcion(RecepcionDoc r) async {
+    await _exigirEmpresa(r.empresaId, _gestion);
+    if (r.id.isNotEmpty) {
+      await _exigirDocumento(
+        'TBL_COMPRAS_RECEPCIONES',
+        r.id,
+        _gestion,
+        empresaId: r.empresaId,
+      );
+    }
+
     final ref = r.id.isEmpty
         ? _db.collection('TBL_COMPRAS_RECEPCIONES').doc()
         : _db.collection('TBL_COMPRAS_RECEPCIONES').doc(r.id);
@@ -639,6 +753,13 @@ class ComprasService {
     required String userId,
     required String motivo,
   }) async {
+    await _exigirDocumento(
+      'TBL_COMPRAS_RECEPCIONES',
+      recepcion.id,
+      _gestion,
+      empresaId: recepcion.empresaId,
+    );
+
     final recepcionId = recepcion.id.trim();
     if (recepcionId.isEmpty) {
       throw StateError('No se encontró la recepción para completar.');
@@ -782,6 +903,8 @@ class ComprasService {
     required String userId,
     required Map<String, DocAdjunto> correcciones,
   }) async {
+    await _exigirDocumento('TBL_COMPRAS_RECEPCIONES', recepcionId, _gestion);
+
     final ref = _db.collection('TBL_COMPRAS_RECEPCIONES').doc(recepcionId);
     late RecepcionDoc actualizada;
     await _transaccion((tx) async {
@@ -895,6 +1018,8 @@ class ComprasService {
     required String docKey,
     required DocAdjunto doc,
   }) async {
+    await _exigirDocumento('TBL_COMPRAS_RECEPCIONES', recepcionId, _gestion);
+
     final ref = _db.collection('TBL_COMPRAS_RECEPCIONES').doc(recepcionId);
     await _transaccion((tx) async {
       final snap = await tx.get(ref);
@@ -970,6 +1095,13 @@ class ComprasService {
     required String docKey,
     required String revisadoPor,
   }) async {
+    await _exigirDocumento(
+      'TBL_COMPRAS_RECEPCIONES',
+      recepcion.id,
+      _calidad,
+      empresaId: recepcion.empresaId,
+    );
+
     if (esDocumentoTransitorioRecepcion(docKey)) {
       throw StateError(
         'Los documentos transitorios de recepción solo se pueden consultar o rechazar.',
@@ -1035,6 +1167,13 @@ class ComprasService {
     required DateTime fechaLimite,
     required String revisadoPor,
   }) async {
+    await _exigirDocumento(
+      'TBL_COMPRAS_RECEPCIONES',
+      recepcion.id,
+      _calidad,
+      empresaId: recepcion.empresaId,
+    );
+
     if (productoIdx < 0 || productoIdx >= recepcion.productos.length) return;
     final productos = List<RecepcionProducto>.from(recepcion.productos);
     final producto = productos[productoIdx];
@@ -1103,6 +1242,13 @@ class ComprasService {
     required String revertidoPor,
     bool rechazar = false,
   }) async {
+    await _exigirDocumento(
+      'TBL_COMPRAS_RECEPCIONES',
+      recepcion.id,
+      _calidad,
+      empresaId: recepcion.empresaId,
+    );
+
     final motivoLimpio = motivo.trim();
     if (motivoLimpio.isEmpty) {
       throw StateError('Debes indicar el motivo de la reversión.');
@@ -1197,6 +1343,11 @@ class ComprasService {
     required String docKey,
     required String revisadoPor,
   }) async {
+    await _exigirDocumento('TBL_COMPRAS_RECEPCIONES', recepcion.id, {
+      ..._gestion,
+      kRolConsultas,
+    }, empresaId: recepcion.empresaId);
+
     if (!esDocumentoTransitorioRecepcion(docKey)) {
       throw StateError(
         'Solo los documentos transitorios pueden marcarse como consultados.',
@@ -1231,6 +1382,13 @@ class ComprasService {
     required String motivo,
     required String revisadoPor,
   }) async {
+    await _exigirDocumento(
+      'TBL_COMPRAS_RECEPCIONES',
+      recepcion.id,
+      _calidad,
+      empresaId: recepcion.empresaId,
+    );
+
     if (productoIdx < 0 || productoIdx >= recepcion.productos.length) return;
     final productos = List<RecepcionProducto>.from(recepcion.productos);
     final rp = productos[productoIdx];
@@ -1305,6 +1463,7 @@ class ComprasService {
       });
 
   Future<String> generarCodigoMarca(String empresaId) async {
+    await _exigirEmpresa(empresaId, _catalogo);
     final configRef = _db.collection('TBL_COMPRAS_CONFIG').doc(empresaId);
     int seq = 1;
     await _transaccion((tx) async {
@@ -1316,6 +1475,16 @@ class ComprasService {
   }
 
   Future<String> guardarMarca(MarcaDoc m, {required bool isNew}) async {
+    await _exigirEmpresa(m.empresaId, _catalogo);
+    if (!isNew) {
+      await _exigirDocumento(
+        'TBL_COMPRAS_MARCAS',
+        m.id,
+        _catalogo,
+        empresaId: m.empresaId,
+      );
+    }
+
     final existentesSnap = await _db
         .collection('TBL_COMPRAS_MARCAS')
         .where('empresaId', isEqualTo: m.empresaId)
@@ -1344,12 +1513,15 @@ class ComprasService {
   Future<void> actualizarDocumentosAsociadosMarca({
     required String marcaId,
     required Map<String, DocAdjunto> documentos,
-  }) => _db.collection('TBL_COMPRAS_MARCAS').doc(marcaId).update({
-    'documentosAsociados': documentos.map(
-      (key, value) => MapEntry(key, value.toMap()),
-    ),
-    'updatedAt': FieldValue.serverTimestamp(),
-  });
+  }) async {
+    await _exigirDocumento('TBL_COMPRAS_MARCAS', marcaId, _catalogo);
+    await _db.collection('TBL_COMPRAS_MARCAS').doc(marcaId).update({
+      'documentosAsociados': documentos.map(
+        (key, value) => MapEntry(key, value.toMap()),
+      ),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
 
   /// Recupera documentos vinculados a una marca que quedaron almacenados por
   /// modelos anteriores. Es solo una vista consolidada: no modifica Firestore
@@ -1390,6 +1562,8 @@ class ComprasService {
     required String docKey,
     required String revisadoPor,
   }) async {
+    await _exigirDocumento('TBL_COMPRAS_MARCAS', marcaId, _calidad);
+
     final ref = _db.collection('TBL_COMPRAS_MARCAS').doc(marcaId);
     final snap = await ref.get();
     if (!snap.exists || snap.data() == null) return;
@@ -1451,6 +1625,8 @@ class ComprasService {
     required DateTime fechaLimite,
     required String revisadoPor,
   }) async {
+    await _exigirDocumento('TBL_COMPRAS_MARCAS', marcaId, _calidad);
+
     final ref = _db.collection('TBL_COMPRAS_MARCAS').doc(marcaId);
     final snap = await ref.get();
     if (!snap.exists || snap.data() == null) return;
@@ -1497,6 +1673,8 @@ class ComprasService {
     required String revertidoPor,
     bool rechazar = false,
   }) async {
+    await _exigirDocumento('TBL_COMPRAS_MARCAS', marcaId, _calidad);
+
     final motivoLimpio = motivo.trim();
     if (motivoLimpio.isEmpty) {
       throw StateError('Debes indicar el motivo de la reversión.');
@@ -1551,6 +1729,8 @@ class ComprasService {
     required String motivo,
     required String revisadoPor,
   }) async {
+    await _exigirDocumento('TBL_COMPRAS_MARCAS', marcaId, _calidad);
+
     final ref = _db.collection('TBL_COMPRAS_MARCAS').doc(marcaId);
     final snap = await ref.get();
     if (!snap.exists || snap.data() == null) return;
@@ -1600,8 +1780,10 @@ class ComprasService {
     );
   }
 
-  Future<void> eliminarMarca(String id) =>
-      _db.collection('TBL_COMPRAS_MARCAS').doc(id).delete();
+  Future<void> eliminarMarca(String id) async {
+    await _exigirDocumento('TBL_COMPRAS_MARCAS', id, {kRolAdmin});
+    await _db.collection('TBL_COMPRAS_MARCAS').doc(id).delete();
+  }
 
   // ─── STORAGE ────────────────────────────────────────────────────────────────
 
@@ -1615,6 +1797,8 @@ class ComprasService {
     /// Si es true, el doc se marca como 'pendiente' de revisión calidad
     bool pendienteCalidad = false,
   }) async {
+    await _exigirEmpresa(empresaId, _gestion);
+
     final ts = DateTime.now().millisecondsSinceEpoch;
     final safeName = nombre.replaceAll(RegExp(r'[^\w.\-]'), '_');
     final path = 'compras/$empresaId/$carpeta/${ts}_$safeName';
@@ -1645,6 +1829,8 @@ class ComprasService {
     required String contentType,
     String productoId = '',
   }) async {
+    await _exigirEmpresa(empresaId, _gestion, userId: userId);
+
     final empresa = empresaId.trim();
     final entidad = entidadId.trim();
     final usuario = userId.trim();
@@ -1653,6 +1839,23 @@ class ComprasService {
         'No se pudo identificar el documento del requerimiento.',
       );
     }
+
+    final collection = switch (tipo) {
+      'marca' => 'TBL_COMPRAS_MARCAS',
+      'ficha' => 'TBL_COMPRAS_FICHAS_TECNICAS',
+      'proveedor' => 'TBL_COMPRAS_PROVEEDORES',
+      'recepcion' => 'TBL_COMPRAS_RECEPCIONES',
+      _ => throw StateError(
+        'Tipo de documento de Compras no soportado: $tipo.',
+      ),
+    };
+    await _exigirDocumento(
+      collection,
+      entidad,
+      _gestion,
+      empresaId: empresa,
+      userId: userId,
+    );
 
     DocAdjunto? actual;
     MarcaDoc? marca;
@@ -1898,6 +2101,12 @@ class ComprasService {
   }
 
   Future<void> eliminarArchivo(String path) async {
+    final parts = path.split('/');
+    if (parts.length < 3 || parts.first != 'compras') {
+      throw StateError('El archivo no pertenece a Compras.');
+    }
+    await _exigirEmpresa(parts[1], _gestion);
+
     try {
       await _storage.ref(path).delete();
     } catch (_) {}
@@ -1907,6 +2116,8 @@ class ComprasService {
     String empresaId, {
     Duration? maxAge,
   }) async {
+    await _exigirEmpresa(empresaId, _gestion);
+
     final effectiveAge =
         maxAge ?? Duration(days: await obtenerDiasPlazoRechazados(empresaId));
     final limite = DateTime.now().subtract(effectiveAge);
@@ -2063,144 +2274,40 @@ class ComprasService {
               ..sort((a, b) => a.nombre.compareTo(b.nombre)),
       );
 
-  Future<ComprasRolDoc?> getRolUsuario(String empresaId, String userId) async {
-    // Query single-field only (no composite index needed) + client filter
-    final snap = await _db
-        .collection('TBL_COMPRAS_ROLES')
-        .where('empresaId', isEqualTo: empresaId)
-        .get();
-    final identity = userId.trim();
-    final match = snap.docs.where((d) {
-      final data = d.data();
-      return (data['userId'] ?? '').toString().trim() == identity ||
-          (data['cedula'] ?? '').toString().trim() == identity;
-    });
-    if (match.isEmpty) return null;
-    return ComprasRolDoc.fromMap(match.first.id, match.first.data());
-  }
-
-  Future<ComprasRolDoc?> resolveRolUsuario(
-    String empresaId,
-    String userId,
-  ) async {
-    final explicit = await getRolUsuario(empresaId, userId);
-    if (explicit != null) return explicit;
-
-    final userSnap = await _resolveUserDoc(userId);
-    final data = userSnap?.data();
-    if (userSnap == null || data == null) return null;
-
-    final rol = _inferComprasRolFromUserData(data, empresaId);
-    if (rol == null) return null;
-
-    final cedula = (data['cedula'] ?? userId).toString().trim();
-    final nombre = [
-      (data['nombres'] ?? data['primerNombre'] ?? '').toString().trim(),
-      (data['apellidos'] ?? data['primerApellido'] ?? '').toString().trim(),
-    ].where((part) => part.isNotEmpty).join(' ').trim();
-
-    return ComprasRolDoc(
-      empresaId: empresaId,
-      userId: userSnap.id,
-      cedula: cedula.isEmpty ? userId : cedula,
-      nombre: nombre.isEmpty
-          ? (data['nombre'] ?? data['usuario'] ?? userSnap.id).toString()
-          : nombre,
-      rol: rol,
-      createdAt: Timestamp.now(),
-    );
-  }
-
+  Future<ComprasRolDoc?> getRolUsuario(String empresaId, String userId) =>
+      ComprasAccessService(db: _db).explicitRole(empresaId, userId);
+  Future<ComprasRolDoc?> resolveRolUsuario(String empresaId, String userId) =>
+      ComprasAccessService(db: _db).resolve(empresaId, userId);
   Future<DocumentSnapshot<Map<String, dynamic>>?> _resolveUserDoc(
     String userId,
-  ) async {
-    if (userId.trim().isEmpty) return null;
+  ) => ComprasAccessService(db: _db).userDocument(userId);
 
-    final direct = await _db.collection('TBL_USUARIOS').doc(userId).get();
-    if (direct.exists) return direct;
-
-    final byCedula = await _db
-        .collection('TBL_USUARIOS')
-        .where('cedula', isEqualTo: userId)
-        .limit(1)
-        .get();
-    if (byCedula.docs.isNotEmpty) return byCedula.docs.first;
-
-    return null;
-  }
-
-  String? _inferComprasRolFromUserData(
-    Map<String, dynamic> data,
-    String empresaId,
-  ) {
-    final scoped = data['empresasDetalle'];
-    if (scoped is Map) {
-      final rawDetail = scoped[empresaId];
-      if (rawDetail is Map) {
-        final detail = rawDetail.map(
-          (key, value) => MapEntry(key.toString(), value),
-        );
-        final scopedRol = _firstNormalizedComprasRol(detail);
-        if (scopedRol != null) return scopedRol;
-      }
-    }
-    // El cargo de la raíz es de la empresa principal: no deduce el rol de
-    // Compras en otra empresa (los roles de la raíz sí siguen valiendo).
-    if (!raizEsDeEmpresa(data, empresaId)) {
-      return _firstNormalizedComprasRol(
-        Map<String, dynamic>.from(data)
-          ..remove('cargo')
-          ..remove('cargoNombre'),
+  Future<void> guardarComprasRol(ComprasRolDoc role, {required bool isNew}) =>
+      PurchaseModuleRolesRepository(
+        db: _db,
+        actorId: actorId ?? '',
+      ).setIndividualLevel(
+        empresaId: role.empresaId,
+        userId: role.userId,
+        level: role.rol,
       );
-    }
-    return _firstNormalizedComprasRol(data);
+  Future<void> eliminarComprasRol(String id) async {
+    final document = await _db.collection('TBL_COMPRAS_ROLES').doc(id).get();
+    if (!document.exists) return;
+    final data = document.data()!;
+    final user = await _resolveUserDoc(
+      (data['userId'] ?? data['cedula'] ?? '').toString(),
+    );
+    if (user == null) throw StateError('La persona ya no existe.');
+    await PurchaseModuleRolesRepository(
+      db: _db,
+      actorId: actorId ?? '',
+    ).setIndividualLevel(
+      empresaId: data['empresaId'].toString(),
+      userId: user.id,
+      level: '',
+    );
   }
-
-  String? _firstNormalizedComprasRol(Map<String, dynamic> data) {
-    const keys = [
-      'rolCompras',
-      'comprasRol',
-      'rol_compras',
-      'roleCompras',
-      'roleKey',
-      'role',
-      'rol',
-      'roleName',
-      'cargo',
-      'cargoNombre',
-    ];
-    for (final key in keys) {
-      final rol = normalizeComprasRol(data[key]?.toString());
-      if (rol == null) continue;
-      if (rol == kRolCalidad ||
-          rol == kRolAdmin ||
-          rol == kRolCompras ||
-          rol == kRolBodega ||
-          rol == kRolConsultas) {
-        return rol;
-      }
-    }
-    return null;
-  }
-
-  Future<void> guardarComprasRol(ComprasRolDoc r, {required bool isNew}) async {
-    if (isNew) {
-      // ID determinístico {empresaId}_{userId} — evita query compuesto y duplicados
-      final docId = '${r.empresaId}_${r.userId}';
-      await _db
-          .collection('TBL_COMPRAS_ROLES')
-          .doc(docId)
-          .set(r.toMap(), SetOptions(merge: true));
-    } else {
-      await _db
-          .collection('TBL_COMPRAS_ROLES')
-          .doc(r.id)
-          .set(r.toMap(), SetOptions(merge: true));
-    }
-  }
-
-  Future<void> eliminarComprasRol(String id) =>
-      _db.collection('TBL_COMPRAS_ROLES').doc(id).delete();
 
   // ─── NOTIFICACIONES ──────────────────────────────────────────────────────────
 
@@ -2338,10 +2445,21 @@ class ComprasService {
         .collection('TBL_COMPRAS_ROLES')
         .where('empresaId', isEqualTo: empresaId)
         .get();
-    final conRol = snap.docs
-        .map((d) => ComprasRolDoc.fromMap(d.id, d.data()))
-        .where((r) => normalizeComprasRol(r.rol) == objetivo)
-        .toList();
+    final byUser = <String, ComprasRolDoc>{};
+    final canonical = <String, ComprasRolDoc>{};
+    for (final doc in snap.docs) {
+      final role = ComprasRolDoc.fromMap(doc.id, doc.data());
+      final user = await _resolveUserDoc(
+        role.userId.isNotEmpty ? role.userId : role.cedula,
+      );
+      if (user == null) continue;
+      byUser.putIfAbsent(user.id, () => role);
+      if (doc.id == '${empresaId}_${user.id}') canonical[user.id] = role;
+    }
+    final conRol = {
+      ...byUser,
+      ...canonical,
+    }.values.where((r) => normalizeComprasRol(r.rol) == objetivo).toList();
     // A un inhabilitado no se le asigna ni notifica nada: no puede entrar a
     // la app y la tarea quedaría huérfana. Su rol se conserva por si lo
     // habilitan de nuevo.
@@ -2351,8 +2469,8 @@ class ComprasService {
         r.userId.trim().isNotEmpty ? r.userId : r.cedula,
       );
       final data = doc?.data();
-      if (data == null || personaHabilitadaEn(data, empresaId)) {
-        // Sin ficha no se puede saber: se conserva como antes.
+      if (data != null &&
+          (await resolveRolUsuario(empresaId, doc!.id))?.rol == objetivo) {
         activos.add(r);
       }
     }
@@ -2592,6 +2710,12 @@ class ComprasService {
     required String nombreDocumento,
     String? urlDocumento,
   }) async {
+    await _exigirDocumento(
+      TaskService.tasksCol,
+      taskId,
+      _gestion,
+      userId: subidoPor,
+    );
     final ref = _db.collection(TaskService.tasksCol).doc(taskId);
     await _transaccion((tx) async {
       final snap = await tx.get(ref);
@@ -2749,6 +2873,8 @@ class ComprasService {
     String empresaId,
     List<ReqDocumentoDoc> docs,
   ) async {
+    await _exigirEmpresa(empresaId, _catalogo, configuracion: true);
+
     const batchSize = 499;
     final col = _db.collection('TBL_COMPRAS_REQ_DOCUMENTOS');
 
@@ -2935,6 +3061,16 @@ class ComprasService {
     String observacion = '',
     String actualizadoPor = '',
   }) async {
+    await _exigirEmpresa(ficha.empresaId, _gestion);
+    if (!isNew) {
+      await _exigirDocumento(
+        'TBL_COMPRAS_FICHAS_TECNICAS',
+        ficha.id,
+        _gestion,
+        empresaId: ficha.empresaId,
+      );
+    }
+
     final ref = isNew
         ? _db.collection('TBL_COMPRAS_FICHAS_TECNICAS').doc()
         : _db.collection('TBL_COMPRAS_FICHAS_TECNICAS').doc(ficha.id);
@@ -2988,6 +3124,24 @@ class ComprasService {
   /// Elimina completamente una ficha técnica:
   /// borra archivo(s) en Storage (doc actual + historial) y el doc en Firestore.
   Future<void> eliminarFichaTecnica(FichaTecnicaDoc ficha) async {
+    final data = await _exigirDocumento(
+      'TBL_COMPRAS_FICHAS_TECNICAS',
+      ficha.id,
+      _gestion,
+      empresaId: ficha.empresaId,
+    );
+    final current = FichaTecnicaDoc.fromMap(ficha.id, data);
+    final level = await _exigirEmpresa(current.empresaId, _gestion);
+    if (level != kRolAdmin &&
+        !(comprasRolPuedeEliminarPropiasPendientes(level) &&
+            fichaTecnicaEliminablePorAutor(current, actorId ?? ''))) {
+      throw StateError(
+        'Solo puedes eliminar tus fichas pendientes de revisión.',
+      );
+    }
+    // Usa los archivos vigentes del registro, no una copia anterior del formulario.
+    ficha = current;
+
     // 1. Borrar archivo del documentoActual
     final doc = ficha.documentoActual;
     if (doc != null && doc.path != null && doc.path!.isNotEmpty) {
@@ -3012,6 +3166,8 @@ class ComprasService {
     required String fichaId,
     required String revisadoPor,
   }) async {
+    await _exigirDocumento('TBL_COMPRAS_FICHAS_TECNICAS', fichaId, _calidad);
+
     final ref = _db.collection('TBL_COMPRAS_FICHAS_TECNICAS').doc(fichaId);
     final snap = await ref.get();
     if (!snap.exists) return;
@@ -3068,6 +3224,8 @@ class ComprasService {
     required DateTime fechaLimite,
     required String revisadoPor,
   }) async {
+    await _exigirDocumento('TBL_COMPRAS_FICHAS_TECNICAS', fichaId, _calidad);
+
     final ref = _db.collection('TBL_COMPRAS_FICHAS_TECNICAS').doc(fichaId);
     final snap = await ref.get();
     if (!snap.exists || snap.data() == null) return;
@@ -3113,10 +3271,13 @@ class ComprasService {
     required String proveedorId,
     required String docKey,
     required DocAdjunto doc,
-  }) => _db.collection('TBL_COMPRAS_PROVEEDORES').doc(proveedorId).update({
-    'documentos.$docKey': doc.toMap(),
-    'updatedAt': FieldValue.serverTimestamp(),
-  });
+  }) async {
+    await _exigirDocumento('TBL_COMPRAS_PROVEEDORES', proveedorId, _catalogo);
+    await _db.collection('TBL_COMPRAS_PROVEEDORES').doc(proveedorId).update({
+      'documentos.$docKey': doc.toMap(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
 
   /// Aprueba un documento del proveedor (estadoCalidad = 'aprobado').
   Future<void> aprobarDocProveedor({
@@ -3124,6 +3285,8 @@ class ComprasService {
     required String docKey,
     required String revisadoPor,
   }) async {
+    await _exigirDocumento('TBL_COMPRAS_PROVEEDORES', proveedorId, _calidad);
+
     final ref = _db.collection('TBL_COMPRAS_PROVEEDORES').doc(proveedorId);
     final snap = await ref.get();
     if (!snap.exists) return;
@@ -3179,6 +3342,8 @@ class ComprasService {
     required DateTime fechaLimite,
     required String revisadoPor,
   }) async {
+    await _exigirDocumento('TBL_COMPRAS_PROVEEDORES', proveedorId, _calidad);
+
     final ref = _db.collection('TBL_COMPRAS_PROVEEDORES').doc(proveedorId);
     final snap = await ref.get();
     if (!snap.exists || snap.data() == null) return;
@@ -3220,6 +3385,8 @@ class ComprasService {
     required String motivo,
     required String revisadoPor,
   }) async {
+    await _exigirDocumento('TBL_COMPRAS_PROVEEDORES', proveedorId, _calidad);
+
     final ref = _db.collection('TBL_COMPRAS_PROVEEDORES').doc(proveedorId);
     final snap = await ref.get();
     if (!snap.exists) return;
@@ -3285,6 +3452,8 @@ class ComprasService {
     required String revertidoPor,
     bool rechazar = false,
   }) async {
+    await _exigirDocumento('TBL_COMPRAS_PROVEEDORES', proveedorId, _calidad);
+
     final motivoLimpio = motivo.trim();
     if (motivoLimpio.isEmpty) {
       throw StateError('Debes indicar el motivo de la reversión.');
@@ -3363,6 +3532,8 @@ class ComprasService {
     required String revertidoPor,
     bool rechazar = false,
   }) async {
+    await _exigirDocumento('TBL_COMPRAS_FICHAS_TECNICAS', fichaId, _calidad);
+
     final motivoLimpio = motivo.trim();
     if (motivoLimpio.isEmpty) {
       throw StateError('Debes indicar el motivo de la reversión.');
@@ -3438,6 +3609,8 @@ class ComprasService {
     required String marcaNombre,
     required String proveedorNombre,
   }) async {
+    await _exigirDocumento('TBL_COMPRAS_FICHAS_TECNICAS', fichaId, _calidad);
+
     final ref = _db.collection('TBL_COMPRAS_FICHAS_TECNICAS').doc(fichaId);
     final snap = await ref.get();
     if (!snap.exists) return;

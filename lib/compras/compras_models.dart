@@ -256,8 +256,12 @@ String labelComprasRol(String? raw) {
 }
 
 /// Abastecimiento es un flujo operativo, no una vista de solo lectura.
-bool comprasRolPuedeVerAbastecimiento(String? raw) =>
-    normalizeComprasRol(raw) != kRolConsultas;
+bool comprasRolPuedeVerAbastecimiento(String? raw) => const {
+  kRolAdmin,
+  kRolCalidad,
+  kRolCompras,
+  kRolBodega,
+}.contains(normalizeComprasRol(raw));
 
 /// La agenda operativa de Abastecimiento solo corresponde a quienes coordinan
 /// la compra o reciben físicamente el pedido.
