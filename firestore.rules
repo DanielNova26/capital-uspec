@@ -1222,6 +1222,28 @@ service cloud.firestore {
       allow delete: if gestionaRolesDeModulo(empresaId,'comprasdashboard');
     }
 
+    // Bitácora de Admin (Logs): migraciones, limpiezas, cierres,
+    // multiempresa. Antes estaba en la regla general y cualquiera la leía,
+    // la editaba o la borraba (29 sep 2026). Solo se agrega: nadie la cambia.
+    // La crea quien firma la acción, con la hora del servidor; el nombre de
+    // la empresa no se exige al crear porque Multiempresa registra con la
+    // empresa de referencia de la persona (o '*') en el mismo lote que su
+    // cambio, y negar el registro tumbaría el cambio.
+    match /TBL_MIGRATIONS_LOGS/{logId} {
+      allow read: if isDeveloperFor(resource.data.get('empresaId', ''))
+        || (belongsToCompany(resource.data.get('empresaId', ''))
+          && tieneAppAdminEn(resource.data.empresaId));
+      allow create: if isSignedIn()
+        && !cuentaInhabilitada(currentUser())
+        && request.resource.data.get('adminUserId', '')
+          == request.auth.token.userDocId
+        && request.resource.data.get('action', '') is string
+        && request.resource.data.action.size() > 0
+        && request.resource.data.get('empresaId', '') is string
+        && request.resource.data.get('createdAt', null) == request.time;
+      allow update, delete: if false;
+    }
+
     match /TBL_ROLES/{docId} {
       allow read: if isSignedIn();
       allow create: if esRolDeModulo(request.resource.data)
@@ -1597,6 +1619,7 @@ service cloud.firestore {
           'TBL_VISITAS_GRUPOS',
           'TBL_CORREO_ROLES',
           'TBL_ROLES',
+          'TBL_MIGRATIONS_LOGS',
           'TBL_GD_TIPOS_DOCUMENTALES',
           'TBL_GD_EXPEDIENTES_EVENTOS',
           'TBL_GD_COLABORACION',

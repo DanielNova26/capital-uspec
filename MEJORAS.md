@@ -6,6 +6,62 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Admin: Migraciones y Logs revisados — 29 sep 2026 (Claude)
+
+Se revisó para qué sirve cada herramienta hoy. Lo que ya no cumple un papel
+se retiró; lo demás se corrigió.
+
+### Migraciones (Usuarios → Migraciones de usuarios)
+- **Centro de costos: se queda, corregida.** Asigna un centro del catálogo a
+  las personas elegidas.
+  - Escribía el centro también en los datos generales aunque se migrara
+    desde una empresa que no es la principal: le cambiaba el centro de su
+    empresa principal. Ahora los datos generales solo se tocan si es su
+    principal.
+  - Escribía la ficha con `set(merge)`, que no entiende rutas con punto:
+    creaba campos sueltos llamados `empresasDetalle.X.centroId` y **la ficha
+    nunca cambiaba**. Ahora escribe la ficha de verdad y borra esos campos
+    sueltos si quedaron.
+  - Quien no es de la empresa activa no se toca. "Cancelar" al elegir el
+    centro ya cancela (antes simulaba igual).
+- **Tokens (fcmToken): retirada.** La app registra el token de cada
+  dispositivo en `fcmTokens` al entrar y las notificaciones leen ese campo
+  primero; copiar tokens viejos a `fcmToken` no le servía a nadie.
+- **App IDs: retirada.** La app, las reglas y Admin ya aceptan el nombre
+  corto y el largo de cada app, y Admin guarda el largo en cada cambio. El
+  único lugar que comparaba exacto (Visitas en el calendario del inicio) ya
+  compara por equivalencia.
+- **Eliminar todas las tareas: se queda** como estaba (pide escribir BORRAR
+  y queda en Logs). Sirve para reiniciar una empresa en prueba.
+- El selector de personas muestra foto, nombre y cargo de la empresa activa,
+  de a 20 por página; los elegidos se ven con nombre y foto, no con la
+  cédula.
+
+### Logs
+- **Servidor:** `TBL_MIGRATIONS_LOGS` sale de la regla general. La lee Admin
+  de esa empresa o Desarrollo; se agrega solo a nombre propio y con la hora
+  del servidor; nadie la edita ni la borra. No se exige la empresa al crear:
+  Multiempresa registra con la empresa de referencia de la persona (o `*`)
+  en el mismo lote que su cambio, y negar el registro tumbaría el cambio.
+- **Pantalla** (`lib/admin/admin_logs_panel.dart`): trae los 200 más
+  recientes ordenados por el servidor (antes 200 sin orden, de los que
+  mostraba 50), con persona (foto y nombre), fecha, la acción en español,
+  conteos y Simulación/Ejecutado, de a 20 por página. Ya no vuelve a leer la
+  bitácora en cada redibujo de Admin. Sin el índice nuevo desplegado, cae a
+  la consulta de antes.
+- Aclara que no registra el día a día (asignar roles, apps, editar
+  personas).
+
+### Pruebas
+- Nuevas: `test/admin/admin_migrations_logs_test.dart` (8) y
+  `functions/test/admin_logs.rules.js` (3).
+- Totales: 1.339 de la app, 104 de Functions, 105 de reglas (2 omitidas
+  desde antes). `flutter analyze` sin errores.
+
+### Despliegue
+`firebase deploy --only firestore:rules,firestore:indexes,hosting` (índice
+nuevo `TBL_MIGRATIONS_LOGS`: `empresaId` + `createdAt` descendente).
+
 ## Admin: roles configurables de Gerencia — 29 sep 2026 (Claude)
 
 Gerencia no tenía niveles: quien tenía la app veía todo. Decisiones del

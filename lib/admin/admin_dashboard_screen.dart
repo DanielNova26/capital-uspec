@@ -52,6 +52,7 @@ import 'payment_module_roles_repository.dart';
 import 'library_module_roles_panel.dart';
 import 'correspondence_module_roles_panel.dart';
 import 'payment_module_roles_panel.dart';
+import 'admin_logs_panel.dart';
 import 'billing_module_role.dart';
 import 'management_module_role.dart';
 import 'management_module_roles_panel.dart';
@@ -1123,6 +1124,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       builder: (ctx) {
         final local = {..._selectedMigrationUsers};
         String q = '';
+        int page = 0;
+        final empresaId = _empresaId ?? widget.empresaId;
 
         List<QueryDocumentSnapshot<Map<String, dynamic>>> filtered() {
           if (q.trim().isEmpty) return _users;
@@ -1131,7 +1134,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             final d = u.data();
             final name = _userName(d, u.id).toLowerCase();
             final ced = _safe(d['cedula']).toLowerCase();
-            final cargo = _safe(d['cargo']).toLowerCase();
+            final cargo = _userCargoText(d, empresaId).toLowerCase();
             return name.contains(s) ||
                 ced.contains(s) ||
                 u.id.toLowerCase().contains(s) ||
@@ -1142,6 +1145,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         return StatefulBuilder(
           builder: (ctx2, setLocal) {
             final list = filtered();
+            final pagina = page.clamp(0, pageCountOf(list.length) - 1);
+            final visibles = pageOf(list, pagina);
 
             return SafeArea(
               child: Padding(
@@ -1186,7 +1191,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           fillColor: Colors.white,
                         ),
                         style: const TextStyle(fontFamily: kArial),
-                        onChanged: (v) => setLocal(() => q = v),
+                        onChanged: (v) => setLocal(() {
+                          q = v;
+                          page = 0;
+                        }),
                       ),
 
                       const SizedBox(height: 10),
@@ -1275,20 +1283,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                             side: BorderSide(color: Colors.grey.shade300),
                           ),
                           child: ListView.separated(
-                            itemCount: list.length,
+                            itemCount: visibles.length,
                             separatorBuilder: (_, _) =>
                                 Divider(height: 0, color: Colors.grey.shade200),
                             itemBuilder: (_, i) {
-                              final u = list[i];
+                              final u = visibles[i];
                               final d = u.data();
                               final name = _userName(d, u.id);
                               final ced = _safe(d['cedula']).isNotEmpty
                                   ? _safe(d['cedula'])
                                   : u.id;
-                              final cargo = _safe(d['cargo']);
+                              final cargo = _userCargoText(d, empresaId);
                               final checked = local.contains(u.id);
 
                               return CheckboxListTile(
+                                secondary: UserAvatar(
+                                  userId: u.id,
+                                  nameHint: name,
+                                  radius: 16,
+                                ),
                                 value: checked,
                                 activeColor: kAdminPrimary,
                                 controlAffinity:
@@ -1329,6 +1342,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           ),
                         ),
                       ),
+                      PagerBar(
+                        total: list.length,
+                        page: pagina,
+                        etiqueta: 'personas',
+                        onPageChanged: (p) => setLocal(() => page = p),
+                      ),
                     ],
                   ),
                 ),
@@ -1361,8 +1380,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
     CentroCostoItem centroCanonical = enabledCentros.first;
 
-    // selector centro canónico
-    await showDialog(
+    // Selector del centro. Cancelar no sigue (antes simulaba igual).
+    final elegido = await showDialog<bool>(
       context: context,
       builder: (_) {
         return AlertDialog(
@@ -1391,7 +1410,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(context, false),
               child: const Text(
                 'Cancelar',
                 style: TextStyle(fontFamily: kArial),
@@ -1399,7 +1418,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: kAdminPrimary),
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(context, true),
               child: const Text(
                 'Continuar',
                 style: TextStyle(
@@ -1413,155 +1432,58 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       },
     );
 
+    if (elegido != true || !mounted) return;
     if (!dryRun) {
       final ok = await _confirm(
         title: 'Ejecutar migración de Centro',
         message:
             'Usuarios seleccionados: ${_selectedMigrationUsers.length}\n'
-            'Centro canónico: ${centroCanonical.nombre}\n\n'
-            'Esto SOLO actualizará TBL_USUARIOS (no tareas/cargos/estructura).\n¿Continuar?',
+            'Centro: ${centroCanonical.nombre}\n\n'
+            'Se actualiza la ficha de esta empresa en TBL_USUARIOS; los datos '
+            'generales solo si es su empresa principal. No toca tareas, '
+            'cargos ni la estructura.\n¿Continuar?',
         confirmText: 'Ejecutar',
       );
       if (!ok) return;
     }
 
     setState(() => _loading = true);
-
-    final result = await _mig.normalizeCentroForUsers(
-      empresaId: empresaId,
-      userIds: _selectedMigrationUsers,
-      canonicalCentroId: centroCanonical.centroId,
-      canonicalCentroCodigo: centroCanonical.codigo,
-      canonicalCentroNombre: centroCanonical.nombre,
-      dryRun: dryRun,
-    );
-
-    await _mig.logMigration(
-      adminUserId: widget.userId,
-      empresaId: empresaId,
-      action: 'normalizeCentroForUsers',
-      scanned: result.scanned,
-      updated: result.updated,
-      dryRun: dryRun,
-      extra: {
-        'selectedUsersCount': _selectedMigrationUsers.length,
-        'canonicalCentroId': centroCanonical.centroId,
-        'canonicalCentroCodigo': centroCanonical.codigo,
-        'canonicalCentroNombre': centroCanonical.nombre,
-        'sample': result.sampleUpdatedIds,
-      },
-    );
-
-    _snack(
-      dryRun
-          ? 'SIMULACIÓN Centro: escaneados ${result.scanned}, a cambiar ${result.updated}'
-          : 'Centro ejecutado: escaneados ${result.scanned}, cambiados ${result.updated}',
-    );
-
-    await _loadAll(forceEmpresaId: empresaId);
-  }
-
-  // ---------------- MIGRACIONES: TOKENS SOLO USUARIOS SELECCIONADOS ----------------
-  Future<void> _runNormalizeTokensSelectedUsers({required bool dryRun}) async {
-    final empresaId = _empresaId ?? '';
-    if (empresaId.isEmpty) return;
-
-    if (_selectedMigrationUsers.isEmpty) {
-      _snack('Selecciona usuarios para migrar');
-      return;
-    }
-
-    if (!dryRun) {
-      final ok = await _confirm(
-        title: 'Ejecutar normalización de Tokens',
-        message:
-            'Usuarios seleccionados: ${_selectedMigrationUsers.length}\n\n'
-            'Se copiará token/fcm_token a fcmToken si aplica.\n¿Continuar?',
-        confirmText: 'Ejecutar',
+    try {
+      final result = await _mig.normalizeCentroForUsers(
+        empresaId: empresaId,
+        userIds: _selectedMigrationUsers,
+        canonicalCentroId: centroCanonical.centroId,
+        canonicalCentroCodigo: centroCanonical.codigo,
+        canonicalCentroNombre: centroCanonical.nombre,
+        dryRun: dryRun,
       );
-      if (!ok) return;
-    }
 
-    setState(() => _loading = true);
-
-    final result = await _mig.normalizeUserTokensForUsers(
-      empresaId: empresaId,
-      userIds: _selectedMigrationUsers,
-      dryRun: dryRun,
-    );
-
-    await _mig.logMigration(
-      adminUserId: widget.userId,
-      empresaId: empresaId,
-      action: 'normalizeUserTokensForUsers',
-      scanned: result.scanned,
-      updated: result.updated,
-      dryRun: dryRun,
-      extra: {
-        'selectedUsersCount': _selectedMigrationUsers.length,
-        'sample': result.sampleUpdatedIds,
-      },
-    );
-
-    _snack(
-      dryRun
-          ? 'SIMULACIÓN Tokens: escaneados ${result.scanned}, a cambiar ${result.updated}'
-          : 'Tokens ejecutado: escaneados ${result.scanned}, cambiados ${result.updated}',
-    );
-
-    await _loadAll(forceEmpresaId: empresaId);
-  }
-
-  // ---------------- MIGRACIONES: APP IDs SOLO USUARIOS SELECCIONADOS ----------------
-  Future<void> _runNormalizeAppIdsSelectedUsers({required bool dryRun}) async {
-    final empresaId = _empresaId ?? '';
-    if (empresaId.isEmpty) return;
-
-    if (_selectedMigrationUsers.isEmpty) {
-      _snack('Selecciona usuarios para migrar');
-      return;
-    }
-
-    if (!dryRun) {
-      final ok = await _confirm(
-        title: 'Ejecutar normalización de App IDs',
-        message:
-            'Usuarios seleccionados: ${_selectedMigrationUsers.length}\n\n'
-            'Se reemplazarán IDs cortos (compras, admin…) por IDs completos '
-            '(comprasdashboard, admindashboard…) en el campo "apps".\n¿Continuar?',
-        confirmText: 'Ejecutar',
+      await _mig.logMigration(
+        adminUserId: widget.userId,
+        empresaId: empresaId,
+        action: 'normalizeCentroForUsers',
+        scanned: result.scanned,
+        updated: result.updated,
+        dryRun: dryRun,
+        extra: {
+          'selectedUsersCount': _selectedMigrationUsers.length,
+          'canonicalCentroId': centroCanonical.centroId,
+          'canonicalCentroCodigo': centroCanonical.codigo,
+          'canonicalCentroNombre': centroCanonical.nombre,
+          'sample': result.sampleUpdatedIds,
+        },
       );
-      if (!ok) return;
+
+      _snack(
+        dryRun
+            ? 'SIMULACIÓN Centro: revisados ${result.scanned}, a cambiar ${result.updated}'
+            : 'Centro ejecutado: revisados ${result.scanned}, cambiados ${result.updated}',
+      );
+    } catch (error) {
+      _snack('No se pudo migrar el centro: $error');
+    } finally {
+      await _loadAll(forceEmpresaId: empresaId);
     }
-
-    setState(() => _loading = true);
-
-    final result = await _mig.normalizeAppIdsForUsers(
-      empresaId: empresaId,
-      userIds: _selectedMigrationUsers,
-      dryRun: dryRun,
-    );
-
-    await _mig.logMigration(
-      adminUserId: widget.userId,
-      empresaId: empresaId,
-      action: 'normalizeAppIdsForUsers',
-      scanned: result.scanned,
-      updated: result.updated,
-      dryRun: dryRun,
-      extra: {
-        'selectedUsersCount': _selectedMigrationUsers.length,
-        'sample': result.sampleUpdatedIds,
-      },
-    );
-
-    _snack(
-      dryRun
-          ? 'SIMULACIÓN App IDs: escaneados ${result.scanned}, a cambiar ${result.updated}'
-          : 'App IDs ejecutado: escaneados ${result.scanned}, cambiados ${result.updated}',
-    );
-
-    await _loadAll(forceEmpresaId: empresaId);
   }
 
   // ---------------- MIGRACIONES: ELIMINAR TODAS LAS TAREAS (EMPRESA ACTIVA) ----------------
@@ -1690,29 +1612,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       _snack('Tareas eliminadas: $deleted');
     } finally {
       await _loadAll(forceEmpresaId: empresaId);
-    }
-  }
-
-  // ---------------- LOGS ----------------
-  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _loadLogs() async {
-    final empresaId = _empresaId ?? '';
-    if (empresaId.isEmpty) return [];
-    try {
-      final snap = await FirebaseFirestore.instance
-          .collection('TBL_MIGRATIONS_LOGS')
-          .where('empresaId', isEqualTo: empresaId)
-          .limit(200)
-          .get();
-      final docs = [...snap.docs];
-      docs.sort((a, b) {
-        final aTs = (a.data()['createdAt'] as Timestamp?) ?? Timestamp(0, 0);
-        final bTs = (b.data()['createdAt'] as Timestamp?) ?? Timestamp(0, 0);
-        return bTs.compareTo(aTs);
-      });
-      return docs.take(50).toList();
-    } catch (e) {
-      _snack('No fue posible cargar logs: $e');
-      return [];
     }
   }
 
@@ -11674,7 +11573,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 ),
                 const SizedBox(height: 6),
                 const Text(
-                  'Primero selecciona usuarios. Luego puedes simular o ejecutar.',
+                  'Arreglos puntuales de fichas en la empresa activa. Primero '
+                  'selecciona usuarios; luego simula (cuenta sin escribir) o '
+                  'ejecuta. Cada corrida queda en Logs.',
                   style: TextStyle(
                     fontFamily: kArial,
                     fontSize: 12,
@@ -11724,7 +11625,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                         .map(
                           (id) => Chip(
                             backgroundColor: const Color(0xFFE8FBFF),
-                            label: Text(
+                            avatar: UserAvatar(userId: id, radius: 11),
+                            label: UserNameText(
                               id,
                               style: const TextStyle(
                                 fontFamily: kArial,
@@ -11819,125 +11721,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Tokens (fcmToken) → SOLO usuarios seleccionados',
-                  style: TextStyle(
-                    fontFamily: kArial,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () =>
-                            _runNormalizeTokensSelectedUsers(dryRun: true),
-                        icon: const Icon(Icons.visibility),
-                        label: const Text(
-                          'Simular',
-                          style: TextStyle(fontFamily: kArial),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: kAdminPrimary,
-                        ),
-                        onPressed: () =>
-                            _runNormalizeTokensSelectedUsers(dryRun: false),
-                        icon: const Icon(Icons.play_arrow),
-                        label: const Text(
-                          'Ejecutar',
-                          style: TextStyle(
-                            fontFamily: kArial,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-
-        const SizedBox(height: 12),
-
-        Card(
-          color: kAdminCard,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'App IDs (formato canónico) → SOLO usuarios seleccionados',
-                  style: TextStyle(
-                    fontFamily: kArial,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  'Convierte IDs cortos (compras, admin…) a IDs completos (comprasdashboard, admindashboard…).',
-                  style: TextStyle(
-                    fontFamily: kArial,
-                    fontSize: 12,
-                    color: Colors.black54,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () =>
-                            _runNormalizeAppIdsSelectedUsers(dryRun: true),
-                        icon: const Icon(Icons.visibility),
-                        label: const Text(
-                          'Simular',
-                          style: TextStyle(fontFamily: kArial),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: kAdminPrimary,
-                        ),
-                        onPressed: () =>
-                            _runNormalizeAppIdsSelectedUsers(dryRun: false),
-                        icon: const Icon(Icons.play_arrow),
-                        label: const Text(
-                          'Ejecutar',
-                          style: TextStyle(
-                            fontFamily: kArial,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-
-        const SizedBox(height: 12),
-
-        Card(
-          color: kAdminCard,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
                   'Eliminar todas las tareas (empresa activa)',
                   style: TextStyle(
                     fontFamily: kArial,
@@ -11981,55 +11764,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   // ---------------- TAB: LOGS ----------------
   Widget _tabLogs() {
-    return FutureBuilder(
-      future: _loadLogs(),
-      builder:
-          (
-            context,
-            AsyncSnapshot<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-            snap,
-          ) {
-            if (!snap.hasData) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            final docs = snap.data ?? [];
-            if (docs.isEmpty) {
-              return const Center(
-                child: Text('Sin logs', style: TextStyle(fontFamily: kArial)),
-              );
-            }
-
-            return ListView.separated(
-              padding: const EdgeInsets.all(12),
-              itemCount: docs.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 10),
-              itemBuilder: (_, i) {
-                final d = docs[i].data();
-                final action = (d['action'] ?? '').toString();
-                final scanned = (d['scanned'] ?? 0).toString();
-                final updated = (d['updated'] ?? 0).toString();
-                final dryRun = (d['dryRun'] as bool?) ?? false;
-
-                return Card(
-                  color: kAdminCard,
-                  child: ListTile(
-                    leading: const Icon(Icons.bolt, color: kAdminAccent),
-                    title: Text(
-                      action,
-                      style: const TextStyle(
-                        fontFamily: kArial,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    subtitle: Text(
-                      'Scanned: $scanned • Updated: $updated • ${dryRun ? "SIMULACIÓN" : "EJECUTADO"}',
-                      style: const TextStyle(fontFamily: kArial),
-                    ),
-                  ),
-                );
-              },
-            );
-          },
+    final empresaId = _empresaId ?? widget.empresaId;
+    return AdminLogsPanel(
+      key: ValueKey('logs_$empresaId'),
+      empresaId: empresaId,
     );
   }
 

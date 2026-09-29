@@ -241,6 +241,14 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "TBL_MIGRATIONS_LOGS",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "empresaId", "order": "ASCENDING"},
+        {"fieldPath": "createdAt", "order": "DESCENDING"}
+      ]
     }
   ],
   "fieldOverrides": []
