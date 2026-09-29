@@ -46,7 +46,11 @@ class MemoryFirestore extends Fake implements FirebaseFirestore {
       documents[entry.key] = entry.value;
       writes++;
     }
-    for (final path in transaction.pending.keys) {
+    for (final path in transaction.deleted) {
+      documents.remove(path);
+      writes++;
+    }
+    for (final path in {...transaction.pending.keys, ...transaction.deleted}) {
       notifyDocument(path);
     }
     return result;
@@ -92,6 +96,9 @@ class _Query extends Fake implements Query<Map<String, dynamic>> {
     Iterable<Object?>? whereNotIn,
     bool? isNull,
   }) => _Query(db, path, [...filters, (field.toString(), isEqualTo)]);
+
+  @override
+  Query<Map<String, dynamic>> limit(int limit) => this;
 
   dynamic _value(Map<String, dynamic> data, String field) {
     dynamic value = data;
@@ -155,6 +162,11 @@ class _Document extends Fake
       });
 
   @override
+  Future<void> delete() => db.runTransaction((tx) async {
+    tx.delete(this);
+  });
+
+  @override
   Future<DocumentSnapshot<Map<String, dynamic>>> get([
     GetOptions? options,
   ]) async => _Snapshot(
@@ -197,6 +209,18 @@ class _Transaction extends Fake implements Transaction {
   _Transaction(this.db);
   final MemoryFirestore db;
   final pending = <String, Map<String, dynamic>>{};
+  final deleted = <String>{};
+
+  @override
+  Transaction delete(DocumentReference<Object?> reference) {
+    if (db.rejectWrites.contains(reference.path)) {
+      throw StateError('Escritura rechazada');
+    }
+    pending.remove(reference.path);
+    deleted.add(reference.path);
+    return this;
+  }
+
   @override
   Future<DocumentSnapshot<T>> get<T extends Object?>(
     DocumentReference<T> reference,

@@ -76,7 +76,9 @@ test("un rol de módulo mal formado no entra", async () => {
   const db = auth("admin");
   await assertFails(setDoc(doc(db, "TBL_ROLES/EMP_A_mod_tareas_x"), rol({revision: 0})));
   await assertFails(setDoc(doc(db, "TBL_ROLES/EMP_A_mod_tareas_x"), rol({enabled: "si"})));
-  await assertFails(setDoc(doc(db, "TBL_ROLES/EMP_A_mod_tareas_x"), rol({moduleId: "comprasdashboard"})));
+  // Un módulo que no tiene roles configurables (Compras sí los tiene desde
+  // el 29 sep 2026).
+  await assertFails(setDoc(doc(db, "TBL_ROLES/EMP_A_mod_tareas_x"), rol({moduleId: "inventadodashboard"})));
   // El id tiene que ser de su empresa.
   await assertFails(setDoc(doc(db, "TBL_ROLES/EMP_B_mod_tareas_x"), rol()));
   // No se cambia de empresa ni de módulo al editar.

@@ -172,6 +172,7 @@ class AprobadoPorLinea extends StatelessWidget {
 /// Botón que abre el historial completo de decisiones de un documento
 /// o de toda una entidad (recepción, proveedor, ficha).
 class HistorialAprobacionesBoton extends StatelessWidget {
+  final String empresaId;
   final String entidadId;
   final String? docKey;
   final String titulo;
@@ -179,6 +180,7 @@ class HistorialAprobacionesBoton extends StatelessWidget {
 
   const HistorialAprobacionesBoton({
     super.key,
+    required this.empresaId,
     required this.entidadId,
     this.docKey,
     this.titulo = 'Historial de aprobaciones',
@@ -190,6 +192,7 @@ class HistorialAprobacionesBoton extends StatelessWidget {
     return TextButton.icon(
       onPressed: () => mostrarHistorialAprobaciones(
         context,
+        empresaId: empresaId,
         entidadId: entidadId,
         docKey: docKey,
         titulo: titulo,
@@ -210,12 +213,14 @@ class HistorialAprobacionesBoton extends StatelessWidget {
 
 Future<void> mostrarHistorialAprobaciones(
   BuildContext context, {
+  required String empresaId,
   required String entidadId,
   String? docKey,
   String titulo = 'Historial de aprobaciones',
 }) {
   final ancho = MediaQuery.sizeOf(context).width;
   final contenido = _HistorialAprobacionesLista(
+    empresaId: empresaId,
     entidadId: entidadId,
     docKey: docKey,
   );
@@ -268,6 +273,7 @@ Future<void> mostrarHistorialAprobaciones(
           ),
           Expanded(
             child: _HistorialAprobacionesLista(
+              empresaId: empresaId,
               entidadId: entidadId,
               docKey: docKey,
               controller: controller,
@@ -280,11 +286,13 @@ Future<void> mostrarHistorialAprobaciones(
 }
 
 class _HistorialAprobacionesLista extends StatelessWidget {
+  final String empresaId;
   final String entidadId;
   final String? docKey;
   final ScrollController? controller;
 
   const _HistorialAprobacionesLista({
+    required this.empresaId,
     required this.entidadId,
     this.docKey,
     this.controller,
@@ -292,11 +300,13 @@ class _HistorialAprobacionesLista extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Consulta por igualdad sobre un solo campo: no necesita índice compuesto.
-    // El orden y el filtro por documento se resuelven en memoria porque un
-    // expediente no acumula tantos eventos como para que pese.
+    // Consulta por igualdad: no necesita índice compuesto. El orden y el
+    // filtro por documento se resuelven en memoria porque un expediente no
+    // acumula tantos eventos como para que pese. La empresa va en la consulta
+    // porque las reglas solo dejan leer las aprobaciones de la propia.
     final stream = FirebaseFirestore.instance
         .collection(kComprasAprobacionesColl)
+        .where('empresaId', isEqualTo: empresaId)
         .where('entidadId', isEqualTo: entidadId)
         .snapshots();
 

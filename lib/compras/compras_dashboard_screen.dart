@@ -21658,6 +21658,7 @@ class _FichaCalidadCard extends StatelessWidget {
             Align(
               alignment: Alignment.centerLeft,
               child: HistorialAprobacionesBoton(
+                empresaId: ficha.empresaId,
                 entidadId: ficha.id,
                 docKey: 'fichaTecnica',
                 titulo: 'Historial de aprobaciones · Ficha técnica',
@@ -22724,6 +22725,7 @@ class _RecepcionCalidadCard extends StatelessWidget {
           Align(
             alignment: Alignment.centerLeft,
             child: HistorialAprobacionesBoton(
+              empresaId: recepcion.empresaId,
               entidadId: recepcion.id,
               docKey: docKey,
               titulo: 'Historial de aprobaciones · $label',

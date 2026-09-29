@@ -349,14 +349,60 @@ service cloud.firestore {
         ];
     }
 
+    // Rol de la persona en la tabla de un módulo (`{tabla}/{empresa}_{yo}`),
+    // en minúsculas; vacío si no tiene.
+    function rolEnTabla(coleccion, empresaId) {
+      let path = /databases/$(database)/documents/$(coleccion)/$(empresaId + '_' + request.auth.token.userDocId);
+      return exists(path) ? estadoTexto(get(path).data.get('rol', '')) : '';
+    }
+
+    // Administrador de Compras, Rutas, Interventoría o Visitas (Gerencia) por
+    // su asignación en la tabla del módulo (29 sep 2026, roles configurables
+    // con tabla propia).
+    // Sin mirar la empresa: va después de un `belongsToCompany`.
+    function adminDeModuloTablaEn(empresaId, moduleId) {
+      return (moduleId == 'comprasdashboard'
+          && rolEnTabla('TBL_COMPRAS_ROLES', empresaId) == 'admin')
+        || (moduleId == 'rutasdashboard'
+          && rolEnTabla('TBL_RUTAS_ROLES', empresaId) in ['admin', 'admin_calidad'])
+        || (moduleId == 'interventoriadashboard'
+          && rolEnTabla('TBL_INTERVENTORIA_ROLES', empresaId) == 'admin_interventoria')
+        || (moduleId == 'visitasdashboard'
+          && rolEnTabla('TBL_VISITAS_ROLES', empresaId) == 'gerencia');
+    }
+
     // Quién crea, edita y asigna roles de módulo: igual que
     // `canManageModuleRoles` del cliente (Desarrollo, o la app Admin en la
-    // empresa) y, para los de Correspondencia, su administrador del módulo.
+    // empresa) y el administrador del propio módulo (Correspondencia,
+    // Compras, Rutas, Interventoría).
     function gestionaRolesDeModulo(empresaId, moduleId) {
       return belongsToCompany(empresaId)
         && (tieneAppAdminEn(empresaId)
           || (moduleId == 'correodashboard' && esAdminCorreoEn(empresaId))
+          || adminDeModuloTablaEn(empresaId, moduleId)
           || isDeveloper() || isDeveloperIn(empresaId));
+    }
+
+    // Asignación en la tabla de un módulo (Compras, Rutas, Interventoría):
+    // Admin de la empresa o Desarrollo a cualquiera; el administrador del
+    // módulo a los demás, no a sí mismo (igual que el cliente).
+    function asignaEnTablaDeModulo(empresaId, userId, moduleId) {
+      return belongsToCompany(empresaId)
+        && (tieneAppAdminEn(empresaId)
+          || (userId != request.auth.token.userDocId
+            && adminDeModuloTablaEn(empresaId, moduleId))
+          || isDeveloper() || isDeveloperIn(empresaId));
+    }
+
+    // Contrato de la asignación en una tabla de módulo: id
+    // `{empresa}_{usuario}` y un nivel conocido (vacío = rol inactivo en
+    // Rutas e Interventoría).
+    function asignacionDeTablaValida(docId, data, niveles) {
+      return data.get('empresaId', '') is string
+        && data.get('userId', '') is string
+        && data.userId.size() > 0
+        && docId == data.empresaId + '_' + data.userId
+        && data.get('rol', '') in niveles;
     }
 
     function esRolDeModulo(data) {
@@ -371,7 +417,8 @@ service cloud.firestore {
         && docId[0:data.empresaId.size() + 5] == data.empresaId + '_mod_'
         && data.get('moduleId', '') in ['correodashboard',
           'planillaspagodashboard', 'bibliotecadocumentaldashboard',
-          'tareasdashboard']
+          'tareasdashboard', 'comprasdashboard', 'rutasdashboard',
+          'interventoriadashboard', 'visitasdashboard']
         && data.get('enabled', null) is bool
         && data.get('revision', null) is int && data.revision >= 1
         && data.get('nombre', '') is string
@@ -423,8 +470,11 @@ service cloud.firestore {
     // No se exige tener el módulo asignado: la lista de módulos vive en la
     // ficha del usuario, que todavía puede escribir cualquiera (P0 de
     // Seguridad transversal). Las citas las consulta el calendario de
-    // Inicio de todo el personal.
-    function nutricionDeSuEmpresa() {
+    // Inicio de todo el personal. La regla es `documentoDeSuEmpresa`.
+    // Documento de una sola empresa: se lee, crea, cambia y borra solo en la
+    // propia (y por nadie inhabilitado en ella), y no cambia de empresa.
+    // Nutrición y Compras.
+    function documentoDeSuEmpresa() {
       return request.method == 'create'
         ? belongsToCompany(request.resource.data.empresaId)
         : belongsToCompany(resource.data.empresaId)
@@ -433,68 +483,68 @@ service cloud.firestore {
     }
 
     match /TBL_PACIENTES/{docId} {
-      allow get: if resource == null || nutricionDeSuEmpresa();
-      allow list, create, update, delete: if nutricionDeSuEmpresa();
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
     }
     match /TBL_VALORACIONES_NUTRICION/{docId} {
-      allow get: if resource == null || nutricionDeSuEmpresa();
-      allow list, create, update, delete: if nutricionDeSuEmpresa();
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
     }
     match /TBL_MEDICIONES_NUTRICION/{docId} {
-      allow get: if resource == null || nutricionDeSuEmpresa();
-      allow list, create, update, delete: if nutricionDeSuEmpresa();
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
     }
     match /TBL_PATOLOGIAS/{docId} {
-      allow get: if resource == null || nutricionDeSuEmpresa();
-      allow list, create, update, delete: if nutricionDeSuEmpresa();
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
     }
     match /TBL_DIETAS/{docId} {
-      allow get: if resource == null || nutricionDeSuEmpresa();
-      allow list, create, update, delete: if nutricionDeSuEmpresa();
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
     }
     match /TBL_ASIGNACIONES_DIETA/{docId} {
-      allow get: if resource == null || nutricionDeSuEmpresa();
-      allow list, create, update, delete: if nutricionDeSuEmpresa();
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
     }
     match /TBL_CARNETS_NUTRICION/{docId} {
-      allow get: if resource == null || nutricionDeSuEmpresa();
-      allow list, create, update, delete: if nutricionDeSuEmpresa();
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
     }
     match /TBL_MENUS/{docId} {
-      allow get: if resource == null || nutricionDeSuEmpresa();
-      allow list, create, update, delete: if nutricionDeSuEmpresa();
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
     }
     match /TBL_DERIVACIONES_NUTRICION/{docId} {
-      allow get: if resource == null || nutricionDeSuEmpresa();
-      allow list, create, update, delete: if nutricionDeSuEmpresa();
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
     }
     match /TBL_ALERTAS_NUTRICION/{docId} {
-      allow get: if resource == null || nutricionDeSuEmpresa();
-      allow list, create, update, delete: if nutricionDeSuEmpresa();
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
     }
     match /TBL_FIRMAS/{docId} {
-      allow get: if resource == null || nutricionDeSuEmpresa();
-      allow list, create, update, delete: if nutricionDeSuEmpresa();
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
     }
     match /TBL_EVIDENCIAS_NUTRICION/{docId} {
-      allow get: if resource == null || nutricionDeSuEmpresa();
-      allow list, create, update, delete: if nutricionDeSuEmpresa();
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
     }
     match /TBL_PLANTILLAS_MENUS/{docId} {
-      allow get: if resource == null || nutricionDeSuEmpresa();
-      allow list, create, update, delete: if nutricionDeSuEmpresa();
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
     }
     match /TBL_INGREDIENTES/{docId} {
-      allow get: if resource == null || nutricionDeSuEmpresa();
-      allow list, create, update, delete: if nutricionDeSuEmpresa();
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
     }
     match /TBL_DIRECTORIO_NUTRICION/{docId} {
-      allow get: if resource == null || nutricionDeSuEmpresa();
-      allow list, create, update, delete: if nutricionDeSuEmpresa();
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
     }
     match /TBL_CITAS_NUTRICION/{docId} {
-      allow get: if resource == null || nutricionDeSuEmpresa();
-      allow list, create, update, delete: if nutricionDeSuEmpresa();
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
     }
 
     // Historial del paciente: `{empresa}-{paciente}/registros`. La consulta
@@ -590,19 +640,28 @@ service cloud.firestore {
     // subcentro, y con la regla anterior recibía permission-denied cuando
     // la respuesta era "no existe" (21 sep 2026, "no me quiere cargar").
     // Mismo arreglo que Interventoría el 11 sep.
+    // 29 sep 2026 (roles configurables): Admin de la empresa también lee y
+    // asigna, sin dar ni quitar Gerencia (eso sigue siendo de Desarrollo), y
+    // un rol inactivo deja el rol vacío (sin rol). Admin va justo después de
+    // Desarrollo: al final, detrás de Jefe y Gerencia, se pasaba del tope de
+    // 1000 expresiones.
     match /TBL_VISITAS_ROLES/{docId} {
       allow get: if resource == null
         || (belongsToCompany(resource.data.empresaId)
           && (resource.data.userId == request.auth.token.userDocId
-            || administraVisitasEn(resource.data.empresaId)));
+            || administraVisitasEn(resource.data.empresaId)
+            || tieneAppAdminEn(resource.data.empresaId)));
       allow list: if belongsToCompany(resource.data.empresaId)
         && (resource.data.userId == request.auth.token.userDocId
-          || administraVisitasEn(resource.data.empresaId));
+          || administraVisitasEn(resource.data.empresaId)
+          || tieneAppAdminEn(resource.data.empresaId));
       allow create: if belongsToCompany(request.resource.data.empresaId)
         && docId == request.resource.data.empresaId + '_' + request.resource.data.userId
-        && request.resource.data.rol in ['jefe', 'profesional', 'consulta', 'firmante', 'gerencia']
+        && request.resource.data.rol in ['', 'jefe', 'profesional', 'consulta', 'firmante', 'gerencia']
         && request.resource.data.areaId is string
         && (isDeveloper() || isDeveloperIn(request.resource.data.empresaId)
+          || (request.resource.data.rol != 'gerencia'
+            && tieneAppAdminEn(request.resource.data.empresaId))
           || (request.resource.data.rol == 'profesional'
             && administraVisitasAreaEn(request.resource.data.empresaId,
               request.resource.data.areaId))
@@ -612,9 +671,12 @@ service cloud.firestore {
       allow update: if resource.data.empresaId == request.resource.data.empresaId
         && resource.data.userId == request.resource.data.userId
         && belongsToCompany(resource.data.empresaId)
-        && request.resource.data.rol in ['jefe', 'profesional', 'consulta', 'firmante', 'gerencia']
+        && request.resource.data.rol in ['', 'jefe', 'profesional', 'consulta', 'firmante', 'gerencia']
         && request.resource.data.areaId is string
         && (isDeveloper() || isDeveloperIn(resource.data.empresaId)
+          || (resource.data.rol != 'gerencia'
+            && request.resource.data.rol != 'gerencia'
+            && tieneAppAdminEn(resource.data.empresaId))
           || (resource.data.rol == 'profesional'
             && request.resource.data.rol == 'profesional'
             && resource.data.areaId == request.resource.data.areaId
@@ -627,6 +689,8 @@ service cloud.firestore {
             && gerenciaVisitasEn(resource.data.empresaId)));
       allow delete: if belongsToCompany(resource.data.empresaId)
         && (isDeveloper() || isDeveloperIn(resource.data.empresaId)
+          || (resource.data.rol != 'gerencia'
+            && tieneAppAdminEn(resource.data.empresaId))
           || (resource.data.rol == 'profesional'
             && resource.data.userId != request.auth.token.userDocId
             && administraVisitasAreaEn(resource.data.empresaId,
@@ -958,12 +1022,36 @@ service cloud.firestore {
         || hasInterventoriaRole(empresaId, ['admin_interventoria']);
     }
 
+    // 29 sep 2026: el módulo pregunta primero por `{empresa}_{usuario}`, que
+    // puede no existir (responde vacío), y Admin de la empresa asigna con el
+    // contrato validado (roles configurables).
     match /TBL_INTERVENTORIA_ROLES/{docId} {
-      allow read: if belongsToCompany(resource.data.empresaId);
-      allow create: if administraInterventoria(request.resource.data.empresaId);
+      allow get: if resource == null || belongsToCompany(resource.data.empresaId);
+      allow list: if belongsToCompany(resource.data.empresaId);
+      allow create: if gestionaRolesInterventoria(request.resource.data.empresaId,
+        asignacionDeTablaValida(docId, request.resource.data,
+          nivelesInterventoria()));
       allow update: if resource.data.empresaId == request.resource.data.empresaId
-        && administraInterventoria(resource.data.empresaId);
-      allow delete: if administraInterventoria(resource.data.empresaId);
+        && gestionaRolesInterventoria(resource.data.empresaId,
+          asignacionDeTablaValida(docId, request.resource.data,
+            nivelesInterventoria()));
+      allow delete: if gestionaRolesInterventoria(resource.data.empresaId, true);
+    }
+
+    // Quién escribe roles de Interventoría: su administrador y Desarrollo,
+    // como siempre, y Admin de la empresa con el contrato validado. La
+    // empresa se mira una sola vez (tope de expresiones).
+    function gestionaRolesInterventoria(empresaId, contratoValido) {
+      return belongsToCompany(empresaId)
+        && (rolEnTabla('TBL_INTERVENTORIA_ROLES', empresaId) == 'admin_interventoria'
+          || (contratoValido && tieneAppAdminEn(empresaId))
+          || isDeveloper() || isDeveloperIn(empresaId));
+    }
+
+    function nivelesInterventoria() {
+      return ['', 'admin_interventoria', 'registrador_interventoria',
+        'revisor_interventoria', 'calidad_interventoria',
+        'gerente_interventoria', 'directivo_interventoria'];
     }
 
     // La matriz de responsables cambia quién recibe tareas reales. Solo la
@@ -1120,6 +1208,89 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ── Compras (29 sep 2026) ─────────────────────────────────────────────
+    // Estaba entero en la regla general: cualquiera con sesión, de cualquier
+    // empresa, leía y cambiaba proveedores, fichas técnicas y recepciones, y
+    // podía darse el rol de admin en `TBL_COMPRAS_ROLES`. Ahora cada
+    // documento es de su empresa (`documentoDeSuEmpresa`) y los roles los
+    // asigna Admin de la empresa, Desarrollo o el admin de Compras.
+    //
+    // Todavía no se exige un rol por acción: muchas personas tienen el rol de
+    // Compras deducido de su cargo y no en la tabla, y las reglas solo ven la
+    // tabla. Cuando todos tengan su asignación (roles configurables en Admin),
+    // se puede cerrar por rol, empezando por borrar.
+    match /TBL_COMPRAS_ROLES/{docId} {
+      allow get: if resource == null || belongsToCompany(resource.data.empresaId);
+      allow list: if belongsToCompany(resource.data.empresaId);
+      allow create: if asignacionDeTablaValida(docId, request.resource.data,
+          ['consultas', 'bodega', 'compras', 'calidad', 'admin'])
+        && asignaEnTablaDeModulo(request.resource.data.empresaId,
+          request.resource.data.userId, 'comprasdashboard');
+      allow update: if resource.data.empresaId == request.resource.data.empresaId
+        && resource.data.get('userId', '') == request.resource.data.userId
+        && asignacionDeTablaValida(docId, request.resource.data,
+          ['consultas', 'bodega', 'compras', 'calidad', 'admin'])
+        && asignaEnTablaDeModulo(resource.data.empresaId,
+          request.resource.data.userId, 'comprasdashboard');
+      allow delete: if asignaEnTablaDeModulo(resource.data.empresaId,
+        resource.data.get('userId', ''), 'comprasdashboard');
+    }
+
+    // Configuración por empresa (docId = empresa): plazos y consecutivos que
+    // cualquiera de Compras actualiza al crear una marca.
+    match /TBL_COMPRAS_CONFIG/{empresaId} {
+      allow read, write: if belongsToCompany(empresaId);
+    }
+
+    match /TBL_COMPRAS_PROVEEDORES/{docId} {
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
+    }
+    match /TBL_COMPRAS_MARCAS/{docId} {
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
+    }
+    match /TBL_COMPRAS_PRODUCTOS/{docId} {
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
+    }
+    match /TBL_COMPRAS_FICHAS_TECNICAS/{docId} {
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
+    }
+    match /TBL_COMPRAS_RECEPCIONES/{docId} {
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
+    }
+    match /TBL_COMPRAS_REQ_DOCUMENTOS/{docId} {
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
+    }
+    match /TBL_COMPRAS_GRUPOS/{docId} {
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
+    }
+    match /TBL_COMPRAS_BODEGAS/{docId} {
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
+    }
+    match /TBL_COMPRAS_APROBACIONES/{docId} {
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
+    }
+    match /TBL_COMPRAS_ABASTECIMIENTO/{docId} {
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
+    }
+    match /TBL_COMPRAS_ABASTECIMIENTO_REPORTES/{docId} {
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
+    }
+    match /TBL_COMPRAS_AUDITORIA_DOCUMENTOS/{docId} {
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
+    }
+
     // ── Rutas (28 sep 2026) ───────────────────────────────────────────────
     // Estaba entero en la regla general: cualquiera con sesión, de cualquier
     // empresa, podía darse el rol de administrador, leer las claves de Google
@@ -1174,12 +1345,15 @@ service cloud.firestore {
     // demás, a otras personas: no se cambia a sí mismo ni da o quita el
     // perfil de desarrollador. [antes] y [despues] son el rol que tenía y el
     // que queda (iguales al crear o borrar): la empresa se mira una sola vez.
+    // 29 sep 2026: también Admin de la empresa (roles configurables), sin el
+    // perfil de desarrollo.
     function asignaRolRutas(empresaId, userId, antes, despues) {
       return belongsToCompany(empresaId)
-        && ((userId != request.auth.token.userDocId
-            && !(antes in ['desarrollador', 'developer'])
+        && ((!(antes in ['desarrollador', 'developer'])
             && !(despues in ['desarrollador', 'developer'])
-            && rolRutas(empresaId) in ['admin', 'admin_calidad'])
+            && (tieneAppAdminEn(empresaId)
+              || (userId != request.auth.token.userDocId
+                && rolRutas(empresaId) in ['admin', 'admin_calidad'])))
           || isDeveloper() || isDeveloperIn(empresaId));
     }
 
@@ -1192,14 +1366,14 @@ service cloud.firestore {
       allow list: if belongsToCompany(resource.data.empresaId);
       allow create: if docId == request.resource.data.empresaId + '_'
           + request.resource.data.userId
-        && request.resource.data.rol in ['conductor', 'calidad', 'admin',
+        && request.resource.data.rol in ['', 'conductor', 'calidad', 'admin',
           'admin_calidad', 'desarrollador']
         && asignaRolRutas(request.resource.data.empresaId,
           request.resource.data.userId, request.resource.data.rol,
           request.resource.data.rol);
       allow update: if empresaSeConserva()
         && resource.data.get('userId', '') == request.resource.data.userId
-        && request.resource.data.rol in ['conductor', 'calidad', 'admin',
+        && request.resource.data.rol in ['', 'conductor', 'calidad', 'admin',
           'admin_calidad', 'desarrollador']
         && asignaRolRutas(resource.data.empresaId, request.resource.data.userId,
           resource.data.get('rol', ''), request.resource.data.rol);
@@ -1428,7 +1602,21 @@ service cloud.firestore {
           'TBL_INGREDIENTES',
           'TBL_DIRECTORIO_NUTRICION',
           'TBL_CITAS_NUTRICION',
-          'TBL_HISTORIAL_NUTRICION'
+          'TBL_HISTORIAL_NUTRICION',
+          'TBL_COMPRAS_ROLES',
+          'TBL_COMPRAS_CONFIG',
+          'TBL_COMPRAS_PROVEEDORES',
+          'TBL_COMPRAS_MARCAS',
+          'TBL_COMPRAS_PRODUCTOS',
+          'TBL_COMPRAS_FICHAS_TECNICAS',
+          'TBL_COMPRAS_RECEPCIONES',
+          'TBL_COMPRAS_REQ_DOCUMENTOS',
+          'TBL_COMPRAS_GRUPOS',
+          'TBL_COMPRAS_BODEGAS',
+          'TBL_COMPRAS_APROBACIONES',
+          'TBL_COMPRAS_ABASTECIMIENTO',
+          'TBL_COMPRAS_ABASTECIMIENTO_REPORTES',
+          'TBL_COMPRAS_AUDITORIA_DOCUMENTOS'
         ]);
     }
   }

@@ -1725,6 +1725,17 @@ class InterventoriaService {
     String empresaId,
     String userId,
   ) async {
+    // El documento `{empresa}_{usuario}` es el que asigna Admin y el único
+    // que ven las reglas: manda sobre copias viejas, también con el rol vacío
+    // de un rol configurable inactivo.
+    final canonico = await _db
+        .collection('TBL_INTERVENTORIA_ROLES')
+        .doc('${empresaId}_$userId')
+        .get();
+    final data = canonico.data();
+    if (data != null && (data['empresaId'] ?? '') == empresaId) {
+      return InterventoriaRolDoc.fromMap(canonico.id, data);
+    }
     final byUserId = await _db
         .collection('TBL_INTERVENTORIA_ROLES')
         .where('empresaId', isEqualTo: empresaId)

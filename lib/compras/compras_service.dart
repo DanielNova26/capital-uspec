@@ -13,8 +13,7 @@ import 'compras_catalog_logic.dart';
 import 'abastecimiento_models.dart';
 import 'abastecimiento_recepcion_sync.dart';
 import 'compras_models.dart';
-import '../utils/user_company.dart'
-    show personaHabilitadaEn, raizEsDeEmpresa;
+import '../utils/user_company.dart' show personaHabilitadaEn, raizEsDeEmpresa;
 import 'compras_recepcion_logic.dart';
 import 'compras_req_engine.dart';
 import 'compras_validation.dart';
@@ -478,8 +477,13 @@ class ComprasService {
 
   Future<void> eliminarRecepcion(String id, {String usuarioId = ''}) async {
     final recepcionRef = _db.collection('TBL_COMPRAS_RECEPCIONES').doc(id);
+    // Las entregas vinculadas se buscan dentro de la empresa de la recepción:
+    // las reglas solo dejan consultar las de la propia empresa.
+    final empresaId = ((await recepcionRef.get()).data()?['empresaId'] ?? '')
+        .toString();
     final vinculadas = await _db
         .collection(kAbastecimientoCollection)
+        .where('empresaId', isEqualTo: empresaId)
         .where('recepcionId', isEqualTo: id)
         .get();
     final now = Timestamp.now();
@@ -2064,12 +2068,25 @@ class ComprasService {
       );
 
   Future<ComprasRolDoc?> getRolUsuario(String empresaId, String userId) async {
+    // El documento `{empresa}_{usuario}` es el que asigna Admin (también con
+    // un rol configurable) y el único que ven las reglas: manda sobre copias
+    // viejas con otro id.
+    final identity = userId.trim();
+    if (identity.isNotEmpty) {
+      final canonico = await _db
+          .collection('TBL_COMPRAS_ROLES')
+          .doc('${empresaId}_$identity')
+          .get();
+      final data = canonico.data();
+      if (data != null && (data['empresaId'] ?? '') == empresaId) {
+        return ComprasRolDoc.fromMap(canonico.id, data);
+      }
+    }
     // Query single-field only (no composite index needed) + client filter
     final snap = await _db
         .collection('TBL_COMPRAS_ROLES')
         .where('empresaId', isEqualTo: empresaId)
         .get();
-    final identity = userId.trim();
     final match = snap.docs.where((d) {
       final data = d.data();
       return (data['userId'] ?? '').toString().trim() == identity ||

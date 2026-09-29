@@ -48,6 +48,9 @@ import 'payment_module_roles_repository.dart';
 import 'library_module_roles_panel.dart';
 import 'correspondence_module_roles_panel.dart';
 import 'payment_module_roles_panel.dart';
+import 'table_module_role.dart';
+import 'table_module_roles_panel.dart';
+import 'table_module_roles_repository.dart';
 import '../gestion_documental/gd_role_access.dart';
 import '../gestion_documental/correspondencia/gd_correspondencia_role_access.dart';
 import '../gestion_documental/planillas/pp_role_access.dart';
@@ -182,6 +185,34 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   CorrespondenceModuleRolesRepository get _correspondenceRolesRepo =>
       CorrespondenceModuleRolesRepository(actorId: widget.userId);
   List<PaymentModuleRole> _paymentModuleRoles = [];
+  // Compras, Rutas e Interventoría: roles configurables con tabla propia.
+  Map<String, List<TableModuleRole>> _tableModuleRoles = {};
+  TableModuleRolesRepository _tableRolesRepo(TableModuleRoleConfig config) =>
+      TableModuleRolesRepository(
+        config: config,
+        actorId: widget.userId,
+        camposDeNivel: config.moduleKey == 'visitas' ? _areaDeVisitas : null,
+      );
+
+  /// Jefe y Profesional trabajan dentro de un área: sale de la ficha o, si no
+  /// la trae, del cargo, llevada al id del catálogo (igual que antes en la
+  /// matriz). Los demás niveles no llevan área.
+  Future<Map<String, dynamic>> _areaDeVisitas(
+    String empresaId,
+    Map<String, dynamic> user,
+    String level,
+  ) async {
+    if (!visitasRolRequiereArea(level)) return {'areaId': ''};
+    final area = await VisitasService().areaParaRol(empresaId, user);
+    if (area.isEmpty && !isDeveloperUser(user, empresaId: empresaId)) {
+      throw StateError(
+        'No se encontró el área de ${_userName(user, '')}: '
+        'asígnala en Admin > Usuarios o en su cargo.',
+      );
+    }
+    return {'areaId': area};
+  }
+
   PaymentModuleRolesRepository get _paymentRolesRepo =>
       PaymentModuleRolesRepository(actorId: widget.userId);
   LibraryModuleRolesRepository get _libraryRolesRepo =>
@@ -458,6 +489,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         selected,
       );
       _paymentModuleRoles = _paymentRolesFromSources(_moduleSources, selected);
+      _tableModuleRoles = _tableRolesFromSources(_moduleSources, selected);
       _accessRoles = accessRoles;
       _comprasRoleByUser = comprasRoleByUser;
       _interventoriaRoleByUser = interventoriaRoleByUser;
@@ -530,6 +562,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           _moduleSources,
           empresaId,
         );
+        _tableModuleRoles = _tableRolesFromSources(_moduleSources, empresaId);
         _comprasRoleByUser = results[1] as Map<String, String>;
         _interventoriaRoleByUser = results[2] as Map<String, String>;
         _rutasRoleByUser = results[3] as Map<String, String>;
@@ -581,27 +614,33 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         .where('empresaId', isEqualTo: empresaId)
         .get();
     final out = <String, String>{};
+    // El documento `{empresa}_{usuario}` es el que asigna Admin y el que leen
+    // el módulo y las reglas: gana sobre copias viejas con otro id. Vacío en
+    // él (un rol de Rutas o Interventoría inactivado) también gana: la copia
+    // vieja no debe volver a mostrar un rol que ya no tiene.
     final canonical = <String, String>{};
     for (final doc in snap.docs) {
       final data = doc.data();
       final role = _safe(data['rol']);
-      if (role.isEmpty) continue;
       final userId = _safe(data['userId']).isNotEmpty
           ? _safe(data['userId'])
           : _safe(data['usuarioId']);
       final cedula = _safe(data['cedula']);
-      if (userId.isNotEmpty) {
-        if (collection == 'TBL_CORREO_ROLES') {
-          if (GdRolCorrespondencia.desdeTexto(role) == null) continue;
-          if (doc.id == '${empresaId}_$userId') canonical[userId] = role;
-          out.putIfAbsent(userId, () => role);
-        } else {
-          out[userId] = role;
-        }
+      final isCanonical = userId.isNotEmpty && doc.id == '${empresaId}_$userId';
+      if (collection == 'TBL_CORREO_ROLES' &&
+          GdRolCorrespondencia.desdeTexto(role) == null) {
+        continue;
       }
+      if (isCanonical) {
+        canonical[userId] = role;
+        if (cedula.isNotEmpty) canonical[cedula] = role;
+        continue;
+      }
+      if (role.isEmpty) continue;
+      if (userId.isNotEmpty) out.putIfAbsent(userId, () => role);
       if (cedula.isNotEmpty) out.putIfAbsent(cedula, () => role);
     }
-    return {...out, ...canonical};
+    return {...out, ...canonical}..removeWhere((_, role) => role.isEmpty);
   }
 
   Future<bool> _confirm({
@@ -3755,6 +3794,29 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         if (role.empresaId == empresaId) role,
   ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
+  Map<String, List<TableModuleRole>> _tableRolesFromSources(
+    AdminModuleSources sources,
+    String empresaId,
+  ) => {
+    for (final config in tableModuleRoleConfigs)
+      config.moduleKey: [
+        for (final source in sources.roles)
+          if (TableModuleRole.fromData(config, source.id, source.data)
+              case final role?)
+            if (role.empresaId == empresaId) role,
+      ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase())),
+  };
+
+  /// Nivel que la tabla del módulo tiene hoy para cada persona.
+  Map<String, String> _tableRoleByUser(TableModuleRoleConfig config) =>
+      switch (config.moduleKey) {
+        'compras' => _comprasRoleByUser,
+        'rutas' => _rutasRoleByUser,
+        'interventoria' => _interventoriaRoleByUser,
+        'visitas' => _visitasRoleByUser,
+        _ => const {},
+      };
+
   List<PaymentModuleRole> _paymentRolesFromSources(
     AdminModuleSources sources,
     String empresaId,
@@ -4130,6 +4192,92 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         empresaId,
         role.id,
       );
+      _snack(
+        result.failedUserIds.isEmpty
+            ? 'Rol ${role.name} guardado: ${result.updated} personas actualizadas.'
+            : 'Rol guardado: ${result.updated} personas actualizadas y ${result.failedUserIds.length} pendientes. Usa Sincronizar asignados para reintentar.',
+      );
+    } catch (error) {
+      throw StateError(
+        'El rol está guardado; faltó sincronizar sus asignados. Actualiza y reintenta: $error',
+      );
+    } finally {
+      await _reloadAccessMatrix();
+    }
+  }
+
+  Widget _tableRoleSelector(
+    TableModuleRoleConfig config,
+    QueryDocumentSnapshot<Map<String, dynamic>> user,
+    String empresaId,
+  ) {
+    final roles = _tableModuleRoles[config.moduleKey] ?? const [];
+    final current = tableRoleIdOf(config, user.data(), empresaId);
+    return DropdownButtonFormField<String>(
+      key: ValueKey(
+        '${config.moduleKey}_role_${user.id}_${current}_$_accessReloadVersion',
+      ),
+      initialValue: current,
+      isExpanded: true,
+      decoration: InputDecoration(
+        labelText: 'Rol de ${config.moduleName}',
+        isDense: true,
+      ),
+      items: [
+        const DropdownMenuItem(value: '', child: Text('Rol individual')),
+        for (final role in roles)
+          if (role.enabled || role.id == current)
+            DropdownMenuItem(
+              value: role.id,
+              enabled: role.enabled,
+              child: Text(
+                '${role.name}${role.enabled ? "" : " · Inactivo"}',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+        if (current.isNotEmpty && !roles.any((role) => role.id == current))
+          DropdownMenuItem(
+            value: current,
+            enabled: false,
+            child: const Text('Rol sin definición válida'),
+          ),
+      ],
+      onChanged: (value) async {
+        final repo = _tableRolesRepo(config);
+        try {
+          if ((value ?? '').isEmpty) {
+            await repo.setIndividualLevel(
+              empresaId: empresaId,
+              userId: user.id,
+            );
+            _snack(
+              '${config.moduleName}: se conserva el rol actual como rol individual.',
+            );
+          } else {
+            await repo.assign(
+              empresaId: empresaId,
+              userId: user.id,
+              roleId: value!,
+            );
+            _snack('Rol de ${config.moduleName} asignado y sincronizado.');
+          }
+        } catch (error) {
+          _snack('No se pudo asignar el rol de ${config.moduleName}: $error');
+        }
+        await _reloadAccessMatrix();
+      },
+    );
+  }
+
+  Future<void> _synchronizeTableRole(
+    TableModuleRoleConfig config,
+    String empresaId,
+    TableModuleRole role,
+  ) async {
+    try {
+      final result = await _tableRolesRepo(
+        config,
+      ).synchronize(empresaId, role.id);
       _snack(
         result.failedUserIds.isEmpty
             ? 'Rol ${role.name} guardado: ${result.updated} personas actualizadas.'
@@ -6302,23 +6450,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     if (empresaId.isEmpty) return;
     final cleanRole = (role ?? '').trim();
     final hasRole = cleanRole.isNotEmpty;
-    String visitasAreaId = '';
-    // Solo jefe y profesional trabajan dentro de un área; firmante y
-    // consulta no la necesitan. El área sale de la ficha o, si no la trae,
-    // del cargo, llevada al id del catálogo (25 sep 2026).
-    if (module.key == 'visitas' &&
-        hasRole &&
-        visitasRolRequiereArea(cleanRole)) {
-      final data = userDoc.data();
-      visitasAreaId = await VisitasService().areaParaRol(empresaId, data);
-      if (visitasAreaId.isEmpty &&
-          !isDeveloperUser(data, empresaId: empresaId)) {
-        throw StateError(
-          'No se encontró el área de ${_userName(data, userDoc.id)}: '
-          'asígnala en Admin > Usuarios o en su cargo.',
-        );
-      }
-    }
     if (module.key == 'correo') {
       await _correspondenceRolesRepo.setIndividualLevel(
         empresaId: empresaId,
@@ -6338,6 +6469,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         level: hasRole ? cleanRole : '',
       );
       _snack('Biblioteca: nivel individual actualizado.');
+      await _reloadAccessMatrix();
+      return;
+    }
+    // Compras, Rutas, Interventoría y Visitas: la tabla del módulo y la ficha
+    // en la misma transacción; en Visitas, con el área (`_areaDeVisitas`).
+    if (tableModuleRoleConfigFor(module.key) case final config?) {
+      await _tableRolesRepo(config).setIndividualLevel(
+        empresaId: empresaId,
+        userId: userDoc.id,
+        level: hasRole ? cleanRole : '',
+      );
+      _snack('${config.moduleName}: rol individual actualizado.');
       await _reloadAccessMatrix();
       return;
     }
@@ -6361,58 +6504,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
     {
       final data = userDoc.data();
-      final cedula = _safe(data['cedula']).isNotEmpty
-          ? _safe(data['cedula'])
-          : userDoc.id;
-      final nombre = _userName(data, userDoc.id);
-      final payload = <String, dynamic>{
-        'empresaId': empresaId,
-        'userId': userDoc.id,
-        'cedula': cedula,
-        'nombre': nombre,
-        'rol': cleanRole,
-        'createdAt': Timestamp.now(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
-      if (module.key == 'visitas' && hasRole) {
-        payload['areaId'] = visitasAreaId;
-      }
-
       switch (module.key) {
-        case 'compras':
-          final ref = FirebaseFirestore.instance
-              .collection('TBL_COMPRAS_ROLES')
-              .doc('${empresaId}_${userDoc.id}');
-          hasRole
-              ? await ref.set(payload, SetOptions(merge: true))
-              : await ref.delete();
-          break;
-        case 'interventoria':
-          final ref = FirebaseFirestore.instance
-              .collection('TBL_INTERVENTORIA_ROLES')
-              .doc('${empresaId}_${userDoc.id}');
-          hasRole
-              ? await ref.set(payload, SetOptions(merge: true))
-              : await ref.delete();
-          break;
-        case 'rutas':
-          final ref = FirebaseFirestore.instance
-              .collection('TBL_RUTAS_ROLES')
-              .doc('${empresaId}_${userDoc.id}');
-          hasRole
-              ? await ref.set(payload, SetOptions(merge: true))
-              : await ref.delete();
-          break;
-        case 'visitas':
-          // Mismo docId que usa VisitasService.guardarRol y que exigen las
-          // reglas: `{empresaId}_{userId}`.
-          final ref = FirebaseFirestore.instance
-              .collection(kVisitasRolesCol)
-              .doc('${empresaId}_${userDoc.id}');
-          hasRole
-              ? await ref.set(payload, SetOptions(merge: true))
-              : await ref.delete();
-          break;
         case 'facturacion':
           final extra = <String, dynamic>{};
           final deleteFields = <String>[];
@@ -6687,6 +6779,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 const SizedBox(height: 6),
                 const Text(
                   'El nivel individual desvincula el rol creado.',
+                  style: TextStyle(fontSize: 11, color: kAdminMuted),
+                ),
+              ],
+              if (tableModuleRoleConfigFor(module.key) case final config?) ...[
+                const SizedBox(height: 8),
+                _tableRoleSelector(config, userDoc, empresaId),
+                const SizedBox(height: 6),
+                const Text(
+                  'El rol individual desvincula el rol creado.',
                   style: TextStyle(fontSize: 11, color: kAdminMuted),
                 ),
               ],
@@ -8302,6 +8403,48 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 final count = await _paymentRolesRepo.ensureDefaults(empresaId);
                 _snack(
                   '$count roles iniciales de Planillas creados. Asigna cada rol a sus personas.',
+                );
+              } finally {
+                await _reloadAccessMatrix();
+              }
+            },
+          ),
+          const SizedBox(height: 14),
+        ],
+        if (tableModuleRoleConfigFor(module.key) case final config?) ...[
+          TableModuleRolesPanel(
+            key: ValueKey('${config.moduleKey}_roles_$empresaId'),
+            config: config,
+            roles: _tableModuleRoles[config.moduleKey] ?? const [],
+            pendingSyncCount: (role) => _users
+                .where(
+                  (u) => tableRoleNeedsSync(
+                    u.data(),
+                    role,
+                    assignedLevel: _tableRoleByUser(config)[u.id] ?? '',
+                  ),
+                )
+                .length,
+            onSave: (name, description, level, enabled, previous) async {
+              final role = await _tableRolesRepo(config).save(
+                empresaId: empresaId,
+                name: name,
+                description: description,
+                level: level,
+                enabled: enabled,
+                previous: previous,
+              );
+              await _synchronizeTableRole(config, empresaId, role);
+            },
+            onSynchronize: (role) =>
+                _synchronizeTableRole(config, empresaId, role),
+            onCreateDefaults: () async {
+              try {
+                final count = await _tableRolesRepo(
+                  config,
+                ).ensureDefaults(empresaId);
+                _snack(
+                  '$count roles iniciales de ${config.moduleName} creados. Asigna cada rol a sus personas.',
                 );
               } finally {
                 await _reloadAccessMatrix();
@@ -16487,11 +16630,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
         // Mover cédulas al survivor y eliminar el loser.
         if (cedulas.isNotEmpty) {
-          batch.set(
-            db.collection('TBL_CARGOS').doc(survivor.docId),
-            {'cedulas': FieldValue.arrayUnion(cedulas.toList())},
-            SetOptions(merge: true),
-          );
+          batch.set(db.collection('TBL_CARGOS').doc(survivor.docId), {
+            'cedulas': FieldValue.arrayUnion(cedulas.toList()),
+          }, SetOptions(merge: true));
           writes++;
         }
         batch.delete(db.collection('TBL_CARGOS').doc(l.docId));
