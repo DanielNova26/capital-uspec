@@ -19,6 +19,7 @@ void main() {
     Future<void> Function(String, String, String, bool, PurchaseModuleRole?)?
     save,
     Future<void> Function(PurchaseModuleRole)? sync,
+    Future<void> Function()? consolidate,
     int pending = 0,
   }) => tester.pumpWidget(
     MaterialApp(
@@ -30,6 +31,7 @@ void main() {
               onSave: save ?? (_, _, _, _, _) async {},
               onSynchronize: sync ?? (_) async {},
               onCreateDefaults: () async {},
+              onConsolidate: consolidate ?? () async {},
               pendingSyncCount: (_) => pending,
             ),
           ],
@@ -147,4 +149,43 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'consolidar históricos usa el panel y bloquea acciones paralelas',
+    (tester) async {
+      final gate = Completer<void>();
+      var calls = 0;
+      await panel(
+        tester,
+        consolidate: () async {
+          calls++;
+          await gate.future;
+        },
+      );
+      await tester.tap(find.text('Consolidar niveles anteriores'));
+      await tester.pump();
+      expect(calls, 1);
+      expect(
+        tester
+            .widget<OutlinedButton>(
+              find.widgetWithText(
+                OutlinedButton,
+                'Consolidar niveles anteriores',
+              ),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.widgetWithText(FilledButton, 'Crear rol'),
+            )
+            .onPressed,
+        isNull,
+      );
+      gate.complete();
+      await tester.pumpAndSettle();
+    },
+  );
 }

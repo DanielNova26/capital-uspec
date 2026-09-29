@@ -8566,11 +8566,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 await _reloadAccessMatrix();
               }
             },
-          ),
-          OutlinedButton.icon(
-            icon: const Icon(Icons.sync),
-            label: const Text('Consolidar niveles anteriores'),
-            onPressed: () async {
+            onConsolidate: () async {
               try {
                 final result = await _purchaseRolesRepo.consolidateExisting(
                   empresaId,
@@ -8578,8 +8574,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 _snack(
                   '${result.updated} niveles anteriores consolidados; ${result.failedUserIds.length} pendientes de reintento.',
                 );
-              } catch (error) {
-                _snack('No se pudo consolidar Compras: $error');
               } finally {
                 await _reloadAccessMatrix();
               }

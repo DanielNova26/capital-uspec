@@ -6,6 +6,20 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Homogeneidad del centro de roles — 29 sep 2026 (Codex)
+
+Se comparó Compras con Correspondencia y el panel compartido de Rutas,
+Interventoría y Visitas. Mantiene el mismo creador, nivel operativo,
+activación, edición, sincronización y roles iniciales. La acción adicional
+para consolidar niveles históricos ahora vive dentro de la tarjeta de
+Compras y comparte su indicador de trabajo y bloqueo de acciones paralelas.
+Cada rol muestra el nombre del nivel junto a su descripción, como los demás
+módulos con tabla. El contrato de acceso y la migración especializada de
+Compras permanecen intactos. Validación: 41 pruebas dirigidas aprobadas;
+análisis de los archivos tocados sin errores (1 advertencia y 6 avisos).
+
+---
+
 ## Integración de Compras con el trabajo paralelo — 29 sep 2026 (Codex)
 
 El centro **Admin → Apps, roles y permisos** presenta **un solo panel de

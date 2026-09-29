@@ -10,6 +10,7 @@ class PurchaseModuleRolesPanel extends StatefulWidget {
     required this.onSave,
     required this.onSynchronize,
     required this.onCreateDefaults,
+    required this.onConsolidate,
     required this.pendingSyncCount,
   });
 
@@ -24,6 +25,7 @@ class PurchaseModuleRolesPanel extends StatefulWidget {
   onSave;
   final Future<void> Function(PurchaseModuleRole) onSynchronize;
   final Future<void> Function() onCreateDefaults;
+  final Future<void> Function() onConsolidate;
   final int Function(PurchaseModuleRole) pendingSyncCount;
 
   @override
@@ -185,6 +187,11 @@ class _PurchaseModuleRolesPanelState extends State<PurchaseModuleRolesPanel> {
                 icon: const Icon(Icons.library_add_outlined),
                 label: const Text('Crear roles iniciales'),
               ),
+              OutlinedButton.icon(
+                onPressed: _busy ? null : () => _run(widget.onConsolidate),
+                icon: const Icon(Icons.sync),
+                label: const Text('Consolidar niveles anteriores'),
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -203,7 +210,7 @@ class _PurchaseModuleRolesPanelState extends State<PurchaseModuleRolesPanel> {
               contentPadding: EdgeInsets.zero,
               title: Text('${role.name}${role.enabled ? '' : ' · Inactivo'}'),
               subtitle: Text(
-                '${comprasLevelDescription(role.enabled ? role.level : 'consultas')}'
+                '${comprasRoleLevelLabels[role.effectiveLevel] ?? role.effectiveLevel}: ${comprasLevelDescription(role.effectiveLevel)}'
                 '${role.description.isEmpty ? '' : '\n${role.description}'}'
                 '${widget.pendingSyncCount(role) == 0 ? '' : '\n${widget.pendingSyncCount(role)} persona(s) por sincronizar'}',
               ),
