@@ -36,6 +36,10 @@ bool? _scopedTaskPermission(
     final value = _taskPermissionExplicitValue(detail?[key]);
     if (value != null) return value;
   }
+  if ((empresaId ?? '').trim().isNotEmpty &&
+      !raizEsDeEmpresa(userData, empresaId)) {
+    return null;
+  }
   for (final key in keys) {
     final value = _taskPermissionExplicitValue(userData[key]);
     if (value != null) return value;
@@ -144,9 +148,15 @@ bool canViewTaskTeam(
     return false;
   }
 
-  if (hasPositiveFlag(getUserCompanyDetail(userData, empresaId)) ||
-      hasPositiveFlag(userData) ||
-      hasPositiveFlag(structureData)) {
+  final scopedUser = raizEsDeEmpresa(userData, empresaId)
+      ? mergeCompanyScopedData(userData, empresaId)
+      : getUserCompanyDetail(userData, empresaId);
+  final scopedStructure = structureData == null
+      ? null
+      : (raizEsDeEmpresa(structureData, empresaId)
+            ? mergeCompanyScopedData(structureData, empresaId)
+            : getUserCompanyDetail(structureData, empresaId));
+  if (hasPositiveFlag(scopedUser) || hasPositiveFlag(scopedStructure)) {
     return true;
   }
 
@@ -168,9 +178,7 @@ bool canViewTaskTeam(
     return false;
   }
 
-  if (hasTeamValues(getUserCompanyDetail(userData, empresaId)) ||
-      hasTeamValues(userData) ||
-      hasTeamValues(structureData)) {
+  if (hasTeamValues(scopedUser) || hasTeamValues(scopedStructure)) {
     return true;
   }
 
@@ -199,9 +207,7 @@ bool canViewTaskTeam(
   );
   // La estructura también se mira en la empresa activa: coordinar en una
   // empresa no convierte a la persona en jefe de equipo en la otra.
-  final estructura = structureData == null
-      ? null
-      : mergeCompanyScopedData(structureData, empresaId);
+  final estructura = scopedStructure;
   return looksLikeTeamLead(role) ||
       looksLikeTeamLead(cargo) ||
       looksLikeTeamLead(estructura?['cargo']) ||

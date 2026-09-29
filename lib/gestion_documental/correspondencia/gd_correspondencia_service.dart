@@ -8,6 +8,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import '../../core/org_context_resolver.dart';
 import '../../utils/user_company.dart';
 import 'gd_correspondencia_models.dart';
+import 'gd_permisos.dart';
 import '../../core/area_directory.dart';
 
 /// Error de validación del maestro de tipos documentales, con el mensaje ya
@@ -31,6 +32,8 @@ class GdCorrespondenciaService {
   final FirebaseFirestore _db;
   final FirebaseFunctions _functions;
   final FirebaseStorage _storage;
+  GdPermisosService get _permissions =>
+      GdPermisosService(db: _db, functions: _functions);
 
   Stream<List<GdExpediente>> streamExpedientes(String empresaId) => _db
       .collection('TBL_GD_EXPEDIENTES')
@@ -134,6 +137,11 @@ class GdCorrespondenciaService {
     bool activo = true,
     String? idExistente,
   }) async {
+    await _permissions.exigir(
+      empresaId: empresaId,
+      userId: userId,
+      minimo: GdRolCorrespondencia.administrador,
+    );
     final codigoLimpio = GdTipoDocumental.normalizarCodigo(codigo);
     final nombreLimpio = nombre.trim();
     if (codigoLimpio.length != 3) {
@@ -194,17 +202,35 @@ class GdCorrespondenciaService {
     required String id,
     required String userId,
     required bool activo,
-  }) => _db.collection(_colTipos).doc(id).set({
-    'activo': activo,
-    'updatedAt': FieldValue.serverTimestamp(),
-    'updatedBy': userId,
-  }, SetOptions(merge: true));
+  }) async {
+    final ref = _db.collection(_colTipos).doc(id);
+    final type = await ref.get();
+    final empresaId = (type.data()?['empresaId'] ?? '').toString();
+    if (!type.exists || empresaId.isEmpty) {
+      throw StateError('Tipo documental no encontrado.');
+    }
+    await _permissions.exigir(
+      empresaId: empresaId,
+      userId: userId,
+      minimo: GdRolCorrespondencia.administrador,
+    );
+    await ref.set({
+      'activo': activo,
+      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedBy': userId,
+    }, SetOptions(merge: true));
+  }
 
   /// Siembra [tiposBase] sin tocar lo que ya exista. Devuelve cuántos creó.
   Future<int> sembrarTiposBase({
     required String empresaId,
     required String userId,
   }) async {
+    await _permissions.exigir(
+      empresaId: empresaId,
+      userId: userId,
+      minimo: GdRolCorrespondencia.administrador,
+    );
     final existentes = await listarTiposDocumentales(
       empresaId,
       soloActivos: false,
@@ -376,6 +402,11 @@ class GdCorrespondenciaService {
     required bool requiereAprobacion,
     GdResponsable? revisor,
   }) async {
+    await _permissions.exigirExpediente(
+      empresaId: expediente.empresaId,
+      expedienteId: expediente.id,
+      userId: userId,
+    );
     final ref = _db.collection('TBL_GD_EXPEDIENTES').doc(expediente.id);
     final event = _db.collection('TBL_GD_EXPEDIENTES_EVENTOS').doc();
     final hasBody = cuerpo.trim().isNotEmpty;
@@ -421,6 +452,11 @@ class GdCorrespondenciaService {
     required String userId,
     required String alias,
   }) async {
+    await _permissions.exigirExpediente(
+      empresaId: expediente.empresaId,
+      expedienteId: expediente.id,
+      userId: userId,
+    );
     final value = alias.trim();
     if (value == expediente.alias.trim()) return;
     final ref = _db.collection('TBL_GD_EXPEDIENTES').doc(expediente.id);
@@ -451,6 +487,11 @@ class GdCorrespondenciaService {
     required PlatformFile file,
     required String userId,
   }) async {
+    await _permissions.exigirExpediente(
+      empresaId: expediente.empresaId,
+      expedienteId: expediente.id,
+      userId: userId,
+    );
     final Uint8List bytes =
         file.bytes ??
         (throw StateError(
@@ -483,13 +524,22 @@ class GdCorrespondenciaService {
   Future<void> quitarAdjuntoRespuesta({
     required GdExpediente expediente,
     required GdCorrespondenciaAdjunto attachment,
+    required String userId,
   }) async {
+    await _permissions.exigirExpediente(
+      empresaId: expediente.empresaId,
+      expedienteId: expediente.id,
+      userId: userId,
+    );
     await _db.collection('TBL_GD_EXPEDIENTES').doc(expediente.id).set({
       'adjuntosRespuesta': FieldValue.arrayRemove([attachment.toMap()]),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
     if (attachment.storagePath.isNotEmpty &&
-        attachment.origen != 'biblioteca_documental') {
+        attachment.origen != 'biblioteca_documental' &&
+        attachment.storagePath.startsWith(
+          'gestion_documental/correspondencia/${expediente.empresaId}/${expediente.id}/respuesta/',
+        )) {
       try {
         await _storage.ref(attachment.storagePath).delete();
       } catch (_) {

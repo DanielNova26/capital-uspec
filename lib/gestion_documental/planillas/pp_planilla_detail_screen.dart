@@ -25,6 +25,7 @@ import 'pp_excel_parser.dart';
 import 'pp_archivo_plano.dart';
 import 'pp_beneficiarios_service.dart';
 import 'pp_models.dart';
+import 'pp_role_access.dart';
 import 'pp_service.dart';
 
 class PpPlanillaDetailScreen extends StatefulWidget {
@@ -48,6 +49,8 @@ class PpPlanillaDetailScreen extends StatefulWidget {
 }
 
 class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
+  String _currentRole = '';
+  late final Stream<DocumentSnapshot<Map<String, dynamic>>> _userStream;
   final _service = PpService();
   final _storage = FirebaseStorage.instance;
   static const int _maxPdfDownloadBytes = 50 * 1024 * 1024;
@@ -63,10 +66,24 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
   @override
   void initState() {
     super.initState();
+    _userStream = FirebaseFirestore.instance
+        .collection('TBL_USUARIOS')
+        .doc(widget.userId)
+        .snapshots();
     _prepareFuture = _preparePlanilla();
   }
 
   Future<void> _preparePlanilla() async {
+    final user = await FirebaseFirestore.instance
+        .collection('TBL_USUARIOS')
+        .doc(widget.userId)
+        .get();
+    if (!ppCanAccess(user.data(), widget.empresaId)) return;
+    final target = await FirebaseFirestore.instance
+        .collection('TBL_PP_PLANILLAS')
+        .doc(widget.planillaId)
+        .get();
+    if (target.data()?['empresaId'] != widget.empresaId) return;
     await _service.limpiarCamposFirmaBinaria(
       empresaId: widget.empresaId,
       planillaId: widget.planillaId,
@@ -115,7 +132,12 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
     _lastRepairAttemptKey = repairKey;
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted) return;
+      if (!mounted || _currentRole.isEmpty) return;
+      final actor = await FirebaseFirestore.instance
+          .collection('TBL_USUARIOS')
+          .doc(widget.userId)
+          .get();
+      if (!ppCanAccess(actor.data(), widget.empresaId)) return;
       await _service.repararPdfFirmadoSiHaceFalta(
         empresaId: widget.empresaId,
         planillaId: planilla.planillaId,
@@ -382,7 +404,7 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
           empresaId: widget.empresaId,
           loteId: planilla.loteId,
           actorId: widget.userId,
-          rolPlanillas: widget.rolPlanillas,
+          rolPlanillas: _currentRole,
           nombreActor: widget.nombreActor,
         );
       case 'enviar_auditoria':
@@ -391,7 +413,7 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
           empresaId: widget.empresaId,
           loteId: planilla.loteId,
           actorId: widget.userId,
-          rolPlanillas: widget.rolPlanillas,
+          rolPlanillas: _currentRole,
           nombreActor: widget.nombreActor,
         );
       case 'observar':
@@ -400,7 +422,7 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
           empresaId: widget.empresaId,
           loteId: planilla.loteId,
           actorId: widget.userId,
-          rolPlanillas: widget.rolPlanillas,
+          rolPlanillas: _currentRole,
           observacion: observacion!,
           nombreActor: widget.nombreActor,
         );
@@ -416,7 +438,7 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
             empresaId: widget.empresaId,
             loteId: planilla.loteId,
             actorId: widget.userId,
-            rolPlanillas: widget.rolPlanillas,
+            rolPlanillas: _currentRole,
             nombreActor: widget.nombreActor,
             excelBytes: nuevoExcel.bytes,
             nombreExcel: nuevoExcel.nombre,
@@ -430,7 +452,7 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
           empresaId: widget.empresaId,
           loteId: planilla.loteId,
           actorId: widget.userId,
-          rolPlanillas: widget.rolPlanillas,
+          rolPlanillas: _currentRole,
           nombreActor: widget.nombreActor,
           pdfBytes: pdf.bytes,
           nombrePdf: pdf.nombre,
@@ -442,7 +464,7 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
           empresaId: widget.empresaId,
           loteId: planilla.loteId,
           actorId: widget.userId,
-          rolPlanillas: widget.rolPlanillas,
+          rolPlanillas: _currentRole,
           nombreActor: widget.nombreActor,
           currentPdfBytes: await _fetchPdfBytes(
             url: planilla.urlPdf,
@@ -455,7 +477,7 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
           empresaId: widget.empresaId,
           loteId: planilla.loteId,
           actorId: widget.userId,
-          rolPlanillas: widget.rolPlanillas,
+          rolPlanillas: _currentRole,
           nombreActor: widget.nombreActor,
         );
       case 'firmar':
@@ -464,7 +486,7 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
           empresaId: widget.empresaId,
           loteId: planilla.loteId,
           actorId: widget.userId,
-          rolPlanillas: widget.rolPlanillas,
+          rolPlanillas: _currentRole,
           nombreActor: widget.nombreActor,
           currentPdfBytes: await _fetchPdfBytes(
             url: planilla.urlPdf,
@@ -477,7 +499,7 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
           empresaId: widget.empresaId,
           loteId: planilla.loteId,
           actorId: widget.userId,
-          rolPlanillas: widget.rolPlanillas,
+          rolPlanillas: _currentRole,
           motivo: observacion!,
           nombreActor: widget.nombreActor,
         );
@@ -533,7 +555,7 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
 
   bool _puedeEditarNombrePlanilla(PpPlanilla planilla) {
     return planilla.estado == PpEstado.cargada &&
-        PpRoles.puedeEjecutar('editar_nombre_planilla', widget.rolPlanillas);
+        PpRoles.puedeEjecutar('editar_nombre_planilla', _currentRole);
   }
 
   String? _empresaPlanilla(PpPlanilla planilla) {
@@ -613,7 +635,7 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
         planillaId: planilla.planillaId,
         empresaId: widget.empresaId,
         actorId: widget.userId,
-        rolPlanillas: widget.rolPlanillas,
+        rolPlanillas: _currentRole,
         nombrePlanilla: nombre,
         nombreActor: widget.nombreActor,
       );
@@ -653,7 +675,38 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
   // ── UI ────────────────────────────────────────────────────────────────────
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: _userStream,
+        builder: (context, snapshot) {
+          _currentRole = '';
+          if (snapshot.hasError ||
+              (snapshot.hasData &&
+                  !ppCanAccess(snapshot.data?.data(), widget.empresaId))) {
+            return Scaffold(
+              appBar: AppBar(title: const Text('Planilla')),
+              body: const Center(
+                child: Text(
+                  'No tienes acceso al flujo de Planillas en esta empresa.',
+                ),
+              ),
+            );
+          }
+          if (!snapshot.hasData) {
+            return Scaffold(
+              appBar: AppBar(title: const Text('Planilla')),
+              body: const Center(child: CircularProgressIndicator()),
+            );
+          }
+          _currentRole = resolvePpPlanillasRole(
+            snapshot.data!.data(),
+            widget.empresaId,
+          )!;
+          return _buildCurrentPlanilla(context);
+        },
+      );
+
+  Widget _buildCurrentPlanilla(BuildContext context) {
     return FutureBuilder<void>(
       future: _prepareFuture,
       builder: (context, cleanupSnap) {
@@ -686,6 +739,14 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
               snap.data!.id,
               snap.data!.data()!,
             );
+            if (planilla.empresaId != widget.empresaId) {
+              return Scaffold(
+                appBar: AppBar(title: const Text('Planilla')),
+                body: const Center(
+                  child: Text('La planilla no pertenece a la empresa activa.'),
+                ),
+              );
+            }
             _scheduleRepairIfNeeded(planilla);
             final isWeb = MediaQuery.of(context).size.width >= 900;
 
@@ -1758,7 +1819,7 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
   }
 
   List<String> _accionesDisponibles(PpPlanilla planilla) {
-    final rol = widget.rolPlanillas;
+    final rol = _currentRole;
     final estado = planilla.estado;
 
     final acciones = <String>[];

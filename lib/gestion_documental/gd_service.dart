@@ -35,6 +35,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'gd_models.dart';
+import 'gd_role_access.dart';
 import 'gd_formato_plantilla.dart';
 import 'gd_library_logic.dart';
 import '../core/user_directory.dart';
@@ -141,7 +142,12 @@ class GdService {
     Uint8List? pdfBytes,
     String? pdfNombre,
   }) async {
-    _validarRol('subir_pdf', rolDocumental);
+    await _validarRol(
+      'subir_pdf',
+      rolDocumental,
+      empresaId: empresaId,
+      actorId: actorId,
+    );
     final esConsulta = gdIsReferenceDocument(categoria);
     if (esConsulta && (pdfBytes == null || pdfNombre == null)) {
       throw const GdException(
@@ -278,7 +284,12 @@ class GdService {
     required String rolDocumental,
     String? nombreActor,
   }) async {
-    _validarRol('subir_pdf', rolDocumental);
+    await _validarRol(
+      'subir_pdf',
+      rolDocumental,
+      empresaId: empresaId,
+      actorId: actorId,
+    );
     final docSnap = await _docCol.doc(docId).get();
     final verSnap = await _verCol.doc(versionId).get();
     final docData = docSnap.data();
@@ -358,7 +369,12 @@ class GdService {
     required String alias,
     required String codigoExterno,
   }) async {
-    _validarRol('subir_pdf', rolDocumental);
+    await _validarRol(
+      'subir_pdf',
+      rolDocumental,
+      empresaId: empresaId,
+      actorId: actorId,
+    );
     final ref = _docCol.doc(docId);
     final snapshot = await ref.get();
     final data = snapshot.data();
@@ -430,7 +446,12 @@ class GdService {
     required String rolDocumental,
     String? nombreActor,
   }) async {
-    _validarRol('subir_pdf', rolDocumental);
+    await _validarRol(
+      'subir_pdf',
+      rolDocumental,
+      empresaId: empresaId,
+      actorId: actorId,
+    );
 
     // Verificar estado permitido para reemplazar PDF
     final verSnap = await _verCol.doc(versionId).get();
@@ -489,7 +510,12 @@ class GdService {
     required String rolDocumental,
     String? nombreActor,
   }) async {
-    _validarRol('enviar_revision', rolDocumental);
+    await _validarRol(
+      'enviar_revision',
+      rolDocumental,
+      empresaId: empresaId,
+      actorId: actorId,
+    );
     await _transicionar(
       docId: docId,
       versionId: versionId,
@@ -522,7 +548,12 @@ class GdService {
     if (observacion.trim().isEmpty) {
       throw const GdException('La observación es obligatoria.');
     }
-    _validarRol('observar', rolDocumental);
+    await _validarRol(
+      'observar',
+      rolDocumental,
+      empresaId: empresaId,
+      actorId: actorId,
+    );
     await _transicionar(
       docId: docId,
       versionId: versionId,
@@ -564,7 +595,12 @@ class GdService {
     String? nombreActor,
     String? comentario,
   }) async {
-    _validarRol('reenviar', rolDocumental);
+    await _validarRol(
+      'reenviar',
+      rolDocumental,
+      empresaId: empresaId,
+      actorId: actorId,
+    );
     await _transicionar(
       docId: docId,
       versionId: versionId,
@@ -591,7 +627,12 @@ class GdService {
     String? nombreActor,
     String? comentario,
   }) async {
-    _validarRol('aprobar', rolDocumental);
+    await _validarRol(
+      'aprobar',
+      rolDocumental,
+      empresaId: empresaId,
+      actorId: actorId,
+    );
     await _transicionar(
       docId: docId,
       versionId: versionId,
@@ -738,7 +779,12 @@ class GdService {
     required String rolDocumental,
     String? nombreActor,
   }) async {
-    _validarRol('validar_formato', rolDocumental);
+    await _validarRol(
+      'validar_formato',
+      rolDocumental,
+      empresaId: empresaId,
+      actorId: actorId,
+    );
     final docSnap = await _docCol.doc(docId).get();
     final verSnap = await _verCol.doc(versionId).get();
     final docData = docSnap.data();
@@ -900,7 +946,12 @@ class GdService {
     String? nombreActor,
     String? comentario,
   }) async {
-    _validarRol('firmar', rolDocumental);
+    await _validarRol(
+      'firmar',
+      rolDocumental,
+      empresaId: empresaId,
+      actorId: actorId,
+    );
 
     // Leer la firma del actor para snapshot permanente
     String? urlFirmaSnapshot;
@@ -946,7 +997,12 @@ class GdService {
     required String rolDocumental,
     String? nombreActor,
   }) async {
-    _validarRol('marcar_vigente', rolDocumental);
+    await _validarRol(
+      'marcar_vigente',
+      rolDocumental,
+      empresaId: empresaId,
+      actorId: actorId,
+    );
 
     // Validar que la versión esté en estado firmado
     final verSnap = await _verCol.doc(versionId).get();
@@ -1043,7 +1099,12 @@ class GdService {
     Uint8List? pdfBytes,
     String? pdfNombre,
   }) async {
-    _validarRol('nueva_version', rolDocumental);
+    await _validarRol(
+      'nueva_version',
+      rolDocumental,
+      empresaId: empresaId,
+      actorId: actorId,
+    );
 
     // Leer documento maestro para obtener número actual de versión
     final docSnap = await _docCol.doc(docId).get();
@@ -1210,7 +1271,12 @@ class GdService {
     required String actorId,
     required String rolDocumental,
   }) async {
-    _validarRol('eliminar_documento', rolDocumental);
+    await _validarRol(
+      'eliminar_documento',
+      rolDocumental,
+      empresaId: empresaId,
+      actorId: actorId,
+    );
 
     final docRef = _docCol.doc(docId);
     final docSnap = await docRef.get();
@@ -1288,7 +1354,12 @@ class GdService {
     required String rolDocumental,
     void Function(int hechos, int total)? onProgreso,
   }) async {
-    _validarRol('eliminar_documento', rolDocumental);
+    await _validarRol(
+      'eliminar_documento',
+      rolDocumental,
+      empresaId: origenId,
+      actorId: actorId,
+    );
     if (origenId.trim().isEmpty || destinoId.trim().isEmpty) {
       throw const GdException('Indica la empresa origen y la destino.');
     }
@@ -1869,11 +1940,33 @@ class GdService {
     }
   }
 
-  /// Valida que el rol tenga permiso para ejecutar la acción.
-  void _validarRol(String accion, String rolDocumental) {
-    if (!GdRoles.puedeEjecutar(accion, rolDocumental)) {
-      throw GdException(
-        'El rol "$rolDocumental" no tiene permiso para ejecutar "$accion".',
+  /// Relee el rol materializado para rechazar formularios abiertos antes de
+  /// una revocación. Es una validación funcional del cliente; las reglas deben
+  /// vincular el actor con la identidad autenticada y controlar la escritura.
+  Future<void> _validarRol(
+    String accion,
+    String rolDocumental, {
+    required String empresaId,
+    required String actorId,
+  }) async {
+    final snapshot = await _usersCol.doc(actorId).get();
+    final user = snapshot.data();
+    final current = resolveGdDocumentalRole(user, empresaId);
+    final developer =
+        user != null && isDeveloperUser(user, empresaId: empresaId);
+    if (user == null ||
+        !personaHabilitadaEn(user, empresaId) ||
+        (!developer &&
+            (!userBelongsToEmpresa(user, empresaId) ||
+                !userHasApp(
+                  user,
+                  'bibliotecadocumentaldashboard',
+                  empresaId: empresaId,
+                ))) ||
+        current != rolDocumental ||
+        !GdRoles.puedeEjecutar(accion, current)) {
+      throw const GdException(
+        'Tu acceso o nivel de Biblioteca cambió. Actualiza la pantalla antes de continuar.',
       );
     }
   }
