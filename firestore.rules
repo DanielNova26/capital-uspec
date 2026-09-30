@@ -1466,16 +1466,33 @@ service cloud.firestore {
         && comprasEscrituraEn(resource.data.empresaId, ['admin','calidad','compras','bodega']);
       allow delete: if esColeccionCompras(collection) && comprasEscrituraEn(resource.data.empresaId, ['admin','compras','bodega']);
     }
+    // Período de consumo de Abastecimiento (30 sep 2026): configuración de
+    // la empresa en Admin › Maestros por módulo › Compras. Espejo de
+    // PeriodoConsumoConfig (lib/compras/abastecimiento_periodo.dart): un
+    // ciclo de 1 a 62 días desde una fecha 'yyyy-MM-dd' o el mes calendario.
+    function periodoConsumoValido(data) {
+      let p = data.get('abastecimientoPeriodo', null);
+      return p == null || (p is map && (
+        (p.keys().hasOnly(['modo']) && p.get('modo', '') == 'mensual')
+        || (p.keys().hasOnly(['modo', 'inicioReferencia', 'duracionDias'])
+          && p.get('modo', '') == 'ciclo'
+          && p.get('inicioReferencia', '') is string
+          && p.inicioReferencia.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+          && p.get('duracionDias', 0) is int
+          && p.duracionDias >= 1 && p.duracionDias <= 62)));
+    }
     match /TBL_COMPRAS_CONFIG/{empresaId} {
       allow get: if belongsToCompany(empresaId);
       allow list: if belongsToCompany(resource.data.empresaId);
       allow create: if (request.resource.data.keys().hasOnly(['marcaSeq']) && request.resource.data.marcaSeq == 1
           && comprasEscrituraEn(empresaId, ['admin','calidad','compras','bodega']))
-        || gestionaRolesDeModulo(empresaId,'comprasdashboard');
+        || (gestionaRolesDeModulo(empresaId,'comprasdashboard')
+          && periodoConsumoValido(request.resource.data));
       allow update: if (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['marcaSeq'])
           && request.resource.data.marcaSeq == resource.data.get('marcaSeq', 0) + 1
           && comprasEscrituraEn(empresaId, ['admin','calidad','compras','bodega']))
-        || gestionaRolesDeModulo(empresaId,'comprasdashboard');
+        || (gestionaRolesDeModulo(empresaId,'comprasdashboard')
+          && periodoConsumoValido(request.resource.data));
       allow delete: if gestionaRolesDeModulo(empresaId,'comprasdashboard');
     }
 

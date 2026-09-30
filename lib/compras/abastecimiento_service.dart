@@ -1,11 +1,11 @@
-import 'dart:convert';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:crypto/crypto.dart';
 
 import '../services/compras_abastecimiento_excel_parser.dart';
+import 'abastecimiento_excel_template.dart';
+import 'abastecimiento_import_rules.dart';
 import 'abastecimiento_models.dart';
+import 'abastecimiento_periodo.dart';
 import 'abastecimiento_recepcion_sync.dart';
 import 'compras_models.dart';
 import 'compras_access_service.dart';
@@ -34,12 +34,24 @@ class AbastecimientoCatalogValidation {
   final List<String> productosPendientes;
   final List<String> gruposPendientes;
 
+  /// Avisos "Existen registros duplicados" (archivo o sistema).
+  final List<String> duplicados;
+
+  /// OC que ya no están programadas y el archivo intentaba cambiar.
+  final List<String> bloqueadas;
+
+  /// Línea (OC + producto) → entrega existente que se actualiza.
+  final Map<String, String> existentePorLinea;
+
   const AbastecimientoCatalogValidation({
     required this.filas,
     required this.incidencias,
     required this.proveedoresPendientes,
     required this.productosPendientes,
     required this.gruposPendientes,
+    this.duplicados = const [],
+    this.bloqueadas = const [],
+    this.existentePorLinea = const {},
   });
 }
 
@@ -140,6 +152,115 @@ class AbastecimientoService {
         rows.sort((a, b) => b.generatedAt.compareTo(a.generatedAt));
         return rows.take(40).toList();
       });
+
+  /// Período de consumo configurado para la empresa (Admin › Maestros por
+  /// módulo › Compras). Sin configuración, la regla histórica viernes–jueves.
+  Stream<PeriodoConsumoConfig> watchPeriodoConfig(String empresaId) {
+    final id = empresaId.trim();
+    if (id.isEmpty) return Stream.value(PeriodoConsumoConfig.porDefecto);
+    return _db
+        .collection(kComprasConfigCollection)
+        .doc(id)
+        .snapshots()
+        .map(
+          (snapshot) => PeriodoConsumoConfig.fromMap(
+            snapshot.data()?[kCampoPeriodoConsumo],
+          ),
+        );
+  }
+
+  Future<PeriodoConsumoConfig> getPeriodoConfig(String empresaId) async {
+    final id = empresaId.trim();
+    if (id.isEmpty) return PeriodoConsumoConfig.porDefecto;
+    final snapshot = await _db
+        .collection(kComprasConfigCollection)
+        .doc(id)
+        .get();
+    return PeriodoConsumoConfig.fromMap(snapshot.data()?[kCampoPeriodoConsumo]);
+  }
+
+  /// Admin › Maestros por módulo › Compras. Las reglas de Firestore validan
+  /// la forma del campo y que quien guarda administre Compras en la empresa.
+  /// Las entregas ya cargadas conservan el período con que se cargaron.
+  Future<void> guardarPeriodoConfig({
+    required String empresaId,
+    required String usuarioId,
+    required PeriodoConsumoConfig config,
+  }) async {
+    final id = empresaId.trim();
+    if (id.isEmpty) throw StateError('No hay una empresa activa.');
+    const porField = '${kCampoPeriodoConsumo}ActualizadoPor';
+    const atField = '${kCampoPeriodoConsumo}ActualizadoAt';
+    // mergeFields reemplaza el mapa completo: pasar de ciclo a mensual no
+    // deja restos del ciclo anterior. El resto del documento no se toca.
+    await _db.collection(kComprasConfigCollection).doc(id).set(
+      {
+        kCampoPeriodoConsumo: config.toMap(),
+        porField: usuarioId,
+        atField: FieldValue.serverTimestamp(),
+      },
+      SetOptions(mergeFields: const [kCampoPeriodoConsumo, porField, atField]),
+    );
+  }
+
+  /// Nombre visible de la empresa para los reportes; nunca su id.
+  Future<String> getEmpresaNombre(String empresaId) async {
+    final id = empresaId.trim();
+    if (id.isEmpty) return '';
+    try {
+      final data =
+          (await _db.collection('TBL_EMPRESAS').doc(id).get()).data() ??
+          const <String, dynamic>{};
+      for (final key in const ['nombre', 'razonSocial', 'nombreEmpresa']) {
+        final value = (data[key] ?? '').toString().trim();
+        if (value.isNotEmpty) return value;
+      }
+    } catch (_) {
+      // Sin lectura de la empresa el reporte sigue sin nombre.
+    }
+    return '';
+  }
+
+  /// Lo que ya está guardado y configurado en la empresa activa para que el
+  /// modelo Excel lo ofrezca como listas desplegables.
+  Future<AbastecimientoPlantillaCatalogo> getCatalogoPlantilla(
+    String empresaId,
+  ) async {
+    final empresa = empresaId.trim();
+    if (empresa.isEmpty) throw StateError('No hay una empresa activa.');
+    final results = await Future.wait<Object>([
+      getProveedoresActivos(empresa),
+      getProductos(empresa),
+      getGrupos(empresa),
+      getBodegas(empresa),
+    ]);
+    final proveedores = results[0] as List<ProveedorDoc>;
+    final productos = results[1] as List<ProductoDoc>;
+    final grupos = results[2] as List<ComprasGrupoDoc>;
+    final bodegas = results[3] as List<String>;
+
+    List<String> unicos(Iterable<String> values) {
+      final unique = <String, String>{};
+      for (final value in values) {
+        final text = value.trim();
+        if (text.isEmpty) continue;
+        unique.putIfAbsent(normalizarClaveAbastecimiento(text), () => text);
+      }
+      return unique.values.toList()..sort((a, b) => a.compareTo(b));
+    }
+
+    return AbastecimientoPlantillaCatalogo(
+      proveedores: unicos(proveedores.map((item) => item.razonSocial)),
+      categorias: unicos(proveedores.expand((item) => item.categorias)),
+      productos: unicos(productos.map((item) => item.nombre)),
+      grupos: unicos(grupos.map((item) => item.nombre)),
+      destinos: unicos(bodegas),
+      unidades: unicos([
+        ...kUnidadesAbastecimientoBase,
+        ...productos.map((item) => item.unidadMedida.toUpperCase()),
+      ]),
+    );
+  }
 
   Future<int> generarReportesAhora({required String empresaId}) async {
     await _requireCompany(empresaId, actorId ?? '', {
@@ -389,10 +510,15 @@ class AbastecimientoService {
           .collection('TBL_COMPRAS_GRUPOS')
           .where('empresaId', isEqualTo: empresa)
           .get(),
+      _db
+          .collection(kAbastecimientoCollection)
+          .where('empresaId', isEqualTo: empresa)
+          .get(),
     ]);
     final providerSnapshot = results[0];
     final receptionSnapshot = results[1];
     final groupSnapshot = results[2];
+    final deliverySnapshot = results[3];
 
     final providers = <String, ProveedorDoc>{};
     for (final doc in providerSnapshot.docs) {
@@ -400,11 +526,19 @@ class AbastecimientoService {
       providers[_catalogKey(provider.razonSocial)] = provider;
     }
     final receptions = <String, List<RecepcionDoc>>{};
+    final receptionOrders = <String, OrdenCompraRelacion>{};
     for (final doc in receptionSnapshot.docs) {
       final reception = RecepcionDoc.fromMap(doc.id, doc.data());
       final order = reception.ordenCompra;
       if (order.trim().isNotEmpty) {
         receptions.putIfAbsent(_catalogKey(order), () => []).add(reception);
+        if (reception.razonSocial.trim().isNotEmpty) {
+          receptionOrders[claveOrdenCompra(order)] = OrdenCompraRelacion(
+            proveedorId: reception.proveedorId,
+            proveedor: reception.razonSocial,
+            origen: 'Recepción',
+          );
+        }
       }
     }
     final groups = <String, ComprasGrupoDoc>{};
@@ -528,17 +662,28 @@ class AbastecimientoService {
       );
     }
 
+    final plan = planearCargaAbastecimiento(
+      filas: valid,
+      existentes: deliverySnapshot.docs
+          .map((doc) => AbastecimientoDoc.fromMap(doc.id, doc.data()))
+          .where((doc) => !doc.eliminado)
+          .toList(),
+      ordenesRecepcion: receptionOrders,
+    );
     final pending = missingProviders.values.toList()
       ..sort((a, b) => a.compareTo(b));
     final pendingGroups =
         missingGroups.values.where((value) => value.trim().isNotEmpty).toList()
           ..sort((a, b) => a.compareTo(b));
     return AbastecimientoCatalogValidation(
-      filas: valid,
-      incidencias: issues,
+      filas: plan.filas,
+      incidencias: [...issues, ...plan.incidencias],
       proveedoresPendientes: pending,
       productosPendientes: const [],
       gruposPendientes: pendingGroups,
+      duplicados: plan.duplicados,
+      bloqueadas: plan.bloqueadas,
+      existentePorLinea: plan.existentePorLinea,
     );
   }
 
@@ -564,11 +709,11 @@ class AbastecimientoService {
       consumoHasta.month,
       consumoHasta.day,
     );
-    if (periodoDesde.weekday != DateTime.friday ||
-        periodoHasta.weekday != DateTime.thursday ||
-        periodoHasta.difference(periodoDesde).inDays != 6) {
+    final periodoConfig = await getPeriodoConfig(empresa);
+    if (!periodoConfig.esPeriodoValido(periodoDesde, periodoHasta)) {
       throw StateError(
-        'El período de consumo debe iniciar el viernes y terminar el jueves siguiente.',
+        'El período de consumo no corresponde a la configuración de la '
+        'empresa. ${periodoConfig.descripcion}',
       );
     }
     if (filas.isEmpty) {
@@ -594,9 +739,8 @@ class AbastecimientoService {
         .collection(kAbastecimientoCollection)
         .where('empresaId', isEqualTo: empresa)
         .get();
-    final existingByKey = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{
-      for (final doc in currentSnapshot.docs)
-        (doc.data()['importKey'] ?? '').toString(): doc,
+    final existingById = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{
+      for (final doc in currentSnapshot.docs) doc.id: doc,
     };
 
     final now = Timestamp.now();
@@ -616,16 +760,22 @@ class AbastecimientoService {
     }
 
     for (final row in validRows) {
-      if (!processedKeys.add(row.importKey)) {
+      final linea = claveLineaAbastecimiento(row.ordenCompra, row.producto);
+      if (!processedKeys.add(linea)) {
         unchanged++;
         continue;
       }
-      final existing = existingByKey[row.importKey];
+      // Se actualiza la entrega de la misma OC y producto; una entrega
+      // eliminada nunca se revive con otra carga.
+      final existingId = validation.existentePorLinea[linea];
+      final existing = existingId == null ? null : existingById[existingId];
+      if (existing != null && existing.data()['eliminado'] == true) {
+        unchanged++;
+        continue;
+      }
       final ref =
           existing?.reference ??
-          _db
-              .collection(kAbastecimientoCollection)
-              .doc(_documentId(empresa, row.importKey));
+          _db.collection(kAbastecimientoCollection).doc();
 
       if (existing == null) {
         final estado =
@@ -686,6 +836,12 @@ class AbastecimientoService {
         operations++;
       } else {
         final current = AbastecimientoDoc.fromMap(existing.id, existing.data());
+        // Solo una entrega Programada cambia por Excel; la validación ya
+        // rechazó las que traían diferencias.
+        if (current.estado != AbastecimientoEstado.programado) {
+          unchanged++;
+          continue;
+        }
         final data = current.toMap();
         final changes = <AbastecimientoCambio>[];
 
@@ -753,11 +909,14 @@ class AbastecimientoService {
         changeDate('consumoDesde', periodoDesde);
         changeDate('consumoHasta', periodoHasta);
 
+        // Las pendencias salen de las observaciones: una celda vacía no las
+        // borra, igual que no borra las observaciones.
         final pendingValues = row.pendencias.map((item) => item.value).toList();
         final oldPending = (data['pendencias'] as List? ?? const [])
             .map((item) => item.toString())
             .toList();
-        if (!_sameList(oldPending, pendingValues)) {
+        if (row.observaciones.trim().isNotEmpty &&
+            !_sameList(oldPending, pendingValues)) {
           data['pendencias'] = pendingValues;
           changes.add(
             _change(
@@ -876,13 +1035,20 @@ class AbastecimientoService {
       consumoHasta.month,
       consumoHasta.day,
     );
-    if (desde.weekday != DateTime.friday ||
-        hasta.weekday != DateTime.thursday ||
-        hasta.difference(desde).inDays != 6) {
+    final periodoConfig = await getPeriodoConfig(empresaId);
+    if (!periodoConfig.esPeriodoValido(desde, hasta)) {
       throw StateError(
-        'El período de consumo debe iniciar el viernes y terminar el jueves siguiente.',
+        'El período de consumo no corresponde a la configuración de la '
+        'empresa. ${periodoConfig.descripcion}',
       );
     }
+    await _validarOrdenManual(
+      empresaId: empresaId.trim(),
+      proveedorId: proveedorId.trim(),
+      proveedor: proveedor.trim(),
+      ordenCompra: ordenCompra.trim(),
+      producto: producto.trim(),
+    );
     final now = Timestamp.now();
     final rawKey =
         'manual|$empresaId|$proveedor|$producto|'
@@ -1204,8 +1370,70 @@ class AbastecimientoService {
     });
   }
 
-  static String _documentId(String empresaId, String importKey) =>
-      sha256.convert(utf8.encode('$empresaId|$importKey')).toString();
+  /// La misma regla de la carga Excel para una entrega manual: la OC es de
+  /// un solo proveedor y no se repite la misma OC con el mismo producto.
+  Future<void> _validarOrdenManual({
+    required String empresaId,
+    required String proveedorId,
+    required String proveedor,
+    required String ordenCompra,
+    required String producto,
+  }) async {
+    final results = await Future.wait([
+      _db
+          .collection(kAbastecimientoCollection)
+          .where('empresaId', isEqualTo: empresaId)
+          .get(),
+      _db
+          .collection('TBL_COMPRAS_RECEPCIONES')
+          .where('empresaId', isEqualTo: empresaId)
+          .get(),
+    ]);
+    final orden = claveOrdenCompra(ordenCompra);
+    final linea = claveLineaAbastecimiento(ordenCompra, producto);
+    final oc = etiquetaOrdenCompra(ordenCompra);
+    for (final doc in results[0].docs) {
+      final entrega = AbastecimientoDoc.fromMap(doc.id, doc.data());
+      if (entrega.eliminado || claveOrdenCompra(entrega.ordenCompra) != orden) {
+        continue;
+      }
+      final relacion = OrdenCompraRelacion(
+        proveedorId: entrega.proveedorId,
+        proveedor: entrega.proveedor,
+        origen: 'Abastecimiento',
+      );
+      if (!relacion.esDelProveedor(proveedorId, proveedor)) {
+        throw StateError(
+          'La $oc ya está relacionada con el proveedor ${entrega.proveedor}.',
+        );
+      }
+      if (claveLineaAbastecimiento(entrega.ordenCompra, entrega.producto) ==
+          linea) {
+        throw StateError(
+          'La $oc ya tiene una entrega de "${entrega.producto}" '
+          '(${entrega.estado.label}). Cámbiala desde su detalle.',
+        );
+      }
+    }
+    for (final doc in results[1].docs) {
+      final recepcion = RecepcionDoc.fromMap(doc.id, doc.data());
+      if (claveOrdenCompra(recepcion.ordenCompra) != orden ||
+          recepcion.razonSocial.trim().isEmpty) {
+        continue;
+      }
+      final relacion = OrdenCompraRelacion(
+        proveedorId: recepcion.proveedorId,
+        proveedor: recepcion.razonSocial,
+        origen: 'Recepción',
+      );
+      if (!relacion.esDelProveedor(proveedorId, proveedor)) {
+        throw StateError(
+          'La $oc ya está relacionada con el proveedor '
+          '${recepcion.razonSocial} en Recepción.',
+        );
+      }
+    }
+  }
 
   static bool _sameMoment(DateTime a, DateTime b) =>
       a.year == b.year &&

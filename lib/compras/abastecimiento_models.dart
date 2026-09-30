@@ -1,8 +1,24 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'abastecimiento_periodo.dart';
+
 const String kAbastecimientoCollection = 'TBL_COMPRAS_ABASTECIMIENTO';
 const String kAbastecimientoReportesCollection =
     'TBL_COMPRAS_ABASTECIMIENTO_REPORTES';
+
+/// Unidades que el modelo Excel ofrece siempre; se suman las de Productos.
+const List<String> kUnidadesAbastecimientoBase = [
+  'KG',
+  'GR',
+  'LB',
+  'UND',
+  'L',
+  'ML',
+  'PAQ',
+  'CAJA',
+  'BULTO',
+  'CANASTA',
+];
 
 enum AbastecimientoEstado { programado, recibido, reprogramado, cancelado }
 
@@ -107,27 +123,45 @@ AbastecimientoEstado parseAbastecimientoEstado(Object? raw) {
   };
 }
 
-DateTime inicioPeriodoConsumo(DateTime fecha) {
-  final date = DateTime(fecha.year, fecha.month, fecha.day);
-  final diasDesdeViernes = (date.weekday - DateTime.friday + 7) % 7;
-  return date.subtract(Duration(days: diasDesdeViernes));
-}
-
-DateTime finPeriodoConsumo(DateTime inicio) {
-  final date = DateTime(inicio.year, inicio.month, inicio.day);
-  return date.add(const Duration(days: 6));
-}
-
-/// Cuatro periodos móviles de viernes a jueves, desde la semana de referencia
-/// y dentro del siguiente horizonte mensual. Se recalculan al abrir la vista o
-/// iniciar una carga de Excel.
-List<DateTime> periodosConsumoProgramables(DateTime referencia) {
-  final primero = inicioPeriodoConsumo(referencia);
-  return List<DateTime>.generate(
-    4,
-    (index) => primero.add(Duration(days: index * 7)),
-    growable: false,
-  );
+/// El período con el que quedó guardada una entrega. Se respeta el guardado
+/// porque la empresa puede cambiar su configuración y las cargas anteriores
+/// conservan el período con el que se hicieron. Solo se corrigen datos
+/// históricos: el rango jueves–viernes de 9 días (se mueve hacia adentro) y
+/// las entregas sin período completo, que toman el ciclo histórico de
+/// viernes a jueves de su fecha.
+PeriodoConsumo? periodoGuardadoAbastecimiento({
+  DateTime? consumoDesde,
+  DateTime? consumoHasta,
+  DateTime? fechaProgramada,
+}) {
+  if (consumoDesde != null && consumoHasta != null) {
+    final desde = DateTime(
+      consumoDesde.year,
+      consumoDesde.month,
+      consumoDesde.day,
+    );
+    final hasta = DateTime(
+      consumoHasta.year,
+      consumoHasta.month,
+      consumoHasta.day,
+    );
+    final esLegadoJuevesViernes =
+        desde.weekday == DateTime.thursday &&
+        hasta.weekday == DateTime.friday &&
+        DateTime.utc(hasta.year, hasta.month, hasta.day)
+                .difference(DateTime.utc(desde.year, desde.month, desde.day))
+                .inDays ==
+            8;
+    if (esLegadoJuevesViernes) {
+      return PeriodoConsumo(
+        DateTime(desde.year, desde.month, desde.day + 1),
+        DateTime(hasta.year, hasta.month, hasta.day - 1),
+      );
+    }
+    if (!hasta.isBefore(desde)) return PeriodoConsumo(desde, hasta);
+  }
+  final base = consumoDesde ?? fechaProgramada;
+  return base == null ? null : PeriodoConsumoConfig.porDefecto.periodoDe(base);
 }
 
 class AbastecimientoCambio {
@@ -320,23 +354,11 @@ class AbastecimientoDoc {
     final fechaProgramada = date(map['fechaProgramada']);
     final consumoDesdeRaw = date(map['consumoDesde']);
     final consumoHastaRaw = date(map['consumoHasta']);
-    // La regla operativa es siempre viernes-jueves. La variante histórica
-    // jueves-viernes se corrige moviendo ambos límites hacia adentro.
-    final esRangoLegadoJuevesViernes =
-        consumoDesdeRaw?.weekday == DateTime.thursday &&
-        consumoHastaRaw?.weekday == DateTime.friday &&
-        consumoHastaRaw!.difference(consumoDesdeRaw!).inDays == 8;
-    final consumoBase = consumoDesdeRaw ?? fechaProgramada;
-    final consumoDesde = esRangoLegadoJuevesViernes
-        ? consumoDesdeRaw.add(const Duration(days: 1))
-        : consumoBase == null
-        ? null
-        : inicioPeriodoConsumo(consumoBase);
-    final consumoHasta = esRangoLegadoJuevesViernes
-        ? consumoHastaRaw.subtract(const Duration(days: 1))
-        : consumoDesde == null
-        ? null
-        : finPeriodoConsumo(consumoDesde);
+    final periodo = periodoGuardadoAbastecimiento(
+      consumoDesde: consumoDesdeRaw,
+      consumoHasta: consumoHastaRaw,
+      fechaProgramada: fechaProgramada,
+    );
     return AbastecimientoDoc(
       id: id,
       empresaId: (map['empresaId'] ?? '').toString(),
@@ -365,8 +387,8 @@ class AbastecimientoDoc {
       entradaRegistradaAt: map['entradaRegistradaAt'] is Timestamp
           ? map['entradaRegistradaAt'] as Timestamp
           : null,
-      consumoDesde: consumoDesde,
-      consumoHasta: consumoHasta,
+      consumoDesde: periodo?.desde,
+      consumoHasta: periodo?.hasta,
       estado: parseAbastecimientoEstado(map['estado']),
       observaciones: (map['observaciones'] ?? '').toString(),
       novedadEstado: (map['novedadEstado'] ?? '').toString(),
@@ -414,6 +436,10 @@ class AbastecimientoDoc {
   }
 
   bool get sinFecha => fechaProgramada == null;
+
+  PeriodoConsumo? get periodo => consumoDesde == null || consumoHasta == null
+      ? null
+      : PeriodoConsumo(consumoDesde!, consumoHasta!);
   bool get noEntrega => estado == AbastecimientoEstado.cancelado;
 
   Map<String, dynamic> toMap() => {

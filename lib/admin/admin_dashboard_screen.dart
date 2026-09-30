@@ -78,6 +78,7 @@ import 'admin_access_filter.dart';
 import 'admin_name_normalizer.dart';
 import 'company_transition_service.dart';
 import 'compras_document_control_panel.dart';
+import 'compras_periodo_consumo_card.dart';
 import 'correo_admin_panel.dart';
 import 'dian_tokens_admin_panel.dart';
 import 'security_admin_panel.dart';
@@ -2000,6 +2001,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
+        ComprasPeriodoConsumoCard(
+          userId: widget.userId,
+          empresaId: _empresaId ?? widget.empresaId,
+        ),
+        const SizedBox(height: 12),
         AdminComprasDocumentControlPanel(
           userId: widget.userId,
           companyId: _empresaId ?? widget.empresaId,

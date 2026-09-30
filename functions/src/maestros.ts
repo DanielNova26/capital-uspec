@@ -59,8 +59,11 @@ export const MODULOS_MAESTROS: ModuloMaestros[] = [
   {
     id: "compras", nombre: "Compras",
     maestros: [
+      // El período de consumo de Abastecimiento se copia; quién y cuándo
+      // lo cambió es de cada empresa.
       {id: "TBL_COMPRAS_CONFIG", nombre: "Configuración", tipo: "config",
-        omitir: ["marcaSeq"]},
+        omitir: ["marcaSeq", "abastecimientoPeriodoActualizadoPor",
+          "abastecimientoPeriodoActualizadoAt"]},
       {id: "TBL_COMPRAS_GRUPOS", nombre: "Grupos", tipo: "coleccion",
         clave: ["nombre"]},
       {id: "TBL_COMPRAS_BODEGAS", nombre: "Bodegas", tipo: "coleccion",

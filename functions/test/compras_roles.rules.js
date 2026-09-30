@@ -77,3 +77,28 @@ test('contador de marcas funciona para Compras sin conceder configuración admin
   await assertFails(updateDoc(doc(db, 'TBL_COMPRAS_CONFIG/A'), {diasCorreccion: 999}));
   await assertFails(updateDoc(doc(auth('consultas'), 'TBL_COMPRAS_CONFIG/A'), {marcaSeq: 3}));
 });
+test('período de consumo: Admin o administrador de Compras, con forma válida', async () => {
+  const ref = (user) => doc(auth(user), 'TBL_COMPRAS_CONFIG/A');
+  const semanal = {modo: 'ciclo', inicioReferencia: '2026-09-28', duracionDias: 7};
+  await assertSucceeds(setDoc(ref('admin'), {abastecimientoPeriodo: semanal}, {merge: true}));
+  // Reemplaza el mapa completo (la app usa mergeFields): un merge anidado
+  // dejaría restos del ciclo en el modo mensual y la regla lo rechaza.
+  await assertFails(setDoc(ref('comprasAdmin'), {abastecimientoPeriodo: {modo: 'mensual'}}, {merge: true}));
+  await assertSucceeds(updateDoc(ref('comprasAdmin'), {abastecimientoPeriodo: {modo: 'mensual'}}));
+  await assertFails(setDoc(ref('comprador'), {abastecimientoPeriodo: semanal}, {merge: true}));
+  await assertFails(setDoc(ref('consultas'), {abastecimientoPeriodo: semanal}, {merge: true}));
+  await assertFails(setDoc(ref('adminB'), {abastecimientoPeriodo: semanal}, {merge: true}));
+  for (const invalido of [
+    {modo: 'ciclo', inicioReferencia: '2026-09-28', duracionDias: 0},
+    {modo: 'ciclo', inicioReferencia: '2026-09-28', duracionDias: 63},
+    {modo: 'ciclo', inicioReferencia: '28/09/2026', duracionDias: 7},
+    {modo: 'ciclo', inicioReferencia: '2026-09-28', duracionDias: '7'},
+    {modo: 'ciclo', inicioReferencia: '2026-09-28', duracionDias: 7, extra: true},
+    {modo: 'mensual', duracionDias: 7},
+    {modo: 'anual'},
+  ]) {
+    await assertFails(updateDoc(ref('admin'), {abastecimientoPeriodo: invalido}));
+  }
+  // El contador de marcas del comprador sigue funcionando con el período guardado.
+  await assertSucceeds(updateDoc(doc(auth('comprador'), 'TBL_COMPRAS_CONFIG/A'), {marcaSeq: 3}));
+});

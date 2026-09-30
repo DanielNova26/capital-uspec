@@ -2,11 +2,15 @@ import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/compras_abastecimiento_excel_parser.dart';
 import 'abastecimiento_excel_template.dart';
 import 'abastecimiento_models.dart';
+import 'abastecimiento_pdf.dart';
+import 'abastecimiento_periodo.dart';
 import 'abastecimiento_service.dart';
 import 'compras_excel_download.dart';
 import 'compras_models.dart';
@@ -44,6 +48,8 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
   AbastecimientoService get _service =>
       AbastecimientoService(actorId: widget.userId);
   StreamSubscription<ComprasRolDoc?>? _roleSubscription;
+  StreamSubscription<PeriodoConsumoConfig>? _periodoSubscription;
+  PeriodoConsumoConfig _periodoConfig = PeriodoConsumoConfig.porDefecto;
   String? _currentRole;
   int _roleRevision = 0;
   bool _roleResolved = false;
@@ -52,7 +58,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
   AbastecimientoEstado? _estado;
   DateTime? _fechaDesde;
   DateTime? _fechaHasta;
-  DateTime? _consumoDesde;
+  PeriodoConsumo? _consumo;
   String? _proveedor;
   String? _producto;
   String? _grupo;
@@ -60,7 +66,12 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
   bool _soloAtrasadas = false;
   String? _selectedId;
   bool _importando = false;
+  bool _generandoModelo = false;
+  bool _generandoPdf = false;
   bool _sincronizando = false;
+
+  /// Lo que la lista muestra ahora; el PDF sale con exactamente esto.
+  List<AbastecimientoDoc> _visibles = const [];
 
   String? get _rol => _currentRole;
   bool get _canImport => _rol == kRolAdmin || _rol == kRolCompras;
@@ -93,6 +104,21 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
         });
   }
 
+  void _observePeriodo() {
+    _periodoSubscription?.cancel();
+    _periodoSubscription = _service.watchPeriodoConfig(widget.empresaId).listen(
+      (config) {
+        if (!mounted || config == _periodoConfig) return;
+        setState(() {
+          _periodoConfig = config;
+          _consumo = null;
+        });
+      },
+      // Sin lectura de la configuración rige la regla histórica.
+      onError: (_) {},
+    );
+  }
+
   @override
   void didUpdateWidget(AbastecimientoScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -100,12 +126,18 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
         oldWidget.userId != widget.userId) {
       _observeRole();
     }
+    if (oldWidget.empresaId != widget.empresaId) {
+      _periodoConfig = PeriodoConsumoConfig.porDefecto;
+      _consumo = null;
+      _observePeriodo();
+    }
   }
 
   @override
   void initState() {
     super.initState();
     _observeRole();
+    _observePeriodo();
     if (widget.initialDate != null) {
       _fechaDesde = DateUtils.dateOnly(widget.initialDate!);
       _fechaHasta = _fechaDesde;
@@ -116,6 +148,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
   void dispose() {
     _roleRevision++;
     _roleSubscription?.cancel();
+    _periodoSubscription?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -161,10 +194,17 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
             ),
           if (_canImport)
             IconButton(
-              onPressed: _importando ? null : _descargarModeloExcel,
+              onPressed: _importando || _generandoModelo
+                  ? null
+                  : _descargarModeloExcel,
               tooltip: 'Descargar modelo Excel',
               icon: const Icon(Icons.download_outlined),
             ),
+          IconButton(
+            onPressed: _generandoPdf ? null : _descargarPdfFiltrado,
+            tooltip: 'PDF de lo filtrado',
+            icon: const Icon(Icons.print_outlined),
+          ),
           if (_canImport)
             IconButton(
               onPressed: _mostrarReportes,
@@ -214,6 +254,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
 
           final all = snapshot.data!;
           final visible = _filtrar(all);
+          _visibles = visible;
           final selected = _resolveSelected(visible);
           final desktop = MediaQuery.sizeOf(context).width >= 1050;
 
@@ -289,11 +330,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     if (_proveedor != null && row.proveedor != _proveedor) return false;
     if (_producto != null && row.producto != _producto) return false;
     if (_grupo != null && row.grupo != _grupo) return false;
-    if (_consumoDesde != null &&
-        (row.consumoDesde == null ||
-            !DateUtils.isSameDay(row.consumoDesde, _consumoDesde))) {
-      return false;
-    }
+    if (_consumo != null && row.periodo != _consumo) return false;
     if (_fechaDesde != null || _fechaHasta != null) {
       final date = row.fechaProgramada;
       if (date == null) return false;
@@ -415,7 +452,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     final providers = _options(rows.map((row) => row.proveedor));
     final products = _options(rows.map((row) => row.producto));
     final groups = _options(rows.map((row) => row.grupo));
-    final consumptionPeriods = periodosConsumoProgramables(DateTime.now());
+    final consumptionPeriods = _periodosFiltro(rows);
     return Container(
       color: Colors.white,
       padding: EdgeInsets.fromLTRB(desktop ? 24 : 12, 4, desktop ? 24 : 12, 14),
@@ -436,7 +473,9 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
               if (_canImport && desktop) ...[
                 const SizedBox(width: 14),
                 OutlinedButton.icon(
-                  onPressed: _importando ? null : _descargarModeloExcel,
+                  onPressed: _importando || _generandoModelo
+                      ? null
+                      : _descargarModeloExcel,
                   icon: const Icon(Icons.download_outlined),
                   label: const Text('Modelo Excel'),
                   style: OutlinedButton.styleFrom(foregroundColor: _abBlue),
@@ -497,6 +536,13 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                       setState(() => _soloPendientes = selected),
                   avatar: const Icon(Icons.pending_actions_outlined, size: 18),
                   label: const Text('Con pendientes'),
+                  tooltip: _pendientesAyuda,
+                ),
+                OutlinedButton.icon(
+                  onPressed: _generandoPdf ? null : _descargarPdfFiltrado,
+                  icon: const Icon(Icons.print_outlined),
+                  label: const Text('PDF de lo filtrado'),
+                  style: OutlinedButton.styleFrom(foregroundColor: _abBlue),
                 ),
                 if (_filtersActive)
                   TextButton.icon(
@@ -535,6 +581,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                     onSelected: (selected) =>
                         setState(() => _soloPendientes = selected),
                     label: const Text('Con pendientes'),
+                    tooltip: _pendientesAyuda,
                   ),
                   const SizedBox(width: 8),
                   ActionChip(
@@ -555,9 +602,47 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
               ),
             ),
           ],
+          if (_soloPendientes)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.info_outline,
+                    size: 16,
+                    color: Colors.black54,
+                  ),
+                  const SizedBox(width: 6),
+                  const Expanded(
+                    child: Text(
+                      _pendientesAyuda,
+                      style: TextStyle(
+                        fontFamily: _abFont,
+                        fontSize: 12,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
+  }
+
+  /// Períodos del filtro: el vigente y los siguientes según la configuración,
+  /// más los que ya tienen entregas (pueden venir de una configuración
+  /// anterior de la empresa).
+  List<PeriodoConsumo> _periodosFiltro(List<AbastecimientoDoc> rows) {
+    final programables = _periodoConfig.programables(DateTime.now());
+    final otros = <PeriodoConsumo>{
+      for (final row in rows)
+        if (row.periodo != null && !programables.contains(row.periodo))
+          row.periodo!,
+      if (_consumo != null && !programables.contains(_consumo)) _consumo!,
+    }.toList()..sort((a, b) => b.desde.compareTo(a.desde));
+    return [...programables, ...otros];
   }
 
   Future<void> _showMobileFilters(
@@ -714,7 +799,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
       _proveedor != null ||
       _producto != null ||
       _grupo != null ||
-      _consumoDesde != null ||
+      _consumo != null ||
       _soloPendientes ||
       _soloAtrasadas ||
       _searchController.text.trim().isNotEmpty;
@@ -726,7 +811,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     _proveedor = null;
     _producto = null;
     _grupo = null;
-    _consumoDesde = null;
+    _consumo = null;
     _soloPendientes = false;
     _soloAtrasadas = false;
     _searchController.clear();
@@ -782,13 +867,13 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     }),
   );
 
-  Widget _consumptionFilter(List<DateTime> periods) =>
-      DropdownButtonFormField<DateTime?>(
-        key: ValueKey('consumo|${_consumoDesde?.toIso8601String()}'),
-        initialValue: _consumoDesde,
+  Widget _consumptionFilter(List<PeriodoConsumo> periods) =>
+      DropdownButtonFormField<PeriodoConsumo?>(
+        key: ValueKey('consumo|$_consumo|${_periodoConfig.etiquetaCorta}'),
+        initialValue: _consumo,
         isExpanded: true,
         decoration: InputDecoration(
-          labelText: 'Consumo principal · vie–jue',
+          labelText: 'Consumo principal · ${_periodoConfig.etiquetaCorta}',
           prefixIcon: const Icon(Icons.event_repeat_outlined, size: 20),
           isDense: true,
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -796,13 +881,16 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
         items: [
           const DropdownMenuItem(value: null, child: Text('Todos')),
           ...periods.map(
-            (date) => DropdownMenuItem(
-              value: date,
-              child: Text(_periodLabel(date), overflow: TextOverflow.ellipsis),
+            (period) => DropdownMenuItem(
+              value: period,
+              child: Text(
+                _periodLabel(period),
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ),
         ],
-        onChanged: (value) => setState(() => _consumoDesde = value),
+        onChanged: (value) => setState(() => _consumo = value),
       );
 
   Widget _dateFilter() => OutlinedButton.icon(
@@ -902,9 +990,9 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                         ),
                         DataCell(
                           Text(
-                            row.consumoDesde == null
+                            row.periodo == null
                                 ? '—'
-                                : _periodLabel(row.consumoDesde!),
+                                : _periodLabel(row.periodo!),
                             style: style,
                           ),
                         ),
@@ -1192,7 +1280,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
           _detail('Fecha programada', _dateLabel(row.fechaProgramada)),
           _detail(
             'Período de consumo',
-            row.consumoDesde == null ? '' : _periodLabel(row.consumoDesde!),
+            row.periodo == null ? '' : _periodLabel(row.periodo!),
           ),
           _detail('Segunda entrega', _dateLabel(row.fechaSegundaEntrega)),
           _detail('Fecha de entrega', _dateLabel(row.fechaRecibido)),
@@ -1559,7 +1647,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
           _detail('Fecha', _dateLabel(row.fechaProgramada)),
           _detail(
             'Consumo',
-            row.consumoDesde == null ? '' : _periodLabel(row.consumoDesde!),
+            row.periodo == null ? '' : _periodLabel(row.periodo!),
           ),
           _detail('Fecha de entrega', _dateLabel(row.fechaRecibido)),
           _detail('Número de entrada', row.numeroEntrada),
@@ -1650,28 +1738,38 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     setState(() => _importando = true);
     try {
       final parsed = _parser.parse(bytes);
-      final catalog = await _service.validarCatalogo(
-        empresaId: widget.empresaId,
-        filas: parsed.filas,
-      );
+      final results = await Future.wait<Object>([
+        _service.validarCatalogo(
+          empresaId: widget.empresaId,
+          filas: parsed.filas,
+        ),
+        _service.getPeriodoConfig(widget.empresaId),
+      ]);
+      final catalog = results[0] as AbastecimientoCatalogValidation;
+      final periodoConfig = results[1] as PeriodoConsumoConfig;
       if (!mounted) return;
-      final periodoDesde = await _confirmImport(file.name, parsed, catalog);
-      if (periodoDesde == null || !mounted) return;
-      final periodoHasta = finPeriodoConsumo(periodoDesde);
+      final periodo = await _confirmImport(
+        file.name,
+        parsed,
+        catalog,
+        periodoConfig,
+      );
+      if (periodo == null || !mounted) return;
       final result = await _service.importar(
         empresaId: widget.empresaId,
         archivoNombre: file.name,
         usuarioId: widget.userId,
-        filas: catalog.filas,
-        consumoDesde: periodoDesde,
-        consumoHasta: periodoHasta,
+        filas: parsed.filas,
+        consumoDesde: periodo.desde,
+        consumoHasta: periodo.hasta,
       );
       if (!mounted) return;
       _message(
         'Excel procesado: ${result.creados} nuevos, '
         '${result.actualizados} actualizados, ${result.sinCambios} sin cambios. '
-        'Consumo: ${_periodLabel(periodoDesde)}'
-        '${result.omitidosCatalogo == 0 ? '.' : '. ${result.omitidosCatalogo} omitidos por catálogo.'}',
+        'Consumo: ${_periodLabel(periodo)}'
+        '${result.omitidosCatalogo == 0 ? '.' : '. ${result.omitidosCatalogo} filas no se cargaron.'}',
+        error: result.omitidosCatalogo > 0,
       );
     } catch (error) {
       if (mounted) {
@@ -1682,14 +1780,15 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     }
   }
 
-  Future<DateTime?> _confirmImport(
+  Future<PeriodoConsumo?> _confirmImport(
     String fileName,
     AbastecimientoExcelParseResult result,
     AbastecimientoCatalogValidation catalog,
+    PeriodoConsumoConfig periodoConfig,
   ) {
-    final periods = periodosConsumoProgramables(DateTime.now());
+    final periods = periodoConfig.programables(DateTime.now());
     var selectedPeriod = periods.first;
-    return showDialog<DateTime>(
+    return showDialog<PeriodoConsumo>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setLocal) => AlertDialog(
@@ -1705,19 +1804,25 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 14),
-                  DropdownButtonFormField<DateTime>(
+                  if (catalog.duplicados.isNotEmpty ||
+                      catalog.bloqueadas.isNotEmpty) ...[
+                    _importAlert(catalog),
+                    const SizedBox(height: 14),
+                  ],
+                  DropdownButtonFormField<PeriodoConsumo>(
                     initialValue: selectedPeriod,
                     isExpanded: true,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Periodo de consumo para esta carga *',
                       helperText:
-                          'Cuatro periodos disponibles; se renuevan automáticamente cada viernes.',
-                      prefixIcon: Icon(Icons.event_repeat_outlined),
-                      border: OutlineInputBorder(),
+                          '${periodoConfig.descripcion} Se muestran el vigente y los tres siguientes.',
+                      helperMaxLines: 3,
+                      prefixIcon: const Icon(Icons.event_repeat_outlined),
+                      border: const OutlineInputBorder(),
                     ),
                     items: periods
                         .map(
-                          (period) => DropdownMenuItem<DateTime>(
+                          (period) => DropdownMenuItem<PeriodoConsumo>(
                             value: period,
                             child: Text(_periodLabel(period)),
                           ),
@@ -1802,7 +1907,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                   ],
                   const SizedBox(height: 14),
                   const Text(
-                    'Los registros existentes se actualizarán y cada diferencia quedará en el historial. Las filas iguales no se duplican.',
+                    'La OC y el producto identifican cada entrega: si ya existe y sigue Programada se actualiza y cada diferencia queda en el historial; si pasó a otro estado no se cambia. Las filas iguales no se duplican.',
                     style: TextStyle(color: Colors.black54),
                   ),
                 ],
@@ -1827,20 +1932,138 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     );
   }
 
+  /// Aviso de la carga: "Existen registros duplicados" y las OC que ya no
+  /// están programadas. Esas filas no se cargan.
+  Widget _importAlert(AbastecimientoCatalogValidation catalog) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: _abRed.withValues(alpha: 0.07),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: _abRed.withValues(alpha: 0.35)),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (catalog.duplicados.isNotEmpty) ...[
+          const Row(
+            children: [
+              Icon(Icons.copy_all_outlined, color: _abRed, size: 19),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Existen registros duplicados',
+                  style: TextStyle(fontWeight: FontWeight.w800, color: _abRed),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ...catalog.duplicados.take(8).map((item) => Text('• $item')),
+          if (catalog.duplicados.length > 8)
+            Text('… y ${catalog.duplicados.length - 8} más.'),
+        ],
+        if (catalog.duplicados.isNotEmpty && catalog.bloqueadas.isNotEmpty)
+          const SizedBox(height: 10),
+        if (catalog.bloqueadas.isNotEmpty) ...[
+          const Row(
+            children: [
+              Icon(Icons.lock_outline, color: _abRed, size: 19),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'OC que ya no se pueden cambiar',
+                  style: TextStyle(fontWeight: FontWeight.w800, color: _abRed),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ...catalog.bloqueadas.take(8).map((item) => Text('• $item')),
+          if (catalog.bloqueadas.length > 8)
+            Text('… y ${catalog.bloqueadas.length - 8} más.'),
+        ],
+        const SizedBox(height: 6),
+        const Text(
+          'Estas filas no se cargan. Corrige el archivo y vuelve a cargarlo.',
+          style: TextStyle(color: Colors.black54),
+        ),
+      ],
+    ),
+  );
+
   Future<void> _descargarModeloExcel() async {
+    setState(() => _generandoModelo = true);
     try {
-      final bytes = construirPlantillaAbastecimiento();
+      final catalogo = await _service.getCatalogoPlantilla(widget.empresaId);
+      final bytes = construirPlantillaAbastecimiento(catalogo: catalogo);
       await descargarExcelCompras(
         nombreArchivo: 'modelo_compras_abastecimiento',
         bytes: bytes,
       );
       if (mounted) {
-        _message('Modelo Excel de Abastecimiento descargado.');
+        _message(
+          'Modelo Excel descargado con las listas de la empresa: '
+          '${catalogo.proveedores.length} proveedores, '
+          '${catalogo.grupos.length} grupos y '
+          '${catalogo.productos.length} productos.',
+        );
       }
     } catch (error) {
       if (mounted) {
         _message('No fue posible descargar el modelo: $error', error: true);
       }
+    } finally {
+      if (mounted) setState(() => _generandoModelo = false);
+    }
+  }
+
+  /// Los filtros activos, en palabras, para el encabezado del PDF.
+  List<String> _filtrosDescritos() {
+    final format = DateFormat('dd/MM/yyyy');
+    final query = _searchController.text.trim();
+    return [
+      if (_consumo != null)
+        'Consumo ${format.format(_consumo!.desde)} a ${format.format(_consumo!.hasta)}',
+      if (_fechaDesde != null && _fechaHasta != null)
+        'Entrega ${format.format(_fechaDesde!)} a ${format.format(_fechaHasta!)}',
+      if (_estado != null) 'Estado ${_estado!.label}',
+      if (_proveedor != null) 'Proveedor $_proveedor',
+      if (_producto != null) 'Producto $_producto',
+      if (_grupo != null) 'Grupo $_grupo',
+      if (_soloPendientes) 'Con pendientes',
+      if (_soloAtrasadas) 'Atrasadas',
+      if (query.isNotEmpty) 'Búsqueda "$query"',
+    ];
+  }
+
+  Future<void> _descargarPdfFiltrado() async {
+    final entregas = List<AbastecimientoDoc>.of(_visibles);
+    final filtros = _filtrosDescritos();
+    setState(() => _generandoPdf = true);
+    try {
+      final results = await Future.wait<Object?>([
+        _service.getEmpresaNombre(widget.empresaId),
+        cargarFuentePdfAbastecimiento(),
+      ]);
+      final bytes = await construirPdfAbastecimiento(
+        empresaNombre: results[0] as String,
+        filtros: filtros,
+        entregas: entregas,
+        generado: DateTime.now(),
+        fuente: results[1] as pw.Font?,
+      );
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename:
+            'abastecimiento_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.pdf',
+      );
+    } catch (error) {
+      if (mounted) {
+        _message('No fue posible generar el PDF: $error', error: true);
+      }
+    } finally {
+      if (mounted) setState(() => _generandoPdf = false);
     }
   }
 
@@ -2087,10 +2310,13 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
+                Text(
                   'Se generan automáticamente todos los días a las 5:00 p. m., '
-                  'por grupo y para el período de consumo vigente.',
-                  style: TextStyle(color: Colors.black54),
+                  'por grupo, para el período de consumo vigente '
+                  '(${_periodLabel(_periodoConfig.periodoDe(DateTime.now()))}). '
+                  'Cada reporte reemplaza al anterior; para otros filtros usa '
+                  '"PDF de lo filtrado".',
+                  style: const TextStyle(color: Colors.black54),
                 ),
                 const SizedBox(height: 14),
                 Expanded(
@@ -2103,10 +2329,23 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                       if (!snapshot.hasData) {
                         return const Center(child: CircularProgressIndicator());
                       }
-                      final reports = snapshot.data!;
+                      // Sin histórico: solo los del período vigente.
+                      final vigente = _periodoConfig.periodoDe(DateTime.now());
+                      final reports = snapshot.data!
+                          .where(
+                            (report) =>
+                                report.consumoDesde != null &&
+                                DateUtils.isSameDay(
+                                  report.consumoDesde,
+                                  vigente.desde,
+                                ),
+                          )
+                          .toList();
                       if (reports.isEmpty) {
                         return const Center(
-                          child: Text('Aún no hay reportes generados.'),
+                          child: Text(
+                            'Aún no hay reportes del período vigente.',
+                          ),
                         );
                       }
                       return ListView.separated(
@@ -2121,7 +2360,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                             ),
                             title: Text(report.grupo),
                             subtitle: Text(
-                              '${report.consumoDesde == null ? 'Sin período' : _periodLabel(report.consumoDesde!)} · '
+                              '${report.consumoDesde == null || report.consumoHasta == null ? 'Sin período' : _periodLabel(PeriodoConsumo(report.consumoDesde!, report.consumoHasta!))} · '
                               '${report.registros} registros · '
                               '${DateFormat('dd/MM/yyyy HH:mm').format(report.generatedAt.toDate())}',
                             ),
@@ -2221,9 +2460,11 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     final providersFuture = _service.getProveedoresActivos(widget.empresaId);
     final groupsFuture = _service.getGrupos(widget.empresaId);
     final warehousesFuture = _service.getBodegas(widget.empresaId);
+    final periodoFuture = _service.getPeriodoConfig(widget.empresaId);
     final providers = await providersFuture;
     final groups = await groupsFuture;
     final warehouses = await warehousesFuture;
+    final periodoConfig = await periodoFuture;
     if (!mounted) return;
     if (providers.isEmpty || groups.isEmpty) {
       _message(
@@ -2244,8 +2485,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     final oc = TextEditingController();
     final observations = TextEditingController();
     DateTime? date;
-    DateTime consumptionStart = inicioPeriodoConsumo(DateTime.now());
-    DateTime consumptionEnd = finPeriodoConsumo(consumptionStart);
+    var consumption = periodoConfig.periodoDe(DateTime.now());
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -2446,8 +2686,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                       if (chosen != null) {
                         setLocal(() {
                           date = chosen;
-                          consumptionStart = inicioPeriodoConsumo(chosen);
-                          consumptionEnd = finPeriodoConsumo(consumptionStart);
+                          consumption = periodoConfig.periodoDe(chosen);
                         });
                       }
                     },
@@ -2463,80 +2702,50 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                         ),
                       ),
                     ),
-                  const Align(
+                  Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      'Consumo manual (viernes a jueves) *',
-                      style: TextStyle(fontWeight: FontWeight.w700),
+                      'Período de consumo (${periodoConfig.etiquetaCorta}) *',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            final chosen = await showDatePicker(
-                              context: context,
-                              initialDate: consumptionStart,
-                              firstDate: DateTime(2020),
-                              lastDate: DateTime(2035),
-                              selectableDayPredicate: (value) =>
-                                  value.weekday == DateTime.friday,
-                              helpText: 'CONSUMO DESDE (VIERNES)',
-                            );
-                            if (chosen != null) {
-                              setLocal(() {
-                                consumptionStart = DateUtils.dateOnly(chosen);
-                                consumptionEnd = finPeriodoConsumo(
-                                  consumptionStart,
-                                );
-                              });
-                            }
-                          },
-                          icon: const Icon(Icons.event_available_outlined),
-                          label: Text(
-                            'Desde ${DateFormat('dd/MM/yyyy').format(consumptionStart)}',
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            final chosen = await showDatePicker(
-                              context: context,
-                              initialDate: consumptionEnd,
-                              firstDate: DateTime(2020),
-                              lastDate: DateTime(2035),
-                              selectableDayPredicate: (value) =>
-                                  value.weekday == DateTime.thursday,
-                              helpText: 'CONSUMO HASTA (JUEVES)',
-                            );
-                            if (chosen != null) {
-                              setLocal(
-                                () =>
-                                    consumptionEnd = DateUtils.dateOnly(chosen),
-                              );
-                            }
-                          },
-                          icon: const Icon(Icons.event_available_outlined),
-                          label: Text(
-                            'Hasta ${DateFormat('dd/MM/yyyy').format(consumptionEnd)}',
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (attempted &&
-                      consumptionEnd.difference(consumptionStart).inDays != 6)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 6),
-                      child: Text(
-                        'El consumo debe terminar el jueves siguiente al viernes seleccionado.',
-                        style: TextStyle(color: _abRed, fontSize: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final chosen = await showDatePicker(
+                          context: context,
+                          initialDate: consumption.desde,
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime(2035),
+                          selectableDayPredicate:
+                              periodoConfig.esInicioDePeriodo,
+                          helpText: 'INICIO DEL PERÍODO DE CONSUMO',
+                        );
+                        if (chosen != null) {
+                          setLocal(
+                            () => consumption = periodoConfig.periodoDe(chosen),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.event_available_outlined),
+                      label: Text(
+                        '${DateFormat('dd/MM/yyyy').format(consumption.desde)} a '
+                        '${DateFormat('dd/MM/yyyy').format(consumption.hasta)}',
                       ),
                     ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      periodoConfig.descripcion,
+                      style: const TextStyle(
+                        color: Colors.black54,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 10),
                   _input(observations, 'Observaciones', maxLines: 3),
                 ],
@@ -2560,9 +2769,10 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                     selectedGroup == null ||
                     resolvedDestination.isEmpty ||
                     date == null ||
-                    consumptionStart.weekday != DateTime.friday ||
-                    consumptionEnd.weekday != DateTime.thursday ||
-                    consumptionEnd.difference(consumptionStart).inDays != 6 ||
+                    !periodoConfig.esPeriodoValido(
+                      consumption.desde,
+                      consumption.hasta,
+                    ) ||
                     oc.text.trim().isEmpty) {
                   setLocal(() => attempted = true);
                   return;
@@ -2592,14 +2802,19 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
               : selectedDestination!,
           condicion: condition.text,
           fechaProgramada: date,
-          consumoDesde: consumptionStart,
-          consumoHasta: consumptionEnd,
+          consumoDesde: consumption.desde,
+          consumoHasta: consumption.hasta,
           ordenCompra: oc.text,
           observaciones: observations.text,
         );
         if (mounted) _message('Entrega creada.');
       } catch (error) {
-        if (mounted) _message('No se pudo crear: $error', error: true);
+        if (mounted) {
+          _message(
+            'No se pudo crear: ${error.toString().replaceFirst('Bad state: ', '')}',
+            error: true,
+          );
+        }
       }
     }
     for (final controller in [
@@ -2785,9 +3000,13 @@ Color _statusColor(AbastecimientoEstado status) => switch (status) {
 String _dateLabel(DateTime? value) =>
     value == null ? 'Sin fecha' : DateFormat('dd MMM yyyy', 'es').format(value);
 
-String _periodLabel(DateTime start) =>
-    '${DateFormat('dd MMM', 'es').format(start)} – '
-    '${DateFormat('dd MMM yyyy', 'es').format(finPeriodoConsumo(start))}';
+String _periodLabel(PeriodoConsumo period) =>
+    '${DateFormat('dd MMM', 'es').format(period.desde)} – '
+    '${DateFormat('dd MMM yyyy', 'es').format(period.hasta)}';
+
+const _pendientesAyuda =
+    'Muestra las entregas cuyas observaciones registran algo pendiente '
+    '(PND, pendiente de pago o pendiente de entrada).';
 
 String _number(double value) => value == value.roundToDouble()
     ? value.toInt().toString()

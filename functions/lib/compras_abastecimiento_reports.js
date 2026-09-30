@@ -23,16 +23,75 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.comprasGenerarReporteAbastecimiento = exports.comprasReporteAbastecimiento1700 = void 0;
+exports.comprasGenerarReporteAbastecimiento = exports.comprasReporteAbastecimiento1700 = exports.PERIODO_POR_DEFECTO = void 0;
+exports.periodoConfigDe = periodoConfigDe;
+exports.periodoConsumoDe = periodoConsumoDe;
 exports.consumptionPeriodFor = consumptionPeriodFor;
+exports.periodForRow = periodForRow;
+exports.pdfSafe = pdfSafe;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 const crypto_1 = require("crypto");
 const pdf_lib_1 = require("pdf-lib");
+const acceso_1 = require("./acceso");
 const REGION = "us-central1";
 const TIME_ZONE = "America/Bogota";
 const SOURCE_COLLECTION = "TBL_COMPRAS_ABASTECIMIENTO";
 const REPORT_COLLECTION = "TBL_COMPRAS_ABASTECIMIENTO_REPORTES";
+const CONFIG_COLLECTION = "TBL_COMPRAS_CONFIG";
+const CONFIG_FIELD = "abastecimientoPeriodo";
+const MAX_DIAS = 62;
+exports.PERIODO_POR_DEFECTO = { modo: "ciclo", inicio: "2026-01-02", dias: 7 };
+function validDateKey(value) {
+    const key = String(value ?? "").trim();
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+    if (!match)
+        return null;
+    const [year, month, day] = match.slice(1).map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 &&
+        date.getUTCDate() === day ? key : null;
+}
+function periodoConfigDe(raw) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return exports.PERIODO_POR_DEFECTO;
+    }
+    const data = raw;
+    const modo = String(data.modo ?? "").trim().toLowerCase();
+    if (modo === "mensual")
+        return { modo: "mensual" };
+    if (modo !== "ciclo")
+        return exports.PERIODO_POR_DEFECTO;
+    const inicio = validDateKey(data.inicioReferencia);
+    const dias = data.duracionDias;
+    if (!inicio || typeof dias !== "number" || !Number.isInteger(dias) ||
+        dias < 1 || dias > MAX_DIAS) {
+        return exports.PERIODO_POR_DEFECTO;
+    }
+    return { modo: "ciclo", inicio, dias };
+}
+function dateFromKey(key) {
+    const [year, month, day] = key.split("-").map(Number);
+    return new Date(Date.UTC(year, month - 1, day));
+}
+function addDays(date, days) {
+    const next = new Date(date);
+    next.setUTCDate(next.getUTCDate() + days);
+    return next;
+}
+// Período de la fecha `yyyy-MM-dd` según la configuración.
+function periodoConsumoDe(dateKey, config) {
+    const date = dateFromKey(dateKey);
+    if (config.modo === "mensual") {
+        const from = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+        const to = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0));
+        return { from: isoDate(from), to: isoDate(to) };
+    }
+    const reference = dateFromKey(config.inicio);
+    const offset = Math.round((date.getTime() - reference.getTime()) / 86400000);
+    const from = addDays(reference, Math.floor(offset / config.dias) * config.dias);
+    return { from: isoDate(from), to: isoDate(addDays(from, config.dias - 1)) };
+}
 function localDateParts(now) {
     const parts = new Intl.DateTimeFormat("en-CA", {
         timeZone: TIME_ZONE,
@@ -59,24 +118,30 @@ function parseDateKey(value) {
     }
     return null;
 }
-function consumptionPeriodFor(now) {
+// Período vigente en Bogotá para la configuración de la empresa.
+function consumptionPeriodFor(now, config = exports.PERIODO_POR_DEFECTO) {
     const parts = localDateParts(now);
-    const date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
-    const weekday = date.getUTCDay();
-    const daysSinceFriday = (weekday - 5 + 7) % 7;
-    const from = new Date(date);
-    from.setUTCDate(from.getUTCDate() - daysSinceFriday);
-    const to = new Date(from);
-    to.setUTCDate(to.getUTCDate() + 6);
-    return { from: isoDate(from), to: isoDate(to) };
+    return periodoConsumoDe(isoDate(new Date(Date.UTC(parts.year, parts.month - 1, parts.day))), config);
 }
+// El período con que quedó guardada la entrega: se respeta aunque la
+// empresa cambie después su configuración. Igual que la app, el rango
+// histórico jueves–viernes de 9 días se corrige hacia adentro y una entrega
+// sin período completo toma el ciclo histórico de su fecha.
 function periodForRow(row) {
-    const explicit = parseDateKey(row.consumoDesde);
-    const fallback = parseDateKey(row.fechaProgramada);
-    const key = explicit ?? fallback;
-    if (!key)
-        return null;
-    return consumptionPeriodFor(new Date(`${key}T17:00:00-05:00`));
+    const from = parseDateKey(row.consumoDesde);
+    const to = parseDateKey(row.consumoHasta);
+    if (from && to) {
+        const start = dateFromKey(from);
+        const end = dateFromKey(to);
+        const days = Math.round((end.getTime() - start.getTime()) / 86400000);
+        if (start.getUTCDay() === 4 && end.getUTCDay() === 5 && days === 8) {
+            return { from: isoDate(addDays(start, 1)), to: isoDate(addDays(end, -1)) };
+        }
+        if (days >= 0)
+            return { from, to };
+    }
+    const key = from ?? parseDateKey(row.fechaProgramada);
+    return key ? periodoConsumoDe(key, exports.PERIODO_POR_DEFECTO) : null;
 }
 function text(value) {
     return String(value ?? "").trim();
@@ -89,6 +154,25 @@ function safeName(value) {
         .replace(/^-+|-+$/g, "")
         .toLowerCase();
     return normalized || "sin-grupo";
+}
+// Las fuentes estándar de pdf-lib solo codifican WinAnsi: un carácter fuera
+// de ese juego tumbaría el reporte completo. Se quitan tildes que no existan
+// ahí y lo demás se reemplaza.
+const WIN_ANSI_EXTRA = new Set([..."€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ"]);
+function pdfSafe(value) {
+    let out = "";
+    for (const char of value) {
+        const code = char.codePointAt(0) ?? 0;
+        if ((code >= 0x20 && code <= 0x7e) || (code >= 0xa0 && code <= 0xff) ||
+            WIN_ANSI_EXTRA.has(char)) {
+            out += char;
+            continue;
+        }
+        const base = char.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        out += base && [...base].every((c) => (c.codePointAt(0) ?? 0) <= 0xff) ?
+            base : "?";
+    }
+    return out;
 }
 function truncate(value, max) {
     return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
@@ -107,7 +191,7 @@ function statusLabel(value) {
             return "Programado";
     }
 }
-async function createPdf(empresaId, group, period, rows) {
+async function createPdf(empresaNombre, group, period, rows) {
     const pdf = await pdf_lib_1.PDFDocument.create();
     const regular = await pdf.embedFont(pdf_lib_1.StandardFonts.Helvetica);
     const bold = await pdf.embedFont(pdf_lib_1.StandardFonts.HelveticaBold);
@@ -123,14 +207,14 @@ async function createPdf(empresaId, group, period, rows) {
             color: (0, pdf_lib_1.rgb)(0.06, 0.3, 0.51),
         });
         y -= 20;
-        page.drawText(`Empresa: ${truncate(empresaId, 70)}`, {
+        page.drawText(pdfSafe(`Empresa: ${truncate(empresaNombre, 70)}`), {
             x: 30,
             y,
             size: 9,
             font: regular,
         });
         y -= 14;
-        page.drawText(`Grupo: ${truncate(group, 70)}`, {
+        page.drawText(pdfSafe(`Grupo: ${truncate(group, 70)}`), {
             x: 30,
             y,
             size: 9,
@@ -182,14 +266,43 @@ async function createPdf(empresaId, group, period, rows) {
             [truncate(text(row.numeroEntrada), 13), 675],
         ];
         for (const [value, x] of values) {
-            page.drawText(value || "—", { x, y, size: 7, font: regular });
+            page.drawText(pdfSafe(value || "—"), { x, y, size: 7, font: regular });
         }
         y -= 16;
     }
     return pdf.save();
 }
+async function empresaNombre(empresaId) {
+    try {
+        const data = (await admin.firestore().collection("TBL_EMPRESAS")
+            .doc(empresaId).get()).data() ?? {};
+        for (const key of ["nombre", "razonSocial", "nombreEmpresa"]) {
+            const value = text(data[key]);
+            if (value)
+                return value;
+        }
+    }
+    catch (error) {
+        functions.logger.warn("No se pudo leer el nombre de la empresa", {
+            empresaId, error: String(error),
+        });
+    }
+    return empresaId;
+}
+async function periodoConfigEmpresa(empresaId) {
+    try {
+        const snapshot = await admin.firestore().collection(CONFIG_COLLECTION)
+            .doc(empresaId).get();
+        return periodoConfigDe(snapshot.data()?.[CONFIG_FIELD]);
+    }
+    catch (error) {
+        functions.logger.warn("Sin configuración de período; se usa la histórica", {
+            empresaId, error: String(error),
+        });
+        return exports.PERIODO_POR_DEFECTO;
+    }
+}
 async function generateReports(now, empresaFilter, automatic = true) {
-    const period = consumptionPeriodFor(now);
     let query = admin
         .firestore()
         .collection(SOURCE_COLLECTION);
@@ -197,6 +310,7 @@ async function generateReports(now, empresaFilter, automatic = true) {
         query = query.where("empresaId", "==", empresaFilter);
     }
     const snapshot = await query.get();
+    const periods = new Map();
     const grouped = new Map();
     for (const document of snapshot.docs) {
         const row = document.data();
@@ -205,9 +319,15 @@ async function generateReports(now, empresaFilter, automatic = true) {
         const empresaId = text(row.empresaId);
         if (!empresaId)
             continue;
+        if (!periods.has(empresaId)) {
+            periods.set(empresaId, consumptionPeriodFor(now, await periodoConfigEmpresa(empresaId)));
+        }
+        const period = periods.get(empresaId);
         const rowPeriod = periodForRow(row);
-        if (!rowPeriod || rowPeriod.from !== period.from)
+        if (!rowPeriod || rowPeriod.from !== period.from ||
+            rowPeriod.to !== period.to) {
             continue;
+        }
         const group = text(row.grupo) || "Sin grupo";
         const key = `${empresaId}|${group}`;
         const target = grouped.get(key) ?? { empresaId, group, rows: [] };
@@ -215,10 +335,16 @@ async function generateReports(now, empresaFilter, automatic = true) {
         grouped.set(key, target);
     }
     const bucket = admin.storage().bucket();
+    const names = new Map();
+    const vigentes = new Set();
     let generated = 0;
     for (const target of grouped.values()) {
+        const period = periods.get(target.empresaId);
+        if (!names.has(target.empresaId)) {
+            names.set(target.empresaId, await empresaNombre(target.empresaId));
+        }
         target.rows.sort((left, right) => (parseDateKey(left.fechaProgramada) ?? "9999").localeCompare(parseDateKey(right.fechaProgramada) ?? "9999"));
-        const bytes = await createPdf(target.empresaId, target.group, period, target.rows);
+        const bytes = await createPdf(names.get(target.empresaId), target.group, period, target.rows);
         const path = [
             "compras",
             "abastecimiento",
@@ -243,6 +369,7 @@ async function generateReports(now, empresaFilter, automatic = true) {
             safeName(target.group),
             period.from,
         ].join("_");
+        vigentes.add(reportId);
         await admin.firestore().collection(REPORT_COLLECTION).doc(reportId).set({
             empresaId: target.empresaId,
             grupo: target.group,
@@ -256,7 +383,50 @@ async function generateReports(now, empresaFilter, automatic = true) {
         });
         generated++;
     }
+    await retirarHistorico(vigentes, empresaFilter);
     return generated;
+}
+// Sin histórico (30 sep 2026): el usuario se confundía con los reportes de
+// períodos pasados. Solo queda el del período vigente de cada grupo; los
+// demás se borran con su PDF.
+async function retirarHistorico(vigentes, empresaFilter) {
+    let query = admin.firestore()
+        .collection(REPORT_COLLECTION);
+    if (empresaFilter)
+        query = query.where("empresaId", "==", empresaFilter);
+    const snapshot = await query.get();
+    const bucket = admin.storage().bucket();
+    for (const document of snapshot.docs) {
+        if (vigentes.has(document.id))
+            continue;
+        const storagePath = text(document.data().storagePath);
+        if (storagePath) {
+            await bucket.file(storagePath).delete({ ignoreNotFound: true })
+                .catch((error) => functions.logger.warn("No se pudo borrar el PDF anterior", { storagePath, error: String(error) }));
+        }
+        await document.ref.delete();
+    }
+}
+// Solo quien puede entrar a la empresa (o Desarrollo) genera sus reportes.
+async function puedeGenerar(context, empresaId) {
+    const db = admin.firestore();
+    const identity = text(context.auth?.token?.userDocId) || text(context.auth?.uid);
+    if (!identity)
+        return false;
+    let user = await db.collection("TBL_USUARIOS").doc(identity).get();
+    if (!user.exists) {
+        const byUid = await db.collection("TBL_USUARIOS")
+            .where("uid", "==", text(context.auth?.uid)).limit(1).get();
+        if (byUid.empty)
+            return false;
+        user = byUid.docs[0];
+    }
+    const data = user.data() ?? {};
+    const developer = data.desarrollador === true || data.developer === true ||
+        [data.role, data.rol, data.tipoUsuario].map((v) => text(v).toLowerCase())
+            .some((role) => ["desarrollador", "developer", "superadmin",
+            "administrador_sistema"].includes(role));
+    return developer || (0, acceso_1.empresasSeleccionables)(data).includes(empresaId);
 }
 exports.comprasReporteAbastecimiento1700 = functions
     .region(REGION)
@@ -278,6 +448,9 @@ exports.comprasGenerarReporteAbastecimiento = functions
     const empresaId = text(payload.empresaId);
     if (!empresaId) {
         throw new functions.https.HttpsError("invalid-argument", "La empresa es obligatoria.");
+    }
+    if (!(await puedeGenerar(context, empresaId))) {
+        throw new functions.https.HttpsError("permission-denied", "No tienes acceso a esta empresa.");
     }
     const generated = await generateReports(new Date(), empresaId, false);
     return { ok: true, generados: generated };

@@ -1,10 +1,13 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:archive/archive.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:excel/excel.dart' as xl;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:todo/compras/abastecimiento_excel_template.dart';
 import 'package:todo/compras/abastecimiento_models.dart';
+import 'package:todo/compras/abastecimiento_periodo.dart';
 import 'package:todo/services/compras_abastecimiento_excel_parser.dart';
 
 void main() {
@@ -151,23 +154,34 @@ void main() {
     );
   });
 
-  test('calcula el período de consumo de viernes a jueves', () {
-    expect(inicioPeriodoConsumo(DateTime(2026, 8, 27)), DateTime(2026, 8, 21));
-    expect(inicioPeriodoConsumo(DateTime(2026, 8, 28)), DateTime(2026, 8, 28));
-    expect(finPeriodoConsumo(DateTime(2026, 8, 28)), DateTime(2026, 9, 3));
+  test('sin configuración el período es de viernes a jueves', () {
+    final config = PeriodoConsumoConfig.porDefecto;
+    expect(
+      config.periodoDe(DateTime(2026, 8, 27)),
+      PeriodoConsumo(DateTime(2026, 8, 21), DateTime(2026, 8, 27)),
+    );
+    expect(
+      config.periodoDe(DateTime(2026, 8, 28)),
+      PeriodoConsumo(DateTime(2026, 8, 28), DateTime(2026, 9, 3)),
+    );
   });
 
   test('ofrece cuatro periodos móviles de consumo', () {
-    final periods = periodosConsumoProgramables(DateTime(2026, 9, 30));
+    final periods = PeriodoConsumoConfig.porDefecto.programables(
+      DateTime(2026, 9, 30),
+    );
 
     expect(periods, hasLength(4));
-    expect(periods, [
+    expect(periods.map((period) => period.desde), [
       DateTime(2026, 9, 25),
       DateTime(2026, 10, 2),
       DateTime(2026, 10, 9),
       DateTime(2026, 10, 16),
     ]);
-    expect(periods.every((date) => date.weekday == DateTime.friday), isTrue);
+    expect(
+      periods.every((period) => period.desde.weekday == DateTime.friday),
+      isTrue,
+    );
   });
 
   test('el modelo descargable incluye grupo y puede leerlo el importador', () {
@@ -185,6 +199,56 @@ void main() {
     expect(parsed.incidencias, isEmpty);
   });
 
+  test(
+    'el modelo trae desplegables con lo guardado y los lee el importador',
+    () {
+      final bytes = construirPlantillaAbastecimiento(
+        catalogo: const AbastecimientoPlantillaCatalogo(
+          proveedores: ['Avícola Uno', 'Distribuciones & Cía'],
+          categorias: ['Proteína'],
+          productos: ['Huevo'],
+          grupos: ['Grupo 1', 'Grupo 9'],
+          destinos: ['Pasto'],
+        ),
+      );
+      final archive = ZipDecoder().decodeBytes(bytes);
+      String leer(String name) =>
+          utf8.decode(archive.findFile(name)!.content as List<int>);
+      final workbook = leer('xl/workbook.xml');
+      expect(
+        RegExp(
+          r'<sheet[^>]*name="Listas"[^>]*/>',
+        ).firstMatch(workbook)!.group(0),
+        contains('state="hidden"'),
+      );
+      final sheets = archive.files
+          .where((file) => file.name.startsWith('xl/worksheets/sheet'))
+          .map((file) => utf8.decode(file.content as List<int>))
+          .where((xml) => xml.contains('<dataValidations'))
+          .toList();
+      expect(sheets, hasLength(1));
+      final model = sheets.single;
+      // La validación va antes de pageMargins, como exige el esquema.
+      expect(
+        model.indexOf('<dataValidations'),
+        lessThan(model.indexOf('<pageMargins')),
+      );
+      expect(model, contains('sqref="A6:A1005"'));
+      expect(model, contains(r'<formula1>Listas!$A$2:$A$3</formula1>'));
+      expect(model, contains(r'<formula1>Listas!$D$2:$D$3</formula1>'));
+      expect(model, contains('sqref="M6:M1005"'));
+      expect(model, contains('type="date"'));
+
+      final excel = xl.Excel.decodeBytes(bytes);
+      final listas = excel.tables['Listas']!;
+      expect(listas.rows[2][0]?.value.toString(), 'Distribuciones & Cía');
+
+      final parsed = ComprasAbastecimientoExcelParser().parse(bytes);
+      expect(parsed.hojasLeidas, ['Abastecimiento']);
+      expect(parsed.incidencias, isEmpty);
+    },
+  );
+
   test('corrige al leer un período histórico guardado desde jueves', () {
     final doc = AbastecimientoDoc.fromMap('ab-legacy', {
       'empresaId': 'empresa-1',
@@ -198,6 +262,39 @@ void main() {
 
     expect(doc.consumoDesde, DateTime(2026, 8, 28));
     expect(doc.consumoHasta, DateTime(2026, 9, 3));
+  });
+
+  test('respeta el período guardado con otra configuración', () {
+    final doc = AbastecimientoDoc.fromMap('ab-lunes', {
+      'empresaId': 'empresa-1',
+      'importKey': 'lunes',
+      'proveedor': 'Proveedor',
+      'categoria': 'Abarrotes',
+      'producto': 'Arroz',
+      'consumoDesde': Timestamp.fromDate(DateTime(2026, 9, 28)),
+      'consumoHasta': Timestamp.fromDate(DateTime(2026, 10, 11)),
+    });
+
+    expect(
+      doc.periodo,
+      PeriodoConsumo(DateTime(2026, 9, 28), DateTime(2026, 10, 11)),
+    );
+  });
+
+  test('una entrega sin período completo toma el ciclo histórico', () {
+    final doc = AbastecimientoDoc.fromMap('ab-sin-periodo', {
+      'empresaId': 'empresa-1',
+      'importKey': 'sin',
+      'proveedor': 'Proveedor',
+      'categoria': 'Abarrotes',
+      'producto': 'Arroz',
+      'fechaProgramada': Timestamp.fromDate(DateTime(2026, 8, 27)),
+    });
+
+    expect(
+      doc.periodo,
+      PeriodoConsumo(DateTime(2026, 8, 21), DateTime(2026, 8, 27)),
+    );
   });
 
   test('clasifica las observaciones operativas del consolidado', () {

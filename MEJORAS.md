@@ -6,6 +6,97 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Abastecimiento: desplegables en el Excel, período configurable y OC como identidad — 30 sep 2026 (Claude)
+
+Pedido del usuario (documento "ABASTECIMIENTO – SEPTIEMBRE 28" y audio):
+
+- **Modelo Excel con listas desplegables.** El botón "Modelo Excel" lee lo
+  guardado en la empresa activa y lo pone como listas: proveedores activos,
+  categorías de esos proveedores, grupos activos y estado (estrictas);
+  productos, bodegas/destinos y unidades (sugeridas, admiten otro valor
+  porque son informativos). Cantidad y precio exigen número y las fechas
+  exigen fecha. Los valores van en la hoja oculta `Listas`; el paquete
+  `excel` no escribe validaciones, así que se agregan al XML del libro
+  (`lib/compras/abastecimiento_excel_template.dart`). El importador ignora
+  esa hoja.
+- **Período de consumo configurable.** Ya no es fijo de viernes a jueves:
+  `TBL_COMPRAS_CONFIG/{empresaId}.abastecimientoPeriodo` guarda un ciclo de
+  1 a 62 días desde una fecha de referencia (`modo: 'ciclo'`,
+  `inicioReferencia: 'yyyy-MM-dd'`, `duracionDias`) o el mes calendario
+  (`modo: 'mensual'`). Sin configuración rige la regla histórica (7 días
+  desde el viernes 2 ene 2026). Se edita en **Admin › Maestros por módulo ›
+  Compras › Configuración** (tarjeta "Período de consumo de
+  Abastecimiento"); es configuración de la empresa y se copia con
+  TBL_COMPRAS_CONFIG en "Copiar a otras empresas" (quién/cuándo no se
+  copia). `firestore.rules` exige Admin o administrador de Compras de la
+  empresa (`gestionaRolesDeModulo`) y valida la forma del campo. La lógica
+  es una sola en la app (`lib/compras/abastecimiento_periodo.dart`) con su
+  espejo en el servidor (`functions/src/compras_abastecimiento_reports.ts`);
+  la carga Excel, la entrega manual, el filtro y el reporte de las 5:00
+  p. m. usan la misma configuración, y el servicio rechaza un período que
+  la configuración vigente no genera.
+- **La OC identifica la entrega.** Una fila del Excel actualiza la entrega
+  existente con la misma OC y el mismo producto (antes la clave incluía
+  hoja, grupo y destino y por eso aparecían duplicados como BOGOTA/BOGOTAQ).
+  Reglas nuevas en `lib/compras/abastecimiento_import_rules.dart`:
+  - Solo cambia por Excel una entrega **Programada**. Si pasó a otro estado
+    y el archivo trae algo distinto: "No se puede subir la OC-XXXX porque
+    pasó a un estado posterior a programado (Entregado)". Si el archivo no
+    cambia nada, cuenta como sin cambios.
+  - Una OC pertenece a un solo proveedor: si ya está relacionada con otro
+    (en Abastecimiento o en Recepción) la fila se rechaza con "La OC-X ya
+    está relacionada con el proveedor Y". También si el archivo trae la
+    misma OC con dos proveedores.
+  - Filas repetidas en el archivo (misma OC y producto) o que coinciden con
+    varios registros guardados sin poder elegir por destino: aviso
+    "Existen registros duplicados" en la revisión de la carga, y no se
+    cargan.
+  - La entrega manual aplica las mismas reglas de OC.
+  - Corregido de paso: una celda de observaciones vacía ya no borra las
+    pendencias; una entrega eliminada ya no se "actualiza" oculta con otra
+    carga.
+- **Reportes PDF.** "PDF de lo filtrado" (barra de filtros en Web, ícono de
+  impresora en móvil) arma el PDF con exactamente lo que muestra la lista y
+  lleva el nombre de la empresa y los filtros. El reporte automático usa el
+  nombre de la empresa (antes el id `EMPRESA_002`) y **ya no guarda
+  histórico**: cada ejecución deja solo el del período vigente por grupo y
+  borra los anteriores con su PDF; la lista del diálogo muestra solo el
+  vigente. `comprasGenerarReporteAbastecimiento` ahora exige que quien lo
+  llama pueda entrar a la empresa (antes cualquier sesión podía generarlo
+  para cualquier empresa).
+- **"Con pendientes" aclarado.** Tiene ayuda (tooltip) y, al activarlo, una
+  línea explica que muestra las entregas con PND, pendiente de pago o de
+  entrada en Observaciones.
+
+Datos históricos (transición):
+
+- Las entregas conservan el período con que se cargaron aunque la empresa
+  cambie la configuración; el filtro de consumo ofrece los períodos
+  configurados y los que ya tienen entregas. Solo se corrige el rango
+  histórico jueves–viernes de 9 días y las entregas sin período completo
+  (toman el ciclo viernes–jueves de su fecha). Una entrega antigua con
+  `consumoDesde`/`consumoHasta` guardados que no eran viernes–jueves ahora
+  se muestra con su rango guardado (antes se forzaba al viernes).
+- Los duplicados que ya existen (misma OC y producto) no se borran solos:
+  la carga los señala y la fila no se aplica hasta eliminar el sobrante en
+  Abastecimiento. Pendiente sugerido: un listado revisable por empresa de
+  OC duplicadas para depurarlas de una vez.
+
+Despliegue necesario: reglas de Firestore, Functions
+(`comprasReporteAbastecimiento1700`, `comprasGenerarReporteAbastecimiento`,
+`adminSincronizarMaestros`) y Hosting. Tras desplegar Functions, la primera
+ejecución de las 5:00 p. m. (o "Generar ahora") borra los reportes de
+períodos anteriores.
+
+Validación: 1.428 pruebas de la app (16 nuevas), 138 de Functions (5
+nuevas) y reglas de Compras, roles de tabla, roles de módulo y aislamiento
+por empresa en el emulador (28, 1 nueva), sin errores de análisis. El
+modelo generado se abrió con openpyxl: hoja `Listas` oculta y las 12
+validaciones en su lugar. **No verificado en dispositivo:** Web
+estrecho/amplio, Android e iOS (diálogo de carga con avisos, tarjeta de
+Admin, descarga del PDF con `Printing.sharePdf`), ni la apertura del modelo
+en Excel de escritorio y Google Sheets.
+
 ## Planillas de Pago se le quitaba y ponía al gerente en el Home — 30 sep 2026 (Claude)
 
 Caso: el gerente (Empresa 001) veía aparecer y desaparecer Planillas de
