@@ -82,6 +82,10 @@ Datos históricos (transición):
   Abastecimiento. Pendiente sugerido: un listado revisable por empresa de
   OC duplicadas para depurarlas de una vez.
 
+Versión 2.6.12 (26), integrada en `main` por Claude a pedido expreso del
+usuario (el primer intento de integración no llegó a `origin/main` y el
+despliegue publicó la versión anterior). Compilación Web verificada.
+
 Despliegue necesario: reglas de Firestore, Functions
 (`comprasReporteAbastecimiento1700`, `comprasGenerarReporteAbastecimiento`,
 `adminSincronizarMaestros`) y Hosting. Tras desplegar Functions, la primera
