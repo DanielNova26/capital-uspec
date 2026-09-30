@@ -6,6 +6,13 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Git compartido entre Claude y Codex — 30 sep 2026
+
+Por decisión del usuario, Claude también puede sincronizar, confirmar y subir
+sus propios cambios a GitHub. Ambos trabajan directamente en `main`, revisan
+el contenido del commit para no incluir cambios ajenos y resuelven avances
+remotos sin hacer push forzado. La regla está en `AGENTS.md`.
+
 ## Planillas de Pago se le quitaba y ponía al gerente en el Home — 30 sep 2026 (Claude)
 
 Caso: el gerente (Empresa 001) veía aparecer y desaparecer Planillas de
