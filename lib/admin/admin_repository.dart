@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../core/apps_empresa.dart';
 import '../core/subcentros_costo.dart';
 import '../compras/compras_models.dart' show ComprasGrupoDoc;
 import '../compras/compras_recepcion_logic.dart' show bodegasLegacyParaEmpresa;
@@ -1157,7 +1158,13 @@ class AdminRepository {
           break;
         }
       }
-      final primary = canonicalDoc ?? docs.first;
+      // Mismo documento que manda en el Home y en Admin.
+      final primary = documentoQueManda(
+        docs,
+        idCanonico: canonicalDocId,
+        id: (d) => d.id,
+        data: (d) => d.data(),
+      );
       final primaryData = primary.data();
       final ref = _db.collection('TBL_APPS').doc(canonicalDocId);
 
@@ -1233,11 +1240,36 @@ class AdminRepository {
     return changed;
   }
 
-  Future<void> setAppEnabled(String docId, bool enabled) async {
-    await _db.collection('TBL_APPS').doc(docId).set({
-      'enabled': enabled,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+  /// Prende o apaga un módulo en la empresa. 30 sep 2026: se escriben todos
+  /// los documentos del mismo módulo (el canónico y los viejos con otro id),
+  /// no solo el que se ve en Admin: un duplicado viejo apagado dejaba el
+  /// módulo prendido en Admin y fuera del Home.
+  Future<void> setAppEnabled({
+    required String empresaId,
+    required String docId,
+    required bool enabled,
+  }) async {
+    final col = _db.collection('TBL_APPS');
+    final elegido = await col.doc(docId).get();
+    final appId = appIdDeDocumento(
+      docId,
+      elegido.data() ?? const <String, dynamic>{},
+      empresaId,
+    );
+    final snap = await col.where('empresaId', isEqualTo: empresaId).get();
+    final ids = {
+      docId,
+      for (final d in snap.docs)
+        if (appIdDeDocumento(d.id, d.data(), empresaId) == appId) d.id,
+    };
+    final batch = _db.batch();
+    for (final id in ids) {
+      batch.set(col.doc(id), {
+        'enabled': enabled,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+    await batch.commit();
   }
 
   String _canonicalAppId(String raw) {
@@ -1247,30 +1279,27 @@ class AdminRepository {
         : raw.trim().toLowerCase();
   }
 
+  /// Un documento por módulo: el que manda, con la misma regla que el Home y
+  /// la entrada al módulo (`lib/core/apps_empresa.dart`).
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _dedupeAppDocs(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
     String empresaId,
   ) {
-    final out = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
-    for (final doc in docs) {
-      final data = doc.data();
-      final canonical = _canonicalAppId(
-        (data['appId'] ?? doc.id.replaceFirst('${empresaId}_', '')).toString(),
-      );
-      if (canonical.isEmpty) continue;
-
-      final current = out[canonical];
-      if (current == null) {
-        out[canonical] = doc;
-        continue;
-      }
-
-      final canonicalDocId = '${empresaId}_$canonical';
-      if (doc.id == canonicalDocId && current.id != canonicalDocId) {
-        out[canonical] = doc;
-      }
-    }
-    return out.values.toList();
+    final grupos = agruparAppsPorModulo(
+      docs,
+      empresaId: empresaId,
+      id: (d) => d.id,
+      data: (d) => d.data(),
+    );
+    return [
+      for (final entry in grupos.entries)
+        documentoQueManda(
+          entry.value,
+          idCanonico: '${empresaId}_${entry.key}',
+          id: (d) => d.id,
+          data: (d) => d.data(),
+        ),
+    ];
   }
 
   bool _sameStringSet(List<String> a, List<String> b) {

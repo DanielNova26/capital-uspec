@@ -3487,7 +3487,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                             await _loadAll(forceEmpresaId: empresaId);
                           }
                           _snack(
-                            '$count módulos registrados desactivados. Puedes configurarlos en Configuración de apps.',
+                            '$count módulos registrados: prendidos los que alguien ya usa y apagados los demás. Puedes configurarlos en Configuración de apps.',
                           );
                         } catch (error) {
                           _snack('No se pudo registrar el catálogo: $error');
@@ -8960,7 +8960,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   value: enabled,
                   activeThumbColor: kAdminSuccess,
                   onChanged: (v) async {
-                    await _repo.setAppEnabled(aDoc.id, v);
+                    await _repo.setAppEnabled(
+                      empresaId: _empresaId ?? widget.empresaId,
+                      docId: aDoc.id,
+                      enabled: v,
+                    );
                     _snack('App ${v ? "habilitada" : "deshabilitada"}');
                     await _loadAll(forceEmpresaId: _empresaId);
                   },
@@ -9038,7 +9042,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       ),
       onEdit: () => _dialogApp(existing: aDoc),
       onToggle: (v) async {
-        await _repo.setAppEnabled(aDoc.id, v);
+        await _repo.setAppEnabled(
+                      empresaId: _empresaId ?? widget.empresaId,
+                      docId: aDoc.id,
+                      enabled: v,
+                    );
         _snack('App ${v ? "habilitada" : "deshabilitada"}');
         await _loadAll(forceEmpresaId: _empresaId);
       },

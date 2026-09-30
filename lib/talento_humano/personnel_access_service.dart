@@ -20,6 +20,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../core/app_catalog.dart';
+import '../core/apps_empresa.dart';
 import '../data/firestore_user_repository.dart';
 import '../utils/user_company.dart';
 
@@ -59,8 +60,9 @@ class PersonnelAccessService {
   }) : _db = db ?? FirebaseFirestore.instance,
        _users = users ?? FirestoreUserRepository.instance;
 
-  /// Módulos apagados para la empresa en TBL_APPS.
-  /// Ausencia de documento = habilitado (misma semántica que AccessGuard).
+  /// Módulos apagados para la empresa en TBL_APPS, con la misma regla que
+  /// Admin, el Home y AccessGuard (`lib/core/apps_empresa.dart`). Ausencia de
+  /// documento = habilitado.
   Future<Set<String>> disabledAppIds(String empresaId) async {
     final id = empresaId.trim();
     if (id.isEmpty) return <String>{};
@@ -68,15 +70,7 @@ class PersonnelAccessService {
         .collection('TBL_APPS')
         .where('empresaId', isEqualTo: id)
         .get();
-    final disabled = <String>{};
-    for (final doc in snap.docs) {
-      final data = doc.data();
-      if ((data['enabled'] as bool?) == false) {
-        final appId = normalizeAppId((data['appId'] ?? '').toString());
-        if (appId != null) disabled.add(appId);
-      }
-    }
-    return disabled;
+    return appsApagadasDeConsulta(snap.docs, id);
   }
 
   /// Catálogo que Talento Humano puede otorgar en esta empresa: sin módulos

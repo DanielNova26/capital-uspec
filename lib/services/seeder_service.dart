@@ -2,6 +2,8 @@
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:todo/utils/user_company.dart';
+
+import '../core/apps_empresa.dart';
 import 'seed_excel_parser.dart';
 
 class _InferredCatalogs {
@@ -155,15 +157,36 @@ class SeederService {
   }
 
   // ------------------ DEFAULT APPS ------------------
+  /// Módulos que ya tienen documento en la empresa (ids canónicos).
+  ///
+  /// 30 sep 2026: la carga de personal volvía a escribir `enabled` de los
+  /// módulos (las apps base siempre prendidas y las de la hoja APPS con lo
+  /// que dijera un Excel descargado días antes). Prender o apagar un módulo
+  /// es de Admin: la carga solo crea los que faltan y no toca los demás.
+  Future<Set<String>> _appsRegistradas(String empresaId) async {
+    final snap = await _db
+        .collection('TBL_APPS')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+    return agruparAppsPorModulo(
+      snap.docs,
+      empresaId: empresaId,
+      id: (d) => d.id,
+      data: (d) => d.data(),
+    ).keys.toSet();
+  }
+
   Future<void> _ensureDefaultApps(String empresaId) async {
     final col = _db.collection('TBL_APPS');
+    final registradas = await _appsRegistradas(empresaId);
     final batch = _db.batch();
     final now = FieldValue.serverTimestamp();
+    var writes = 0;
 
     for (final app in _defaultApps) {
-      final appId = app['appId']!;
-      final docId = '${empresaId}_$appId';
-      batch.set(col.doc(docId), {
+      final appId = _canonicalAppId(app['appId']!);
+      if (appId.isEmpty || registradas.contains(appId)) continue;
+      batch.set(col.doc('${empresaId}_$appId'), {
         'empresaId': empresaId,
         'appId': appId,
         'nombre': app['nombre'],
@@ -172,8 +195,9 @@ class SeederService {
         'createdAt': now,
         'updatedAt': now,
       }, SetOptions(merge: true));
+      writes++;
     }
-    await batch.commit();
+    if (writes > 0) await batch.commit();
   }
 
   // ------------------ INFERENCIAS ------------------
@@ -657,6 +681,8 @@ class SeederService {
   ) async {
     if (rows.isEmpty) return;
     final col = _db.collection('TBL_APPS');
+    // Solo los módulos que la empresa aún no tiene (ver _appsRegistradas).
+    final registradas = await _appsRegistradas(empresaId);
 
     await _writeInChunks(rows, (batch, r) {
       final rawId = _s(r['appId']);
@@ -664,7 +690,7 @@ class SeederService {
       final appId = _canonicalAppId(
         rawId.isNotEmpty ? rawId : _idFromName(nombre),
       );
-      if (appId.isEmpty) return;
+      if (appId.isEmpty || !registradas.add(appId)) return;
 
       final descripcion = _s(r['descripcion']);
       final enabled = _toBool(r['enabled']);

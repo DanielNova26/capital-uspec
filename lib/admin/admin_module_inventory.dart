@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../core/app_catalog.dart';
+import '../core/apps_empresa.dart';
 import '../utils/user_company.dart';
 import 'task_module_role.dart';
 
@@ -49,13 +50,20 @@ class AdminModuleInventoryItem {
   bool get registered => apps.isNotEmpty;
   bool get hasConflictingStates =>
       apps.map((source) => source.data['enabled'] != false).toSet().length > 1;
+
+  /// Misma regla que el Home y la entrada al módulo
+  /// (`lib/core/apps_empresa.dart`): manda el documento canónico.
   bool get enabled {
     if (apps.isEmpty) return false;
-    final canonical = apps.where(
-      (source) => source.id == '${source.data['empresaId']}_$appId',
+    final empresaId = (apps.first.data['empresaId'] ?? '').toString();
+    return appPrendida(
+      documentoQueManda(
+        apps,
+        idCanonico: '${empresaId}_$appId',
+        id: (s) => s.id,
+        data: (s) => s.data,
+      ).data,
     );
-    return (canonical.isEmpty ? apps.first : canonical.first).data['enabled'] !=
-        false;
   }
 }
 
@@ -129,8 +137,14 @@ class AdminModuleInventoryRepository {
     );
   }
 
-  /// Registra únicamente módulos conocidos ausentes y los deja desactivados.
-  /// Respeta alias, apps personalizadas, estados y asignaciones existentes.
+  /// Registra únicamente módulos conocidos ausentes. Respeta alias, apps
+  /// personalizadas, estados y asignaciones existentes.
+  ///
+  /// 30 sep 2026: un módulo sin documento está prendido (el Home y la
+  /// entrada al módulo lo tratan así). Registrarlo apagado le quitaba el
+  /// módulo a quien ya lo usaba (Planillas de Pago al gerente). Ahora queda
+  /// prendido si alguien de la empresa lo tiene asignado, y apagado solo si
+  /// nadie lo usa: registrar no cambia lo que ve nadie.
   Future<int> registerMissing(String empresaId) async {
     final actor = await _db.collection('TBL_USUARIOS').doc(actorId).get();
     if (empresaId.isEmpty ||
@@ -139,6 +153,7 @@ class AdminModuleInventoryRepository {
       throw StateError('No tienes acceso administrativo en esta empresa.');
     }
     final sources = await load(empresaId);
+    final enUso = await _appsEnUso(empresaId);
     var created = 0;
     for (final entry in kAppCatalog) {
       if (sources.apps.any(
@@ -153,7 +168,7 @@ class AdminModuleInventoryRepository {
           'empresaId': empresaId,
           'appId': entry.appId,
           'nombre': entry.nombre,
-          'enabled': false,
+          'enabled': enUso.any((id) => appIdsEquivalent(id, entry.appId)),
           'soloAdmin': entry.soloAdmin,
           'updatedBy': actorId,
           'createdAt': FieldValue.serverTimestamp(),
@@ -164,5 +179,24 @@ class AdminModuleInventoryRepository {
       if (added) created++;
     }
     return created;
+  }
+
+  /// Módulos que tiene asignados alguien de la empresa.
+  Future<Set<String>> _appsEnUso(String empresaId) async {
+    final results = await Future.wait([
+      _db
+          .collection('TBL_USUARIOS')
+          .where('empresas', arrayContains: empresaId)
+          .get(),
+      _db
+          .collection('TBL_USUARIOS')
+          .where('empresaId', isEqualTo: empresaId)
+          .get(),
+    ]);
+    return {
+      for (final snap in results)
+        for (final doc in snap.docs)
+          ...extractUserApps(doc.data(), empresaId: empresaId),
+    };
   }
 }

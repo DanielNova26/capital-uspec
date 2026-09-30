@@ -51,6 +51,7 @@ import 'task_history_screen.dart' hide kArial;
 import 'create_task_screen.dart' hide kArial;
 import '../core/access_guard.dart';
 import '../core/app_catalog.dart';
+import '../core/apps_empresa.dart';
 import '../core/task_calendar.dart';
 import '../core/task_route_guard.dart';
 import '../facturacion/facturacion_navigation.dart';
@@ -1075,18 +1076,21 @@ class _HomeScreenState extends State<HomeScreen> {
               .where('empresaId', isEqualTo: scopeEmpresa)
               .snapshots(),
           builder: (context, appsEmpresaSnap) {
-            // Apps explícitamente deshabilitadas para la empresa activa en TBL_APPS.
-            // Semántica: ausencia de documento = habilitado (legacy compat).
-            // Solo se oculta si el documento existe con enabled == false.
+            // 30 sep 2026: antes de conocer qué módulos tiene prendidos la
+            // empresa se pintaban todos los del usuario y, al llegar la
+            // respuesta, desaparecían los apagados: al gerente se le "quitaba
+            // y ponía" Planillas de Pago. Se espera la primera respuesta. Si
+            // la consulta falla, se sigue como antes (ausencia = prendido).
+            if (!appsEmpresaSnap.hasData && !appsEmpresaSnap.hasError) {
+              return HomeShell(userId: cedula, body: const SkeletonList());
+            }
+            // Apps apagadas para la empresa activa, con la misma regla que
+            // Admin y la entrada al módulo (lib/core/apps_empresa.dart).
             final disabledAppIds = appsEmpresaSnap.hasData
-                ? appsEmpresaSnap.data!.docs
-                      .where((d) => (d.data()['enabled'] as bool?) == false)
-                      .map((d) {
-                        final raw = (d.data()['appId'] ?? '').toString();
-                        return normalizeAppId(raw) ?? '';
-                      })
-                      .where((id) => id.isNotEmpty)
-                      .toSet()
+                ? appsApagadasDeConsulta(
+                    appsEmpresaSnap.data!.docs,
+                    scopeEmpresa,
+                  )
                 : <String>{};
 
             // Acceso al módulo de Tareas. Se resuelve ANTES de consultar

@@ -6,6 +6,45 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Planillas de Pago se le quitaba y ponía al gerente en el Home — 30 sep 2026 (Claude)
+
+Caso: el gerente (Empresa 001) veía aparecer y desaparecer Planillas de
+Pago en el Home. Codex encontró que TBL_APPS de la Empresa 001 marcaba
+Planillas como apagado y se quedó sin tokens a mitad del arreglo (sus
+cambios no llegaron a `main`). Causas y arreglos:
+
+- **Cada pantalla decidía distinto.** Una empresa puede tener varios
+  documentos del mismo módulo en TBL_APPS (el canónico
+  `{empresa}_planillaspagodashboard` y viejos con `planillas` o
+  `planillaspago`). Admin y la entrada al módulo leían el canónico; el Home
+  y Talento Humano lo ocultaban si **cualquiera** decía apagado. Con un
+  duplicado viejo apagado, Admin mostraba Planillas prendido y el Home lo
+  quitaba. Ahora todos usan la misma regla (`lib/core/apps_empresa.dart`):
+  manda el canónico; si no hay, el último que se tocó; sin fechas, prendido
+  si alguno lo está.
+- **Admin solo prendía uno.** El interruptor de Configuración de apps ahora
+  escribe todos los documentos del módulo en la empresa, así no quedan
+  duplicados contradiciéndose.
+- **El Home pintaba antes de saber.** Mostraba todos los módulos del usuario
+  y, al llegar TBL_APPS, quitaba los apagados (el "se quita y se pone").
+  Ahora espera la primera respuesta con el esqueleto de carga; si la
+  consulta falla, sigue como antes.
+- **Registrar módulos faltantes los apagaba.** Un módulo sin documento está
+  prendido; registrarlo apagado se lo quitaba a quien ya lo usaba. Ahora
+  queda prendido si alguien de la empresa lo tiene asignado y apagado solo
+  si nadie lo usa.
+- **La carga de personal de Talento Humano reescribía los módulos.**
+  Volvía a prender Tareas y ponía cada módulo como dijera la hoja APPS del
+  Excel (descargado quizá días antes). Ahora solo crea los módulos que la
+  empresa no tiene; prender o apagar es de Admin.
+
+Qué hacer en producción, después de desplegar el Hosting: en Admin ›
+Configuración de apps de la Empresa 001, dejar Planillas de Pago prendido
+(si aparece apagado, prenderlo: el interruptor corrige también los
+duplicados viejos).
+
+Pruebas: 1.412 de la app (7 nuevas), sin errores de análisis.
+
 ## Alcance de maestros de configuración y cargas de Compras — 30 sep 2026 (Codex)
 
 El usuario precisó que el personal de Compras crea y carga proveedores,
