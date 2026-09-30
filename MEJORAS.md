@@ -6,6 +6,13 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Git compartido entre Claude y Codex — 30 sep 2026
+
+Por decisión del usuario, Claude también puede sincronizar, confirmar y subir
+sus propios cambios a GitHub. Ambos trabajan directamente en `main`, revisan
+el contenido del commit para no incluir cambios ajenos y resuelven avances
+remotos sin hacer push forzado. La regla está en `AGENTS.md`.
+
 ## Abastecimiento: desplegables en el Excel, período configurable y OC como identidad — 30 sep 2026 (Claude)
 
 Pedido del usuario (documento "ABASTECIMIENTO – SEPTIEMBRE 28" y audio):
