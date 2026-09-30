@@ -3487,7 +3487,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                             await _loadAll(forceEmpresaId: empresaId);
                           }
                           _snack(
-                            '$count módulos registrados desactivados. Puedes configurarlos en Configuración de apps.',
+                            '$count módulos registrados. Los que ya tenían personas asignadas conservaron su acceso; configura los demás en Configuración de apps.',
                           );
                         } catch (error) {
                           _snack('No se pudo registrar el catálogo: $error');

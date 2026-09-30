@@ -80,6 +80,32 @@ class _HomeScreenState extends State<HomeScreen> {
   late DateTime _focusedDay;
   late DateTime _selectedDay;
   Map<String, List<Map<String, dynamic>>> _events = {};
+  String? _userStreamId;
+  Stream<DocumentSnapshot<Map<String, dynamic>>>? _userStream;
+  String? _catalogStreamEmpresaId;
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _catalogStream;
+
+  Stream<DocumentSnapshot<Map<String, dynamic>>> _streamUser(String userId) {
+    if (_userStreamId != userId) {
+      _userStreamId = userId;
+      _userStream = FirebaseFirestore.instance
+          .collection('TBL_USUARIOS')
+          .doc(userId)
+          .snapshots();
+    }
+    return _userStream!;
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> _streamCatalog(String empresaId) {
+    if (_catalogStreamEmpresaId != empresaId) {
+      _catalogStreamEmpresaId = empresaId;
+      _catalogStream = FirebaseFirestore.instance
+          .collection('TBL_APPS')
+          .where('empresaId', isEqualTo: empresaId)
+          .snapshots();
+    }
+    return _catalogStream!;
+  }
 
   bool _didRegisterToken = false;
   StreamSubscription<String>? _tokenSub;
@@ -1044,10 +1070,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('TBL_USUARIOS')
-          .doc(cedula)
-          .snapshots(),
+      stream: _streamUser(cedula),
       builder: (context, userSnap) {
         if (!userSnap.hasData) {
           return HomeShell(userId: cedula, body: const SkeletonList());
@@ -1070,11 +1093,14 @@ class _HomeScreenState extends State<HomeScreen> {
         }
 
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance
-              .collection('TBL_APPS')
-              .where('empresaId', isEqualTo: scopeEmpresa)
-              .snapshots(),
+          key: ValueKey(scopeEmpresa),
+          stream: _streamCatalog(scopeEmpresa),
           builder: (context, appsEmpresaSnap) {
+            // No mostrar módulos antes de conocer los apagados para esta
+            // empresa: Planillas podía aparecer y desaparecer al entrar.
+            if (!appsEmpresaSnap.hasData && !appsEmpresaSnap.hasError) {
+              return HomeShell(userId: cedula, body: const SkeletonList());
+            }
             // Apps explícitamente deshabilitadas para la empresa activa en TBL_APPS.
             // Semántica: ausencia de documento = habilitado (legacy compat).
             // Solo se oculta si el documento existe con enabled == false.

@@ -118,8 +118,7 @@ Responsable de:
 - integraciones
 - estabilidad
 - soporte técnico para diferencias reales entre Web y Móvil sin duplicar innecesariamente la lógica
-
-No hace Git.
+- Git y GitHub para sincronizar, confirmar y subir sus cambios
 
 ## Codex
 Responsable de:
@@ -130,26 +129,25 @@ Responsable de:
 - pruebas funcionales
 - integración entre front y back
 - consolidación final
-- Git y GitHub
+- Git y GitHub para sincronizar, confirmar y subir sus cambios
 - definir qué parte del flujo debe compartirse y qué parte debe diferenciarse entre Web y Móvil
 
-Por defecto solo Codex hace:
-- git add
-- git commit
-- git push
+Codex y Claude pueden ejecutar `git add`, `git commit` y `git push` para sus
+propios cambios. Antes de confirmar, revisan los archivos seleccionados para
+no incluir trabajo ajeno.
 
-Si el usuario pide expresamente hacer Git por su cuenta, Codex entrega los
-comandos seguros y no ejecuta add, commit ni push en esa conversación.
+Si el usuario pide expresamente hacer Git por su cuenta, ambos entregan los
+comandos seguros y no ejecutan add, commit ni push en esa conversación.
 
 ## Git: siempre en `main`, nunca en ramas
-Regla del usuario (28 sep 2026), para no enredarnos entre Codex y Claude:
+Regla del usuario (28 sep 2026):
 todo el trabajo va directo a `main`. No se crean ramas.
 
-Esta regla se aplica desde el inicio de cada conversación. Claude edita el
-checkout de `main` pero no ejecuta Git; Codex es el único responsable de
-sincronizar, confirmar y subir los cambios.
+Esta regla se aplica desde el inicio de cada conversación a Codex y Claude.
 
-- Codex, antes de empezar: `git pull origin main`.
-- Codex, al terminar: commit y `git push origin main`.
+- Antes de empezar: `git pull origin main`. Si cambios locales impiden el pull,
+  conservarlos y coordinar la integración sin descartarlos ni incluir trabajo
+  ajeno en un commit.
+- Al terminar: commit de los cambios propios y `git push origin main`.
 - Si el push se rechaza porque `main` avanzó: `git pull --no-rebase origin main`,
   resolver, volver a correr las pruebas y subir. Nunca push forzado.

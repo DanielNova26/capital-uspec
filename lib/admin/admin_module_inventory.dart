@@ -129,8 +129,9 @@ class AdminModuleInventoryRepository {
     );
   }
 
-  /// Registra únicamente módulos conocidos ausentes y los deja desactivados.
-  /// Respeta alias, apps personalizadas, estados y asignaciones existentes.
+  /// Registra únicamente módulos conocidos ausentes. Los que ya tienen
+  /// personas asignadas quedan habilitados para conservar ese acceso; los
+  /// demás se registran desactivados. Respeta estados de documentos existentes.
   Future<int> registerMissing(String empresaId) async {
     final actor = await _db.collection('TBL_USUARIOS').doc(actorId).get();
     if (empresaId.isEmpty ||
@@ -139,13 +140,26 @@ class AdminModuleInventoryRepository {
       throw StateError('No tienes acceso administrativo en esta empresa.');
     }
     final sources = await load(empresaId);
-    var created = 0;
-    for (final entry in kAppCatalog) {
-      if (sources.apps.any(
+    final missing = kAppCatalog.where(
+      (entry) => !sources.apps.any(
         (source) => appIdsEquivalent(inventorySourceAppId(source), entry.appId),
-      )) {
-        continue;
+      ),
+    );
+    if (missing.isEmpty) return 0;
+
+    final users = await _db.collection('TBL_USUARIOS').get();
+    final assignedAppIds = <String>{};
+    for (final user in users.docs) {
+      final data = user.data();
+      if (!userBelongsToEmpresa(data, empresaId)) continue;
+      for (final entry in missing) {
+        if (userHasApp(data, entry.appId, empresaId: empresaId)) {
+          assignedAppIds.add(entry.appId);
+        }
       }
+    }
+    var created = 0;
+    for (final entry in missing) {
       final ref = _db.collection('TBL_APPS').doc('${empresaId}_${entry.appId}');
       final added = await _db.runTransaction((transaction) async {
         if ((await transaction.get(ref)).exists) return false;
@@ -153,7 +167,7 @@ class AdminModuleInventoryRepository {
           'empresaId': empresaId,
           'appId': entry.appId,
           'nombre': entry.nombre,
-          'enabled': false,
+          'enabled': assignedAppIds.contains(entry.appId),
           'soloAdmin': entry.soloAdmin,
           'updatedBy': actorId,
           'createdAt': FieldValue.serverTimestamp(),

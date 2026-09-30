@@ -109,6 +109,20 @@ void main() {
         'apps': ['admindashboard'],
       };
       db.documents['TBL_USUARIOS/admin'] = actor;
+      db.documents['TBL_USUARIOS/gerente'] = {
+        'empresaId': 'A',
+        'appsPorEmpresa': true,
+        'empresasDetalle': {
+          'A': {
+            'apps': ['planillas'],
+            'rolPlanillas': 'gerencia',
+          },
+        },
+      };
+      db.documents['TBL_USUARIOS/otra_empresa'] = {
+        'empresaId': 'B',
+        'apps': ['comprasdashboard'],
+      };
       db.documents['TBL_APPS/antiguo'] = {
         'empresaId': 'A',
         'appId': 'tareas',
@@ -133,6 +147,10 @@ void main() {
       expect(db.documents.containsKey('TBL_APPS/A_tareasdashboard'), isFalse);
       expect(db.documents['TBL_APPS/antiguo']!['nombre'], 'Mis tareas');
       expect(db.documents['TBL_APPS/A_correo']!['enabled'], isTrue);
+      expect(
+        db.documents['TBL_APPS/A_planillaspagodashboard']!['enabled'],
+        isTrue,
+      );
       expect(db.documents['TBL_APPS/A_comprasdashboard']!['enabled'], isFalse);
       expect(db.documents['TBL_USUARIOS/admin'], actor);
       expect(await repo.registerMissing('A'), 0);
