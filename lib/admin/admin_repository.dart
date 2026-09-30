@@ -3,6 +3,8 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../core/subcentros_costo.dart';
+import '../compras/compras_models.dart' show ComprasGrupoDoc;
+import '../compras/compras_recepcion_logic.dart' show bodegasLegacyParaEmpresa;
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:todo/data/firestore_user_repository.dart';
 import 'package:todo/utils/user_company.dart';
@@ -59,6 +61,12 @@ class BodegaItem {
     this.direccion = '',
     required this.enabled,
   });
+}
+
+class BodegaLegacyItem {
+  final String nombre;
+  final String origen;
+  const BodegaLegacyItem({required this.nombre, required this.origen});
 }
 
 class CentroCostoItem {
@@ -151,6 +159,19 @@ class AccessRoleItem {
       moduleId.trim().isNotEmpty && moduleRole.trim().isNotEmpty;
 }
 
+/// Claves históricas que aún intervienen en reglas o permisos del cliente.
+/// Inactivar la plantilla no revocaría la autoridad ya materializada.
+const kProtectedGeneralProfileKeys = <String>{
+  'desarrollador',
+  'developer',
+  'superadmin',
+  'administrador_sistema',
+  'admin',
+  'administrador',
+  'gerencia',
+  'gerente',
+};
+
 class AdminRepository {
   final FirebaseFirestore _db;
   AdminRepository({FirebaseFirestore? db})
@@ -195,9 +216,7 @@ class AdminRepository {
                 .toString()
                 .trim(),
             colorPrimario: (data['colorPrimario'] ?? '').toString().trim(),
-            colorSecundario: (data['colorSecundario'] ?? '')
-                .toString()
-                .trim(),
+            colorSecundario: (data['colorSecundario'] ?? '').toString().trim(),
           ),
         );
       }
@@ -387,6 +406,59 @@ class AdminRepository {
     return bodegas;
   }
 
+  /// Solo prepara candidatos. El usuario importa cada bodega explícitamente;
+  /// no se reescribe el documento histórico de la empresa.
+  Future<List<BodegaLegacyItem>> loadBodegasLegacy({
+    required String empresaId,
+    required String empresaNombre,
+  }) async {
+    final eid = empresaId.trim();
+    if (eid.isEmpty) return const [];
+    final known = (await loadBodegas(
+      eid,
+    )).map((bodega) => bodega.nombre.trim().toLowerCase()).toSet();
+    final pending = <String, BodegaLegacyItem>{};
+    void add(String nombre, String origen) {
+      final clean = nombre.trim();
+      final key = clean.toLowerCase();
+      if (key.isNotEmpty && !known.contains(key)) {
+        pending.putIfAbsent(
+          key,
+          () => BodegaLegacyItem(nombre: clean, origen: origen),
+        );
+      }
+    }
+
+    var tieneBodegasEnFicha = false;
+    try {
+      final empresa = await _db.collection('TBL_EMPRESAS').doc(eid).get();
+      final raw = empresa.data()?['bodegas'];
+      if (raw is Iterable) {
+        for (final item in raw) {
+          final nombre = item is Map
+              ? (item['nombre'] ?? item['bodega'] ?? item['label'] ?? '')
+                    .toString()
+              : item.toString();
+          if (nombre.trim().isNotEmpty) tieneBodegasEnFicha = true;
+          add(nombre, 'Ficha de la empresa');
+        }
+      }
+    } catch (_) {
+      // Los nombres conocidos del módulo siguen visibles aunque la ficha
+      // histórica no esté disponible.
+    }
+    if (!tieneBodegasEnFicha) {
+      for (final nombre in bodegasLegacyParaEmpresa(
+        empresaId: eid,
+        empresaNombre: empresaNombre,
+      )) {
+        add(nombre, 'Catálogo histórico de Compras');
+      }
+    }
+    return pending.values.toList()
+      ..sort((a, b) => a.nombre.compareTo(b.nombre));
+  }
+
   Future<String> saveBodega({
     String? bodegaId,
     required String empresaId,
@@ -400,26 +472,90 @@ class AdminRepository {
     if (cleanName.isEmpty) throw ArgumentError('El nombre es obligatorio');
 
     final collection = _db.collection('TBL_COMPRAS_BODEGAS');
-    final ref = (bodegaId ?? '').trim().isEmpty
+    final existingId = (bodegaId ?? '').trim();
+    final ref = existingId.isEmpty
         ? collection.doc()
-        : collection.doc(bodegaId!.trim());
+        : collection.doc(existingId);
+    if (existingId.isNotEmpty) {
+      final existing = await ref.get();
+      if (!existing.exists || existing.data()?['empresaId'] != eid) {
+        throw StateError('La bodega no pertenece a la empresa activa.');
+      }
+    }
     await ref.set({
       'empresaId': eid,
       'nombre': cleanName,
       'direccion': direccion.trim(),
       'activo': enabled,
-      if ((bodegaId ?? '').trim().isEmpty)
-        'createdAt': FieldValue.serverTimestamp(),
+      if (existingId.isEmpty) 'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
     return ref.id;
   }
 
-  Future<void> setBodegaEnabled(String bodegaId, bool enabled) async {
-    await _db.collection('TBL_COMPRAS_BODEGAS').doc(bodegaId).update({
+  Future<void> setBodegaEnabled(
+    String bodegaId,
+    String empresaId,
+    bool enabled,
+  ) async {
+    final ref = _db.collection('TBL_COMPRAS_BODEGAS').doc(bodegaId);
+    final existing = await ref.get();
+    if (!existing.exists || existing.data()?['empresaId'] != empresaId.trim()) {
+      throw StateError('La bodega no pertenece a la empresa activa.');
+    }
+    await ref.update({
       'activo': enabled,
       'updatedAt': FieldValue.serverTimestamp(),
     });
+  }
+
+  // Los grupos usados por Compras y por la membresía de usuarios comparten
+  // esta fuente por empresa; Gestión interna es su editor único en Admin.
+  Future<List<ComprasGrupoDoc>> loadGruposCompras(String empresaId) async {
+    final snap = await _db
+        .collection('TBL_COMPRAS_GRUPOS')
+        .where('empresaId', isEqualTo: empresaId.trim())
+        .get();
+    final grupos = snap.docs
+        .map((doc) => ComprasGrupoDoc.fromMap(doc.id, doc.data()))
+        .where((grupo) => grupo.nombre.trim().isNotEmpty)
+        .toList();
+    grupos.sort(
+      (a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()),
+    );
+    return grupos;
+  }
+
+  Future<String> saveGrupoCompras({
+    String? grupoId,
+    required String empresaId,
+    required String nombre,
+    bool activo = true,
+  }) async {
+    final eid = empresaId.trim();
+    final cleanName = nombre.trim();
+    if (eid.isEmpty || cleanName.isEmpty) {
+      throw ArgumentError('La empresa y el nombre del grupo son obligatorios.');
+    }
+    final collection = _db.collection('TBL_COMPRAS_GRUPOS');
+    final existingId = (grupoId ?? '').trim();
+    final ref = existingId.isEmpty
+        ? collection.doc()
+        : collection.doc(existingId);
+    if (existingId.isNotEmpty) {
+      final existing = await ref.get();
+      if (!existing.exists || existing.data()?['empresaId'] != eid) {
+        throw StateError('El grupo no pertenece a la empresa activa.');
+      }
+    }
+    await ref.set({
+      'empresaId': eid,
+      'nombre': cleanName,
+      'activo': activo,
+      if (existingId.isEmpty) 'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    return ref.id;
   }
 
   // ---------------- USUARIOS ----------------
@@ -670,6 +806,8 @@ class AdminRepository {
     String moduleRole = '',
     String moduleRoleLabel = '',
   }) async {
+    final eid = empresaId.trim();
+    if (eid.isEmpty) throw ArgumentError('La empresa es obligatoria.');
     final roleKey = normalizeRoleKey(
       (existingRoleKey ?? '').trim().isNotEmpty ? existingRoleKey! : nombre,
     );
@@ -678,15 +816,21 @@ class AdminRepository {
     }
     final roleId = (existingRoleId ?? '').trim().isNotEmpty
         ? existingRoleId!.trim()
-        : '${empresaId}_$roleKey';
-    final protectedDeveloper =
-        roleKey == 'desarrollador' || roleKey == 'developer';
-    final savedEnabled = protectedDeveloper ? true : enabled;
+        : '${eid}_$roleKey';
+    final protectedAuthority = kProtectedGeneralProfileKeys.contains(roleKey);
+    final savedEnabled = protectedAuthority ? true : enabled;
     final normalizedApps = normalizeAppIdList(appIds.toList()).ids..sort();
     final roleRef = _db.collection('TBL_ROLES').doc(roleId);
     final exists = await roleRef.get();
+    final editing = (existingRoleId ?? '').trim().isNotEmpty;
+    if (editing && (!exists.exists || exists.data()?['empresaId'] != eid)) {
+      throw StateError('El perfil no pertenece a la empresa activa.');
+    }
+    if (!editing && exists.exists) {
+      throw StateError('Ya existe un perfil con ese código.');
+    }
     await roleRef.set({
-      'empresaId': empresaId,
+      'empresaId': eid,
       'roleId': roleId,
       'roleKey': roleKey,
       'type': 'module_access',
@@ -705,7 +849,7 @@ class AdminRepository {
     }, SetOptions(merge: true));
 
     await _propagateAccessRole(
-      empresaId: empresaId,
+      empresaId: eid,
       roleId: roleId,
       roleKey: roleKey,
       roleName: nombre.trim(),
@@ -714,7 +858,7 @@ class AdminRepository {
 
     return AccessRoleItem(
       roleId: roleId,
-      empresaId: empresaId,
+      empresaId: eid,
       roleKey: roleKey,
       nombre: nombre.trim(),
       descripcion: descripcion.trim(),
@@ -732,10 +876,20 @@ class AdminRepository {
     required String empresaId,
     required AccessRoleItem role,
   }) async {
+    if (empresaId.trim().isEmpty || role.empresaId != empresaId.trim()) {
+      throw StateError('El perfil no pertenece a la empresa activa.');
+    }
+    if (!role.enabled) {
+      throw StateError('No se puede asignar un perfil inactivo.');
+    }
     final ref = _db.collection('TBL_USUARIOS').doc(userId);
     final snap = await ref.get();
     if (!snap.exists) throw StateError('El usuario ya no existe');
     final data = snap.data() ?? const <String, dynamic>{};
+    if (!userBelongsToEmpresa(data, empresaId) ||
+        !personaHabilitadaEn(data, empresaId)) {
+      throw StateError('La persona no está habilitada en esta empresa.');
+    }
     final update = <String, dynamic>{
       'empresasDetalle.$empresaId.roleId': role.roleId,
       'empresasDetalle.$empresaId.roleKey': role.roleKey,

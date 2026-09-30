@@ -1,3 +1,44 @@
+class DianTokensVista {
+  const DianTokensVista({
+    required this.tokens,
+    required this.nivel,
+    required this.empresaId,
+    required this.empresaNombre,
+    required this.empresaNit,
+  });
+
+  final List<DianTokenRecord> tokens;
+  final String nivel;
+  final String empresaId;
+  final String empresaNombre;
+  final String empresaNit;
+
+  bool get puedeAbrir => nivel == 'operador' || nivel == 'administrador';
+  bool get administra => nivel == 'administrador';
+
+  factory DianTokensVista.fromMap(Map<String, dynamic> data) {
+    final empresa = data['empresa'] is Map
+        ? Map<String, dynamic>.from(data['empresa'] as Map)
+        : const <String, dynamic>{};
+    final raw = data['tokens'];
+    return DianTokensVista(
+      tokens: raw is Iterable
+          ? raw
+                .whereType<Map>()
+                .map(
+                  (row) =>
+                      DianTokenRecord.fromMap(Map<String, dynamic>.from(row)),
+                )
+                .toList()
+          : const [],
+      nivel: (data['nivel'] ?? 'consulta').toString(),
+      empresaId: (empresa['empresaId'] ?? '').toString(),
+      empresaNombre: (empresa['nombre'] ?? '').toString(),
+      empresaNit: (empresa['nit'] ?? '').toString(),
+    );
+  }
+}
+
 class DianTokenRecord {
   final String id;
   final String empresaId;

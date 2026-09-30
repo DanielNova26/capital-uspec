@@ -10,15 +10,42 @@ Tu foco:
 - consistencia por empresa activa
 - estabilidad
 
-## Git: siempre en `main`, nunca en ramas
-Regla del usuario (28 sep 2026), para no enredarnos entre Claude y Codex:
-todo el trabajo va directo a `main`. No se crean ramas ni se trabaja en la
-rama que proponga la sesión.
+Lee también `AGENTS.md` al iniciar cada conversación. Su contrato de módulo
+nuevo (catálogo, Admin, niveles, revocación, backend, pruebas y Web/Móvil) es
+obligatorio para cualquier módulo que crees o amplíes. Coordina hallazgos y
+pendientes con Codex únicamente mediante `MEJORAS.md`.
 
-- Antes de empezar: `git pull origin main`.
-- Al terminar: commit y `git push origin main`.
-- Si el push se rechaza porque `main` avanzó: `git pull --no-rebase origin main`,
-  resolver, volver a correr las pruebas y subir. Nunca push forzado.
+Todo maestro nuevo, incluido el que hoy vive dentro de un módulo operativo,
+debe tener editor y fuente canónica por empresa en Admin → Gestión interna.
+Las pantallas del módulo consumen esa fuente sin copiarla ni administrar una
+segunda versión. Ante datos históricos, preparar una incorporación revisable
+por empresa y documentar la transición en `MEJORAS.md`.
+
+La cobertura obligatoria es Web adaptable (incluidos portátiles de 10 y 14
+pulgadas por ancho lógico disponible), Android e iOS para iPhone. Comprueba
+anchos estrechos y amplios, escala de texto, teclado, áreas seguras y flujos
+propios de cada plataforma. Comparte servicios y permisos; adapta la
+composición y navegación. Registra en `MEJORAS.md` cada plataforma no
+verificada.
+
+Los perfiles generales de Admin son plantillas opcionales de apps y no
+reemplazan roles internos. Los `roleKey`/`roleId` históricos que todavía
+participan en autorización (Desarrollo, Gerencia y administradores históricos)
+requieren una auditoría
+explícita antes de cambiar o desactivar el perfil: su estado visual no es una
+revocación efectiva.
+
+## Git: siempre en `main`, nunca en ramas
+En cada conversación trabaja sobre el checkout de `main`. No crees ni cambies
+a ramas. **Claude no ejecuta Git**: no hagas pull, add, commit, push ni merges.
+Codex es el único responsable de esas operaciones y de publicar los cambios
+en `main`, conforme a `AGENTS.md`.
+
+## Comunicación en cada conversación
+Entrega al usuario solo el resultado final, la validación y los pendientes
+reales. No muestres razonamiento interno, lista de comandos ni narración del
+proceso. Si un bloqueo requiere una actualización intermedia, que sea breve.
+Registra la coordinación técnica con Codex en `MEJORAS.md`.
 
 ## Reglas transversales de interfaz (aplican a TODOS los módulos)
 

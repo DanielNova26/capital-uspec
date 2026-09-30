@@ -14,6 +14,7 @@ class TableModuleRolesPanel extends StatefulWidget {
     required this.onSynchronize,
     required this.onCreateDefaults,
     required this.pendingSyncCount,
+    this.onConsolidate,
   });
 
   final TableModuleRoleConfig config;
@@ -28,6 +29,7 @@ class TableModuleRolesPanel extends StatefulWidget {
   onSave;
   final Future<void> Function(TableModuleRole) onSynchronize;
   final Future<void> Function() onCreateDefaults;
+  final Future<void> Function()? onConsolidate;
   final int Function(TableModuleRole) pendingSyncCount;
 
   @override
@@ -194,6 +196,12 @@ class _TableModuleRolesPanelState extends State<TableModuleRolesPanel> {
                 icon: const Icon(Icons.library_add_outlined),
                 label: const Text('Crear roles iniciales'),
               ),
+              if (widget.onConsolidate != null)
+                OutlinedButton.icon(
+                  onPressed: _busy ? null : () => _run(widget.onConsolidate!),
+                  icon: const Icon(Icons.sync),
+                  label: const Text('Consolidar accesos anteriores'),
+                ),
             ],
           ),
           const SizedBox(height: 12),

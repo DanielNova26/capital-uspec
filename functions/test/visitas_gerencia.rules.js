@@ -109,6 +109,11 @@ test.before(async () => {
         nombre: "Gerente B", empresas: ["EMP_A", "EMP_B"], empresaId: "EMP_B",
         cargo: "Gerente general", empresasDetalle: {EMP_A: {}},
       }),
+      setDoc(doc(db, "TBL_USUARIOS/gerbperfil"), {
+        nombre: "Gerente por perfil B", empresas: ["EMP_A", "EMP_B"],
+        empresaId: "EMP_B", roleKey: "gerencia",
+        empresasDetalle: {EMP_A: {roleKey: "usuario"}},
+      }),
       setDoc(doc(db, "TBL_VISITAS_ROLES/EMP_A_ger"), {
         empresaId: "EMP_A", userId: "ger", rol: "gerencia", areaId: "",
       }),
@@ -245,4 +250,6 @@ test("Gerencia por cargo, sin rol asignado", async () => {
   await assertFails(todas("multi"));
   // El cargo de la raíz es de su empresa principal, no de esta.
   await assertFails(todas("gerb"));
+  // Tampoco se hereda el perfil de Gerencia de la empresa principal.
+  await assertFails(todas("gerbperfil"));
 });

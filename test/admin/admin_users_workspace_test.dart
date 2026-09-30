@@ -27,9 +27,10 @@ void main() {
     await tester.pump();
     expect(find.text('contenido saludCargos'), findsOneWidget);
     expect(find.text('contenido personas'), findsNothing);
-    await tester.tap(find.text('Perfiles generales'));
+    await tester.tap(find.text('Salud usuarios'));
     await tester.pump();
-    expect(find.text('contenido perfiles'), findsOneWidget);
+    expect(find.text('contenido saludUsuarios'), findsOneWidget);
+    expect(find.text('Perfiles generales'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

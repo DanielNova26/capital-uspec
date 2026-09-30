@@ -6,6 +6,7 @@ import 'package:excel/excel.dart' as xl;
 import '../utils/text_input_formatters.dart';
 import '../utils/user_company.dart';
 import 'personnel_requisition_models.dart';
+import 'talento_humano_roles.dart';
 
 const personnelTemporaryPassword = '123456';
 
@@ -124,25 +125,16 @@ class PersonnelRequisitionService {
     required String userId,
     required String empresaId,
   }) async {
-    final users = _db.collection('TBL_USUARIOS');
-    DocumentSnapshot<Map<String, dynamic>>? doc;
-    final direct = await users.doc(userId).get();
-    if (direct.exists) doc = direct;
-    if (doc == null) {
-      final byCedula = await users
-          .where('cedula', isEqualTo: userId)
-          .limit(1)
-          .get();
-      if (byCedula.docs.isNotEmpty) doc = byCedula.docs.first;
-    }
-    if (doc == null) {
-      final byUid = await users.where('uid', isEqualTo: userId).limit(1).get();
-      if (byUid.docs.isNotEmpty) doc = byUid.docs.first;
-    }
-    return PersonnelRequisitionAccess.fromUserData(
-      doc?.data() ?? const <String, dynamic>{},
-      empresaId,
-    );
+    final level = await TalentoHumanoRolesService(
+      db: _db,
+    ).load(userId: userId, empresaId: empresaId);
+    return PersonnelRequisitionAccess(switch (level) {
+      TalentoHumanoLevel.solicitante => PersonnelRequisitionRole.requester,
+      TalentoHumanoLevel.reclutador => PersonnelRequisitionRole.recruiter,
+      TalentoHumanoLevel.gestor ||
+      TalentoHumanoLevel.administrador => PersonnelRequisitionRole.manager,
+      _ => PersonnelRequisitionRole.viewer,
+    });
   }
 
   Future<String> create({
@@ -558,10 +550,8 @@ class PersonnelRequisitionService {
 
       final restantes = actual
           .where(
-            (item) => !PersonnelRequisitionHistoryEntry.mapMatches(
-              item,
-              target,
-            ),
+            (item) =>
+                !PersonnelRequisitionHistoryEntry.mapMatches(item, target),
           )
           .toList();
       if (restantes.length == actual.length) {

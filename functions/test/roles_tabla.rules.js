@@ -54,6 +54,30 @@ const usuarios = {
   jefaCompras: miembroA,
   jefeRutas: miembroA,
   comun: miembroA,
+  gestoraTalento: {
+    empresas: ["EMP_A"], appsPorEmpresa: true,
+    empresasDetalle: {EMP_A: {apps: ["talentohumanodashboard"]}},
+  },
+  consultaTalento: {
+    empresas: ["EMP_A"], appsPorEmpresa: true,
+    empresasDetalle: {EMP_A: {apps: ["talentohumanodashboard"]}},
+  },
+  jefaTalento: {
+    empresas: ["EMP_A"], appsPorEmpresa: true,
+    empresasDetalle: {EMP_A: {apps: ["talentohumanodashboard"]}},
+  },
+  consultaNutricion: {
+    empresas: ["EMP_A"], appsPorEmpresa: true,
+    empresasDetalle: {EMP_A: {apps: ["nutriciondashboard"]}},
+  },
+  clinicaNutricion: {
+    empresas: ["EMP_A"], appsPorEmpresa: true,
+    empresasDetalle: {EMP_A: {apps: ["nutriciondashboard"]}},
+  },
+  menusNutricion: {
+    empresas: ["EMP_A"], appsPorEmpresa: true,
+    empresasDetalle: {EMP_A: {apps: ["nutriciondashboard"]}},
+  },
   ajeno: {empresas: ["EMP_B"], empresasDetalle: {EMP_B: {}}},
 };
 
@@ -97,6 +121,22 @@ test.before(async () => {
         empresaId: "EMP_A", entidadId: "p1", accion: "aprobado",
       }),
       setDoc(doc(db, "TBL_COMPRAS_CONFIG/EMP_A"), {marcaSeq: 3}),
+      setDoc(doc(db, "TBL_TALENTO_HUMANO_ROLES/EMP_A_consultaTalento"),
+        asignacion("consultaTalento", "consulta")),
+      setDoc(doc(db, "TBL_TALENTO_HUMANO_ROLES/EMP_A_jefaTalento"),
+        asignacion("jefaTalento", "administrador")),
+      setDoc(doc(db, "TBL_TH_REQUERIMIENTOS_PERSONAL/req1"), {
+        empresaId: "EMP_A", creadoPor: "gestoraTalento", etapa: "abierto",
+      }),
+      setDoc(doc(db, "TBL_LLAMADOS_ATENCION/caso1"), {empresaId: "EMP_A"}),
+      setDoc(doc(db, "TBL_NUTRICION_ROLES/EMP_A_consultaNutricion"),
+        asignacion("consultaNutricion", "consulta")),
+      setDoc(doc(db, "TBL_NUTRICION_ROLES/EMP_A_clinicaNutricion"),
+        asignacion("clinicaNutricion", "clinico")),
+      setDoc(doc(db, "TBL_NUTRICION_ROLES/EMP_A_menusNutricion"),
+        asignacion("menusNutricion", "menus")),
+      setDoc(doc(db, "TBL_PACIENTES/paciente1"), {empresaId: "EMP_A", nombre: "Paciente"}),
+      setDoc(doc(db, "TBL_MENUS/menu1"), {empresaId: "EMP_A", nombre: "Menú"}),
     ]);
   });
 });
@@ -176,6 +216,83 @@ test("Compras: Admin asigna con el contrato", async () => {
       where("empresaId", "==", "EMP_A")
     ))
   );
+});
+
+test("Tokens DIAN: Admin crea niveles y asigna sin abrir el cifrado", async () => {
+  const admin = auth("adminApp");
+  await assertSucceeds(setDoc(
+    doc(admin, "TBL_ROLES/EMP_A_mod_tokens_dian_operador"),
+    definicion("tokensdiandashboard", {baseRole: "operador"})
+  ));
+  await assertFails(setDoc(
+    doc(admin, "TBL_ROLES/EMP_A_mod_tokens_dian_invalido"),
+    definicion("tokensdiandashboard", {baseRole: "compras"})
+  ));
+  await assertSucceeds(setDoc(
+    doc(admin, "TBL_DIAN_TOKEN_ROLES/EMP_A_comun"),
+    asignacion("comun", "consulta")
+  ));
+  await assertFails(setDoc(
+    doc(auth("comun"), "TBL_DIAN_TOKEN_ROLES/EMP_A_comun"),
+    asignacion("comun", "administrador")
+  ));
+  await assertFails(getDoc(doc(admin, "TBL_DIAN_TOKENS/secreto")));
+  await assertFails(getDoc(doc(admin, "TBL_DIAN_TOKEN_CONFIG/EMP_A")));
+});
+
+test("Talento Humano: roles por empresa limitan requerimientos y disciplina", async () => {
+  const admin = auth("adminApp");
+  await assertSucceeds(setDoc(
+    doc(admin, "TBL_ROLES/EMP_A_mod_talento_humano_gestor"),
+    definicion("talentohumanodashboard", {baseRole: "gestor"})
+  ));
+  await assertFails(setDoc(
+    doc(admin, "TBL_ROLES/EMP_A_mod_talento_humano_invalido"),
+    definicion("talentohumanodashboard", {baseRole: "compras"})
+  ));
+  await assertSucceeds(setDoc(
+    doc(admin, "TBL_TALENTO_HUMANO_ROLES/EMP_A_gestoraTalento"),
+    asignacion("gestoraTalento", "gestor")
+  ));
+  await assertSucceeds(getDoc(doc(auth("consultaTalento"), "TBL_TH_REQUERIMIENTOS_PERSONAL/req1")));
+  await assertFails(updateDoc(doc(auth("consultaTalento"), "TBL_TH_REQUERIMIENTOS_PERSONAL/req1"), {etapa: "cerrado"}));
+  await assertFails(getDoc(doc(auth("consultaTalento"), "TBL_LLAMADOS_ATENCION/caso1")));
+  await assertSucceeds(getDoc(doc(auth("gestoraTalento"), "TBL_LLAMADOS_ATENCION/caso1")));
+  await assertFails(getDoc(doc(auth("ajeno"), "TBL_TH_REQUERIMIENTOS_PERSONAL/req1")));
+  await assertSucceeds(setDoc(
+    doc(auth("jefaTalento"), "TBL_TALENTO_HUMANO_ROLES/EMP_A_comun"),
+    asignacion("comun", "consulta")
+  ));
+  await assertFails(updateDoc(
+    doc(auth("jefaTalento"), "TBL_TALENTO_HUMANO_ROLES/EMP_A_jefaTalento"),
+    {rol: "consulta"}
+  ));
+});
+
+test("Nutrición: roles configurables separan clínica y menús", async () => {
+  const admin = auth("adminApp");
+  await assertSucceeds(setDoc(
+    doc(admin, "TBL_ROLES/EMP_A_mod_nutricion_clinico"),
+    definicion("nutriciondashboard", {baseRole: "clinico"})
+  ));
+  await assertFails(setDoc(
+    doc(admin, "TBL_ROLES/EMP_A_mod_nutricion_invalido"),
+    definicion("nutriciondashboard", {baseRole: "compras"})
+  ));
+  await assertSucceeds(getDoc(doc(auth("consultaNutricion"), "TBL_PACIENTES/paciente1")));
+  await assertFails(updateDoc(doc(auth("consultaNutricion"), "TBL_PACIENTES/paciente1"), {nombre: "Otro"}));
+  await assertSucceeds(updateDoc(doc(auth("clinicaNutricion"), "TBL_PACIENTES/paciente1"), {nombre: "Otro"}));
+  await assertFails(updateDoc(doc(auth("menusNutricion"), "TBL_PACIENTES/paciente1"), {nombre: "Otro"}));
+  await assertSucceeds(updateDoc(doc(auth("menusNutricion"), "TBL_MENUS/menu1"), {nombre: "Otro"}));
+  await assertFails(updateDoc(doc(auth("clinicaNutricion"), "TBL_MENUS/menu1"), {nombre: "Otro"}));
+  await assertFails(getDoc(doc(auth("ajeno"), "TBL_PACIENTES/paciente1")));
+  await assertSucceeds(setDoc(
+    doc(admin, "TBL_NUTRICION_ROLES/EMP_A_comun"), asignacion("comun", "consulta")
+  ));
+  await assertFails(setDoc(
+    doc(auth("clinicaNutricion"), "TBL_NUTRICION_ROLES/EMP_A_clinicaNutricion"),
+    asignacion("clinicaNutricion", "administrador")
+  ));
 });
 
 test("Compras: los datos quedan en su empresa", async () => {

@@ -193,13 +193,13 @@ class DisciplinarySanction {
     DisciplinaryOutcome(
       suspensionOchoDias,
       'Suspensión disciplinaria hasta por ocho (8) días en la primera '
-          'sanción',
+      'sanción',
       DisciplinaryOutcomeKind.sancion,
     ),
     DisciplinaryOutcome(
       suspensionDosMeses,
       'Suspensión disciplinaria hasta por dos (2) meses en caso de '
-          'reincidencia',
+      'reincidencia',
       DisciplinaryOutcomeKind.sancion,
     ),
     DisciplinaryOutcome(
@@ -565,10 +565,12 @@ class DisciplinaryService {
 
   Stream<QuerySnapshot<Map<String, dynamic>>> watchRecordHistory(
     String recordId,
+    String empresaId,
   ) {
     return _db
         .collection(historyCollection)
         .where('llamadoId', isEqualTo: recordId)
+        .where('empresaId', isEqualTo: empresaId)
         .snapshots();
   }
 
@@ -1033,8 +1035,7 @@ class DisciplinaryService {
     }
   }
 
-  static String stageDocumentLabel(String stage) =>
-      _stageDocumentLabel(stage);
+  static String stageDocumentLabel(String stage) => _stageDocumentLabel(stage);
 
   void _requireStage(
     DisciplinaryRecord record,

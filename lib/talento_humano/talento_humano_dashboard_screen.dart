@@ -24,6 +24,7 @@ import 'personnel_import_screen.dart';
 import 'personnel_requisition_screen.dart';
 import 'resume_management_report.dart';
 import 'talento_humano_dashboard_service.dart';
+import 'talento_humano_roles.dart';
 
 const Color _khPrimary = Color(0xFFC28942);
 const Color _khInk = Color(0xFF111827);
@@ -50,6 +51,7 @@ class _TalentoHumanoDashboardScreenState
     extends State<TalentoHumanoDashboardScreen> {
   final _dashboardService = TalentoHumanoDashboardService();
   late Future<TalentoHumanoDashboardData> _dashboardFuture;
+  late Future<TalentoHumanoLevel> _roleFuture;
   bool _exportingResumeReport = false;
 
   String get userId => widget.userId;
@@ -59,12 +61,22 @@ class _TalentoHumanoDashboardScreenState
   void initState() {
     super.initState();
     _dashboardFuture = _dashboardService.load(empresaId);
+    _roleFuture = TalentoHumanoRolesService().load(
+      userId: userId,
+      empresaId: empresaId,
+    );
   }
 
   @override
   void didUpdateWidget(covariant TalentoHumanoDashboardScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.empresaId != empresaId) _refreshDashboard();
+    if (oldWidget.empresaId != empresaId || oldWidget.userId != userId) {
+      _refreshDashboard();
+      _roleFuture = TalentoHumanoRolesService().load(
+        userId: userId,
+        empresaId: empresaId,
+      );
+    }
   }
 
   void _refreshDashboard() {
@@ -81,44 +93,64 @@ class _TalentoHumanoDashboardScreenState
       appId: 'talentohumanodashboard',
       pageTitle: 'Talento Humano',
       fallbackEmpresaId: empresaId,
-      child: InternalModuleLayout(
-        userId: userId,
-        empresaId: empresaId,
-        title: 'Talento Humano',
-        subtitle:
-            'Gestión de colaboradores, cargos y estructura organizacional',
-        accentColor: _khPrimary,
-        headerActions: [
-          CompanyLogoAvatar(
+      child: FutureBuilder<TalentoHumanoLevel>(
+        future: _roleFuture,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(
+              child: Text('No fue posible verificar el acceso: ${snapshot.error}'),
+            );
+          }
+          if (!snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final role = snapshot.data!;
+          if (!role.puedeConsultar) {
+            return const Center(
+              child: Text('No tienes acceso a Talento Humano en esta empresa.'),
+            );
+          }
+          return InternalModuleLayout(
+            userId: userId,
             empresaId: empresaId,
-            radius: isDesktop ? 18 : 15,
-            backgroundColor: isDesktop ? null : Colors.white,
-            foregroundColor: isDesktop ? null : _khPrimary,
-          ),
-          if (isDesktop)
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 280),
-              child: CompanyNameWidget(
+            title: 'Talento Humano',
+            subtitle:
+                'Gestión de colaboradores, cargos y estructura organizacional',
+            accentColor: _khPrimary,
+            headerActions: [
+              CompanyLogoAvatar(
                 empresaId: empresaId,
-                style: const TextStyle(
-                  color: _khPrimary,
-                  fontFamily: _kFont,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 14,
-                ),
+                radius: isDesktop ? 18 : 15,
+                backgroundColor: isDesktop ? null : Colors.white,
+                foregroundColor: isDesktop ? null : _khPrimary,
               ),
-            ),
-        ],
-        child: isDesktop
-            ? _buildDesktopDashboard(context)
-            : _buildMobileDashboard(context),
+              if (isDesktop)
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 280),
+                  child: CompanyNameWidget(
+                    empresaId: empresaId,
+                    style: const TextStyle(
+                      color: _khPrimary,
+                      fontFamily: _kFont,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+            ],
+            child: isDesktop
+                ? _buildDesktopDashboard(context, role)
+                : _buildMobileDashboard(context, role),
+          );
+        },
       ),
     );
   }
 
-  Widget _buildDesktopDashboard(BuildContext context) {
+  Widget _buildDesktopDashboard(BuildContext context, TalentoHumanoLevel role) {
     final actions = _moduleActions(
       context,
+      role,
     ).where((action) => action.title != 'Gestión de personal').toList();
 
     return SingleChildScrollView(
@@ -128,12 +160,13 @@ class _TalentoHumanoDashboardScreenState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildControlDashboard(context, compact: false),
+            _buildControlDashboard(context, role, compact: false),
             const SizedBox(height: 24),
-            _PeopleHero(
-              onViewPeople: () => _openPeople(context),
-              onImport: () => _openImport(context),
-            ),
+            if (role.puedeGestionar)
+              _PeopleHero(
+                onViewPeople: () => _openPeople(context),
+                onImport: () => _openImport(context),
+              ),
             const SizedBox(height: 28),
             const _SectionHeader(
               title: 'Herramientas del área',
@@ -158,9 +191,10 @@ class _TalentoHumanoDashboardScreenState
     );
   }
 
-  Widget _buildMobileDashboard(BuildContext context) {
+  Widget _buildMobileDashboard(BuildContext context, TalentoHumanoLevel role) {
     final actions = _moduleActions(
       context,
+      role,
     ).where((action) => action.title != 'Gestión de personal').toList();
 
     return SingleChildScrollView(
@@ -170,12 +204,13 @@ class _TalentoHumanoDashboardScreenState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildControlDashboard(context, compact: true),
+            _buildControlDashboard(context, role, compact: true),
             const SizedBox(height: 16),
-            _MobilePeopleCard(
-              onViewPeople: () => _openPeople(context),
-              onImport: () => _openImport(context),
-            ),
+            if (role.puedeGestionar)
+              _MobilePeopleCard(
+                onViewPeople: () => _openPeople(context),
+                onImport: () => _openImport(context),
+              ),
             const SizedBox(height: 22),
             const _SectionHeader(
               title: 'Más herramientas',
@@ -193,7 +228,11 @@ class _TalentoHumanoDashboardScreenState
     );
   }
 
-  Widget _buildControlDashboard(BuildContext context, {required bool compact}) {
+  Widget _buildControlDashboard(
+    BuildContext context,
+    TalentoHumanoLevel role, {
+    required bool compact,
+  }) {
     return FutureBuilder<TalentoHumanoDashboardData>(
       future: _dashboardFuture,
       builder: (context, snapshot) {
@@ -207,13 +246,21 @@ class _TalentoHumanoDashboardScreenState
           data: snapshot.data!,
           compact: compact,
           onRefresh: _refreshDashboard,
-          onPeople: () => _openPeople(context),
-          onResumes: () => _openResumes(context),
-          onCostCenters: () => _openCostCenters(context),
-          onDisciplinary: () => _openDisciplinary(context),
-          onRequisitions: () => _openRequisitions(context),
+          onPeople: () =>
+              _openAllowed(context, role.puedeGestionar, _openPeople),
+          onResumes: () =>
+              _openAllowed(context, role.puedeReclutar, _openResumes),
+          onCostCenters: () =>
+              _openAllowed(context, role.puedeGestionar, _openCostCenters),
+          onDisciplinary: () =>
+              _openAllowed(context, role.puedeGestionar, _openDisciplinary),
+          onRequisitions: () =>
+              _openAllowed(context, role.puedeConsultar, _openRequisitions),
           exportingResumeReport: _exportingResumeReport,
-          onExportResumeReport: () => _exportResumeReport(snapshot.data!),
+          canExportResumeReport: role.puedeReclutar,
+          onExportResumeReport: () {
+            if (role.puedeReclutar) _exportResumeReport(snapshot.data!);
+          },
         );
       },
     );
@@ -225,6 +272,22 @@ class _TalentoHumanoDashboardScreenState
       MaterialPageRoute(
         builder: (_) =>
             OrganizationalStructureScreen(userId: userId, empresaId: empresaId),
+      ),
+    );
+  }
+
+  void _openAllowed(
+    BuildContext context,
+    bool allowed,
+    void Function(BuildContext) action,
+  ) {
+    if (allowed) {
+      action(context);
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Tu nivel de Talento Humano no permite esta acción.'),
       ),
     );
   }
@@ -332,8 +395,11 @@ class _TalentoHumanoDashboardScreenState
     ).then((_) => _refreshDashboard());
   }
 
-  List<_HumanTalentAction> _moduleActions(BuildContext context) {
-    return [
+  List<_HumanTalentAction> _moduleActions(
+    BuildContext context,
+    TalentoHumanoLevel role,
+  ) {
+    final actions = <_HumanTalentAction>[
       _HumanTalentAction(
         section: 'Selección',
         title: 'Requerimientos de personal',
@@ -536,6 +602,19 @@ class _TalentoHumanoDashboardScreenState
         ),
       ),
     ];
+    return actions.where((action) {
+      switch (action.title) {
+        case 'Requerimientos de personal':
+        case 'Dashboard HV':
+          return role.puedeConsultar;
+        case 'Hojas de Vida':
+          return role.puedeReclutar;
+        case 'Accesos del personal':
+          return role.puedeAdministrar;
+        default:
+          return role.puedeGestionar;
+      }
+    }).toList();
   }
 }
 
@@ -550,6 +629,7 @@ class _HumanTalentControlDashboard extends StatelessWidget {
   final VoidCallback onRequisitions;
   final VoidCallback onExportResumeReport;
   final bool exportingResumeReport;
+  final bool canExportResumeReport;
 
   const _HumanTalentControlDashboard({
     required this.data,
@@ -562,6 +642,7 @@ class _HumanTalentControlDashboard extends StatelessWidget {
     required this.onRequisitions,
     required this.onExportResumeReport,
     required this.exportingResumeReport,
+    required this.canExportResumeReport,
   });
 
   @override
@@ -665,7 +746,7 @@ class _HumanTalentControlDashboard extends StatelessWidget {
                   ],
                 ),
               ),
-              if (compact)
+              if (compact && canExportResumeReport)
                 IconButton(
                   onPressed: exportingResumeReport
                       ? null
@@ -679,7 +760,7 @@ class _HumanTalentControlDashboard extends StatelessWidget {
                         )
                       : const Icon(Icons.download_rounded),
                 )
-              else
+              else if (canExportResumeReport)
                 OutlinedButton.icon(
                   onPressed: exportingResumeReport
                       ? null
@@ -946,8 +1027,7 @@ class _PriorityWorkCard extends StatelessWidget {
       tasks.add(
         _PriorityTask(
           title: '${data.openDisciplinaryCases} proceso(s) por atender',
-          subtitle:
-              '${data.overdueDisciplinaryCases} con el plazo vencido.',
+          subtitle: '${data.overdueDisciplinaryCases} con el plazo vencido.',
           icon: Icons.record_voice_over_rounded,
           color: const Color(0xFF9A3412),
           onTap: onDisciplinary,

@@ -95,7 +95,11 @@ class TableModuleRolesRepository {
     if (data == null) throw StateError('No existe el administrador.');
     if (canManageModuleRoles(data, empresaId)) return true;
     if (!userBelongsToEmpresa(data, empresaId) ||
-        !personaHabilitadaEn(data, empresaId)) {
+        !personaHabilitadaEn(data, empresaId) ||
+        ((config.moduleKey == 'tokens_dian' ||
+                config.moduleKey == 'talento' ||
+                config.moduleKey == 'nutricion') &&
+            !userHasApp(data, config.appId, empresaId: empresaId))) {
       throw StateError('No tienes acceso administrativo en esta empresa.');
     }
     final assignment = (await _assignmentRef(empresaId, actorId).get()).data();
@@ -354,7 +358,17 @@ class TableModuleRolesRepository {
         });
       }
 
-      final plan = !quitar && efectivo.isNotEmpty
+      final plan = quitar && config.removeAppOnClear
+          ? planearAppsPorEmpresa(
+              user,
+              cambios: {
+                empresaId: extractUserApps(
+                  user,
+                  empresaId: empresaId,
+                ).where((app) => !appIdsEquivalent(app, config.appId)).toSet(),
+              },
+            )
+          : !quitar && efectivo.isNotEmpty
           ? planearAppsPorEmpresa(
               user,
               cambios: {
@@ -474,5 +488,74 @@ class TableModuleRolesRepository {
       created++;
     }
     return created;
+  }
+
+  /// Tokens DIAN antes solo guardaba la app. Materializa Operador para esas
+  /// personas sin cambiar membresías, empresas ni asignaciones ya existentes.
+  Future<TableRoleSyncResult> consolidateDianLegacyAccess(String empresaId) =>
+      consolidateLegacyAppAccess(empresaId, legacyLevel: 'operador');
+
+  /// Materializa el acceso anterior basado solo en app, sin sobrescribir la
+  /// tabla canónica ni conceder apps a personas nuevas.
+  Future<TableRoleSyncResult> consolidateLegacyAppAccess(
+    String empresaId, {
+    required String legacyLevel,
+  }) async {
+    if (config.moduleKey != 'tokens_dian' &&
+        config.moduleKey != 'talento' &&
+        config.moduleKey != 'nutricion') {
+      throw StateError('Este módulo no tiene consolidación histórica por app.');
+    }
+    if (!config.levels.containsKey(legacyLevel)) {
+      throw ArgumentError('Nivel histórico no válido.');
+    }
+    await _requireAdmin(empresaId);
+    final users = await _db.collection('TBL_USUARIOS').get();
+    var updated = 0;
+    final failures = <String>[];
+    for (final candidate in users.docs) {
+      final current = candidate.data();
+      if (!userBelongsToEmpresa(current, empresaId) ||
+          !personaHabilitadaEn(current, empresaId) ||
+          !userHasApp(current, config.appId, empresaId: empresaId)) {
+        continue;
+      }
+      try {
+        final created = await _db.runTransaction((transaction) async {
+          final userSnap = await transaction.get(candidate.reference);
+          final assignmentRef = _assignmentRef(empresaId, candidate.id);
+          final assignment = await transaction.get(assignmentRef);
+          final user = userSnap.data();
+          if (user == null ||
+              assignment.exists ||
+              !userBelongsToEmpresa(user, empresaId) ||
+              !personaHabilitadaEn(user, empresaId) ||
+              !userHasApp(user, config.appId, empresaId: empresaId)) {
+            return false;
+          }
+          transaction.set(
+            assignmentRef,
+            _assignmentFields(
+              user,
+              empresaId,
+              candidate.id,
+              legacyLevel,
+              isNew: true,
+            ),
+          );
+          transaction.update(candidate.reference, {
+            'empresasDetalle.$empresaId.${config.fichaField}': legacyLevel,
+            if (raizEsDeEmpresa(user, empresaId))
+              config.fichaField: legacyLevel,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+          return true;
+        });
+        if (created) updated++;
+      } catch (_) {
+        failures.add(candidate.id);
+      }
+    }
+    return TableRoleSyncResult(updated, failures);
   }
 }

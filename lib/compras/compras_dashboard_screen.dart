@@ -11430,7 +11430,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                           size: 18,
                         ),
                         helperText:
-                            'Los grupos disponibles se asignan desde Administración > Membresía.',
+                            'Los grupos disponibles se asignan desde Administración > Gestión interna > Membresía.',
                       ),
                       items: _grupos
                           .map(

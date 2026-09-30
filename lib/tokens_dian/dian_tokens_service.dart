@@ -12,18 +12,18 @@ class DianTokensService {
   Future<List<DianTokenRecord>> listar({
     required String empresaId,
     required String userId,
+  }) async => (await listarVista(empresaId: empresaId, userId: userId)).tokens;
+
+  Future<DianTokensVista> listarVista({
+    required String empresaId,
+    required String userId,
   }) async {
     final result = await _functions.httpsCallable('dianTokensListar').call({
       'empresaId': empresaId,
       'userId': userId,
     });
     final data = Map<String, dynamic>.from(result.data as Map);
-    final raw = data['tokens'];
-    if (raw is! Iterable) return const [];
-    return raw
-        .whereType<Map>()
-        .map((row) => DianTokenRecord.fromMap(Map<String, dynamic>.from(row)))
-        .toList();
+    return DianTokensVista.fromMap(data);
   }
 
   Future<List<DianTokenAccess>> listarAccesos({

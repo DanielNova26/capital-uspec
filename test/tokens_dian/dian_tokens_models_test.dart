@@ -4,6 +4,30 @@ import 'package:todo/utils/user_company.dart';
 
 void main() {
   group('Tokens DIAN', () {
+    test('vista enlaza NIT de la empresa activa y nivel operativo', () {
+      final vista = DianTokensVista.fromMap({
+        'nivel': 'consulta',
+        'empresa': {
+          'empresaId': 'EMP_A',
+          'nombre': 'Capital SAS',
+          'nit': '900123456-7',
+        },
+        'tokens': [
+          {'id': 't1', 'empresaId': 'EMP_A', 'estado': 'nuevo'},
+        ],
+      });
+      expect(vista.empresaNit, '900123456-7');
+      expect(vista.empresaNombre, 'Capital SAS');
+      expect(vista.tokens.single.id, 't1');
+      expect(vista.puedeAbrir, isFalse);
+      expect(vista.administra, isFalse);
+    });
+    test('una respuesta sin nivel no habilita acciones de operador', () {
+      final vista = DianTokensVista.fromMap(const {'tokens': []});
+      expect(vista.nivel, 'consulta');
+      expect(vista.puedeAbrir, isFalse);
+      expect(vista.administra, isFalse);
+    });
     test('interpreta fechas y nunca necesita exponer el enlace', () {
       final token = DianTokenRecord.fromMap({
         'id': 'dian_1',
@@ -125,14 +149,11 @@ void main() {
             'estado': 'nuevo',
           });
 
-      final filtrados = filtrarTokensDianPorEmpresa(
-        [
-          token('capital', 'EMPRESA_CAPITAL'),
-          token('fyc', 'EMPRESA_FYC'),
-          token('sin-empresa', ''),
-        ],
-        'EMPRESA_FYC',
-      );
+      final filtrados = filtrarTokensDianPorEmpresa([
+        token('capital', 'EMPRESA_CAPITAL'),
+        token('fyc', 'EMPRESA_FYC'),
+        token('sin-empresa', ''),
+      ], 'EMPRESA_FYC');
 
       expect(filtrados.map((token) => token.id), ['fyc']);
       expect(filtrarTokensDianPorEmpresa(filtrados, ''), isEmpty);

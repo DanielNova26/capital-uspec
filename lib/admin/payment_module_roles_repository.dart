@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../utils/user_company.dart';
 import 'payment_module_role.dart';
+import 'table_module_role.dart';
 import 'task_module_role.dart' show canManageModuleRoles;
 import '../gestion_documental/planillas/pp_role_access.dart';
 
@@ -254,8 +255,8 @@ class PaymentModuleRolesRepository {
     });
   }
 
-  /// Editor general de Apps: aplica la selección y revoca Planillas en la
-  /// misma transacción. No permite que una asignación de rol la restituya.
+  /// Editor general de Apps: aplica la selección y materializa o revoca los
+  /// niveles que requieren fila canónica en la misma transacción.
   Future<void> saveAppSelections({
     required String userId,
     required Map<String, Set<String>> selections,
@@ -282,8 +283,73 @@ class PaymentModuleRolesRepository {
         );
       }
       final plan = planearAppsPorEmpresa(user, cambios: selections);
+      final revocations = <String, bool>{};
+      for (final entry in selections.entries) {
+        for (final config in tableModuleRoleConfigs) {
+          if (!config.removeAppOnClear ||
+              entry.value.any((app) => appIdsEquivalent(app, config.appId))) {
+            continue;
+          }
+          final assignmentRef = _db
+              .collection(config.collection)
+              .doc('${entry.key}_$userId');
+          revocations[assignmentRef.path] = (await transaction.get(
+            assignmentRef,
+          )).exists;
+        }
+      }
+      final roleUpdates = <String, dynamic>{};
+      for (final entry in selections.entries) {
+        final empresaId = entry.key;
+        for (final config in tableModuleRoleConfigs) {
+          if (!config.removeAppOnClear) continue;
+          final selected = entry.value.any(
+            (app) => appIdsEquivalent(app, config.appId),
+          );
+          final previous = userHasApp(user, config.appId, empresaId: empresaId);
+          if (selected && previous) continue;
+          if (selected && !personaHabilitadaEn(user, empresaId)) {
+            throw StateError('La persona no está habilitada en $empresaId.');
+          }
+          final assignmentRef = _db
+              .collection(config.collection)
+              .doc('${empresaId}_$userId');
+          if (selected) {
+            transaction.set(assignmentRef, {
+              'empresaId': empresaId,
+              'userId': userId,
+              'rol': config.inactiveLevel,
+              'updatedBy': actorId,
+              'updatedAt': FieldValue.serverTimestamp(),
+              'createdAt': Timestamp.now(),
+            });
+            roleUpdates['empresasDetalle.$empresaId.${config.fichaField}'] =
+                config.inactiveLevel;
+            if (raizEsDeEmpresa(user, empresaId)) {
+              roleUpdates[config.fichaField] = config.inactiveLevel;
+            }
+          } else {
+            if (revocations[assignmentRef.path] == true) {
+              transaction.delete(assignmentRef);
+            }
+            for (final field in [
+              config.fichaField,
+              config.idField,
+              config.nameField,
+              config.versionField,
+            ]) {
+              roleUpdates['empresasDetalle.$empresaId.$field'] =
+                  FieldValue.delete();
+              if (raizEsDeEmpresa(user, empresaId)) {
+                roleUpdates[field] = FieldValue.delete();
+              }
+            }
+          }
+        }
+      }
       transaction.update(ref, {
         ...plan.comoRutas(),
+        ...roleUpdates,
         for (final entry in selections.entries)
           if (!entry.value.any(
             (app) => appIdsEquivalent(app, paymentRolesAppId),

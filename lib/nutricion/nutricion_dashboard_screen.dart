@@ -29,6 +29,7 @@ import '../theme/app_typography.dart';
 import '../widgets/internal_module_layout.dart';
 import '../widgets/user_avatar.dart';
 import 'widgets/nutrition_shared_widgets.dart';
+import 'nutricion_roles.dart';
 
 import 'package:todo/widgets/selector_diagnosticos_widget.dart';
 import 'atencion/diagnostico_models.dart';
@@ -187,6 +188,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
 
   final List<String> _establecimientos = const ['Establecimiento principal'];
   late final Stream<List<_PacienteInfo>> _pacientesStream;
+  late final Future<NutricionLevel> _levelFuture;
   List<_PacienteInfo>? _cachedPacientes;
 
   late String _selectedEstablecimiento;
@@ -232,7 +234,12 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
     super.initState();
     _selectedEstablecimiento = _establecimientos.first;
     _initPacientesStream();
-    _seedTablas();
+    _levelFuture = NutricionRolesService()
+        .load(userId: widget.userId, empresaId: widget.empresaId)
+        .then((level) {
+          if (level.puedeGestionarMenus) _seedTablas();
+          return level;
+        });
   }
 
   Future<void> _seedTablas() async {
@@ -373,86 +380,121 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
       appId: 'nutriciondashboard',
       pageTitle: 'Nutrición Clínica',
       fallbackEmpresaId: widget.empresaId,
-      child: InternalModuleLayout(
-        userId: widget.userId,
-        empresaId: widget.empresaId,
-        title: titles[_navigationIndex],
-        subtitle: subs[_navigationIndex],
-        accentColor: NutritionPalette.accent,
-        headerActions: [
-          CompanyNameWidget(
+      child: FutureBuilder<NutricionLevel>(
+        future: _levelFuture,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return const Center(
+              child: Text('No se pudo cargar el rol de Nutrición.'),
+            );
+          }
+          if (!snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final level = snapshot.data!;
+          if (!level.puedeConsultar) {
+            return const Center(
+              child: Text('Sin acceso a Nutrición en esta empresa.'),
+            );
+          }
+          final index = level.pestanas.contains(_navigationIndex)
+              ? _navigationIndex
+              : level.pestanas.first;
+          return InternalModuleLayout(
+            userId: widget.userId,
             empresaId: widget.empresaId,
-            style: TextStyle(
-              color: isWeb ? NutritionPalette.accent : Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: isWeb ? 14 : 12,
-            ),
-          ),
-        ],
-        child: isWeb ? _buildWebBody() : _buildMobileBody(),
+            title: titles[index],
+            subtitle: subs[index],
+            accentColor: NutritionPalette.accent,
+            headerActions: [
+              CompanyNameWidget(
+                empresaId: widget.empresaId,
+                style: TextStyle(
+                  color: isWeb ? NutritionPalette.accent : Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: isWeb ? 14 : 12,
+                ),
+              ),
+            ],
+            child: isWeb
+                ? _buildWebBody(level, index)
+                : _buildMobileBody(level, index),
+          );
+        },
       ),
     );
   }
 
-  Widget _buildWebBody() {
-    return _buildModuleShell(isWeb: true);
+  Widget _buildWebBody(NutricionLevel level, int index) {
+    return _buildModuleShell(isWeb: true, level: level, index: index);
   }
 
-  Widget _buildMobileBody() {
-    return _buildModuleShell(isWeb: false);
+  Widget _buildMobileBody(NutricionLevel level, int index) {
+    return _buildModuleShell(isWeb: false, level: level, index: index);
   }
 
-  Widget _buildModuleShell({required bool isWeb}) {
+  Widget _buildModuleShell({
+    required bool isWeb,
+    required NutricionLevel level,
+    required int index,
+  }) {
+    final visibleTabs = level.pestanas;
     return Column(
       children: [
         InternalModuleTabs(
-          items: _moduleTabs,
-          selectedIndex: _navigationIndex,
-          onSelected: (i) => setState(() => _navigationIndex = i),
+          items: [for (final tabIndex in visibleTabs) _moduleTabs[tabIndex]],
+          selectedIndex: visibleTabs.indexOf(index),
+          onSelected: (i) => setState(() => _navigationIndex = visibleTabs[i]),
           accentColor: NutritionPalette.accent,
           compact: !isWeb,
         ),
         Expanded(
           child: InternalModuleViewport(
-            maxWidth: isWeb && _navigationIndex == 0 ? 1360 : 1280,
+            maxWidth: isWeb && index == 0 ? 1360 : 1280,
             padding: EdgeInsets.all(isWeb ? 28 : 16),
-            child: _buildViews(isWeb: isWeb),
+            child: IndexedStack(
+              index: visibleTabs.indexOf(index),
+              children: [
+                for (final tabIndex in visibleTabs)
+                  _buildView(tabIndex, isWeb: isWeb),
+              ],
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildViews({required bool isWeb}) {
-    return IndexedStack(
-      index: _navigationIndex,
-      children: [
-        _buildAtencionView(isWeb: isWeb),
-        NutricionMenusScreen(
-          userId: widget.userId,
-          empresaId: widget.empresaId,
-          establecimiento: _selectedEstablecimiento,
-          semana: _weekStart,
-          showAppBar: false,
-        ),
-        NutricionIngredientesScreen(
-          userId: widget.userId,
-          empresaId: widget.empresaId,
-          showAppBar: false,
-        ),
-        NutricionCatalogosScreen(
-          empresaId: widget.empresaId,
-          userId: widget.userId,
-          showAppBar: false,
-        ),
-        NutricionFirmasScreen(
-          empresaId: widget.empresaId,
-          userId: widget.userId,
-          showAppBar: false,
-        ),
-        NutricionReportesScreen(empresaId: widget.empresaId, showAppBar: false),
-      ],
-    );
+  Widget _buildView(int index, {required bool isWeb}) {
+    return switch (index) {
+      0 => _buildAtencionView(isWeb: isWeb),
+      1 => NutricionMenusScreen(
+        userId: widget.userId,
+        empresaId: widget.empresaId,
+        establecimiento: _selectedEstablecimiento,
+        semana: _weekStart,
+        showAppBar: false,
+      ),
+      2 => NutricionIngredientesScreen(
+        userId: widget.userId,
+        empresaId: widget.empresaId,
+        showAppBar: false,
+      ),
+      3 => NutricionCatalogosScreen(
+        empresaId: widget.empresaId,
+        userId: widget.userId,
+        showAppBar: false,
+      ),
+      4 => NutricionFirmasScreen(
+        empresaId: widget.empresaId,
+        userId: widget.userId,
+        showAppBar: false,
+      ),
+      _ => NutricionReportesScreen(
+        empresaId: widget.empresaId,
+        showAppBar: false,
+      ),
+    };
   }
 
   // ── Vista de Atención ───────────────────────────────────────────────────────
@@ -915,7 +957,9 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
       decoration: BoxDecoration(
         color: NutritionPalette.accent.withValues(alpha: 0.03),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: NutritionPalette.accent.withValues(alpha: 0.1)),
+        border: Border.all(
+          color: NutritionPalette.accent.withValues(alpha: 0.1),
+        ),
       ),
       child: Column(
         children: [
@@ -1257,7 +1301,9 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                             });
                           }
                         },
-                        selectedColor: NutritionPalette.info.withValues(alpha: 0.2),
+                        selectedColor: NutritionPalette.info.withValues(
+                          alpha: 0.2,
+                        ),
                         labelStyle: TextStyle(
                           color: selected
                               ? NutritionPalette.info
@@ -1306,7 +1352,8 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                             final ids = dietas
                                 .map((d) => d['id']?.toString())
                                 .toSet();
-                            if (currentVal != null && !ids.contains(currentVal)) {
+                            if (currentVal != null &&
+                                !ids.contains(currentVal)) {
                               currentVal = null;
                             }
 
@@ -2534,7 +2581,9 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
       decoration: BoxDecoration(
         color: NutritionPalette.accent.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: NutritionPalette.accent.withValues(alpha: 0.2)),
+        border: Border.all(
+          color: NutritionPalette.accent.withValues(alpha: 0.2),
+        ),
       ),
       child: Column(
         children: [

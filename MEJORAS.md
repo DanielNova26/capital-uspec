@@ -6,6 +6,286 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Revisión final de Admin y contrato multiplataforma — 30 sep 2026 (Codex ↔ Claude)
+
+`AGENTS.md` y `CLAUDE.md` exigen cobertura Web adaptable, Android e iOS,
+validación por ancho lógico (390/768/1024/1366 px y texto ampliado), y que
+todo maestro nuevo o histórico termine con editor y fuente por empresa en
+**Admin → Gestión interna**. El módulo operativo debe consumir esa fuente,
+sin mantener un segundo editor. El contrato conserva UX diferenciada para
+Web y móvil y lógica/permisos compartidos. Como excepción de esta sesión,
+el usuario hará Git personalmente; Codex no ejecutará add, commit ni push.
+
+**Perfiles generales:** se mantienen en Admin → Apps, roles y permisos como
+plantillas opcionales para conceder apps; se quitó el acceso duplicado del
+menú Usuarios. Su edición o inactivación no revoca automáticamente apps ya
+concedidas, por lo que se corrigió el texto que decía lo contrario. El
+repositorio rechaza asignación a otra empresa, perfiles inactivos y personas
+inhabilitadas, además de edición cruzada o creación que pise un perfil
+existente. Desarrollo, Gerencia y administradores históricos son casos cuyos
+`roleKey` aún intervienen en autorización. Se impide desactivarlos sin migrar
+antes esa dependencia. La raíz del perfil de Gerencia deja de conceder nivel
+en empresa secundaria, tanto en el cliente como en la regla de Visitas.
+
+**Validación ejecutada:** la suite Flutter completa pasó con 1337 pruebas
+antes de los últimos ajustes de alcance de perfil y navegación; después
+pasaron 181 pruebas de Admin y las pruebas dirigidas de empresa secundaria,
+perfiles y permisos. El emulador de Firestore volvió a fallar antes de ejecutar
+`visitas_gerencia.rules.js`: Java/Netty no establece conexión loopback.
+`flutter build web --no-pub` terminó correctamente para JavaScript; el
+diagnóstico opcional de WebAssembly advierte incompatibilidades de paquetes
+terceros (`desktop_drop`, `flutter_secure_storage_web`, `pdfx`, entre otros).
+Android tiene el SDK en una ruta con espacios y `flutter doctor` lo marca
+incompatible con NDK. Además, `flutter build apk --debug --no-pub` falló al
+iniciar Gradle por el mismo error de Java: `Unable to establish loopback
+connection`. iOS no se puede compilar en este host Windows; las
+pruebas de widgets con `TargetPlatform.iOS` y Android solo validan layout y
+navegación, no los binarios nativos. Además pasó la navegación con texto
+ampliado en 1024 px.
+
+**Pendientes reales para Claude y la próxima integración:** los maestros de
+productos, proveedores y marcas de Compras aún se editan allí; auditar los
+maestros específicos de Facturación, Nutrición, Rutas y demás módulos y
+llevar sus editores canónicos a Admin sin migrar datos en producción por
+defecto. Ejecutar las reglas en un emulador funcional y probar Android/iOS
+en toolchains adecuados. Este checkout sigue seis commits detrás de
+`origin/main`; el `index.lock` persistente impide el pull. La rama remota
+incluye cambios amplios en Admin, Facturación y Gerencia que deben
+integrarse y volver a probarse antes de afirmar cierre global o publicar.
+
+---
+
+## Gestión interna unificada por empresa — 29 sep 2026 (Codex ↔ Claude)
+
+Admin muestra una sola entrada **Gestión interna** con navegación propia para
+**Catálogos y bodegas, Grupos, Membresía y Multiempresa**. En Web usa panel
+lateral; en móvil, selector compacto. La ficha de empresa y los catálogos
+compartidos quedan en Catálogos; la asignación de empresas y grupos a personas
+queda en Membresía. Se retiraron las entradas duplicadas de Membresía y
+Multiempresa de la gestión de usuarios, y el segundo editor de grupos que
+estaba dentro de Membresía.
+
+**Fuente de verdad:** bodegas siguen en `TBL_COMPRAS_BODEGAS`, grupos en
+`TBL_COMPRAS_GRUPOS`, centros en `TBL_CENTROS_COSTOS`, áreas en `TBL_AREAS`,
+cargos en `TBL_CARGOS` y la membresía/asignación de grupos en `TBL_USUARIOS`.
+Las lecturas y escrituras nuevas se limitan a la empresa activa; editar un
+grupo o bodega de otra empresa se rechaza también en el repositorio. Compras
+y Talento Humano siguen leyendo las mismas colecciones; no se crearon copias.
+
+Las bodegas históricas de `TBL_EMPRESAS.bodegas` y del catálogo de respaldo
+de Compras se muestran como **pendientes de incorporar**, sin reescribir
+producción ni sobrescribir bodegas existentes. El administrador puede
+incorporarlas una por una a la colección canónica. Las sugerencias omiten
+nombres ya presentes, incluso si la bodega canónica está inactiva. Recepción
+y Abastecimiento conservan visibles las bodegas históricas aún no incorporadas
+durante la transición, pero una bodega canónica inactiva ya no reaparece por
+el respaldo histórico del mismo nombre.
+
+Validación: 169 pruebas de Admin y 14 de integración de Compras aprobadas,
+incluida la importación parcial, navegación Web/móvil, grupos, bodegas,
+empresa secundaria y vista previa histórica. El análisis de los
+archivos nuevos y del repositorio no mostró errores; conserva avisos de lint
+preexistentes. Pendiente de validar en emulador las reglas Firestore porque
+Java no logra iniciar la conexión loopback en este equipo.
+`origin/main` avanzó seis commits durante esta sesión; la sincronización,
+commit y push quedan pendientes porque `.git/index.lock` sigue bloqueando Git.
+La revisión automática rechazó retirar ese archivo, así que no se forzó la
+operación ni se creó una rama.
+
+**Para Claude en una siguiente revisión:** auditar los catálogos específicos
+de Facturación, Nutrición, Rutas y demás módulos para decidir cuáles son
+compartidos por empresa y cuáles deben conservar su editor operativo. Los
+catálogos de productos, proveedores y marcas de Compras todavía tienen su
+gestión en Compras; no se han trasladado ni sincronizado automáticamente.
+Revisar con el emulador las reglas de escritura de bodegas y grupos para
+Admin y el aislamiento al leer `TBL_EMPRESAS.bodegas` antes de desplegar.
+
+---
+
+## Regla permanente para módulos y conversaciones — 29 sep 2026
+
+Por indicación del usuario, `AGENTS.md` define el contrato obligatorio para
+todo módulo nuevo: catálogo y empresa activa, centro de Apps/roles/permisos,
+creador y sincronización cuando haya niveles, revocación coherente en todos
+los editores, reglas/backend, pruebas y experiencia Web/Móvil diferenciada.
+`CLAUDE.md` remite a ese contrato. En cada conversación de este repositorio
+se trabaja sobre `main`; solo Codex hace Git. La comunicación al usuario se
+reduce al resultado final, validación y pendientes reales, con avisos
+intermedios solo cuando un bloqueo lo exige. Codex y Claude registran aquí
+su coordinación técnica.
+
+---
+
+## Auditoría de homogeneidad en Admin — 29 sep 2026 (Codex ↔ Claude)
+
+Se revisó **Admin → Apps, roles y permisos** contra la lista completa de
+módulos de la matriz. Tareas, Talento Humano, Biblioteca Documental,
+Planillas de Pago, Nutrición, Compras, Correo y Correspondencia, Tokens DIAN,
+Interventoría, Rutas y Visitas tienen creador, asignación individual y nivel
+operativo dentro de su tarjeta. Admin, Gerencia y Gestión de Correspondencia
+figuran como acceso a la app, sin una jerarquía de roles propia que crear.
+
+**Corrección:** la operación masiva de dar o quitar acceso ahora usa el mismo
+repositorio de roles que la operación individual para Tokens DIAN, Talento
+Humano y Nutrición. Así, quitar acceso elimina su asignación y volver a darlo
+parte de Consulta; no reaparece un nivel histórico. Si ya tenía acceso, la
+acción masiva conserva su nivel. El editor general de módulos por usuario y
+el editor del catálogo aplican esos cambios en la misma transacción que las
+apps, incluso cuando la persona pertenece a varias empresas. Las etiquetas
+de sus niveles en la matriz se toman de la configuración del creador, para
+evitar dos catálogos divergentes.
+
+La validación dirigida de Admin pasó **46/46** (incluye revocación,
+reactivación y preservación de niveles entre empresas). El análisis de los
+archivos modificados no muestra errores nuevos. Las reglas Firestore de las
+entregas previas aún no se han podido probar en este equipo: el emulador falla
+al iniciar por Java. Tampoco hay commit ni push porque persiste el
+`.git/index.lock` cuya retirada rechazó la revisión automática.
+
+**Brecha restante:** Facturación ofrece Facturación, Establecimiento y Visor
+como roles internos y permite asignarlos en la matriz, pero no tiene creador
+de roles configurables ni sincronización de definiciones en su tarjeta. La
+pantalla Admin conserva además otro editor de `rolFac` fuera del centro de
+Apps, roles y permisos. Por eso **no se puede afirmar que todos los módulos
+con niveles cumplen todavía la misma experiencia**. Una integración futura
+debe respetar `establecimientoFacId` y el flujo de permisos de Facturación;
+no conviene fabricar un rol genérico sin esa relación. Este pendiente se
+coordina con Claude solo por este archivo.
+
+---
+
+## Nutrición: roles configurables — 29 sep 2026 (Codex ↔ Claude)
+
+**En integración y validación.** Admin → Apps, roles y permisos incluye
+Nutrición en el creador común. Las definiciones viven en `TBL_ROLES` y la
+asignación efectiva en `TBL_NUTRICION_ROLES/{empresaId}_{userDocId}`. Los
+niveles son Consulta (reportes), Atención clínica (atención, pacientes,
+firmas), Menús e ingredientes (menú, ítems), Coordinación (ambos flujos) y
+Administrador (ambos flujos y gestión de roles). Activar el módulo desde la
+matriz asigna Consulta; retirarlo elimina la app y su fila solo en la empresa
+activa. El acceso anterior basado solo en la app se conserva como
+Administrador hasta ejecutar la consolidación manual, que no sobrescribe
+filas existentes.
+
+`lib/nutricion/nutricion_roles.dart` concentra capacidades y pestañas; para
+añadir un nivel o sección futura se actualizan allí, la configuración del
+creador, y las reglas Firestore. La UI instancia únicamente las secciones
+permitidas y conserva su estado al cambiar de pestaña. El seed de dietas, plantillas e ingredientes se
+ejecuta solo para niveles que gestionan menús. Las reglas restringen lectura
+de datos nutricionales a personas con acceso y separan escrituras clínicas
+de menús. `TBL_CITAS_NUTRICION` mantiene lectura por empresa para no romper
+el calendario compartido; su escritura queda en capacidad clínica.
+
+**Para Claude:** revisar consultas directas a datos de Nutrición desde otros
+módulos y los archivos de Firebase Storage usados por firmas/evidencias. Las
+reglas de Storage deben reflejar la misma capacidad clínica. Si una colección
+compartida requiere otro lector, resolverlo de forma explícita. No desplegar
+las reglas nuevas hasta validar el conjunto con el emulador Firestore. No se
+han ejecutado cambios de datos ni consolidación en producción. Las pruebas
+dirigidas Flutter pasaron **29/29**, la suite completa **1.322/1.322** y la
+compilación Web terminó bien. El análisis dirigido no mostró errores (solo
+avisos preexistentes). El emulador Firestore volvió a fallar antes de cargar
+las reglas por `Unable to establish loopback connection` de Java; quedan sin
+verificar las pruebas de reglas. `main` conserva un `.git/index.lock` antiguo:
+la revisión automática impidió retirarlo y siguen pendientes pull, commit y
+push.
+
+---
+
+## Talento Humano: roles configurables — 29 sep 2026 (Codex ↔ Claude)
+
+**En integración y validación.** Admin → Apps, roles y permisos ahora incluye
+creador, asignación individual y cinco niveles de Talento Humano: Consulta,
+Solicitante, Reclutamiento, Gestión de personal y Administrador. Las
+definiciones se guardan en `TBL_ROLES` y el nivel efectivo en
+`TBL_TALENTO_HUMANO_ROLES/{empresaId}_{userDocId}`. La ficha por empresa
+conserva el vínculo del rol creado. Activar la app desde la matriz asigna
+Consulta; retirarla elimina la asignación y la app solo en esa empresa.
+
+La navegación Web/Móvil mantiene su composición actual y filtra herramientas
+según el nivel: Solicitante usa Requerimientos; Reclutamiento incorpora
+selección y hojas de vida; Gestión de personal incorpora estructura,
+documentos, disciplina y comunicaciones; Administrador añade Accesos del
+personal y la administración de roles. Requerimientos reutiliza las
+capacidades existentes de visor, solicitante, reclutador y responsable.
+La tabla canónica manda sobre los campos históricos. Mientras no exista
+asignación, una persona que ya tenía la app conserva Administrador, para no
+romper el acceso anterior. La consolidación manual materializa ese nivel sin
+alterar otras empresas ni sobrescribir asignaciones existentes.
+
+Las reglas Firestore validan definición/asignación y aplican los niveles a
+`TBL_TH_REQUERIMIENTOS_PERSONAL`, `TBL_LLAMADOS_ATENCION` y
+`TBL_HISTORIAL_LLAMADOS_ATENCION`. El historial disciplinario se consulta
+también con `empresaId` para no mezclar casos. **Pendiente con Claude:** los
+flujos que escriben colecciones compartidas (`TBL_USUARIOS`, estructura,
+catálogos, documentos y almacenamiento) siguen sujetos a reglas generales;
+revisar sus operaciones y cerrar las escrituras por capacidad sin romper la
+hoja de vida propia ni otros módulos. Hasta entonces los roles restringen
+navegación y los tres conjuntos específicos citados, pero no constituyen
+una frontera completa para todos los datos de Talento Humano.
+
+No se ejecutó la consolidación sobre producción ni se desplegaron reglas o
+Web. Las pruebas dirigidas Flutter pasaron **51/51** y la suite completa
+**1.316/1.316**. El análisis dirigido no encontró errores nuevos (1
+advertencia y 6 avisos existentes en Admin); `node --check` y
+`git diff --check` pasaron. El emulador Firestore no arrancó en esta sesión
+(`Unable to establish loopback connection` de Java), así que las reglas
+nuevas requieren verificación antes del despliegue. `main` sigue con un
+`.git/index.lock` antiguo que la revisión automática impide retirar; pull,
+commit y push están pendientes. La compilación Web finalizó correctamente con
+`flutter build web --no-pub
+--no-wasm-dry-run`.
+
+---
+
+## Tokens DIAN: roles y NIT de la empresa activa — 29 sep 2026 (Codex)
+
+**Estado: IMPLEMENTADO Y VERIFICADO EN CÓDIGO.** Coordinación con Claude por
+esta bitácora. Admin → Apps, roles y permisos incorpora Tokens DIAN en el
+mismo creador y matriz de niveles de los módulos con tabla. La asignación
+canónica vive en `TBL_DIAN_TOKEN_ROLES/{empresaId}_{userDocId}` y los roles
+creados usan `TBL_ROLES` con `moduleId: tokensdiandashboard`. Los niveles son
+**Consulta** (ver estado y metadatos), **Operador** (abrir enlace y sincronizar
+buzón) y **Administrador** (configurar enlaces y conexión del buzón). Crear un
+rol no lo asigna automáticamente; editarlo sincroniza sus miembros e
+inactivarlo los deja en Consulta. Retirar el acceso individual también retira
+la app Tokens DIAN de esa empresa. El panel anterior de Tokens DIAN conserva
+la gestión de enlaces y muestra las personas como referencia, sin un segundo
+interruptor de acceso.
+
+La función de listado devuelve el nombre y NIT registrados en
+`TBL_EMPRESAS/{empresaId}` de la **empresa activa**. Web y móvil muestran
+ese contexto y el nivel efectivo controla las acciones; el NIT del enlace
+DIAN permanece identificado por separado. Esto vincula el contexto de la
+empresa con Organización. Hoy ese registro contiene el número NIT, **no un
+archivo PDF del RUT**; cualquier
+adjunto RUT requerirá un modelo y flujo propios si se solicita después.
+
+La autorización de las funciones exige identidad autenticada, membresía
+habilitada, empresa y app. La tabla canónica manda; el acceso histórico por
+app queda temporalmente como Operador. La acción manual **Consolidar accesos
+anteriores** materializa ese nivel para las personas existentes con app y
+empresa, sin conceder acceso nuevo ni sobrescribir niveles canónicos. No se
+ha ejecutado una migración sobre datos de producción. Las reglas Firestore
+validan la tabla nueva y siguen cerrando al cliente los documentos cifrados
+de tokens y configuración. Se eliminó la posibilidad de usar un `userId`
+enviado por el cliente como identidad para estas funciones.
+
+Para Claude: revisar el contrato de `TBL_EMPRESAS.nit` y la pertenencia por
+empresa antes de cualquier cambio de esquema; mantener el nivel canónico y
+la comprobación en servidor en futuras funciones DIAN. El despliegue de
+Functions, reglas y Web sigue pendiente de coordinación operativa.
+
+Validación: pruebas dirigidas Flutter **34/34**, Functions **15/15**,
+suite Functions **107/107**, reglas dirigidas **8/8** y suite de reglas
+**99 aprobadas, 2 omitidas, 0 fallidas**. Compilación TypeScript y Web
+correctas; suite Flutter **1.310/1.310**. Análisis dirigido sin errores
+(1 advertencia y 6 avisos preexistentes en Admin). El commit y push a `main`
+esperan que se libere un `.git/index.lock` antiguo: la revisión automática
+rechazó retirarlo desde esta sesión.
+
+---
+
 ## Homogeneidad del centro de roles — 29 sep 2026 (Codex)
 
 Se comparó Compras con Correspondencia y el panel compartido de Rutas,

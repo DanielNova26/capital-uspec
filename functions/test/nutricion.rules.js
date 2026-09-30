@@ -45,7 +45,7 @@ function auth(userDocId) {
 }
 
 const usuarios = {
-  nutriA: {empresas: ["EMP_A"], empresasDetalle: {EMP_A: {}}},
+  nutriA: {empresas: ["EMP_A"], empresasDetalle: {EMP_A: {apps: ["nutriciondashboard"]}}},
   empleadoA: {empresas: ["EMP_A"], empresasDetalle: {EMP_A: {}}},
   ajeno: {empresas: ["EMP_B"], empresasDetalle: {EMP_B: {}}},
   retirada: {

@@ -324,7 +324,7 @@ String resolveScopedRoleKey(Map<String, dynamic> data, {String? empresaId}) {
           : scopedRoleId,
     );
   }
-  return resolveGlobalRole(data);
+  return raizEsDeEmpresa(data, empresaId) ? resolveGlobalRole(data) : '';
 }
 
 String resolveScopedRoleName(Map<String, dynamic> data, {String? empresaId}) {
@@ -332,8 +332,8 @@ String resolveScopedRoleName(Map<String, dynamic> data, {String? empresaId}) {
   for (final value in [
     detail?['roleNombre'],
     detail?['roleName'],
-    data['roleNombre'],
-    data['roleName'],
+    if (raizEsDeEmpresa(data, empresaId)) data['roleNombre'],
+    if (raizEsDeEmpresa(data, empresaId)) data['roleName'],
   ]) {
     final text = (value ?? '').toString().trim();
     if (text.isNotEmpty) return text;
@@ -344,6 +344,10 @@ String resolveScopedRoleName(Map<String, dynamic> data, {String? empresaId}) {
 bool isDeveloperUser(Map<String, dynamic> data, {String? empresaId}) {
   final key = resolveScopedRoleKey(data, empresaId: empresaId);
   if (key == 'desarrollador' || key == 'developer') return true;
+  // El desarrollador de raíz conserva el alcance técnico global que tienen
+  // las reglas; los demás perfiles no se heredan en empresas secundarias.
+  final globalKey = resolveGlobalRole(data);
+  if (globalKey == 'desarrollador' || globalKey == 'developer') return true;
 
   final detail = getUserCompanyDetail(data, empresaId);
   final roleId = (detail?['roleId'] ?? data['roleId'] ?? '')

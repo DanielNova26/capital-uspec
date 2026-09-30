@@ -339,4 +339,33 @@ void main() {
       expect(db.documents['TBL_COMPRAS_RECEPCIONES/propia'], isNull);
     },
   );
+  test(
+    'bodega canónica inactiva no reaparece desde fuentes históricas',
+    () async {
+      db.documents['TBL_EMPRESAS/EMPRESA_001'] = {
+        'bodegas': ['Bodega Lutransa', 'Bodega Norte'],
+      };
+      db.documents['TBL_COMPRAS_BODEGAS/inactiva'] = {
+        'empresaId': 'EMPRESA_001',
+        'nombre': 'Bodega Lutransa',
+        'activo': false,
+      };
+      final abastecimiento = AbastecimientoService(
+        db: db,
+        functions: CorrespondenceFunctions(),
+      );
+      expect(await service.getBodegasEmpresa('EMPRESA_001'), ['Bodega Norte']);
+      expect(await abastecimiento.getBodegas('EMPRESA_001'), ['Bodega Norte']);
+      expect(await service.getBodegasEmpresa('otra_empresa'), isEmpty);
+      db.documents.remove('TBL_COMPRAS_BODEGAS/inactiva');
+      expect(await service.getBodegasEmpresa('EMPRESA_001'), [
+        'Bodega Lutransa',
+        'Bodega Norte',
+      ]);
+      expect(await abastecimiento.getBodegas('EMPRESA_001'), [
+        'Bodega Lutransa',
+        'Bodega Norte',
+      ]);
+    },
+  );
 }

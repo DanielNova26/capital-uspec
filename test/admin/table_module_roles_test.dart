@@ -314,6 +314,150 @@ void main() {
     });
   });
 
+  group('Tokens DIAN', () {
+    test(
+      'consolida el acceso antiguo sin tocar otra empresa ni repetirlo',
+      () async {
+        detail()['apps'].add('tokensdiandashboard');
+        final first = await repo(
+          dianTokensTableRoles,
+        ).consolidateDianLegacyAccess('A');
+        expect(first.updated, 1);
+        expect(first.failedUserIds, isEmpty);
+        expect(tabla(dianTokensTableRoles)!['rol'], 'operador');
+        expect(detail('B')['apps'], contains('rutasdashboard'));
+        final second = await repo(
+          dianTokensTableRoles,
+        ).consolidateDianLegacyAccess('A');
+        expect(second.updated, 0);
+      },
+    );
+
+    test(
+      'asigna nivel en la empresa activa y al retirarlo quita la app',
+      () async {
+        final role = await crear(dianTokensTableRoles, 'operador');
+        await repo(
+          dianTokensTableRoles,
+        ).assign(empresaId: 'A', userId: 'persona', roleId: role.id);
+        expect(tabla(dianTokensTableRoles)!['rol'], 'operador');
+        expect(detail()['rolTokensDian'], 'operador');
+        expect(detail()['apps'], contains('tokensdiandashboard'));
+        expect(detail('B')['apps'], isNot(contains('tokensdiandashboard')));
+
+        await repo(
+          dianTokensTableRoles,
+        ).setIndividualLevel(empresaId: 'A', userId: 'persona', level: '');
+        expect(tabla(dianTokensTableRoles), isNull);
+        expect(detail()['apps'], isNot(contains('tokensdiandashboard')));
+        expect(detail('B')['apps'], contains('rutasdashboard'));
+      },
+    );
+
+    test('inactivar un rol deja Consulta sin reabrir enlaces', () async {
+      final role = await crear(dianTokensTableRoles, 'administrador');
+      await repo(
+        dianTokensTableRoles,
+      ).assign(empresaId: 'A', userId: 'persona', roleId: role.id);
+      await repo(dianTokensTableRoles).save(
+        empresaId: 'A',
+        name: role.name,
+        level: role.level,
+        enabled: false,
+        previous: role,
+      );
+      await repo(dianTokensTableRoles).synchronize('A', role.id);
+      expect(tabla(dianTokensTableRoles)!['rol'], 'consulta');
+      expect(detail()['apps'], contains('tokensdiandashboard'));
+    });
+  });
+
+  group('Talento Humano', () {
+    test(
+      'consolida la app anterior como Administrador sin tocar otra empresa',
+      () async {
+        detail()['apps'].add('talentohumanodashboard');
+        final result = await repo(
+          talentoHumanoTableRoles,
+        ).consolidateLegacyAppAccess('A', legacyLevel: 'administrador');
+        expect(result.updated, 1);
+        expect(tabla(talentoHumanoTableRoles)!['rol'], 'administrador');
+        expect(detail('B')['apps'], contains('rutasdashboard'));
+        expect(
+          (await repo(talentoHumanoTableRoles).consolidateLegacyAppAccess(
+            'A',
+            legacyLevel: 'administrador',
+          )).updated,
+          0,
+        );
+      },
+    );
+
+    test('crea rol de selección y al retirar el acceso quita la app', () async {
+      final role = await crear(talentoHumanoTableRoles, 'reclutador');
+      await repo(
+        talentoHumanoTableRoles,
+      ).assign(empresaId: 'A', userId: 'persona', roleId: role.id);
+      expect(tabla(talentoHumanoTableRoles)!['rol'], 'reclutador');
+      expect(detail()['apps'], contains('talentohumanodashboard'));
+      await repo(
+        talentoHumanoTableRoles,
+      ).setIndividualLevel(empresaId: 'A', userId: 'persona', level: '');
+      expect(tabla(talentoHumanoTableRoles), isNull);
+      expect(detail()['apps'], isNot(contains('talentohumanodashboard')));
+      expect(detail('B')['apps'], contains('rutasdashboard'));
+    });
+  });
+
+  group('Nutrición', () {
+    test(
+      'consolida la app histórica sin sobrescribir ni cruzar empresas',
+      () async {
+        detail()['apps'].add('nutriciondashboard');
+        final result = await repo(
+          nutricionTableRoles,
+        ).consolidateLegacyAppAccess('A', legacyLevel: 'administrador');
+        expect(result.updated, 1);
+        expect(tabla(nutricionTableRoles)!['rol'], 'administrador');
+        expect(detail('B')['apps'], contains('rutasdashboard'));
+        expect(
+          (await repo(nutricionTableRoles).consolidateLegacyAppAccess(
+            'A',
+            legacyLevel: 'administrador',
+          )).updated,
+          0,
+        );
+      },
+    );
+
+    test(
+      'crea rol, sincroniza el nivel y retira acceso en esa empresa',
+      () async {
+        final role = await crear(nutricionTableRoles, 'clinico');
+        final r = repo(nutricionTableRoles);
+        await r.assign(empresaId: 'A', userId: 'persona', roleId: role.id);
+        expect(tabla(nutricionTableRoles)!['rol'], 'clinico');
+        expect(detail()['apps'], contains('nutriciondashboard'));
+        await r.save(
+          empresaId: 'A',
+          name: role.name,
+          level: 'menus',
+          previous: role,
+        );
+        await r.synchronize('A', role.id);
+        expect(tabla(nutricionTableRoles)!['rol'], 'menus');
+        await r.setIndividualLevel(
+          empresaId: 'A',
+          userId: 'persona',
+          level: '',
+        );
+        expect(tabla(nutricionTableRoles), isNull);
+        expect(detail()['apps'], isNot(contains('nutriciondashboard')));
+        expect(detail('B')['apps'], contains('rutasdashboard'));
+      },
+    );
+  });
+
   group('Visitas', () {
     test('Jefe y Profesional llevan su área; los demás, ninguna', () async {
       final pedidos = <String>[];

@@ -484,7 +484,7 @@ exports.dianBuzonConectar = functions
     .region(REGION)
     .runWith({ timeoutSeconds: 120 })
     .https.onCall(async (data, context) => {
-    const caller = await (0, dian_tokens_1.requireCaller)(data, context, true);
+    const caller = await (0, dian_tokens_1.requireCaller)(data, context, "administrador");
     const email = texto(data?.email).toLowerCase();
     // Yahoo muestra la contraseña de aplicación en grupos de cuatro separados
     // por espacios, pero el servidor la espera sin ellos. Si se pega tal cual
@@ -587,14 +587,14 @@ exports.dianBuzonSincronizar = functions
     .region(REGION)
     .runWith({ timeoutSeconds: 300, memory: "512MB" })
     .https.onCall(async (data, context) => {
-    const caller = await (0, dian_tokens_1.requireCaller)(data, context);
+    const caller = await (0, dian_tokens_1.requireCaller)(data, context, "operador");
     const resumen = await sincronizarBuzonDian(caller.empresaId);
     return { ok: true, resumen, buzon: await estadoBuzonPublico(caller.empresaId) };
 });
 exports.dianBuzonDesconectar = functions
     .region(REGION)
     .https.onCall(async (data, context) => {
-    const caller = await (0, dian_tokens_1.requireCaller)(data, context, true);
+    const caller = await (0, dian_tokens_1.requireCaller)(data, context, "administrador");
     await guardarBuzon(caller.empresaId, {
         estado: "sin_conectar",
         appPasswordEncrypted: admin.firestore.FieldValue.delete(),

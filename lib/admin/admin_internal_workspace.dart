@@ -1,31 +1,29 @@
 import 'package:flutter/material.dart';
 
-enum AdminUsersSection {
-  personas('Personas', Icons.people_alt_outlined),
-  crear('Crear usuario', Icons.person_add_alt_1_outlined),
-  accesos('Roles y permisos', Icons.admin_panel_settings_outlined),
-  saludUsuarios('Salud usuarios', Icons.health_and_safety_outlined),
-  saludCargos('Salud cargos', Icons.fact_check_outlined),
-  migraciones('Migraciones de usuarios', Icons.construction_outlined);
+enum AdminInternalSection {
+  catalogos('Catálogos y bodegas', Icons.account_tree_outlined),
+  grupos('Grupos', Icons.groups_2_outlined),
+  membresia('Membresía', Icons.apartment_outlined),
+  multiempresa('Multiempresa', Icons.hub_outlined);
 
-  const AdminUsersSection(this.label, this.icon);
+  const AdminInternalSection(this.label, this.icon);
   final String label;
   final IconData icon;
 }
 
-/// Una entrada para personal y accesos, con navegación propia por plataforma.
-/// El estado pertenece al dashboard para conservar la sección al recargar.
-class AdminUsersWorkspace extends StatelessWidget {
-  const AdminUsersWorkspace({
+/// Un punto de entrada por empresa para los catálogos y la membresía.
+/// La navegación es lateral en Web y compacta en móvil.
+class AdminInternalWorkspace extends StatelessWidget {
+  const AdminInternalWorkspace({
     super.key,
     required this.selected,
     required this.onSelected,
     required this.sectionBuilder,
   });
 
-  final AdminUsersSection selected;
-  final ValueChanged<AdminUsersSection> onSelected;
-  final Widget Function(AdminUsersSection) sectionBuilder;
+  final AdminInternalSection selected;
+  final ValueChanged<AdminInternalSection> onSelected;
+  final Widget Function(AdminInternalSection) sectionBuilder;
 
   @override
   Widget build(BuildContext context) {
@@ -33,24 +31,23 @@ class AdminUsersWorkspace extends StatelessWidget {
       key: ValueKey(selected),
       child: sectionBuilder(selected),
     );
-    // Se usa el ancho de la plataforma, como el layout principal de Admin.
     if (MediaQuery.sizeOf(context).width < 900) {
       return Column(
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-            child: DropdownButtonFormField<AdminUsersSection>(
+            child: DropdownButtonFormField<AdminInternalSection>(
               key: ValueKey(selected),
               initialValue: selected,
               isExpanded: true,
               decoration: InputDecoration(
-                labelText: 'Gestión de usuarios',
+                labelText: 'Gestión interna de la empresa',
                 prefixIcon: Icon(selected.icon),
                 border: const OutlineInputBorder(),
                 isDense: true,
               ),
               items: [
-                for (final section in AdminUsersSection.values)
+                for (final section in AdminInternalSection.values)
                   DropdownMenuItem(
                     value: section,
                     child: Text(section.label, overflow: TextOverflow.ellipsis),
@@ -79,11 +76,11 @@ class AdminUsersWorkspace extends StatelessWidget {
                 const Padding(
                   padding: EdgeInsets.fromLTRB(12, 0, 12, 12),
                   child: Text(
-                    'Usuarios',
+                    'Gestión interna',
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
                   ),
                 ),
-                for (final section in AdminUsersSection.values)
+                for (final section in AdminInternalSection.values)
                   ListTile(
                     dense: true,
                     selected: selected == section,

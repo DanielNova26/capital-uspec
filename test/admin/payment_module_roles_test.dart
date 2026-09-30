@@ -353,6 +353,78 @@ void main() {
     },
   );
   test(
+    'editor general sincroniza Tokens, Talento y Nutrición por empresa',
+    () async {
+      const configs = [
+        ('tokensdiandashboard', 'TBL_DIAN_TOKEN_ROLES', 'rolTokensDian'),
+        (
+          'talentohumanodashboard',
+          'TBL_TALENTO_HUMANO_ROLES',
+          'rolTalentoHumano',
+        ),
+        ('nutriciondashboard', 'TBL_NUTRICION_ROLES', 'rolNutricion'),
+      ];
+      final apps = detail('A')['apps'] as List;
+      for (final (appId, collection, field) in configs) {
+        apps.add(appId);
+        detail('A')[field] = 'administrador';
+        db.documents['$collection/A_persona'] = {
+          'empresaId': 'A',
+          'userId': 'persona',
+          'rol': 'administrador',
+        };
+      }
+      await repo.saveAppSelections(
+        userId: 'persona',
+        selections: {
+          'A': {'tareasdashboard'},
+        },
+      );
+      for (final (_, collection, field) in configs) {
+        expect(db.documents.containsKey('$collection/A_persona'), isFalse);
+        expect(detail('A').containsKey(field), isFalse);
+      }
+      expect(detail('B'), _person()['empresasDetalle']['B']);
+
+      await repo.saveAppSelections(
+        userId: 'persona',
+        selections: {
+          'A': {'tareasdashboard', for (final (appId, _, _) in configs) appId},
+        },
+      );
+      for (final (_, collection, field) in configs) {
+        expect(db.documents['$collection/A_persona']!['rol'], 'consulta');
+        expect(detail('A')[field], 'consulta');
+      }
+      db.documents['TBL_NUTRICION_ROLES/A_persona']!['rol'] = 'coordinador';
+      detail('A')['rolNutricion'] = 'coordinador';
+      await repo.saveAppSelections(
+        userId: 'persona',
+        selections: {
+          'A': {'tareasdashboard', for (final (appId, _, _) in configs) appId},
+        },
+      );
+      expect(
+        db.documents['TBL_NUTRICION_ROLES/A_persona']!['rol'],
+        'coordinador',
+      );
+    },
+  );
+  test('editor general no activa un nivel para persona inhabilitada', () async {
+    detail('A')['estadoLaboral'] = 'inactivo';
+    await expectLater(
+      repo.saveAppSelections(
+        userId: 'persona',
+        selections: {
+          'A': {'tareasdashboard', 'nutriciondashboard'},
+        },
+      ),
+      throwsStateError,
+    );
+    expect(db.documents.containsKey('TBL_NUTRICION_ROLES/A_persona'), isFalse);
+    expect(detail('A')['apps'], isNot(contains('nutriciondashboard')));
+  });
+  test(
     'editor general no aplica parcialmente selecciones sin autoridad en otra empresa',
     () async {
       final before = _person();

@@ -40,6 +40,7 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen>
   final _service = DianTokensService();
   final _search = TextEditingController();
   List<DianTokenRecord> _tokens = const [];
+  DianTokensVista? _vista;
   DianBuzonEstado _buzon = DianBuzonEstado.sinConectar;
   String _query = '';
   String _status = 'todos';
@@ -79,20 +80,28 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen>
   Future<void> _load() async {
     if (mounted) setState(() => _loading = true);
     try {
-      final rows = await _service.listar(
+      final vista = await _service.listarVista(
         empresaId: widget.empresaId,
         userId: widget.userId,
       );
+      if (vista.empresaId.isNotEmpty && vista.empresaId != widget.empresaId) {
+        throw StateError('La respuesta DIAN no pertenece a la empresa activa.');
+      }
       if (!mounted) return;
       setState(() {
         // El callable ya filtra por empresa; esta segunda compuerta evita que
         // una respuesta defectuosa mezcle tokens en la empresa activa.
-        _tokens = filtrarTokensDianPorEmpresa(rows, widget.empresaId);
+        _tokens = filtrarTokensDianPorEmpresa(vista.tokens, widget.empresaId);
+        _vista = vista;
         _error = null;
       });
     } catch (error) {
       if (!mounted) return;
-      setState(() => _error = _friendly(error));
+      setState(() {
+        _tokens = const [];
+        _vista = null;
+        _error = _friendly(error);
+      });
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -175,6 +184,9 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen>
         .contains(q);
   }).toList();
 
+  bool get _puedeOperar => _vista?.puedeAbrir == true;
+  bool get _administra => _vista?.administra == true;
+
   @override
   Widget build(BuildContext context) {
     final isWeb = kIsWeb && MediaQuery.sizeOf(context).width >= 980;
@@ -220,6 +232,8 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen>
     padding: const EdgeInsets.all(24),
     children: [
       _connectionBanner(),
+      const SizedBox(height: 12),
+      _companyContextCard(),
       const SizedBox(height: 18),
       Row(
         children: [
@@ -262,6 +276,8 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen>
     padding: const EdgeInsets.all(14),
     children: [
       _connectionBanner(),
+      const SizedBox(height: 10),
+      _companyContextCard(),
       const SizedBox(height: 14),
       Row(
         children: [
@@ -356,7 +372,7 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen>
                             ? 'La clave continúa guardada. Yahoo presentó una '
                                   'novedad y el detector volverá a intentarlo.'
                             : _buzon.descripcionFiltro
-                      : widget.adminMode
+                      : _administra
                       ? 'Conéctalo con el correo del buzón y su contraseña de '
                             'aplicación de Yahoo. Hasta entonces no entra '
                             'ningún token.'
@@ -375,7 +391,7 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen>
               ],
             ),
           ),
-          if (widget.adminMode && (!conectado || _buzon.conError))
+          if (_administra && (!conectado || _buzon.conError))
             FilledButton.icon(
               onPressed: _syncing ? null : _conectarBuzon,
               style: FilledButton.styleFrom(backgroundColor: acento),
@@ -392,7 +408,7 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen>
                 conectado ? 'Actualizar clave Yahoo' : 'Conectar buzón Yahoo',
               ),
             ),
-          if (conectado)
+          if (conectado && _puedeOperar)
             OutlinedButton.icon(
               onPressed: _syncing ? null : _syncBuzon,
               icon: _syncing
@@ -404,6 +420,23 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen>
               label: const Text('Buscar tokens ahora'),
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _companyContextCard() {
+    final name = _vista?.empresaNombre.trim() ?? '';
+    final nit = _vista?.empresaNit.trim() ?? '';
+    return Card(
+      margin: EdgeInsets.zero,
+      child: ListTile(
+        leading: const Icon(Icons.business_outlined),
+        title: Text(name.isEmpty ? widget.empresaId : name),
+        subtitle: Text(
+          nit.isEmpty
+              ? 'NIT sin registrar en Organización · Empresa activa: ${widget.empresaId}'
+              : 'NIT de Organización: $nit · Empresa activa: ${widget.empresaId}',
+        ),
       ),
     );
   }
@@ -505,7 +538,7 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen>
             columns: const [
               DataColumn(label: Text('Estado')),
               DataColumn(label: Text('Recibido')),
-              DataColumn(label: Text('NIT / empresa')),
+              DataColumn(label: Text('NIT del enlace')),
               DataColumn(label: Text('Buzón')),
               DataColumn(label: Text('Abierto por')),
               DataColumn(label: Text('Accesos')),
@@ -577,7 +610,7 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen>
           ),
           const SizedBox(height: 6),
           Text(
-            'NIT: ${token.nitRelacionado.isEmpty ? 'Por identificar' : token.nitRelacionado}',
+            'NIT del enlace: ${token.nitRelacionado.isEmpty ? 'Por identificar' : token.nitRelacionado}',
           ),
           Text(
             'Buzón: ${token.buzon.isEmpty ? 'Registro manual' : token.buzon}',
@@ -609,7 +642,7 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen>
     spacing: 4,
     children: [
       FilledButton.icon(
-        onPressed: token.disponible && _openingId == null
+        onPressed: _puedeOperar && token.disponible && _openingId == null
             ? () => _openToken(token)
             : null,
         icon: _openingId == token.id
@@ -620,7 +653,7 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen>
             : const Icon(Icons.open_in_new, size: 17),
         label: const Text('Abrir token'),
       ),
-      if (widget.adminMode)
+      if (_administra)
         PopupMenuButton<String>(
           tooltip: 'Administrar',
           onSelected: (value) => _changeState(token, value),

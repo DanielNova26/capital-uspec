@@ -12,6 +12,7 @@ const REGION = "us-central1";
 const TOKEN_COLLECTION = "TBL_DIAN_TOKENS";
 const ACCESS_COLLECTION = "TBL_DIAN_TOKEN_ACCESOS";
 const CONFIG_COLLECTION = "TBL_DIAN_TOKEN_CONFIG";
+const ROLES_COLLECTION = "TBL_DIAN_TOKEN_ROLES";
 const TOKENS_APP_ID = "tokensdiandashboard";
 const ALLOWED_HOST = "catalogo-vpfe.dian.gov.co";
 
@@ -20,7 +21,10 @@ export type Caller = {
   empresaId: string;
   name: string;
   admin: boolean;
+  level: DianLevel;
 };
+
+export type DianLevel = "ninguno" | "consulta" | "operador" | "administrador";
 
 type RegisterInput = {
   empresaId: string;
@@ -81,18 +85,22 @@ function belongsToCompany(
   return text(user.empresaId || user.empresa) === empresaId;
 }
 
+function enabledInCompany(
+  user: FirebaseFirestore.DocumentData,
+  empresaId: string
+): boolean {
+  if (user.activo === false || user.habilitado === false ||
+      normalize(user.estado) === "inactivo") return false;
+  const detail = user.empresasDetalle?.[empresaId];
+  return !detail || (detail.activo !== false &&
+    normalize(detail.estadoLaboral || detail.estado) !== "inactivo");
+}
+
 function scopedApps(
   user: FirebaseFirestore.DocumentData,
   empresaId: string
 ): string[] {
-  // Con los módulos ya fijados por empresa manda la regla común de la app.
-  if (user.appsPorEmpresa === true) return appsDeEmpresa(user, empresaId);
-  const detail = user.empresasDetalle;
-  const companyDetail = detail && typeof detail === "object" && !Array.isArray(detail)
-    ? detail[empresaId]
-    : null;
-  const scoped = textList(companyDetail?.apps);
-  return scoped.length ? scoped : textList(user.apps);
+  return appsDeEmpresa(user, empresaId);
 }
 
 function hasApp(
@@ -100,9 +108,13 @@ function hasApp(
   empresaId: string,
   appId: string
 ): boolean {
-  const target = normalize(appId).replace(/dashboard$/, "");
+  const canonical = (value: string) => {
+    const short = normalize(value).replace(/dashboard$/, "");
+    return short === "tokens" ? "tokensdian" : short;
+  };
+  const target = canonical(appId);
   return scopedApps(user, empresaId).some((candidate) =>
-    normalize(candidate).replace(/dashboard$/, "") === target
+    canonical(candidate) === target
   );
 }
 
@@ -131,49 +143,72 @@ function userName(user: FirebaseFirestore.DocumentData, fallback: string): strin
   return full.trim() || fallback;
 }
 
+/** El canónico manda; sin fila, conserva el acceso histórico por app. */
+export function nivelTokensDian(
+  user: FirebaseFirestore.DocumentData,
+  empresaId: string,
+  userId: string,
+  assignment: FirebaseFirestore.DocumentData | null
+): DianLevel {
+  if (!belongsToCompany(user, empresaId) || !enabledInCompany(user, empresaId)) {
+    return "ninguno";
+  }
+  if (isDeveloper(user) || hasApp(user, empresaId, "admindashboard")) {
+    return "administrador";
+  }
+  if (!hasApp(user, empresaId, TOKENS_APP_ID)) return "ninguno";
+  if (assignment === null) return "operador";
+  if (text(assignment.empresaId) !== empresaId ||
+      text(assignment.userId) !== userId) return "ninguno";
+  const level = normalize(assignment.rol);
+  return ["consulta", "operador", "administrador"].includes(level) ?
+    level as DianLevel : "ninguno";
+}
+
 export async function requireCaller(
   data: any,
   context: functions.https.CallableContext,
-  adminOnly = false
+  requiredLevel: "consulta" | "operador" | "administrador" = "consulta"
 ): Promise<Caller> {
   const empresaId = text(data?.empresaId);
   const authUid = text(context.auth?.uid);
-  const appIdentity = text(data?.userId || data?.cedula || data?.usuario);
   if (!empresaId || !authUid) {
     throw new functions.https.HttpsError(
       "unauthenticated",
       "Se requiere una sesión autenticada y empresa activa."
     );
   }
-  let user = await findUser(authUid);
-  if (!user?.exists && appIdentity) user = await findUser(appIdentity);
+  const trustedUserId = text(context.auth?.token?.userDocId);
+  const user = await findUser(trustedUserId || authUid);
   if (!user?.exists) {
     throw new functions.https.HttpsError("unauthenticated", "Usuario no encontrado.");
   }
   const raw = user.data() ?? {};
-  if (!belongsToCompany(raw, empresaId)) {
+  if (!belongsToCompany(raw, empresaId) || !enabledInCompany(raw, empresaId)) {
     throw new functions.https.HttpsError(
       "permission-denied",
       "No perteneces a la empresa activa."
     );
   }
-  const globalRole = normalize(raw.role || raw.rol || raw.tipoUsuario);
-  const isAdmin = isDeveloper(raw) ||
-    hasApp(raw, empresaId, "admindashboard") ||
-    ["administrador", "admin", "superadmin"].includes(globalRole);
-  if (adminOnly ? !isAdmin : !(isAdmin || hasApp(raw, empresaId, TOKENS_APP_ID))) {
+  const assignment = await db().collection(ROLES_COLLECTION)
+    .doc(`${empresaId}_${user.id}`).get();
+  const level = nivelTokensDian(raw, empresaId, user.id,
+    assignment.exists ? assignment.data() ?? {} : null);
+  const order = {ninguno: 0, consulta: 1, operador: 2, administrador: 3};
+  if (order[level] < order[requiredLevel]) {
     throw new functions.https.HttpsError(
       "permission-denied",
-      adminOnly
+      requiredLevel === "administrador"
         ? "Solo Administración puede configurar Tokens DIAN."
-        : "No estás autorizado para consultar Tokens DIAN."
+        : "No tienes el nivel requerido de Tokens DIAN en esta empresa."
     );
   }
   return {
     userId: user.id,
     empresaId,
     name: userName(raw, user.id),
-    admin: isAdmin,
+    admin: level === "administrador",
+    level,
   };
 }
 
@@ -325,7 +360,15 @@ export const dianTokensListar = functions
     const rows = snap.docs.map(publicToken).sort((a, b) =>
       Number(b.recibidoAt || 0) - Number(a.recibidoAt || 0)
     );
-    return { ok: true, tokens: rows };
+    const empresa = await db().collection("TBL_EMPRESAS")
+      .doc(caller.empresaId).get();
+    const perfil = empresa.data() ?? {};
+    return { ok: true, tokens: rows, nivel: caller.level, empresa: {
+      empresaId: caller.empresaId,
+      nombre: text(perfil.nombre || perfil.razonSocial) ||
+        caller.empresaId,
+      nit: text(perfil.nit || perfil.NIT),
+    } };
   });
 
 export const dianTokenAccesos = functions
@@ -358,7 +401,7 @@ export const dianTokenAccesos = functions
 export const dianTokenAbrir = functions
   .region(REGION)
   .https.onCall(async (data: any, context: functions.https.CallableContext) => {
-    const caller = await requireCaller(data, context);
+    const caller = await requireCaller(data, context, "operador");
     const tokenId = text(data?.tokenId);
     const ref = db().collection(TOKEN_COLLECTION).doc(tokenId);
     const accessRef = db().collection(ACCESS_COLLECTION).doc();
@@ -418,7 +461,7 @@ export const dianTokenAbrir = functions
 export const dianTokenCambiarEstado = functions
   .region(REGION)
   .https.onCall(async (data: any, context: functions.https.CallableContext) => {
-    const caller = await requireCaller(data, context, true);
+    const caller = await requireCaller(data, context, "administrador");
     const tokenId = text(data?.tokenId);
     const state = normalize(data?.estado);
     if (!["nuevo", "expirado", "archivado"].includes(state)) {

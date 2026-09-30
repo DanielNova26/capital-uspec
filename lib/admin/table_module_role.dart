@@ -27,6 +27,7 @@ class TableModuleRoleConfig {
     required this.inactiveLevel,
     required this.adminLevels,
     required this.inactiveDescription,
+    this.removeAppOnClear = false,
   });
 
   /// Clave del módulo en la matriz de Admin.
@@ -54,6 +55,10 @@ class TableModuleRoleConfig {
   /// uno mayor. Rutas e Interventoría no deducen nada: vacío es "sin rol".
   final String inactiveLevel;
   final String inactiveDescription;
+
+  /// Retirar el nivel individual también retira la app; evita que accesos
+  /// históricos sin fila canónica vuelvan a habilitar el módulo.
+  final bool removeAppOnClear;
 
   /// Niveles que administran los roles del módulo, además de Admin y
   /// Desarrollo.
@@ -202,10 +207,92 @@ const visitasTableRoles = TableModuleRoleConfig(
   adminLevels: {kVisitasRolGerencia},
 );
 
+const dianTokensTableRoles = TableModuleRoleConfig(
+  moduleKey: 'tokens_dian',
+  appId: 'tokensdiandashboard',
+  slug: 'tokens_dian',
+  moduleName: 'Tokens DIAN',
+  collection: 'TBL_DIAN_TOKEN_ROLES',
+  fichaField: 'rolTokensDian',
+  levels: {
+    'consulta': 'Consulta',
+    'operador': 'Operador',
+    'administrador': 'Administrador',
+  },
+  levelDescriptions: {
+    'consulta':
+        'Ve los metadatos y el historial de accesos, sin abrir enlaces.',
+    'operador': 'Abre tokens y solicita nuevas lecturas del buzón.',
+    'administrador': 'Configura el buzón, administra estados y roles.',
+  },
+  inactiveLevel: 'consulta',
+  inactiveDescription: 'Solo consulta; no abre enlaces ni configura el buzón.',
+  adminLevels: {'administrador'},
+  removeAppOnClear: true,
+);
+
+const talentoHumanoTableRoles = TableModuleRoleConfig(
+  moduleKey: 'talento',
+  appId: 'talentohumanodashboard',
+  slug: 'talento_humano',
+  moduleName: 'Talento Humano',
+  collection: 'TBL_TALENTO_HUMANO_ROLES',
+  fichaField: 'rolTalentoHumano',
+  levels: {
+    'consulta': 'Consulta',
+    'solicitante': 'Solicitante',
+    'reclutador': 'Reclutamiento',
+    'gestor': 'Gestión de personal',
+    'administrador': 'Administrador',
+  },
+  levelDescriptions: {
+    'consulta': 'Consulta indicadores y requerimientos sin modificar datos.',
+    'solicitante': 'Crea requerimientos de personal y consulta su avance.',
+    'reclutador': 'Gestiona selección, candidatos y hojas de vida.',
+    'gestor':
+        'Gestiona personal, estructura, documentos, disciplina y comunicados.',
+    'administrador': 'Gestiona todo Talento Humano, incluidos accesos y roles.',
+  },
+  inactiveLevel: 'consulta',
+  inactiveDescription: 'Solo consulta; no modifica información del personal.',
+  adminLevels: {'administrador'},
+  removeAppOnClear: true,
+);
+
+const nutricionTableRoles = TableModuleRoleConfig(
+  moduleKey: 'nutricion',
+  appId: 'nutriciondashboard',
+  slug: 'nutricion',
+  moduleName: 'Nutrición',
+  collection: 'TBL_NUTRICION_ROLES',
+  fichaField: 'rolNutricion',
+  levels: {
+    'consulta': 'Consulta y reportes',
+    'clinico': 'Atención clínica',
+    'menus': 'Menús e ingredientes',
+    'coordinador': 'Coordinación',
+    'administrador': 'Administrador',
+  },
+  levelDescriptions: {
+    'consulta': 'Consulta información y genera reportes sin modificar datos.',
+    'clinico': 'Atiende pacientes, registra valoraciones, controles y firmas.',
+    'menus': 'Diseña menús, dietas, plantillas e ingredientes.',
+    'coordinador': 'Gestiona atención clínica y menús, además de reportes.',
+    'administrador': 'Gestiona todo Nutrición, incluidos accesos y roles.',
+  },
+  inactiveLevel: 'consulta',
+  inactiveDescription: 'Solo consulta y reportes; no modifica datos.',
+  adminLevels: {'administrador'},
+  removeAppOnClear: true,
+);
+
 const tableModuleRoleConfigs = <TableModuleRoleConfig>[
   rutasTableRoles,
   interventoriaTableRoles,
   visitasTableRoles,
+  dianTokensTableRoles,
+  talentoHumanoTableRoles,
+  nutricionTableRoles,
 ];
 
 TableModuleRoleConfig? tableModuleRoleConfigFor(String moduleKey) {

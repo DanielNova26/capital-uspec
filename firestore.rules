@@ -228,8 +228,9 @@ service cloud.firestore {
       return esCargoGerencia(primerTexto(d.get('cargoNombre', ''),
           primerTexto(d.get('cargo', ''), cargoRaiz)))
         || d.get('roleKey', '') in ['gerencia', 'gerente']
-        || u.get('roleKey', '') in ['gerencia', 'gerente']
-        || u.get('role', '') in ['gerencia', 'gerente'];
+        || (raizEsDeEmpresa(u, empresaId)
+          && (u.get('roleKey', '') in ['gerencia', 'gerente']
+            || u.get('role', '') in ['gerencia', 'gerente']));
     }
 
     function areaVisitasUsuario(empresaId, userId) {
@@ -339,6 +340,48 @@ service cloud.firestore {
           || (propias is list && propias.hasAny(admin)));
     }
 
+    function tieneAppTokensDianEn(empresaId) {
+      let u = currentUser();
+      let detalle = u.get('empresasDetalle', {});
+      let bloque = detalle is map ? detalle.get(empresaId, {}) : {};
+      let propias = bloque is map ? bloque.get('apps', null) : null;
+      let raiz = u.get('apps', []);
+      let apps = ['tokensdiandashboard', 'tokensdian', 'tokens'];
+      return u.get('appsPorEmpresa', false) == true
+        ? (propias is list ? propias.hasAny(apps)
+          : (raizEsDeEmpresa(u, empresaId) && raiz is list && raiz.hasAny(apps)))
+        : ((raiz is list && raiz.hasAny(apps))
+          || (propias is list && propias.hasAny(apps)));
+    }
+
+    function tieneAppTalentoEn(empresaId) {
+      let u = currentUser();
+      let detalle = u.get('empresasDetalle', {});
+      let bloque = detalle is map ? detalle.get(empresaId, {}) : {};
+      let propias = bloque is map ? bloque.get('apps', null) : null;
+      let raiz = u.get('apps', []);
+      let apps = ['talentohumanodashboard', 'talentohumano', 'talento'];
+      return u.get('appsPorEmpresa', false) == true
+        ? (propias is list ? propias.hasAny(apps)
+          : (raizEsDeEmpresa(u, empresaId) && raiz is list && raiz.hasAny(apps)))
+        : ((raiz is list && raiz.hasAny(apps))
+          || (propias is list && propias.hasAny(apps)));
+    }
+
+    function tieneAppNutricionEn(empresaId) {
+      let u = currentUser();
+      let detalle = u.get('empresasDetalle', {});
+      let bloque = detalle is map ? detalle.get(empresaId, {}) : {};
+      let propias = bloque is map ? bloque.get('apps', null) : null;
+      let raiz = u.get('apps', []);
+      let apps = ['nutriciondashboard', 'nutricion'];
+      return u.get('appsPorEmpresa', false) == true
+        ? (propias is list ? propias.hasAny(apps)
+          : (raizEsDeEmpresa(u, empresaId) && raiz is list && raiz.hasAny(apps)))
+        : ((raiz is list && raiz.hasAny(apps))
+          || (propias is list && propias.hasAny(apps)));
+    }
+
     // Administrador de Correspondencia por su asignación canónica. Sin mirar
     // la empresa: se usa después de un `belongsToCompany`.
     function esAdminCorreoEn(empresaId) {
@@ -367,7 +410,16 @@ service cloud.firestore {
         || (moduleId == 'interventoriadashboard'
           && rolEnTabla('TBL_INTERVENTORIA_ROLES', empresaId) == 'admin_interventoria')
         || (moduleId == 'visitasdashboard'
-          && rolEnTabla('TBL_VISITAS_ROLES', empresaId) == 'gerencia');
+          && rolEnTabla('TBL_VISITAS_ROLES', empresaId) == 'gerencia')
+        || (moduleId == 'tokensdiandashboard'
+          && tieneAppTokensDianEn(empresaId)
+          && rolEnTabla('TBL_DIAN_TOKEN_ROLES', empresaId) == 'administrador')
+        || (moduleId == 'talentohumanodashboard'
+          && tieneAppTalentoEn(empresaId)
+          && rolEnTabla('TBL_TALENTO_HUMANO_ROLES', empresaId) == 'administrador')
+        || (moduleId == 'nutriciondashboard'
+          && tieneAppNutricionEn(empresaId)
+          && rolEnTabla('TBL_NUTRICION_ROLES', empresaId) == 'administrador');
     }
 
     // Quién crea, edita y asigna roles de módulo: igual que
@@ -453,8 +505,12 @@ service cloud.firestore {
         && data.get('moduleId', '') in ['correodashboard',
           'planillaspagodashboard', 'bibliotecadocumentaldashboard',
           'tareasdashboard', 'comprasdashboard', 'rutasdashboard',
-          'interventoriadashboard', 'visitasdashboard']
+          'interventoriadashboard', 'visitasdashboard',
+          'tokensdiandashboard', 'talentohumanodashboard', 'nutriciondashboard']
         && (data.moduleId != 'comprasdashboard' || data.get('baseRole', '') in ['admin','calidad','compras','bodega','consultas'])
+        && (data.moduleId != 'tokensdiandashboard' || data.get('baseRole', '') in ['consulta','operador','administrador'])
+        && (data.moduleId != 'talentohumanodashboard' || data.get('baseRole', '') in ['consulta','solicitante','reclutador','gestor','administrador'])
+        && (data.moduleId != 'nutriciondashboard' || data.get('baseRole', '') in ['consulta','clinico','menus','coordinador','administrador'])
         && data.get('enabled', null) is bool
         && data.get('revision', null) is int && data.revision >= 1
         && data.get('nombre', '') is string
@@ -519,68 +575,100 @@ service cloud.firestore {
     }
 
     match /TBL_PACIENTES/{docId} {
-      allow get: if resource == null || documentoDeSuEmpresa();
-      allow list, create, update, delete: if documentoDeSuEmpresa();
+      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
+      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
+      allow create: if documentoDeSuEmpresa() && nutricionEscribeClinica(request.resource.data.empresaId);
+      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeClinica(resource.data.empresaId);
     }
     match /TBL_VALORACIONES_NUTRICION/{docId} {
-      allow get: if resource == null || documentoDeSuEmpresa();
-      allow list, create, update, delete: if documentoDeSuEmpresa();
+      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
+      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
+      allow create: if documentoDeSuEmpresa() && nutricionEscribeClinica(request.resource.data.empresaId);
+      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeClinica(resource.data.empresaId);
     }
     match /TBL_MEDICIONES_NUTRICION/{docId} {
-      allow get: if resource == null || documentoDeSuEmpresa();
-      allow list, create, update, delete: if documentoDeSuEmpresa();
+      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
+      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
+      allow create: if documentoDeSuEmpresa() && nutricionEscribeClinica(request.resource.data.empresaId);
+      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeClinica(resource.data.empresaId);
     }
     match /TBL_PATOLOGIAS/{docId} {
-      allow get: if resource == null || documentoDeSuEmpresa();
-      allow list, create, update, delete: if documentoDeSuEmpresa();
+      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
+      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
+      allow create: if documentoDeSuEmpresa() && nutricionEscribeClinica(request.resource.data.empresaId);
+      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeClinica(resource.data.empresaId);
     }
     match /TBL_DIETAS/{docId} {
-      allow get: if resource == null || documentoDeSuEmpresa();
-      allow list, create, update, delete: if documentoDeSuEmpresa();
+      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
+      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
+      allow create: if documentoDeSuEmpresa() && nutricionEscribeMenus(request.resource.data.empresaId);
+      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeMenus(resource.data.empresaId);
     }
     match /TBL_ASIGNACIONES_DIETA/{docId} {
-      allow get: if resource == null || documentoDeSuEmpresa();
-      allow list, create, update, delete: if documentoDeSuEmpresa();
+      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
+      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
+      allow create: if documentoDeSuEmpresa() && nutricionEscribeClinica(request.resource.data.empresaId);
+      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeClinica(resource.data.empresaId);
     }
     match /TBL_CARNETS_NUTRICION/{docId} {
-      allow get: if resource == null || documentoDeSuEmpresa();
-      allow list, create, update, delete: if documentoDeSuEmpresa();
+      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
+      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
+      allow create: if documentoDeSuEmpresa() && nutricionEscribeClinica(request.resource.data.empresaId);
+      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeClinica(resource.data.empresaId);
     }
     match /TBL_MENUS/{docId} {
-      allow get: if resource == null || documentoDeSuEmpresa();
-      allow list, create, update, delete: if documentoDeSuEmpresa();
+      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
+      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
+      allow create: if documentoDeSuEmpresa() && nutricionEscribeMenus(request.resource.data.empresaId);
+      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeMenus(resource.data.empresaId);
     }
     match /TBL_DERIVACIONES_NUTRICION/{docId} {
-      allow get: if resource == null || documentoDeSuEmpresa();
-      allow list, create, update, delete: if documentoDeSuEmpresa();
+      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
+      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
+      allow create: if documentoDeSuEmpresa() && nutricionEscribeClinica(request.resource.data.empresaId);
+      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeClinica(resource.data.empresaId);
     }
     match /TBL_ALERTAS_NUTRICION/{docId} {
-      allow get: if resource == null || documentoDeSuEmpresa();
-      allow list, create, update, delete: if documentoDeSuEmpresa();
+      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
+      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
+      allow create: if documentoDeSuEmpresa() && nutricionEscribeClinica(request.resource.data.empresaId);
+      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeClinica(resource.data.empresaId);
     }
     match /TBL_FIRMAS/{docId} {
-      allow get: if resource == null || documentoDeSuEmpresa();
-      allow list, create, update, delete: if documentoDeSuEmpresa();
+      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
+      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
+      allow create: if documentoDeSuEmpresa() && nutricionEscribeClinica(request.resource.data.empresaId);
+      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeClinica(resource.data.empresaId);
     }
     match /TBL_EVIDENCIAS_NUTRICION/{docId} {
-      allow get: if resource == null || documentoDeSuEmpresa();
-      allow list, create, update, delete: if documentoDeSuEmpresa();
+      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
+      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
+      allow create: if documentoDeSuEmpresa() && nutricionEscribeClinica(request.resource.data.empresaId);
+      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeClinica(resource.data.empresaId);
     }
     match /TBL_PLANTILLAS_MENUS/{docId} {
-      allow get: if resource == null || documentoDeSuEmpresa();
-      allow list, create, update, delete: if documentoDeSuEmpresa();
+      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
+      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
+      allow create: if documentoDeSuEmpresa() && nutricionEscribeMenus(request.resource.data.empresaId);
+      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeMenus(resource.data.empresaId);
     }
     match /TBL_INGREDIENTES/{docId} {
-      allow get: if resource == null || documentoDeSuEmpresa();
-      allow list, create, update, delete: if documentoDeSuEmpresa();
+      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
+      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
+      allow create: if documentoDeSuEmpresa() && nutricionEscribeMenus(request.resource.data.empresaId);
+      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeMenus(resource.data.empresaId);
     }
     match /TBL_DIRECTORIO_NUTRICION/{docId} {
-      allow get: if resource == null || documentoDeSuEmpresa();
-      allow list, create, update, delete: if documentoDeSuEmpresa();
+      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
+      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
+      allow create: if documentoDeSuEmpresa() && nutricionEscribeClinica(request.resource.data.empresaId);
+      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeClinica(resource.data.empresaId);
     }
     match /TBL_CITAS_NUTRICION/{docId} {
       allow get: if resource == null || documentoDeSuEmpresa();
-      allow list, create, update, delete: if documentoDeSuEmpresa();
+      allow list: if documentoDeSuEmpresa();
+      allow create: if documentoDeSuEmpresa() && nutricionEscribeClinica(request.resource.data.empresaId);
+      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeClinica(resource.data.empresaId);
     }
 
     // Historial del paciente: `{empresa}-{paciente}/registros`. La consulta
@@ -588,9 +676,10 @@ service cloud.firestore {
     // empresa sale del id: los códigos de empresa no llevan guion
     // (`codigoEmpresaDesdeNombre`). Se agrega y no se reescribe.
     match /TBL_HISTORIAL_NUTRICION/{historialId}/registros/{registroId} {
-      allow read: if belongsToCompany(historialId.split('-')[0]);
+      allow read: if nutricionLee(historialId.split('-')[0]);
       allow create: if belongsToCompany(historialId.split('-')[0])
-        && request.resource.data.empresaId == historialId.split('-')[0];
+        && request.resource.data.empresaId == historialId.split('-')[0]
+        && nutricionEscribeClinica(historialId.split('-')[0]);
       allow update, delete: if false;
     }
 
@@ -614,6 +703,134 @@ service cloud.firestore {
     }
     match /TBL_DIAN_TOKEN_CONFIG/{document=**} {
       allow read, write: if false;
+    }
+    // El nivel operativo vive fuera de los tokens cifrados. Admin de la
+    // empresa o del módulo lo asigna a otros; nunca se autoasigna.
+    match /TBL_DIAN_TOKEN_ROLES/{docId} {
+      allow get: if isSignedIn() && (resource == null || belongsToCompany(resource.data.empresaId));
+      allow list: if belongsToCompany(resource.data.empresaId);
+      allow create: if asignacionDeTablaValida(docId, request.resource.data,
+          ['consulta','operador','administrador'])
+        && asignaEnTablaDeModulo(request.resource.data.empresaId,
+          request.resource.data.userId, 'tokensdiandashboard');
+      allow update: if resource.data.empresaId == request.resource.data.empresaId
+        && asignacionDeTablaValida(docId, request.resource.data,
+          ['consulta','operador','administrador'])
+        && asignaEnTablaDeModulo(resource.data.empresaId,
+          request.resource.data.userId, 'tokensdiandashboard');
+      allow delete: if asignaEnTablaDeModulo(resource.data.empresaId,
+          resource.data.userId, 'tokensdiandashboard');
+    }
+    match /TBL_TALENTO_HUMANO_ROLES/{docId} {
+      allow get: if isSignedIn() && (resource == null || belongsToCompany(resource.data.empresaId));
+      allow list: if belongsToCompany(resource.data.empresaId);
+      allow create: if asignacionDeTablaValida(docId, request.resource.data,
+          ['consulta','solicitante','reclutador','gestor','administrador'])
+        && asignaEnTablaDeModulo(request.resource.data.empresaId,
+          request.resource.data.userId, 'talentohumanodashboard');
+      allow update: if resource.data.empresaId == request.resource.data.empresaId
+        && asignacionDeTablaValida(docId, request.resource.data,
+          ['consulta','solicitante','reclutador','gestor','administrador'])
+        && asignaEnTablaDeModulo(resource.data.empresaId,
+          request.resource.data.userId, 'talentohumanodashboard');
+      allow delete: if asignaEnTablaDeModulo(resource.data.empresaId,
+          resource.data.userId, 'talentohumanodashboard');
+    }
+
+    match /TBL_NUTRICION_ROLES/{docId} {
+      allow get: if isSignedIn() && (resource == null || belongsToCompany(resource.data.empresaId));
+      allow list: if belongsToCompany(resource.data.empresaId);
+      allow create: if asignacionDeTablaValida(docId, request.resource.data,
+          ['consulta','clinico','menus','coordinador','administrador'])
+        && asignaEnTablaDeModulo(request.resource.data.empresaId,
+          request.resource.data.userId, 'nutriciondashboard');
+      allow update: if resource.data.empresaId == request.resource.data.empresaId
+        && asignacionDeTablaValida(docId, request.resource.data,
+          ['consulta','clinico','menus','coordinador','administrador'])
+        && asignaEnTablaDeModulo(resource.data.empresaId,
+          request.resource.data.userId, 'nutriciondashboard');
+      allow delete: if asignaEnTablaDeModulo(resource.data.empresaId,
+          resource.data.userId, 'nutriciondashboard');
+    }
+
+    function nivelNutricionEn(empresaId) {
+      let rolePath = /databases/$(database)/documents/TBL_NUTRICION_ROLES/$(empresaId + '_' + request.auth.token.userDocId);
+      return !belongsToCompany(empresaId) ? ''
+        : (isDeveloper() || isDeveloperIn(empresaId)
+            || tieneAppAdminEn(empresaId)) ? 'administrador'
+        : !tieneAppNutricionEn(empresaId) ? ''
+        : exists(rolePath) ? estadoTexto(get(rolePath).data.get('rol', ''))
+            : 'administrador';
+    }
+
+    function nutricionLee(empresaId) {
+      return nivelNutricionEn(empresaId) in
+        ['consulta','clinico','menus','coordinador','administrador'];
+    }
+
+    function nutricionEscribeClinica(empresaId) {
+      return nivelNutricionEn(empresaId) in
+        ['clinico','coordinador','administrador'];
+    }
+
+    function nutricionEscribeMenus(empresaId) {
+      return nivelNutricionEn(empresaId) in
+        ['menus','coordinador','administrador'];
+    }
+
+    // Acceso efectivo al trabajo de Talento Humano. Una app histórica sin
+    // fila canónica conserva sus capacidades hasta la consolidación manual.
+    function nivelTalentoEn(empresaId) {
+      let rolePath = /databases/$(database)/documents/TBL_TALENTO_HUMANO_ROLES/$(empresaId + '_' + request.auth.token.userDocId);
+      return !belongsToCompany(empresaId) ? ''
+        : (isDeveloper() || isDeveloperIn(empresaId)
+            || tieneAppAdminEn(empresaId)) ? 'administrador'
+        : !tieneAppTalentoEn(empresaId) ? ''
+        : exists(rolePath) ? estadoTexto(get(rolePath).data.get('rol', ''))
+            : 'administrador';
+    }
+
+    match /TBL_TH_REQUERIMIENTOS_PERSONAL/{docId} {
+      allow get: if resource == null || nivelTalentoEn(resource.data.empresaId) in
+        ['consulta','solicitante','reclutador','gestor','administrador'];
+      allow list: if nivelTalentoEn(resource.data.empresaId) in
+        ['consulta','solicitante','reclutador','gestor','administrador'];
+      allow create: if nivelTalentoEn(request.resource.data.empresaId) in
+        ['solicitante','reclutador','gestor','administrador']
+        && (nivelTalentoEn(request.resource.data.empresaId) != 'solicitante'
+          || (request.resource.data.get('creadoPor', '') == request.auth.token.userDocId
+            && request.resource.data.get('etapa', '') == 'solicitado'
+            && request.resource.data.get('contratados', []) == []
+            && request.resource.data.get('candidatos', []) == []));
+      allow update: if resource.data.empresaId == request.resource.data.empresaId
+        && (nivelTalentoEn(resource.data.empresaId) in
+            ['reclutador','gestor','administrador']
+          || (nivelTalentoEn(resource.data.empresaId) == 'solicitante'
+            && resource.data.get('creadoPor', '') == request.auth.token.userDocId
+            && request.resource.data.get('creadoPor', '') == resource.data.get('creadoPor', '')
+            && request.resource.data.get('etapa', '') == resource.data.get('etapa', '')
+            && request.resource.data.get('contratados', []) == resource.data.get('contratados', [])
+            && request.resource.data.get('candidatos', []) == resource.data.get('candidatos', [])));
+      allow delete: if nivelTalentoEn(resource.data.empresaId) in
+        ['gestor','administrador'];
+    }
+
+    match /TBL_LLAMADOS_ATENCION/{docId} {
+      allow get, list: if nivelTalentoEn(resource.data.empresaId) in
+        ['gestor','administrador'];
+      allow create: if nivelTalentoEn(request.resource.data.empresaId) in
+        ['gestor','administrador'];
+      allow update: if resource.data.empresaId == request.resource.data.empresaId
+        && nivelTalentoEn(resource.data.empresaId) in ['gestor','administrador'];
+      allow delete: if false;
+    }
+
+    match /TBL_HISTORIAL_LLAMADOS_ATENCION/{docId} {
+      allow get, list: if nivelTalentoEn(resource.data.empresaId) in
+        ['gestor','administrador'];
+      allow create: if nivelTalentoEn(request.resource.data.empresaId) in
+        ['gestor','administrador'];
+      allow update, delete: if false;
     }
 
     // Las eliminaciones de Interventoría requieren una solicitud y aprobación
@@ -1572,6 +1789,12 @@ service cloud.firestore {
           'TBL_DIAN_TOKENS',
           'TBL_DIAN_TOKEN_ACCESOS',
           'TBL_DIAN_TOKEN_CONFIG',
+          'TBL_DIAN_TOKEN_ROLES',
+          'TBL_TALENTO_HUMANO_ROLES',
+          'TBL_NUTRICION_ROLES',
+          'TBL_TH_REQUERIMIENTOS_PERSONAL',
+          'TBL_LLAMADOS_ATENCION',
+          'TBL_HISTORIAL_LLAMADOS_ATENCION',
           'TBL_AUTH_CREDENTIALS',
           'TBL_AUTH_LOGIN_ATTEMPTS',
           'TBL_AUTH_RECOVERY_CHALLENGES',

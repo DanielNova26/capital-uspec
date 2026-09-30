@@ -38,6 +38,7 @@ import '../services/session_audit_service.dart';
 
 import 'admin_repository.dart';
 import 'admin_users_workspace.dart';
+import 'admin_internal_workspace.dart';
 import 'admin_access_workspace.dart';
 import 'admin_module_inventory.dart';
 import 'task_module_role.dart';
@@ -126,7 +127,7 @@ const Map<String, String> kPlanillasRoleLabels = ppRoleLevelLabels;
 const List<InternalModuleTabItem> _kAdminModuleTabs = [
   InternalModuleTabItem(label: 'Usuarios', icon: Icons.people_alt),
   InternalModuleTabItem(label: 'Apps, roles y permisos', icon: Icons.apps),
-  InternalModuleTabItem(label: 'Catálogos', icon: Icons.account_tree),
+  InternalModuleTabItem(label: 'Gestión interna', icon: Icons.account_tree),
   InternalModuleTabItem(label: 'Logs', icon: Icons.history),
   InternalModuleTabItem(label: 'Seguridad', icon: Icons.security_rounded),
   InternalModuleTabItem(label: 'Limpieza', icon: Icons.cleaning_services),
@@ -181,6 +182,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   late TabController _tabController;
   AdminUsersSection _usersSection = AdminUsersSection.personas;
+  AdminInternalSection _internalSection = AdminInternalSection.catalogos;
   AdminAccessSection _accessSection = AdminAccessSection.modulos;
   AdminModuleSources _moduleSources = const AdminModuleSources();
   List<TaskModuleRole> _taskModuleRoles = [];
@@ -258,12 +260,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   Map<String, String> _rutasRoleByUser = {};
   Map<String, String> _visitasRoleByUser = {};
   Map<String, String> _correoRoleByUser = {};
+  Map<String, String> _dianRoleByUser = {};
+  Map<String, String> _talentoRoleByUser = {};
+  Map<String, String> _nutricionRoleByUser = {};
 
   // Catálogos
   List<CentroCostoItem> _centros = [];
   List<AreaItem> _areas = [];
   List<CargoItem> _cargos = [];
   List<BodegaItem> _bodegas = [];
+  List<BodegaLegacyItem> _bodegasLegacy = [];
+  List<ComprasGrupoDoc> _catalogoGrupos = [];
 
   // UI — filtros de personal
   String _userSearch = '';
@@ -357,7 +364,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   int _membresiaLoadVersion = 0;
   bool _membresiaLoaded = false;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _membresiaUsers = [];
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _membresiaGrupos = [];
+  List<ComprasGrupoDoc> _membresiaGrupos = [];
 
   @override
   void initState() {
@@ -418,6 +425,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       setState(() {
         _empresas = empresas;
         _empresaId = null;
+        _bodegasLegacy = [];
+        _catalogoGrupos = [];
+        _membresiaGrupos = [];
         _moduleCloseoutPreview = null;
         _loading = false;
       });
@@ -440,6 +450,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       _repo.loadCargos(selected),
       _repo.loadBodegas(selected),
       _moduleInventoryRepo.load(selected),
+      _loadModuleRoleMap('TBL_DIAN_TOKEN_ROLES', selected),
+      _loadModuleRoleMap('TBL_TALENTO_HUMANO_ROLES', selected),
+      _loadModuleRoleMap('TBL_NUTRICION_ROLES', selected),
+      _repo.loadGruposCompras(selected),
+      _repo.loadBodegasLegacy(
+        empresaId: selected,
+        empresaNombre:
+            empresas
+                .where((empresa) => empresa.empresaId == selected)
+                .map((empresa) => empresa.nombre)
+                .firstOrNull ??
+            '',
+      ),
     ]);
     final users =
         results[0] as List<QueryDocumentSnapshot<Map<String, dynamic>>>;
@@ -481,6 +504,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         _membresiaLoaded = false;
         _membresiaUsers = [];
         _membresiaGrupos = [];
+        _catalogoGrupos = [];
+        _bodegasLegacy = [];
       }
       _moduleCloseoutPreview = null;
 
@@ -505,11 +530,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       _rutasRoleByUser = rutasRoleByUser;
       _correoRoleByUser = correoRoleByUser;
       _visitasRoleByUser = visitasRoleByUser;
+      _dianRoleByUser = results[13] as Map<String, String>;
+      _talentoRoleByUser = results[14] as Map<String, String>;
+      _nutricionRoleByUser = results[15] as Map<String, String>;
 
       _centros = centros;
       _areas = areas;
       _cargos = cargos;
       _bodegas = bodegas;
+      _bodegasLegacy = results[17] as List<BodegaLegacyItem>;
+      _catalogoGrupos = results[16] as List<ComprasGrupoDoc>;
+      _membresiaGrupos = _catalogoGrupos.where((g) => g.activo).toList();
 
       // extractUserApps lee tanto apps globales como las del scope de empresa.
       _userApps = {
@@ -547,6 +578,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         _loadModuleRoleMap('TBL_CORREO_ROLES', empresaId),
         _loadModuleRoleMap(kVisitasRolesCol, empresaId),
         _moduleInventoryRepo.load(empresaId),
+        _loadModuleRoleMap('TBL_DIAN_TOKEN_ROLES', empresaId),
+        _loadModuleRoleMap('TBL_TALENTO_HUMANO_ROLES', empresaId),
+        _loadModuleRoleMap('TBL_NUTRICION_ROLES', empresaId),
       ]);
       if (!mounted ||
           _empresaId != empresaId ||
@@ -581,6 +615,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         _rutasRoleByUser = results[3] as Map<String, String>;
         _correoRoleByUser = results[4] as Map<String, String>;
         _visitasRoleByUser = results[5] as Map<String, String>;
+        _dianRoleByUser = results[7] as Map<String, String>;
+        _talentoRoleByUser = results[8] as Map<String, String>;
+        _nutricionRoleByUser = results[9] as Map<String, String>;
         _userApps = {
           for (final user in users)
             user.id: extractUserApps(user.data(), empresaId: empresaId).toSet(),
@@ -3765,7 +3802,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   List<Widget> _allTabs() => [
     _tabUsersWorkspace(),
     _tabAccessWorkspace(),
-    _tabCatalogos(),
+    _tabGestionInterna(),
     _tabLogs(),
     SecurityAdminPanel(empresaId: _empresaId ?? widget.empresaId),
     _tabCleanup(),
@@ -3833,6 +3870,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         'rutas' => _rutasRoleByUser,
         'interventoria' => _interventoriaRoleByUser,
         'visitas' => _visitasRoleByUser,
+        'tokens_dian' => _dianRoleByUser,
+        'talento' => _talentoRoleByUser,
+        'nutricion' => _nutricionRoleByUser,
         _ => const {},
       };
 
@@ -4028,6 +4068,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           'Los roles configurables se guardan en TBL_ROLES y se vinculan mediante rolTareasId.',
     'compras' =>
       'TBL_COMPRAS_ROLES canónica + rolCompras por empresa. Definiciones TBL_ROLES vinculadas mediante rolComprasId.',
+    'tokens_dian' =>
+      'TBL_DIAN_TOKEN_ROLES por empresa y persona; definiciones en TBL_ROLES. El NIT viene del perfil de la empresa activa en Organización.',
+    'talento' =>
+      'TBL_TALENTO_HUMANO_ROLES por empresa y persona; roles configurables en TBL_ROLES. Los accesos anteriores por app se pueden consolidar.',
+    'nutricion' =>
+      'TBL_NUTRICION_ROLES por empresa y persona; roles configurables en TBL_ROLES. Los accesos anteriores por app se pueden consolidar.',
     'interventoria' =>
       'TBL_INTERVENTORIA_ROLES · Roles actuales; creador pendiente de revisar.',
     'rutas' =>
@@ -4506,13 +4552,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   Widget _tabUsersWorkspace() => AdminUsersWorkspace(
     selected: _usersSection,
     onSelected: (section) {
-      if (section == AdminUsersSection.accesos ||
-          section == AdminUsersSection.perfiles) {
-        _openAccessWorkspace(
-          section == AdminUsersSection.perfiles
-              ? AdminAccessSection.perfiles
-              : AdminAccessSection.modulos,
-        );
+      if (section == AdminUsersSection.accesos) {
+        _openAccessWorkspace(AdminAccessSection.modulos);
       } else {
         setState(() => _usersSection = section);
       }
@@ -4529,18 +4570,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       AdminUsersSection.accesos => _accessWorkspaceShortcut(
         AdminAccessSection.modulos,
       ),
-      AdminUsersSection.perfiles => _accessWorkspaceShortcut(
-        AdminAccessSection.perfiles,
-      ),
       AdminUsersSection.saludUsuarios => _tabSaludUsuarios(),
       AdminUsersSection.saludCargos => _tabSaludCargos(),
-      AdminUsersSection.membresia => _tabMembresia(),
-      AdminUsersSection.multiempresa => AdminMultiempresaPanel(
-        key: ValueKey('multiempresa_${_empresaId ?? widget.empresaId}'),
-        userId: widget.userId,
-        empresaId: _empresaId ?? widget.empresaId,
-        empresas: _empresas,
-      ),
       AdminUsersSection.migraciones => _tabMigraciones(),
     },
   );
@@ -4556,7 +4587,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         ),
         const SizedBox(height: 8),
         const Text(
-          'Define plantillas de módulos y asígnalas al personal de la empresa activa.',
+          'Son plantillas para conceder módulos a personas de la empresa activa. Los permisos efectivos se revisan en cada módulo; cambiar o inactivar una plantilla no retira accesos ya concedidos.',
         ),
         const SizedBox(height: 12),
         Wrap(
@@ -5733,13 +5764,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         final selected = _accessRoles.firstWhere(
           (role) => role.roleId == roleId,
         );
-        await _repo.assignAccessRole(
-          userId: userDoc.id,
-          empresaId: empresaId,
-          role: selected,
-        );
-        _snack('${selected.nombre} asignado sin quitar módulos existentes');
-        await _reloadAccessMatrix();
+        try {
+          await _repo.assignAccessRole(
+            userId: userDoc.id,
+            empresaId: empresaId,
+            role: selected,
+          );
+          _snack('${selected.nombre} asignado sin quitar módulos existentes');
+          await _reloadAccessMatrix();
+        } catch (error) {
+          _snack('No se pudo asignar el perfil: $error');
+        }
       },
     );
   }
@@ -5760,12 +5795,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         icon: Icons.task_alt_rounded,
         color: Color(0xFF2563EB),
       ),
-      const _AccessMatrixModule(
+      _AccessMatrixModule(
         key: 'talento',
         label: 'Talento',
         appId: 'talentohumanodashboard',
         icon: Icons.groups_rounded,
         color: Color(0xFF4F46E5),
+        roles: talentoHumanoTableRoles.levels,
       ),
       const _AccessMatrixModule(
         key: 'gerencia',
@@ -5797,12 +5833,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         color: Color(0xFFB45309),
         hasPlanillasRole: true,
       ),
-      const _AccessMatrixModule(
+      _AccessMatrixModule(
         key: 'nutricion',
         label: 'Nutrición',
         appId: 'nutriciondashboard',
         icon: Icons.restaurant_menu_rounded,
         color: Color(0xFFEA580C),
+        roles: nutricionTableRoles.levels,
       ),
       const _AccessMatrixModule(
         key: 'compras',
@@ -5829,12 +5866,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             role.valor: role.etiqueta,
         },
       ),
-      const _AccessMatrixModule(
+      _AccessMatrixModule(
         key: 'tokens_dian',
         label: 'Tokens DIAN',
         appId: 'tokensdiandashboard',
         icon: Icons.vpn_key_rounded,
         color: Color(0xFF0E7490),
+        roles: dianTokensTableRoles.levels,
       ),
       _AccessMatrixModule(
         key: 'interventoria',
@@ -5922,7 +5960,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       case 'planillas_pago':
         return 'Acceso y etapa de firma';
       case 'tokens_dian':
-        return 'Personal autorizado';
+        return 'Acceso, apertura y administración de tokens';
+      case 'talento':
+        return 'Consulta, solicitudes, selección, gestión y administración';
+      case 'nutricion':
+        return 'Consulta, atención clínica, menús y coordinación';
       case 'visitas':
         return 'Gerencia ve y administra todas las áreas. El jefe (director) programa y administra formatos y equipo de su área; el área se toma de la ficha o del cargo. El firmante es el administrador del establecimiento que firma las visitas desde su módulo.';
       case 'admin':
@@ -5950,6 +5992,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           if (role.id == roleKey) return role.effectivePermissions.description;
         }
         return 'Definición pendiente de revisar.';
+      case 'tokens_dian':
+        return dianTokensTableRoles.levelDescription(roleKey);
+      case 'talento':
+        return talentoHumanoTableRoles.levelDescription(roleKey);
+      case 'nutricion':
+        return nutricionTableRoles.levelDescription(roleKey);
       case 'correo':
         return correspondenceLevelDescription(roleKey);
       case 'gestion_documental':
@@ -6305,6 +6353,21 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           assignedRole:
               _comprasRoleByUser[userDoc.id] ?? _comprasRoleByUser[cedula],
         );
+      case 'tokens_dian':
+        if (!_matrixUserHasApp(userDoc, module.appId, empresaId)) return null;
+        return _dianRoleByUser[userDoc.id] ??
+            _dianRoleByUser[cedula] ??
+            'operador';
+      case 'talento':
+        if (!_matrixUserHasApp(userDoc, module.appId, empresaId)) return null;
+        return _talentoRoleByUser[userDoc.id] ??
+            _talentoRoleByUser[cedula] ??
+            'administrador';
+      case 'nutricion':
+        if (!_matrixUserHasApp(userDoc, module.appId, empresaId)) return null;
+        return _nutricionRoleByUser[userDoc.id] ??
+            _nutricionRoleByUser[cedula] ??
+            'administrador';
       case 'interventoria':
         return _interventoriaRoleByUser[userDoc.id] ??
             _interventoriaRoleByUser[cedula];
@@ -6362,6 +6425,26 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   }) async {
     final empresaId = _empresaId ?? '';
     if (empresaId.isEmpty) return;
+    if (tableModuleRoleConfigFor(module.key) case final config?
+        when config.removeAppOnClear) {
+      try {
+        await _tableRolesRepo(config).setIndividualLevel(
+          empresaId: empresaId,
+          userId: userDoc.id,
+          level: visible ? 'consulta' : '',
+        );
+        _snack(
+          visible
+              ? '${config.moduleName}: acceso de Consulta activado; asigna otro nivel si corresponde.'
+              : '${config.moduleName}: acceso y nivel retirados.',
+        );
+      } catch (error) {
+        _snack('No se pudo cambiar el acceso a ${config.moduleName}: $error');
+      } finally {
+        await _reloadAccessMatrix();
+      }
+      return;
+    }
     if (module.key == 'planillas_pago') {
       try {
         await _paymentRolesRepo.setAccess(
@@ -6402,15 +6485,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       message:
           '${visible ? 'Se activarán' : 'Se ocultarán'} $scope '
           'para ${users.length} usuario(s).\n\n'
-          'Esto cambia el acceso al módulo. Los roles operativos se conservan, '
-          'excepto la etapa de firma de Planillas cuando se retira su acceso.',
+          'Esto cambia el acceso al módulo. En Planillas, Tokens DIAN, '
+          'Talento Humano y Nutrición también se actualiza el nivel asignado.',
       confirmText: visible ? 'Dar acceso' : 'Quitar acceso',
     );
     if (!ok) return;
 
     final includesPlanillas = modules.any((m) => m.key == 'planillas_pago');
+    final scopedRoleConfigs = [
+      for (final module in modules)
+        if (tableModuleRoleConfigFor(module.key) case final config?
+            when config.removeAppOnClear)
+          config,
+    ];
     final moduleIds = modules
-        .where((m) => m.key != 'planillas_pago')
+        .where(
+          (m) =>
+              m.key != 'planillas_pago' &&
+              tableModuleRoleConfigFor(m.key)?.removeAppOnClear != true,
+        )
         .map((m) => m.appId)
         .toList();
     // Procesa grupos pequeños en paralelo para que una selección grande no
@@ -6441,6 +6534,21 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               empresaId: empresaId,
               userId: userDoc.id,
               visible: visible,
+            );
+          }
+          for (final config in scopedRoleConfigs) {
+            if (visible &&
+                userHasApp(
+                  userDoc.data(),
+                  config.appId,
+                  empresaId: empresaId,
+                )) {
+              continue;
+            }
+            await _tableRolesRepo(config).setIndividualLevel(
+              empresaId: empresaId,
+              userId: userDoc.id,
+              level: visible ? 'consulta' : '',
             );
           }
         }),
@@ -7351,8 +7459,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           (
             modulo: 'Tokens DIAN',
             visible: 'tokensdiandashboard',
-            permisos: 'Lista de personal autorizado',
-            donde: 'Matriz central / Admin > Tokens DIAN',
+            permisos: 'TBL_DIAN_TOKEN_ROLES: Consulta, Operador, Administrador',
+            donde: 'Matriz central; buzón en Admin > Tokens DIAN',
+          ),
+          (
+            modulo: 'Talento Humano',
+            visible: 'talentohumanodashboard',
+            permisos: 'TBL_TALENTO_HUMANO_ROLES: cinco niveles por empresa',
+            donde: 'Matriz central; herramientas en Talento Humano',
           ),
           (
             modulo: 'Rutas',
@@ -7775,12 +7889,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         builder: (dialogContext, setDialogState) {
           final roleKey = role?.roleKey ?? normalizeRoleKey(nameCtrl.text);
           final isDeveloper =
-              roleKey == 'desarrollador' || roleKey == 'developer';
+              roleKey == 'desarrollador' ||
+              roleKey == 'developer' ||
+              roleKey == 'superadmin' ||
+              roleKey == 'administrador_sistema';
+          final protectedAuthority = kProtectedGeneralProfileKeys.contains(
+            roleKey,
+          );
           final width = (MediaQuery.of(dialogContext).size.width - 48)
               .clamp(320.0, 680.0)
               .toDouble();
           return AlertDialog(
-            title: Text(role == null ? 'Crear rol' : 'Editar rol'),
+            title: Text(
+              role == null ? 'Crear perfil general' : 'Editar perfil general',
+            ),
             content: SizedBox(
               width: width,
               child: SingleChildScrollView(
@@ -7791,7 +7913,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       controller: nameCtrl,
                       enabled: !saving,
                       decoration: const InputDecoration(
-                        labelText: 'Nombre visible del rol',
+                        labelText: 'Nombre visible del perfil',
                         prefixIcon: Icon(Icons.badge_outlined),
                       ),
                       onChanged: (_) => setDialogState(() {}),
@@ -7861,12 +7983,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     const SizedBox(height: 8),
                     SwitchListTile.adaptive(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('Rol activo'),
+                      title: const Text('Perfil activo'),
                       subtitle: const Text(
-                        'Al desactivarlo se retiran sus módulos a los usuarios asignados.',
+                        'Inactivo: no puede asignarse de nuevo. Los módulos ya concedidos se administran en cada tarjeta de acceso.',
                       ),
-                      value: isDeveloper ? true : enabled,
-                      onChanged: saving || isDeveloper
+                      value: protectedAuthority ? true : enabled,
+                      onChanged: saving || protectedAuthority
                           ? null
                           : (value) => setDialogState(() => enabled = value),
                     ),
@@ -7890,6 +8012,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                               ),
                             ),
                           ],
+                        ),
+                      ),
+                    if (!isDeveloper && protectedAuthority)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 10),
+                        child: Text(
+                          'Este perfil histórico interviene en permisos operativos. Su desactivación requiere primero migrar esas reglas.',
+                          style: TextStyle(color: Color(0xFF9A3412)),
                         ),
                       ),
                     const Text(
@@ -7986,7 +8116,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           if (dialogContext.mounted) {
                             Navigator.pop(dialogContext);
                           }
-                          _snack('Rol y permisos guardados');
+                          _snack('Perfil general guardado');
                           await _loadAll(forceEmpresaId: empresaId);
                         } catch (e) {
                           _snack('No se pudo guardar el rol: $e');
@@ -8652,6 +8782,36 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 await _reloadAccessMatrix();
               }
             },
+            onConsolidate: config.moduleKey == 'tokens_dian'
+                ? () async {
+                    try {
+                      final result = await _tableRolesRepo(
+                        config,
+                      ).consolidateDianLegacyAccess(empresaId);
+                      _snack(
+                        '${result.updated} accesos anteriores de Tokens DIAN consolidados como Operador; ${result.failedUserIds.length} pendientes.',
+                      );
+                    } finally {
+                      await _reloadAccessMatrix();
+                    }
+                  }
+                : config.moduleKey == 'talento' ||
+                      config.moduleKey == 'nutricion'
+                ? () async {
+                    try {
+                      final result = await _tableRolesRepo(config)
+                          .consolidateLegacyAppAccess(
+                            empresaId,
+                            legacyLevel: 'administrador',
+                          );
+                      _snack(
+                        '${result.updated} accesos anteriores de ${config.moduleName} consolidados; ${result.failedUserIds.length} pendientes.',
+                      );
+                    } finally {
+                      await _reloadAccessMatrix();
+                    }
+                  }
+                : null,
           ),
           const SizedBox(height: 14),
         ],
@@ -9557,10 +9717,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                                 (a) => appIdsEquivalent(a, normId),
                               );
                             }
-                            await _repo.updateUserApps(
-                              u.id,
-                              currentApps,
-                              empresaId: _empresaId,
+                            await _paymentRolesRepo.saveAppSelections(
+                              userId: u.id,
+                              selections: {_empresaId!: currentApps},
                             );
                             saved++;
                           }
@@ -9611,7 +9770,73 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     }
   }
 
-  // ---------------- TAB: CATALOGOS ----------------
+  // ---------------- GESTIÓN INTERNA POR EMPRESA ----------------
+  Widget _tabGestionInterna() => AdminInternalWorkspace(
+    selected: _internalSection,
+    onSelected: (section) => setState(() => _internalSection = section),
+    sectionBuilder: (section) => switch (section) {
+      AdminInternalSection.catalogos => _tabCatalogos(),
+      AdminInternalSection.grupos => _tabGruposInternos(),
+      AdminInternalSection.membresia => _tabMembresia(),
+      AdminInternalSection.multiempresa => AdminMultiempresaPanel(
+        key: ValueKey('multiempresa_${_empresaId ?? widget.empresaId}'),
+        userId: widget.userId,
+        empresaId: _empresaId ?? widget.empresaId,
+        empresas: _empresas,
+      ),
+    },
+  );
+
+  // ---------------- CATÁLOGOS COMPARTIDOS ----------------
+  Widget _tabGruposInternos() {
+    final empresa = _empresaActual;
+    final isMobile = MediaQuery.sizeOf(context).width < 900;
+    return ListView(
+      padding: EdgeInsets.all(isMobile ? 12 : 24),
+      children: [
+        _sectionHeader(
+          title: 'Grupos de la empresa',
+          subtitle: empresa == null
+              ? 'Selecciona una empresa'
+              : '${empresa.nombre} · Compras y Membresía',
+          onAdd: empresa == null ? null : () => _dialogGrupoCompras(),
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          'Crea o actualiza aquí los grupos. Compras los usa para recepciones y Abastecimiento; las personas se vinculan desde Membresía.',
+          style: TextStyle(color: kAdminMuted),
+        ),
+        const SizedBox(height: 16),
+        if (_catalogoGrupos.isEmpty)
+          const Text('No hay grupos registrados para esta empresa.')
+        else
+          for (final grupo in _catalogoGrupos) ...[
+            _catalogTile(
+              title: grupo.nombre,
+              subtitle: grupo.activo ? 'Disponible en Compras' : 'Inactivo',
+              enabled: grupo.activo,
+              onEdit: () => _dialogGrupoCompras(existing: grupo),
+              onToggle: (activo) async {
+                try {
+                  if (_empresaId != grupo.empresaId) return;
+                  await _repo.saveGrupoCompras(
+                    grupoId: grupo.id,
+                    empresaId: grupo.empresaId,
+                    nombre: grupo.nombre,
+                    activo: activo,
+                  );
+                  await _refreshGruposInternos();
+                } catch (error) {
+                  _snack('No se pudo actualizar el grupo: $error');
+                }
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+      ],
+    );
+  }
+
   Widget _tabCatalogos() {
     final centros = _centros.toList();
     final areas = _areas.toList();
@@ -9623,6 +9848,31 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       children: [
         if (empresa != null) ...[
           _empresaProfileCard(empresa),
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Fuentes compartidas de la empresa activa',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${_bodegas.length} bodegas · ${_catalogoGrupos.length} grupos · '
+                    '${centros.length} centros · ${areas.length} áreas · ${cargos.length} cargos',
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Compras consulta bodegas y grupos; Talento Humano usa grupos, centros y cargos. Las asignaciones de personas se gestionan en Membresía.',
+                    style: TextStyle(color: kAdminMuted),
+                  ),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 28),
         ],
         _bodegasAdminSection(),
@@ -10017,13 +10267,60 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               );
             },
           ),
+        if (_bodegasLegacy.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          const Text(
+            'Bodegas históricas pendientes de incorporar',
+            style: TextStyle(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Compras todavía puede mostrarlas como respaldo. Incorpora cada una al catálogo de esta empresa para poder editarla aquí.',
+            style: TextStyle(color: kAdminMuted),
+          ),
+          const SizedBox(height: 8),
+          for (final legacy in _bodegasLegacy)
+            Card(
+              child: ListTile(
+                title: Text(legacy.nombre),
+                subtitle: Text(legacy.origen),
+                trailing: TextButton.icon(
+                  onPressed: () => _importarBodegaLegacy(legacy),
+                  icon: const Icon(Icons.move_to_inbox_outlined),
+                  label: const Text('Incorporar'),
+                ),
+              ),
+            ),
+        ],
       ],
     );
   }
 
+  Future<void> _importarBodegaLegacy(BodegaLegacyItem legacy) async {
+    final empresaId = (_empresaId ?? '').trim();
+    if (empresaId.isEmpty) return;
+    try {
+      // Relee para evitar duplicar si otro administrador la incorporó.
+      final actuales = await _repo.loadBodegas(empresaId);
+      if (_empresaId != empresaId) return;
+      if (!actuales.any(
+        (bodega) =>
+            bodega.nombre.trim().toLowerCase() ==
+            legacy.nombre.trim().toLowerCase(),
+      )) {
+        await _repo.saveBodega(empresaId: empresaId, nombre: legacy.nombre);
+      }
+      _snack('Bodega incorporada al catálogo de la empresa.');
+      await _loadAll(forceEmpresaId: empresaId);
+    } catch (e) {
+      _snack('No se pudo incorporar la bodega: $e');
+    }
+  }
+
   Future<void> _toggleBodega(BodegaItem bodega, bool enabled) async {
     try {
-      await _repo.setBodegaEnabled(bodega.bodegaId, enabled);
+      if (_empresaId != bodega.empresaId) return;
+      await _repo.setBodegaEnabled(bodega.bodegaId, bodega.empresaId, enabled);
       _snack('Bodega ${enabled ? 'habilitada' : 'deshabilitada'}');
       await _loadAll(forceEmpresaId: bodega.empresaId);
     } catch (e) {
@@ -10088,6 +10385,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             ),
             FilledButton.icon(
               onPressed: () async {
+                if (_empresaId != empresaId) return;
                 if (nombre.trim().isEmpty) {
                   _snack('El nombre de la bodega es obligatorio');
                   return;
@@ -11179,32 +11477,36 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   Widget _sectionHeader({
     required String title,
     required String subtitle,
-    required VoidCallback onAdd,
+    required VoidCallback? onAdd,
   }) {
     return Row(
       children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                fontFamily: kArial,
-                fontWeight: FontWeight.w900,
-                fontSize: 18,
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontFamily: kArial,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 18,
+                ),
               ),
-            ),
-            Text(
-              subtitle,
-              style: const TextStyle(
-                fontFamily: kArial,
-                fontSize: 11,
-                color: kAdminMuted,
+              Text(
+                subtitle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontFamily: kArial,
+                  fontSize: 11,
+                  color: kAdminMuted,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-        const Spacer(),
+        const SizedBox(width: 12),
         ElevatedButton.icon(
           style: ElevatedButton.styleFrom(
             backgroundColor: kAdminPrimary,
@@ -14407,7 +14709,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       if (destino.exists) {
         _snack(
           'Ya existe un usuario con la cédula $nueva. '
-          'Usa la pestaña Membresía para resolverlo manualmente.',
+          'Usa Gestión interna > Membresía para resolverlo manualmente.',
         );
         return;
       }
@@ -14584,15 +14886,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     setState(() => _membresiaLoading = true);
     try {
       final empresaId = _empresaId ?? '';
-      final results = await Future.wait([
+      final results = await Future.wait<dynamic>([
         FirebaseFirestore.instance.collection('TBL_USUARIOS').get(),
-        if (empresaId.isNotEmpty)
-          FirebaseFirestore.instance
-              .collection('TBL_COMPRAS_GRUPOS')
-              .where('empresaId', isEqualTo: empresaId)
-              .get(),
+        if (empresaId.isNotEmpty) _repo.loadGruposCompras(empresaId),
       ]);
-      final snap = results.first;
+      final snap = results.first as QuerySnapshot<Map<String, dynamic>>;
       final docs = snap.docs.toList()
         ..sort(
           (a, b) => _userName(
@@ -14601,19 +14899,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           ).toLowerCase().compareTo(_userName(b.data(), b.id).toLowerCase()),
         );
       final grupos = results.length > 1
-          ? results[1].docs
-                .where((doc) => doc.data()['activo'] != false)
-                .toList()
-          : <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-      grupos.sort(
-        (a, b) => _safe(
-          a.data()['nombre'],
-        ).toLowerCase().compareTo(_safe(b.data()['nombre']).toLowerCase()),
-      );
+          ? results[1] as List<ComprasGrupoDoc>
+          : <ComprasGrupoDoc>[];
       if (!mounted || version != _membresiaLoadVersion) return;
       setState(() {
         _membresiaUsers = docs;
-        _membresiaGrupos = grupos;
+        _catalogoGrupos = grupos;
+        _membresiaGrupos = grupos.where((grupo) => grupo.activo).toList();
         _membresiaLoaded = true;
         _membresiaLoading = false;
       });
@@ -14624,66 +14916,96 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     }
   }
 
-  Future<void> _crearGrupoCompras() async {
+  Future<void> _refreshGruposInternos() async {
+    final empresaId = (_empresaId ?? '').trim();
+    if (empresaId.isEmpty) return;
+    final grupos = await _repo.loadGruposCompras(empresaId);
+    if (!mounted || _empresaId != empresaId) return;
+    setState(() {
+      _catalogoGrupos = grupos;
+      _membresiaGrupos = grupos.where((grupo) => grupo.activo).toList();
+    });
+  }
+
+  Future<void> _dialogGrupoCompras({ComprasGrupoDoc? existing}) async {
     final empresaId = _empresaId ?? '';
     if (empresaId.isEmpty) {
       _snack('Selecciona una empresa antes de crear el grupo.');
       return;
     }
-    final controller = TextEditingController();
+    var nombre = existing?.nombre ?? '';
+    var activo = existing?.activo ?? true;
     final guardar = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text(
-          'Nuevo grupo de Compras',
-          style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(
+            existing == null ? 'Nuevo grupo' : 'Editar grupo',
+            style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                initialValue: nombre,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'Nombre del grupo',
+                  hintText: 'Ej. Grupo 6, Planta Bogotá…',
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (value) => nombre = value.trim(),
+                onFieldSubmitted: (_) => Navigator.pop(dialogContext, true),
+              ),
+              SwitchListTile(
+                value: activo,
+                title: const Text('Grupo activo'),
+                subtitle: const Text(
+                  'Los grupos inactivos no se asignan a nuevas recepciones.',
+                ),
+                onChanged: (value) => setDialogState(() => activo = value),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Guardar grupo'),
+            ),
+          ],
         ),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Nombre del grupo',
-            hintText: 'Ej. Grupo 6, Planta Bogotá…',
-            border: OutlineInputBorder(),
-          ),
-          onSubmitted: (_) => Navigator.pop(dialogContext, true),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Crear grupo'),
-          ),
-        ],
       ),
     );
-    final nombre = controller.text.trim();
-    controller.dispose();
-    if (guardar != true || nombre.isEmpty) return;
-    final repetido = _membresiaGrupos.any(
-      (doc) =>
-          _safe(doc.data()['nombre']).trim().toLowerCase() ==
-          nombre.toLowerCase(),
+    if (guardar != true || nombre.trim().isEmpty) return;
+    if (_empresaId != empresaId) return;
+    final repetido = _catalogoGrupos.any(
+      (grupo) =>
+          grupo.id != existing?.id &&
+          grupo.nombre.trim().toLowerCase() == nombre.trim().toLowerCase(),
     );
     if (repetido) {
       _snack('Ya existe un grupo con ese nombre.');
       return;
     }
     try {
-      await FirebaseFirestore.instance.collection('TBL_COMPRAS_GRUPOS').add({
-        'empresaId': empresaId,
-        'nombre': nombre,
-        'activo': true,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-      _snack('Grupo "$nombre" creado.');
-      await _loadMembresiaUsers();
+      await _repo.saveGrupoCompras(
+        grupoId: existing?.id,
+        empresaId: empresaId,
+        nombre: nombre,
+        activo: activo,
+      );
+      _snack(
+        existing == null
+            ? 'Grupo "$nombre" creado.'
+            : 'Grupo "$nombre" actualizado.',
+      );
+      await _refreshGruposInternos();
     } catch (e) {
-      _snack('No se pudo crear el grupo: $e');
+      _snack('No se pudo guardar el grupo: $e');
     }
   }
 
@@ -14694,6 +15016,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   }) async {
     final empresaId = _empresaId ?? '';
     if (empresaId.isEmpty) return;
+    if (!userBelongsToEmpresa(userDoc.data(), empresaId) ||
+        (add && !_membresiaGrupos.any((grupo) => grupo.id == groupId))) {
+      _snack('La persona o el grupo no están activos en esta empresa.');
+      return;
+    }
     final data = userDoc.data();
     final porEmpresa = data['gruposComprasPorEmpresa'];
     final raw = porEmpresa is Map ? porEmpresa[empresaId] : null;
@@ -15254,8 +15581,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         ),
         const SizedBox(height: 12),
         if (empresa != null) ...[
-          _empresaProfileCard(empresa),
-          const SizedBox(height: 12),
           Align(
             alignment: Alignment.centerLeft,
             child: Wrap(
@@ -15285,82 +15610,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             ),
           ),
           const SizedBox(height: 12),
-          Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: const BorderSide(color: kAdminBorder),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.groups_2_outlined, color: kAdminAccent),
-                      const SizedBox(width: 8),
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Grupos de Compras',
-                              style: TextStyle(
-                                fontFamily: kArial,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                            Text(
-                              'Cada persona puede pertenecer a uno o varios grupos. Se usarán para organizar y filtrar recepciones.',
-                              style: TextStyle(
-                                fontFamily: kArial,
-                                fontSize: 11,
-                                color: kAdminMuted,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: _crearGrupoCompras,
-                        icon: const Icon(Icons.add, size: 17),
-                        label: const Text('Agregar grupo'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  if (_membresiaGrupos.isEmpty)
-                    const Text(
-                      'Aún no hay grupos creados para esta empresa.',
-                      style: TextStyle(
-                        fontFamily: kArial,
-                        fontSize: 12,
-                        color: kAdminMuted,
-                      ),
-                    )
-                  else
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: _membresiaGrupos
-                          .map(
-                            (grupo) => Chip(
-                              avatar: const Icon(
-                                Icons.group_work_outlined,
-                                size: 16,
-                              ),
-                              label: Text(
-                                _safe(grupo.data()['nombre']),
-                                style: const TextStyle(fontFamily: kArial),
-                              ),
-                            ),
-                          )
-                          .toList(),
-                    ),
-                ],
-              ),
-            ),
+          OutlinedButton.icon(
+            onPressed: () =>
+                setState(() => _internalSection = AdminInternalSection.grupos),
+            icon: const Icon(Icons.groups_2_outlined),
+            label: const Text('Gestionar grupos de la empresa'),
           ),
           const SizedBox(height: 12),
         ],
@@ -15552,7 +15806,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   final selected = gruposAsignados.contains(grupo.id);
                   return FilterChip(
                     label: Text(
-                      _safe(grupo.data()['nombre']),
+                      grupo.nombre,
                       style: const TextStyle(fontFamily: kArial, fontSize: 12),
                     ),
                     selected: selected,

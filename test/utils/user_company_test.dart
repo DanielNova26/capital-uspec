@@ -75,6 +75,22 @@ void main() {
     expect(isDeveloperUser(data, empresaId: 'EMPRESA_002'), isFalse);
   });
 
+  test('un perfil general de raíz no concede nivel en empresa secundaria', () {
+    final data = <String, dynamic>{
+      'empresaId': 'EMPRESA_001',
+      'empresas': ['EMPRESA_001', 'EMPRESA_002'],
+      'roleKey': 'gerencia',
+      'roleNombre': 'Gerencia principal',
+      'empresasDetalle': {
+        'EMPRESA_001': {'roleKey': 'gerencia'},
+        'EMPRESA_002': <String, dynamic>{},
+      },
+    };
+    expect(resolveScopedRoleKey(data, empresaId: 'EMPRESA_001'), 'gerencia');
+    expect(resolveScopedRoleKey(data, empresaId: 'EMPRESA_002'), isEmpty);
+    expect(resolveScopedRoleName(data, empresaId: 'EMPRESA_002'), isEmpty);
+  });
+
   test('un desarrollador no aparece en una empresa a la que no pertenece', () {
     final data = <String, dynamic>{
       'desarrollador': true,

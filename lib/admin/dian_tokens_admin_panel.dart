@@ -7,6 +7,7 @@ import '../tokens_dian/dian_tokens_dashboard_screen.dart';
 import '../tokens_dian/dian_tokens_models.dart';
 import '../tokens_dian/dian_tokens_service.dart';
 import '../utils/user_company.dart';
+import '../widgets/user_avatar.dart';
 import 'admin_repository.dart';
 
 class AdminDianTokensPanel extends StatefulWidget {
@@ -29,7 +30,8 @@ class _AdminDianTokensPanelState extends State<AdminDianTokensPanel> {
   final _search = TextEditingController();
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _users = const [];
   bool _loading = true;
-  final Set<String> _saving = <String>{};
+  String _empresaNombre = '';
+  String _empresaNit = '';
   DianBuzonEstado _buzon = DianBuzonEstado.sinConectar;
   bool _buzonLoading = true;
   bool _buzonBusy = false;
@@ -74,9 +76,28 @@ class _AdminDianTokensPanelState extends State<AdminDianTokensPanel> {
             'Boveda cifrada y trazabilidad de accesos a enlaces Token DIAN.',
         enabled: true,
       );
-      final users = await _repo.loadUsersByEmpresa(widget.empresaId);
+      final results = await Future.wait<dynamic>([
+        _repo.loadUsersByEmpresa(widget.empresaId),
+        FirebaseFirestore.instance
+            .collection('TBL_EMPRESAS')
+            .doc(widget.empresaId)
+            .get(),
+      ]);
       if (!mounted) return;
-      setState(() => _users = users);
+      final company =
+          (results[1] as DocumentSnapshot<Map<String, dynamic>>).data() ??
+          const <String, dynamic>{};
+      setState(() {
+        _users =
+            results[0] as List<QueryDocumentSnapshot<Map<String, dynamic>>>;
+        _empresaNombre =
+            (company['nombre'] ?? company['razonSocial'] ?? widget.empresaId)
+                .toString()
+                .trim();
+        _empresaNit = (company['nit'] ?? company['NIT'] ?? '')
+            .toString()
+            .trim();
+      });
     } catch (error) {
       _snack('No se pudo cargar la configuracion: $error', error: true);
     } finally {
@@ -119,45 +140,6 @@ class _AdminDianTokensPanelState extends State<AdminDianTokensPanel> {
     if (full.isNotEmpty) return full;
     final names = '${data['nombres'] ?? ''} ${data['apellidos'] ?? ''}'.trim();
     return names.isEmpty ? doc.id : names;
-  }
-
-  Future<void> _toggle(
-    QueryDocumentSnapshot<Map<String, dynamic>> doc,
-    bool enabled,
-  ) async {
-    if (!_saving.add(doc.id)) return;
-    setState(() {});
-    try {
-      final ref = FirebaseFirestore.instance
-          .collection('TBL_USUARIOS')
-          .doc(doc.id);
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final snap = await transaction.get(ref);
-        final data = snap.data() ?? const <String, dynamic>{};
-        final apps = extractUserApps(data, empresaId: widget.empresaId).toSet();
-        if (enabled) {
-          apps.add(kDianTokensAppId);
-        } else {
-          apps.removeWhere((app) => appIdsEquivalent(app, kDianTokensAppId));
-        }
-        // Solo en esta empresa; las demás conservan sus módulos.
-        final plan = planearAppsPorEmpresa(
-          data,
-          cambios: {widget.empresaId: apps},
-        );
-        transaction.update(ref, {
-          ...plan.comoRutas(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      });
-      await _load();
-      _snack(enabled ? 'Acceso autorizado.' : 'Acceso retirado.');
-    } catch (error) {
-      _snack('No se pudo actualizar el acceso: $error', error: true);
-    } finally {
-      _saving.remove(doc.id);
-      if (mounted) setState(() {});
-    }
   }
 
   void _snack(String message, {bool error = false}) {
@@ -290,6 +272,20 @@ class _AdminDianTokensPanelState extends State<AdminDianTokensPanel> {
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
+        Card(
+          child: ListTile(
+            leading: const Icon(Icons.business_outlined),
+            title: Text(
+              _empresaNombre.isEmpty ? widget.empresaId : _empresaNombre,
+            ),
+            subtitle: Text(
+              _empresaNit.isEmpty
+                  ? 'NIT sin registrar. Complétalo en Admin → Organización para identificar el RUT de esta empresa.'
+                  : 'NIT de Organización: $_empresaNit · Empresa activa: ${widget.empresaId}',
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
         _buzonCard(authorized),
         const SizedBox(height: 16),
         Card(
@@ -304,12 +300,12 @@ class _AdminDianTokensPanelState extends State<AdminDianTokensPanel> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Personal autorizado',
+                  'Accesos de Tokens DIAN',
                   style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'El acceso se asigna solo para la empresa activa. Cada apertura de un token quedara registrada.',
+                  'Crea roles y asigna Consulta, Operador o Administrador en Apps, roles y permisos → Tokens DIAN. Esta lista refleja la membresía de la empresa activa.',
                   style: TextStyle(color: Color(0xFF617386)),
                 ),
                 const SizedBox(height: 14),
@@ -343,16 +339,12 @@ class _AdminDianTokensPanelState extends State<AdminDianTokensPanel> {
                       kDianTokensAppId,
                       empresaId: widget.empresaId,
                     );
-                    final busy = _saving.contains(doc.id);
                     final area = (data['areaNombre'] ?? data['area'] ?? '')
                         .toString();
                     final cargo = (data['cargo'] ?? '').toString();
                     return ListTile(
                       contentPadding: EdgeInsets.zero,
-                      leading: CircleAvatar(
-                        backgroundColor: const Color(0xFFE0F2FE),
-                        child: Text(_name(doc).characters.first.toUpperCase()),
-                      ),
+                      leading: UserAvatar(userId: doc.id, nameHint: _name(doc)),
                       title: Text(
                         _name(doc),
                         style: const TextStyle(fontWeight: FontWeight.w700),
@@ -361,19 +353,13 @@ class _AdminDianTokensPanelState extends State<AdminDianTokensPanel> {
                         [
                           if (area.isNotEmpty) area,
                           if (cargo.isNotEmpty) cargo,
-                          'C.C. ${data['cedula'] ?? doc.id}',
+                          if (area.isEmpty && cargo.isEmpty)
+                            'Miembro de la empresa activa',
                         ].join(' · '),
                       ),
-                      trailing: busy
-                          ? const SizedBox(
-                              width: 24,
-                              height: 24,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : Switch.adaptive(
-                              value: active,
-                              onChanged: (value) => _toggle(doc, value),
-                            ),
+                      trailing: Chip(
+                        label: Text(active ? 'Con acceso' : 'Sin acceso'),
+                      ),
                     );
                   }),
               ],

@@ -397,7 +397,10 @@ class _DisciplinaryManagementScreenState
                         setState(() => _recordFilter = value),
                     itemBuilder: (_) => const [
                       PopupMenuItem(value: 'todos', child: Text('Todos')),
-                      PopupMenuItem(value: 'tramite', child: Text('En trámite')),
+                      PopupMenuItem(
+                        value: 'tramite',
+                        child: Text('En trámite'),
+                      ),
                       PopupMenuItem(value: 'vencidos', child: Text('Vencidos')),
                       PopupMenuItem(value: 'cerrados', child: Text('Cerrados')),
                     ],
@@ -877,10 +880,7 @@ class _DisciplinaryManagementScreenState
                     // suspensión.
                     items: [
                       for (final grupo in const [
-                        (
-                          DisciplinaryOutcomeKind.exonerado,
-                          'SIN FALTA',
-                        ),
+                        (DisciplinaryOutcomeKind.exonerado, 'SIN FALTA'),
                         (
                           DisciplinaryOutcomeKind.medida,
                           'MEDIDAS NO SANCIONATORIAS',
@@ -903,8 +903,9 @@ class _DisciplinaryManagementScreenState
                             ),
                           ),
                         ),
-                        for (final outcome
-                            in DisciplinarySanction.ofKind(grupo.$1))
+                        for (final outcome in DisciplinarySanction.ofKind(
+                          grupo.$1,
+                        ))
                           DropdownMenuItem(
                             value: outcome.value,
                             child: Text(
@@ -953,7 +954,8 @@ class _DisciplinaryManagementScreenState
                     icon: Icons.event_available_rounded,
                     firstDate: record.hearingHeldAt ?? DateTime(2000),
                     lastDate: DateTime.now(),
-                    onChanged: (value) => setDialogState(() => resultAt = value),
+                    onChanged: (value) =>
+                        setDialogState(() => resultAt = value),
                   ),
                   const SizedBox(height: 14),
                   _DocumentField(
@@ -989,13 +991,9 @@ class _DisciplinaryManagementScreenState
                         );
                         return;
                       }
-                      final exonera =
-                          chosen == DisciplinarySanction.exonerado;
+                      final exonera = chosen == DisciplinarySanction.exonerado;
                       if (grade == null && !exonera) {
-                        _message(
-                          'Califica la gravedad del caso.',
-                          error: true,
-                        );
+                        _message('Califica la gravedad del caso.', error: true);
                         return;
                       }
                       if (upload == null) {
@@ -1128,10 +1126,7 @@ class _DisciplinaryManagementScreenState
     }
   }
 
-  Future<void> _replaceDocument(
-    DisciplinaryRecord record,
-    String stage,
-  ) async {
+  Future<void> _replaceDocument(DisciplinaryRecord record, String stage) async {
     final picked = await _pickDocument();
     if (picked == null) return;
     try {
@@ -1193,10 +1188,8 @@ class _DisciplinaryManagementScreenState
                   done: true,
                   rows: [('Fecha de recibido', _formatDate(record.receivedAt))],
                   document: record.requestDocument,
-                  onReplace: () => _replaceDocument(
-                    record,
-                    DisciplinaryStage.solicitud,
-                  ),
+                  onReplace: () =>
+                      _replaceDocument(record, DisciplinaryStage.solicitud),
                 ),
                 _StageBlock(
                   step: 2,
@@ -1210,7 +1203,10 @@ class _DisciplinaryManagementScreenState
                         _formatDate(record.summonDeliveredAt!),
                       ),
                     if (record.hearingDate != null)
-                      ('Fecha de la diligencia', _formatDate(record.hearingDate!)),
+                      (
+                        'Fecha de la diligencia',
+                        _formatDate(record.hearingDate!),
+                      ),
                   ],
                   document: record.summonDocument,
                   onReplace: record.summonDocument == null
@@ -1227,7 +1223,10 @@ class _DisciplinaryManagementScreenState
                   skipped: record.closedWithoutProcess,
                   rows: [
                     if (record.hearingHeldAt != null)
-                      ('Diligencia realizada', _formatDate(record.hearingHeldAt!)),
+                      (
+                        'Diligencia realizada',
+                        _formatDate(record.hearingHeldAt!),
+                      ),
                     if (record.resultDeadline != null)
                       (
                         'Límite del resultado',
@@ -1295,10 +1294,7 @@ class _DisciplinaryManagementScreenState
   void _message(String text, {bool error = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(text),
-        backgroundColor: error ? _danger : _navy,
-      ),
+      SnackBar(content: Text(text), backgroundColor: error ? _danger : _navy),
     );
   }
 }
@@ -1908,7 +1904,7 @@ class _RecordTimeline extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: service.watchRecordHistory(record.id),
+      stream: service.watchRecordHistory(record.id, record.empresaId),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
           return const LinearProgressIndicator(minHeight: 2);
@@ -2180,7 +2176,11 @@ class _DialogHint extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.info_outline_rounded, size: 18, color: Color(0xFF1D4ED8)),
+          const Icon(
+            Icons.info_outline_rounded,
+            size: 18,
+            color: Color(0xFF1D4ED8),
+          ),
           const SizedBox(width: 9),
           Expanded(
             child: Text(

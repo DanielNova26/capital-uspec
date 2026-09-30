@@ -144,6 +144,7 @@ class ComprasService {
     if (id.isEmpty) return const [];
 
     final bodegas = <String>[];
+    final nombresCanonicos = <String>{};
     try {
       final snap = await _db
           .collection('TBL_COMPRAS_BODEGAS')
@@ -151,44 +152,47 @@ class ComprasService {
           .get();
       for (final doc in snap.docs) {
         final data = doc.data();
-        if (data['activo'] == false) continue;
         final nombre = (data['nombre'] ?? data['bodega'] ?? data['label'] ?? '')
             .toString()
             .trim();
-        if (nombre.isNotEmpty) bodegas.add(nombre);
+        if (nombre.isEmpty) continue;
+        nombresCanonicos.add(nombre.toLowerCase());
+        if (data['activo'] != false) bodegas.add(nombre);
       }
     } catch (_) {
       // Se continúa con las fuentes de compatibilidad.
     }
 
     String empresaNombre = '';
-    if (bodegas.isEmpty) {
-      try {
-        final empresa = await _db.collection('TBL_EMPRESAS').doc(id).get();
-        final data = empresa.data() ?? const <String, dynamic>{};
-        empresaNombre = (data['nombre'] ?? data['razonSocial'] ?? '')
-            .toString()
-            .trim();
-        final raw = data['bodegas'];
-        if (raw is List) {
-          for (final item in raw) {
-            final nombre = item is Map
-                ? (item['nombre'] ?? item['bodega'] ?? item['label'] ?? '')
-                      .toString()
-                      .trim()
-                : item.toString().trim();
-            if (nombre.isNotEmpty) bodegas.add(nombre);
-          }
+    final historicas = <String>[];
+    try {
+      final empresa = await _db.collection('TBL_EMPRESAS').doc(id).get();
+      final data = empresa.data() ?? const <String, dynamic>{};
+      empresaNombre = (data['nombre'] ?? data['razonSocial'] ?? '')
+          .toString()
+          .trim();
+      final raw = data['bodegas'];
+      if (raw is List) {
+        for (final item in raw) {
+          final nombre = item is Map
+              ? (item['nombre'] ?? item['bodega'] ?? item['label'] ?? '')
+                    .toString()
+                    .trim()
+              : item.toString().trim();
+          if (nombre.isNotEmpty) historicas.add(nombre);
         }
-      } catch (_) {
-        // Se continúa con el catálogo legado, siempre limitado a la empresa.
       }
+    } catch (_) {
+      // Se continúa con el catálogo legado, siempre limitado a la empresa.
     }
 
-    if (bodegas.isEmpty) {
-      bodegas.addAll(
+    if (historicas.isEmpty) {
+      historicas.addAll(
         bodegasLegacyParaEmpresa(empresaId: id, empresaNombre: empresaNombre),
       );
+    }
+    for (final nombre in historicas) {
+      if (!nombresCanonicos.contains(nombre.toLowerCase())) bodegas.add(nombre);
     }
 
     final unique = <String, String>{};
