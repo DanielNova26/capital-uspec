@@ -1,7 +1,8 @@
 // lib/admin/admin_logs_panel.dart
 //
 // Admin › Logs: la bitácora de las acciones masivas de Admin en la empresa
-// activa (migraciones, limpiezas, cierres de módulo y Multiempresa), en
+// activa (migraciones, limpiezas, cierres de módulo, Multiempresa y copia
+// de maestros entre empresas), en
 // `TBL_MIGRATIONS_LOGS`. No registra el trabajo del día a día (asignar roles,
 // prender apps, editar personas).
 //
@@ -39,6 +40,8 @@ const _kAccionesAdmin = <String, String>{
   'multiempresaTraslado': 'Multiempresa: traslado',
   'multiempresaEnviarCatalogo': 'Multiempresa: enviar catálogo',
   'multiempresaFijarModulos': 'Multiempresa: fijar módulos por empresa',
+  'sincronizarMaestros': 'Maestros: copiados a otras empresas',
+  'recibirMaestros': 'Maestros: recibidos de otra empresa',
 };
 
 /// Nombre en español de una acción; la clave técnica si no se conoce.
@@ -174,7 +177,8 @@ class _AdminLogsPanelState extends State<AdminLogsPanel> {
             const Expanded(
               child: Text(
                 'Acciones masivas de Admin en esta empresa: migraciones, '
-                'limpiezas, cierres de módulo y Multiempresa. No incluye '
+                'limpiezas, cierres de módulo, Multiempresa y maestros '
+                'copiados entre empresas. No incluye '
                 'asignar roles, prender apps ni editar personas.',
                 style: TextStyle(fontFamily: kArial, color: Colors.black54),
               ),

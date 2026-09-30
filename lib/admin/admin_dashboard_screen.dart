@@ -54,6 +54,8 @@ import 'payment_module_roles_panel.dart';
 import 'admin_logs_panel.dart';
 import 'estructura_por_empresa.dart';
 import 'module_cleanup_card.dart';
+import 'maestros_sync_card.dart';
+import 'maestros_sync_service.dart';
 import 'module_cleanup_service.dart';
 import 'billing_module_role.dart';
 import 'management_module_role.dart';
@@ -139,10 +141,12 @@ const List<InternalModuleTabItem> _kAdminModuleTabs = [
   InternalModuleTabItem(label: 'Logs', icon: Icons.history),
   InternalModuleTabItem(label: 'Seguridad', icon: Icons.security_rounded),
   InternalModuleTabItem(label: 'Limpieza', icon: Icons.cleaning_services),
-  InternalModuleTabItem(label: 'Compras', icon: Icons.shopping_bag_outlined),
-  InternalModuleTabItem(label: 'Correo', icon: Icons.alternate_email),
-  InternalModuleTabItem(label: 'Tokens DIAN', icon: Icons.vpn_key_outlined),
-  InternalModuleTabItem(label: 'WhatsApp', icon: Icons.chat_outlined),
+  // 29 sep 2026: Compras, Correo, Tokens DIAN y WhatsApp quedan dentro de
+  // "Maestros por módulo", junto con la copia de maestros a otras empresas.
+  InternalModuleTabItem(
+    label: 'Maestros por módulo',
+    icon: Icons.inventory_2_outlined,
+  ),
 ];
 
 class AdminDashboardScreen extends StatefulWidget {
@@ -341,6 +345,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   /// Módulo elegido en Limpieza.
   String _limpiezaModulo = 'tareas';
+  String _maestrosModulo = kModulosMaestros.first.id;
+  bool _maestrosVerPanel = true;
   AdminModuleCloseoutPreview? _moduleCloseoutPreview;
   bool _moduleCloseoutBusy = false;
 
@@ -3019,6 +3025,154 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     );
   }
 
+  /// Admin › Maestros por módulo (29 sep 2026). Cada módulo edita sus
+  /// maestros y su configuración en su empresa, sin saber de las demás; aquí
+  /// está lo que es de Administración (la configuración de Compras, Correo,
+  /// Tokens DIAN y WhatsApp) y la copia de maestros a otras empresas.
+  Widget _tabMaestros() {
+    final empresaId = (_empresaId ?? widget.empresaId).trim();
+    final modulo = moduloMaestrosPorId(_maestrosModulo);
+    final isMobile = MediaQuery.sizeOf(context).width < 720;
+    final pad = isMobile ? 12.0 : 16.0;
+    final panel = modulo.panel;
+    final verPanel = panel != null && (!modulo.sincroniza || _maestrosVerPanel);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: EdgeInsets.fromLTRB(pad, pad, pad, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Maestros por módulo',
+                style: TextStyle(
+                  fontFamily: kArial,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Cada módulo crea y edita sus maestros en su empresa. Aquí '
+                'está la configuración que es de Administración y la copia '
+                'de maestros a otras empresas.',
+                style: TextStyle(fontFamily: kArial, color: Colors.black54),
+              ),
+              const SizedBox(height: 12),
+              _maestrosModulePicker(isMobile),
+              if (panel != null && modulo.sincroniza) ...[
+                const SizedBox(height: 12),
+                SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment(
+                      value: true,
+                      icon: Icon(Icons.tune_rounded),
+                      label: Text('Configuración'),
+                    ),
+                    ButtonSegment(
+                      value: false,
+                      icon: Icon(Icons.sync_alt_rounded),
+                      label: Text('Copiar a otras empresas'),
+                    ),
+                  ],
+                  selected: {_maestrosVerPanel},
+                  onSelectionChanged: (v) =>
+                      setState(() => _maestrosVerPanel = v.first),
+                ),
+              ],
+            ],
+          ),
+        ),
+        Expanded(
+          child: empresaId.isEmpty
+              ? const Center(child: Text('Selecciona una empresa.'))
+              : verPanel
+              ? _panelAdminModulo(panel, empresaId)
+              : ListView(
+                  padding: EdgeInsets.fromLTRB(pad, 8, pad, 24),
+                  children: [
+                    MaestrosSyncCard(
+                      key: ValueKey('maestros_${empresaId}_${modulo.id}'),
+                      userId: widget.userId,
+                      empresaId: empresaId,
+                      modulo: modulo,
+                      empresas: [
+                        for (final e in _empresas)
+                          (id: e.empresaId, nombre: e.nombre),
+                      ],
+                    ),
+                  ],
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _panelAdminModulo(PanelAdminModulo panel, String empresaId) =>
+      switch (panel) {
+        PanelAdminModulo.compras => _tabReqCompras(),
+        PanelAdminModulo.correo => AdminCorreoPanel(
+          userId: widget.userId,
+          empresaId: empresaId,
+        ),
+        PanelAdminModulo.tokensDian => AdminDianTokensPanel(
+          userId: widget.userId,
+          empresaId: empresaId,
+        ),
+        PanelAdminModulo.whatsapp => AdminWhatsAppPanel(
+          userId: widget.userId,
+          empresaId: empresaId,
+        ),
+      };
+
+  /// Web: todos los módulos a la vista. Móvil: una lista desplegable.
+  Widget _maestrosModulePicker(bool isMobile) {
+    void elegir(String id) => setState(() => _maestrosModulo = id);
+    if (isMobile) {
+      return DropdownButtonFormField<String>(
+        initialValue: _maestrosModulo,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: 'Módulo',
+          border: OutlineInputBorder(),
+          isDense: true,
+        ),
+        items: [
+          for (final m in kModulosMaestros)
+            DropdownMenuItem(
+              value: m.id,
+              child: Row(
+                children: [
+                  Icon(m.icono, size: 18, color: m.color),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(m.nombre, overflow: TextOverflow.ellipsis),
+                  ),
+                ],
+              ),
+            ),
+        ],
+        onChanged: (id) {
+          if (id != null) elegir(id);
+        },
+      );
+    }
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final m in kModulosMaestros)
+          ChoiceChip(
+            avatar: Icon(m.icono, size: 18, color: m.color),
+            label: Text(m.nombre),
+            selected: _maestrosModulo == m.id,
+            onSelected: (_) => elegir(m.id),
+          ),
+      ],
+    );
+  }
+
   void _seleccionarModuloLimpieza(String id) => setState(() {
     _limpiezaModulo = id;
     _moduleCloseoutModules = {id};
@@ -3503,19 +3657,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     _tabLogs(),
     SecurityAdminPanel(empresaId: _empresaId ?? widget.empresaId),
     _tabCleanup(),
-    _tabReqCompras(),
-    AdminCorreoPanel(
-      userId: widget.userId,
-      empresaId: _empresaId ?? widget.empresaId,
-    ),
-    AdminDianTokensPanel(
-      userId: widget.userId,
-      empresaId: _empresaId ?? widget.empresaId,
-    ),
-    AdminWhatsAppPanel(
-      userId: widget.userId,
-      empresaId: _empresaId ?? widget.empresaId,
-    ),
+    _tabMaestros(),
   ];
 
   List<TaskModuleRole> _taskRolesFromSources(
@@ -7280,7 +7422,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             modulo: 'Tokens DIAN',
             visible: 'tokensdiandashboard',
             permisos: 'Lista de personal autorizado',
-            donde: 'Matriz central / Admin > Tokens DIAN',
+            donde: 'Matriz central / Admin > Maestros por módulo > Tokens DIAN',
           ),
           (
             modulo: 'Rutas',
@@ -10726,7 +10868,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           'El emoji identificará todos los mensajes de WhatsApp, '
                           'sin mostrar el nombre de la empresa. El nombre corto '
                           'y el color se conservarán solo para alertas internas. '
-                          'Este mismo emoji aparece en Admin > WhatsApp.',
+                          'Este mismo emoji aparece en Admin > Maestros por módulo > WhatsApp.',
                           style: TextStyle(
                             fontFamily: kArial,
                             fontSize: 12,

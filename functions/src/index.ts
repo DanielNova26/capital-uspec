@@ -28,6 +28,9 @@ export {
 // Limpieza por módulo de Admin: datos de prueba, con vista previa.
 export { adminLimpiezaModulo } from "./limpieza";
 
+// Maestros por módulo de Admin: copiar lo que falta a otras empresas.
+export { adminSincronizarMaestros } from "./maestros";
+
 // ICD-11 token broker + proxy (Fase B)
 export { carnetPublico } from "./carnet";
 export { icd11Search } from "./icd11";

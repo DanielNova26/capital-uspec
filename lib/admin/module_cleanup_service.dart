@@ -80,7 +80,8 @@ const kModulosLimpieza = <ModuloLimpiezaInfo>[
     color: Color(0xFFB45309),
     descripcion:
         'Recepciones, aprobaciones, abastecimiento y sus tareas. '
-        'Maestros: productos, proveedores, marcas, fichas, bodegas y grupos.',
+        'Maestros: productos, proveedores, marcas, fichas, bodegas, grupos '
+        'y requisitos documentales.',
     maestros: true,
   ),
   ModuloLimpiezaInfo(

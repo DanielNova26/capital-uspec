@@ -6,6 +6,87 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Admin › Maestros por módulo: copiar maestros a otras empresas — 30 sep 2026 (Claude)
+
+Pedido: todo lo de "mover entre empresas" que estaba dentro de los módulos
+pasa a Admin, para copiar los maestros y la configuración de un módulo a
+otras empresas; los módulos no necesitan saber que hay otras empresas.
+Decisiones: todos los maestros (no solo documentos: configuración,
+establecimientos…); **agregar lo que falta**; cada módulo sigue editando sus
+maestros y Admin copia; las pestañas Compras, Correo, Tokens DIAN y WhatsApp
+se agrupan en una sola.
+
+### Cómo queda
+- Nueva pestaña **Admin › Maestros por módulo** (reemplaza Compras, Correo,
+  Tokens DIAN y WhatsApp). Arriba se elige el módulo (chips en web, lista
+  en móvil). Donde había panel propio (Compras, Correo, Tokens DIAN,
+  WhatsApp) sigue igual en "Configuración".
+- **Copiar a otras empresas**: se eligen las empresas destino (solo donde se
+  es Administración; las demás se ven pero no se eligen) y qué maestros
+  (todos por defecto) → "Ver qué se copiaría" (por empresa y maestro:
+  nuevos, ya estaban, sin código ni nombre, campos por completar, ejemplos)
+  → "Copiar lo que falta" con confirmación.
+- Qué se copia:
+  - Compras: configuración, grupos, bodegas, marcas, proveedores,
+    productos, fichas técnicas y requisitos documentales.
+  - Interventoría: configuración y reglas de subsanación.
+  - Visitas: formatos y ubicaciones de establecimientos.
+  - Facturación: obligaciones y qué documentos no aplican por
+    establecimiento (el mes y las fechas límite son de cada empresa).
+  - Rutas: configuración, movilidad (sin las cédulas de alerta),
+    establecimientos, rutas, placas y horarios.
+  - Nutrición: ingredientes, patologías, dietas, plantillas de menú y menús.
+  - Correspondencia: tipos documentales.
+  - Biblioteca documental: cada documento con su versión vigente y su
+    archivo (duplicado en Storage).
+  - Talento Humano: plantillas de documentos (con su Word) y valores por
+    defecto de Zeus.
+  - No se copian personas ni lo que es de cada empresa: grupos de Visitas,
+    beneficiarios y logos de Planillas, cuentas de Correo, tokens DIAN,
+    WhatsApp.
+
+### Reglas de la copia (`functions/src/maestros.ts`, `adminSincronizarMaestros`)
+- Solo crea lo que el destino no tiene, comparando por código o nombre (sin
+  tildes ni mayúsculas); nunca cambia lo que ya existe (`create`, que falla
+  si el documento apareció entre la vista previa y la copia). Se puede
+  repetir.
+- Configuración: completa solo los campos vacíos, por dentro de los mapas;
+  las listas que el destino ya tiene se respetan.
+- Las referencias se traducen al destino: el producto a su marca, la ficha
+  a su producto, proveedor y marca, el formato a su área, la ubicación a su
+  centro. Áreas, cargos y centros se buscan por nombre (centros también por
+  código); si el destino no los tiene, la vista previa lo avisa y remite a
+  Usuarios › Multiempresa para enviarlos (el id queda como el que crea ese
+  envío, así se enlazan al enviarlos). En Interventoría avisa los cargos de
+  las reglas que el destino no tiene (antes lo avisaba el diálogo del
+  módulo).
+- Marcas: si el código (MRC-0003) ya lo usa otra marca en el destino, se le
+  da el siguiente libre y se ajusta el consecutivo del destino.
+- Exige ser Administración en la empresa activa **y** en cada destino. Queda
+  en Logs de las dos: "Maestros: copiados a otras empresas" y "Maestros:
+  recibidos de otra empresa".
+
+### Sale de los módulos
+- Biblioteca documental: el botón "COPIAR A OTRA EMPRESA" y su servicio.
+- Interventoría: "Copiar a otras empresas" del maestro de subsanaciones
+  (reglas y configuración) y sus métodos del servicio.
+
+### Corregido de paso
+- **Limpieza › Compras** borraba la parametrización de requisitos
+  documentales (`TBL_COMPRAS_REQ_DOCUMENTOS`) como si fuera un registro de
+  prueba. Ahora es un maestro: solo se borra si se pide incluir maestros.
+- **Nutrición:** importar dietas o patologías desde Excel usaba el código
+  como id, así que la misma dieta en otra empresa se sobrescribía (y se le
+  cambiaba la empresa). Ahora se usa la de la empresa o
+  `{empresa}_{código}`.
+- Los textos que mandaban a "Admin > WhatsApp" o "Admin → Tokens DIAN"
+  apuntan a la nueva pestaña.
+
+Pruebas: 1.367 de la app (5 nuevas de Maestros por módulo; salen las 5 del
+diálogo de copia de Interventoría), 130 de Functions (15 nuevas).
+Despliegue: `firebase deploy --only functions,hosting` (sin cambios de
+reglas ni índices).
+
 ## Diagnósticos pasa de Admin a Nutrición — 29 sep 2026 (Claude)
 
 Admin › Diagnósticos no revisaba el sistema: cargaba el catálogo de

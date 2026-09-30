@@ -360,8 +360,9 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen>
                       ? 'Conéctalo con el correo del buzón y su contraseña de '
                             'aplicación de Yahoo. Hasta entonces no entra '
                             'ningún token.'
-                      : 'Un administrador debe conectarlo desde Admin → Tokens '
-                            'DIAN. Hasta entonces no entra ningún token.',
+                      : 'Un administrador debe conectarlo desde Admin → '
+                            'Maestros por módulo → Tokens DIAN. Hasta entonces '
+                            'no entra ningún token.',
                   style: const TextStyle(
                     fontSize: 12,
                     color: Color(0xFF52667A),

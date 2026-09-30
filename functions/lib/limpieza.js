@@ -82,7 +82,6 @@ exports.MODULOS_LIMPIEZA = [
         registros: [
             { id: "TBL_COMPRAS_RECEPCIONES", nombre: "Recepciones" },
             { id: "TBL_COMPRAS_APROBACIONES", nombre: "Aprobaciones" },
-            { id: "TBL_COMPRAS_REQ_DOCUMENTOS", nombre: "Requerimientos de documentos" },
             { id: "TBL_COMPRAS_ABASTECIMIENTO", nombre: "Abastecimiento" },
             { id: "TBL_COMPRAS_ABASTECIMIENTO_REPORTES",
                 nombre: "Reportes de abastecimiento" },
@@ -95,6 +94,9 @@ exports.MODULOS_LIMPIEZA = [
             { id: "TBL_COMPRAS_FICHAS_TECNICAS", nombre: "Fichas técnicas" },
             { id: "TBL_COMPRAS_BODEGAS", nombre: "Bodegas" },
             { id: "TBL_COMPRAS_GRUPOS", nombre: "Grupos" },
+            // La parametrización de qué documentos exige cada producto: antes
+            // estaba entre los registros y "borrar datos de prueba" se la llevaba.
+            { id: "TBL_COMPRAS_REQ_DOCUMENTOS", nombre: "Requisitos documentales" },
         ],
     },
     {
