@@ -8,8 +8,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:todo/services/compras_req_excel_parser.dart';
-import 'package:todo/services/compras_proveedores_excel_parser.dart';
-import 'package:todo/services/compras_productos_excel_parser.dart';
 import 'package:todo/services/company_branding_service.dart';
 import 'package:todo/state/empresa_scope.dart';
 import '../core/subcentros_costo.dart';
@@ -323,21 +321,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   Uint8List? _reqComprasBytes;
   Map<String, int>? _reqComprasImportResult;
 
-  // Proveedores: carga masiva desde Excel
-  final ComprasProveedoresExcelParser _proveedoresParser =
-      ComprasProveedoresExcelParser();
-  String? _proveedoresFileName;
-  Uint8List? _proveedoresBytes;
-  Map<String, int>? _proveedoresImportResult;
-  bool _importandoProveedores = false;
-
-  // Productos: carga masiva desde Excel
-  final ComprasProductosExcelParser _productosParser =
-      ComprasProductosExcelParser();
-  String? _productosFileName;
-  Uint8List? _productosBytes;
-  Map<String, int>? _productosImportResult;
-  bool _importandoProductos = false;
   String? _lastScopedEmpresaId;
 
   // Limpieza: usuario seleccionado para limpiar notificaciones individualmente
@@ -1919,144 +1902,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     }
   }
 
-  Future<void> _pickProveedoresExcel() async {
-    final picked = await FilePicker.platform.pickFiles(
-      withData: true,
-      type: FileType.custom,
-      allowedExtensions: ['xlsx', 'xlsm', 'xls'],
-    );
-    if (picked == null || picked.files.isEmpty) return;
-    final file = picked.files.first;
-    setState(() {
-      _proveedoresFileName = file.name;
-      _proveedoresBytes = file.bytes;
-      _proveedoresImportResult = null;
-    });
-  }
-
-  Future<void> _importarProveedoresExcel() async {
-    final empresaId = _empresaId ?? '';
-    final bytes = _proveedoresBytes;
-    if (empresaId.isEmpty) {
-      _snack('Selecciona una empresa primero.');
-      return;
-    }
-    if (bytes == null) {
-      _snack('Primero selecciona un archivo Excel de proveedores.');
-      return;
-    }
-
-    final ok = await _confirm(
-      title: 'Importar proveedores desde Excel',
-      message:
-          'Se agregarán los proveedores del archivo a la empresa seleccionada. '
-          'Los proveedores con NIT ya existente serán omitidos.',
-      confirmText: 'Importar',
-    );
-    if (!ok) return;
-
-    setState(() => _importandoProveedores = true);
-    try {
-      final parsed = _proveedoresParser.parse(
-        bytes: bytes,
-        empresaId: empresaId,
-      );
-      if (parsed.proveedores.isEmpty) {
-        _snack('No se detectaron filas válidas en el archivo.');
-        return;
-      }
-
-      final result = await ComprasService(
-        actorId: widget.userId,
-      ).importarProveedores(empresaId, parsed.proveedores);
-      if (!mounted) return;
-      setState(() {
-        _proveedoresImportResult = {
-          'importados': result['importados'] ?? 0,
-          'omitidos': (result['omitidos'] ?? 0) + parsed.skippedRows,
-        };
-      });
-      _snack(
-        'Proveedores importados: ${result['importados'] ?? 0} '
-        '(omitidos: ${(result['omitidos'] ?? 0) + parsed.skippedRows}).',
-      );
-    } catch (e) {
-      _snack('Error al importar proveedores: $e');
-    } finally {
-      if (mounted) setState(() => _importandoProveedores = false);
-    }
-  }
-
-  Future<void> _pickProductosExcel() async {
-    final picked = await FilePicker.platform.pickFiles(
-      withData: true,
-      type: FileType.custom,
-      allowedExtensions: ['xlsx', 'xlsm', 'xls'],
-    );
-    if (picked == null || picked.files.isEmpty) return;
-    final file = picked.files.first;
-    setState(() {
-      _productosFileName = file.name;
-      _productosBytes = file.bytes;
-      _productosImportResult = null;
-    });
-  }
-
-  Future<void> _importarProductosExcel() async {
-    final empresaId = _empresaId ?? '';
-    final bytes = _productosBytes;
-    if (empresaId.isEmpty) {
-      _snack('Selecciona una empresa primero.');
-      return;
-    }
-    if (bytes == null) {
-      _snack('Primero selecciona un archivo Excel de productos.');
-      return;
-    }
-
-    final ok = await _confirm(
-      title: 'Importar productos desde Excel',
-      message:
-          'Se agregarán los productos del archivo a la empresa seleccionada. '
-          'Los productos con código o nombre ya existente serán omitidos.',
-      confirmText: 'Importar',
-    );
-    if (!ok) return;
-
-    setState(() => _importandoProductos = true);
-    try {
-      final parsed = _productosParser.parse(
-        bytes: bytes,
-        empresaId: empresaId,
-        categoriasValidas: kCategoriasCompras,
-        unidadesValidas: kUnidadesMedida,
-      );
-      if (parsed.productos.isEmpty) {
-        _snack('No se detectaron filas válidas en el archivo.');
-        return;
-      }
-
-      final result = await ComprasService(
-        actorId: widget.userId,
-      ).importarProductos(empresaId, parsed.productos);
-      if (!mounted) return;
-      setState(() {
-        _productosImportResult = {
-          'importados': result['importados'] ?? 0,
-          'omitidos': (result['omitidos'] ?? 0) + parsed.skippedRows,
-        };
-      });
-      _snack(
-        'Productos importados: ${result['importados'] ?? 0} '
-        '(omitidos: ${(result['omitidos'] ?? 0) + parsed.skippedRows}).',
-      );
-    } catch (e) {
-      _snack('Error al importar productos: $e');
-    } finally {
-      if (mounted) setState(() => _importandoProductos = false);
-    }
-  }
-
   Future<void> _sembrarReqComprasBase() async {
     if (_empresaId == null || _empresaId!.isEmpty) {
       _snack('Selecciona una empresa primero.');
@@ -2152,7 +1997,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   Widget _tabReqCompras() {
     final result = _reqComprasImportResult;
-    final provResult = _proveedoresImportResult;
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
@@ -2290,220 +2134,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           ),
         ),
         const SizedBox(height: 12),
-        // ── Carga masiva de proveedores ──────────────────────────────────
-        Card(
-          color: kAdminCard,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.amber.shade200),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.store_outlined,
-                      color: Color(0xFFB45309),
-                      size: 24,
-                    ),
-                    const SizedBox(width: 8),
-                    const Text(
-                      'Carga masiva de proveedores',
-                      style: TextStyle(
-                        fontFamily: kArial,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 16,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                const Text(
-                  'Sube un Excel con el maestro inicial de proveedores de la empresa. '
-                  'Columnas requeridas: NIT, RAZON SOCIAL. '
-                  'Opcionales: DIRECCION, TELEFONO, CORREO, DEPARTAMENTO, CIUDAD, PROV. LOCAL (SI/NO).\n'
-                  'Los proveedores con NIT ya registrado serán omitidos.',
-                  style: TextStyle(fontFamily: kArial, height: 1.4),
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: _importandoProveedores
-                      ? null
-                      : _pickProveedoresExcel,
-                  icon: const Icon(Icons.attach_file),
-                  label: Text(
-                    _proveedoresFileName == null
-                        ? 'Seleccionar Excel de proveedores'
-                        : _proveedoresFileName!,
-                    style: const TextStyle(fontFamily: kArial),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFB45309),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    onPressed: _importandoProveedores
-                        ? null
-                        : _importarProveedoresExcel,
-                    icon: _importandoProveedores
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.file_upload_outlined),
-                    label: Text(
-                      _importandoProveedores
-                          ? 'Importando...'
-                          : 'Importar proveedores desde Excel',
-                      style: const TextStyle(
-                        fontFamily: kArial,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-                if (provResult != null) ...[
-                  const SizedBox(height: 12),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.amber.shade50,
-                      border: Border.all(color: Colors.amber.shade300),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      'Última importación: ${provResult['importados'] ?? 0} proveedores cargados • ${provResult['omitidos'] ?? 0} omitidos (NIT duplicado o fila inválida).',
-                      style: const TextStyle(fontFamily: kArial),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        // ── Carga masiva de productos ──────────────────────────────────
-        Builder(
-          builder: (_) {
-            final prodResult = _productosImportResult;
-            return Card(
-              color: kAdminCard,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: Colors.green.shade200),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.inventory_2_outlined,
-                          color: Colors.green.shade700,
-                          size: 24,
-                        ),
-                        const SizedBox(width: 8),
-                        const Text(
-                          'Carga masiva de productos',
-                          style: TextStyle(
-                            fontFamily: kArial,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 16,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    const Text(
-                      'Sube un Excel con el maestro inicial de productos de la empresa. '
-                      'Columnas requeridas: NOMBRE_PRODUCTO, CATEGORIA, UNIDAD_MEDIDA. '
-                      'Opcionales: CODIGO_PRODUCTO, ORIGEN (NACIONAL/IMPORTADO), PERECEDERO (SI/NO).\n'
-                      'Los productos con código o nombre ya registrado serán omitidos.',
-                      style: TextStyle(fontFamily: kArial, height: 1.4),
-                    ),
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: _importandoProductos
-                          ? null
-                          : _pickProductosExcel,
-                      icon: const Icon(Icons.attach_file),
-                      label: Text(
-                        _productosFileName == null
-                            ? 'Seleccionar Excel de productos'
-                            : _productosFileName!,
-                        style: const TextStyle(fontFamily: kArial),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green.shade700,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        onPressed: _importandoProductos
-                            ? null
-                            : _importarProductosExcel,
-                        icon: _importandoProductos
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Icon(Icons.file_upload_outlined),
-                        label: Text(
-                          _importandoProductos
-                              ? 'Importando...'
-                              : 'Importar productos desde Excel',
-                          style: const TextStyle(
-                            fontFamily: kArial,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                    if (prodResult != null) ...[
-                      const SizedBox(height: 12),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Colors.green.shade50,
-                          border: Border.all(color: Colors.green.shade300),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          'Última importación: ${prodResult['importados'] ?? 0} productos cargados • ${prodResult['omitidos'] ?? 0} omitidos (duplicado o fila inválida).',
-                          style: const TextStyle(fontFamily: kArial),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            );
-          },
-        ),
       ],
     );
   }
@@ -3062,10 +2692,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     );
   }
 
-  /// Admin › Maestros por módulo (29 sep 2026). Cada módulo edita sus
-  /// maestros y su configuración en su empresa, sin saber de las demás; aquí
-  /// está lo que es de Administración (la configuración de Compras, Correo,
-  /// Tokens DIAN y WhatsApp) y la copia de maestros a otras empresas.
+  /// Admin › Maestros por módulo. Los maestros operativos se editan en cada
+  /// módulo; aquí están configuraciones reservadas y la copia entre empresas.
   Widget _tabMaestros() {
     final empresaId = (_empresaId ?? widget.empresaId).trim();
     final modulo = moduloMaestrosPorId(_maestrosModulo);
@@ -3091,9 +2719,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               ),
               const SizedBox(height: 4),
               const Text(
-                'Cada módulo crea y edita sus maestros en su empresa. Aquí '
-                'está la configuración que es de Administración y la copia '
-                'de maestros a otras empresas.',
+                'Los maestros operativos se editan en cada módulo. Aquí '
+                'están sus configuraciones y la copia controlada a otras '
+                'empresas; los parámetros técnicos requieren permisos de '
+                'Desarrollo.',
                 style: TextStyle(fontFamily: kArial, color: Colors.black54),
               ),
               const SizedBox(height: 12),
@@ -3156,6 +2785,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         PanelAdminModulo.tokensDian => AdminDianTokensPanel(
           userId: widget.userId,
           empresaId: empresaId,
+          onOpenRoles: () => _tabController.animateTo(1),
         ),
         PanelAdminModulo.whatsapp => AdminWhatsAppPanel(
           userId: widget.userId,
@@ -16744,9 +16374,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
         // Mover cédulas al survivor y eliminar el loser.
         if (cedulas.isNotEmpty) {
-          batch.set(db.collection('TBL_CARGOS').doc(survivor.docId), {
-            'cedulas': FieldValue.arrayUnion(cedulas.toList()),
-          }, SetOptions(merge: true));
+          batch.set(
+            db.collection('TBL_CARGOS').doc(survivor.docId),
+            {'cedulas': FieldValue.arrayUnion(cedulas.toList())},
+            SetOptions(merge: true),
+          );
           writes++;
         }
         batch.delete(db.collection('TBL_CARGOS').doc(l.docId));

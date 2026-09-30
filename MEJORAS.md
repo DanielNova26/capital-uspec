@@ -6,6 +6,36 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Alcance de maestros de configuración y cargas de Compras — 30 sep 2026 (Codex)
+
+El usuario precisó que el personal de Compras crea y carga proveedores,
+marcas y productos en Compras. Se trasladó la importación Excel de
+proveedores y productos desde Admin a una entrada del módulo de Compras;
+Marcas conserva su editor en ese módulo. Admin mantiene la configuración de
+requisitos documentales y plazos, así como los autorizados y el buzón de
+Tokens DIAN, filtros de Correo y la copia controlada entre empresas. Desde el
+panel DIAN se enlaza la asignación de acceso y rol en Apps, roles y permisos,
+sin duplicar el editor de roles; la conexión del buzón se edita en Admin y el
+módulo muestra su estado y permite la sincronización operativa. El editor de
+filtros de Correo pasó a Admin y la pestaña operativa de Correo quedó en
+Resumen y Bandeja. `firestore.rules` exige Admin de la empresa o Desarrollo
+para escribir filtros; la lectura se mantiene dentro de la empresa.
+`AGENTS.md` y
+`CLAUDE.md` distinguen maestros operativos de configuraciones reservadas.
+Una restricción exclusiva de Desarrollo se aplicará por parámetro técnico
+concreto, también en servidor/reglas, sin bloquear toda la pestaña ni las
+cargas diarias de Compras.
+
+Validación: 159 pruebas dirigidas de Compras/Admin y una prueba de la nueva
+pantalla aprobadas; también pasaron 16 pruebas de Correo/permisos/Compras y
+22 dirigidas de Tokens DIAN/Correo/Compras. Los archivos nuevos y los paneles
+movidos no tienen errores de análisis; la compilación Web final pasó. La
+prueba de reglas de Correo quedó escrita,
+pero el emulador Firestore no inició en Windows por un error Java/Netty de
+conexión loopback; se requiere ejecutarla en un entorno donde arranque.
+
+---
+
 ## Revisión final de Admin y contrato multiplataforma — 30 sep 2026 (Codex ↔ Claude)
 
 `AGENTS.md` y `CLAUDE.md` exigen cobertura Web adaptable, Android e iOS,

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../correo/correo_models.dart';
+import '../correo/correo_dashboard_screen.dart' show CorreoFiltrosPanel;
 import '../correo/correo_service.dart';
 import '../gestion_documental/correspondencia/gd_roles_screen.dart';
 import '../gestion_documental/correspondencia/gd_tipos_documentales_screen.dart';
@@ -186,11 +187,14 @@ class _AdminCorreoPanelState extends State<AdminCorreoPanel> {
           ),
           const SizedBox(height: 4),
           const Text(
-            'Conecta buzones, revisa el estado técnico y ejecuta el procesamiento. Los filtros se administran dentro del módulo Correo y los números desde Admin > Maestros por módulo > WhatsApp.',
+            'Conecta buzones, administra filtros y revisa el estado técnico. '
+            'Los números de alerta se configuran en Admin > Maestros por módulo > WhatsApp.',
             style: TextStyle(color: _muted),
           ),
           const SizedBox(height: 18),
           _rolesCard(),
+          const SizedBox(height: 14),
+          _filtrosCard(),
           const SizedBox(height: 14),
           _tiposDocumentalesCard(),
           const SizedBox(height: 14),
@@ -226,6 +230,35 @@ class _AdminCorreoPanelState extends State<AdminCorreoPanel> {
         ),
         icon: const Icon(Icons.manage_accounts_outlined, size: 18),
         label: const Text('Administrar roles'),
+      ),
+    ),
+  );
+
+  Widget _filtrosCard() => _card(
+    title: 'Filtros de Correo',
+    subtitle:
+        'Configura qué mensajes generan alertas o correspondencia '
+        'automática para la empresa activa.',
+    icon: Icons.filter_alt_outlined,
+    child: Align(
+      alignment: Alignment.centerLeft,
+      child: OutlinedButton.icon(
+        onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => Scaffold(
+              appBar: AppBar(title: const Text('Filtros de Correo')),
+              body: CorreoFiltrosPanel(
+                service: _service,
+                empresaId: widget.empresaId,
+                userId: widget.userId,
+                onMessage: _message,
+              ),
+            ),
+          ),
+        ),
+        icon: const Icon(Icons.tune_outlined, size: 18),
+        label: const Text('Administrar filtros'),
       ),
     ),
   );

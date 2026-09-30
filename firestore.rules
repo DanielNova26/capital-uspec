@@ -712,6 +712,23 @@ service cloud.firestore {
     // ciphertext ni alterar la URL, sesión o módulos habilitados.
     // Los listados conservan su colección histórica para no romper reglas de
     // Correo, pero sólo Administración puede modificarlos mediante Functions.
+    // Los filtros son configuración de Admin, no un editor operativo de Correo.
+    // El acceso por la regla general queda excluido al final del archivo.
+    function configuraFiltrosCorreo(empresaId) {
+      return belongsToCompany(empresaId)
+        && (tieneAppAdminEn(empresaId) || isDeveloper()
+          || isDeveloperIn(empresaId));
+    }
+
+    match /TBL_CORREO_REGLAS/{docId} {
+      allow get: if resource == null || belongsToCompany(resource.data.empresaId);
+      allow list: if belongsToCompany(resource.data.empresaId);
+      allow create: if configuraFiltrosCorreo(request.resource.data.empresaId);
+      allow update: if resource.data.empresaId == request.resource.data.empresaId
+        && configuraFiltrosCorreo(resource.data.empresaId);
+      allow delete: if configuraFiltrosCorreo(resource.data.empresaId);
+    }
+
     match /TBL_CORREO_LISTADOS/{document=**} {
       allow read: if isSignedIn();
       allow write: if false;
@@ -1846,6 +1863,7 @@ service cloud.firestore {
           'TBL_COMPRAS_ROLES','TBL_COMPRAS_CONFIG',
           'TBL_WHATSAPP_CONFIG',
           'TBL_CORREO_LISTADOS',
+          'TBL_CORREO_REGLAS',
           'TBL_GD_EXPEDIENTES',
           'TBL_INTERVENTORIA_VISITAS',
           'TBL_INTERVENTORIA_HALLAZGOS',

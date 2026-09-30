@@ -8,7 +8,6 @@ import 'package:url_launcher/url_launcher.dart';
 import '../core/guarded_module_page.dart';
 import '../home/widgets/home_shared_widgets.dart';
 import '../widgets/internal_module_layout.dart';
-import 'dian_buzon_dialog.dart';
 import 'dian_tokens_models.dart';
 import 'dian_tokens_service.dart';
 import '../widgets/paged_list.dart';
@@ -129,32 +128,6 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen>
       if (mounted) setState(() => _buzonStatusUnavailable = true);
     } finally {
       _loadingBuzon = false;
-    }
-  }
-
-  /// Conectar el buzon tambien desde el modulo: un administrador que entra
-  /// aqui no deberia tener que ir a buscar el boton a otra pantalla.
-  Future<void> _conectarBuzon() async {
-    setState(() => _syncing = true);
-    try {
-      final estado = await mostrarDialogoConectarBuzon(
-        context: context,
-        service: _service,
-        empresaId: widget.empresaId,
-        userId: widget.userId,
-        estadoActual: _buzon,
-      );
-      if (estado == null) return;
-      if (mounted) setState(() => _buzon = estado);
-      _snack('Buzón conectado. Solo entrarán los correos Token DIAN.');
-      await _load();
-    } catch (error) {
-      _snack(_friendly(error), error: true);
-      // El backend guarda el motivo del rechazo: recargarlo lo deja visible en
-      // el banner en vez de perderse cuando el aviso desaparece.
-      await _loadBuzon();
-    } finally {
-      if (mounted) setState(() => _syncing = false);
     }
   }
 
@@ -372,13 +345,8 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen>
                             ? 'La clave continúa guardada. Yahoo presentó una '
                                   'novedad y el detector volverá a intentarlo.'
                             : _buzon.descripcionFiltro
-                      : _administra
-                      ? 'Conéctalo con el correo del buzón y su contraseña de '
-                            'aplicación de Yahoo. Hasta entonces no entra '
-                            'ningún token.'
-                      : 'Un administrador debe conectarlo desde Admin → '
-                            'Maestros por módulo → Tokens DIAN. Hasta entonces '
-                            'no entra ningún token.',
+                      : 'Conecta el buzón desde Admin → Maestros por módulo → '
+                            'Tokens DIAN. Hasta entonces no entra ningún token.',
                   style: const TextStyle(
                     fontSize: 12,
                     color: Color(0xFF52667A),
@@ -392,23 +360,6 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen>
               ],
             ),
           ),
-          if (_administra && (!conectado || _buzon.conError))
-            FilledButton.icon(
-              onPressed: _syncing ? null : _conectarBuzon,
-              style: FilledButton.styleFrom(backgroundColor: acento),
-              icon: _syncing
-                  ? const SizedBox.square(
-                      dimension: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.link, size: 18),
-              label: Text(
-                conectado ? 'Actualizar clave Yahoo' : 'Conectar buzón Yahoo',
-              ),
-            ),
           if (conectado && _puedeOperar)
             OutlinedButton.icon(
               onPressed: _syncing ? null : _syncBuzon,

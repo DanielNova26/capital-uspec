@@ -36,11 +36,11 @@ No quiero:
 ## Contrato obligatorio al crear o ampliar un módulo
 Antes de dar un módulo por terminado, comprobar lo siguiente:
 
-- Registrar los maestros y configuraciones por empresa en el catálogo común
-  de Admin. Su edición sigue la regla «Maestros por módulo» de este archivo:
-  cada módulo mantiene sus editores operativos; Admin centraliza la
-  configuración administrativa y la copia entre empresas. No crear fuentes
-  duplicadas ni cruzar datos de empresas.
+- Registrar los maestros operativos y las configuraciones por empresa en el
+  catálogo común para permitir su copia controlada. Cada módulo mantiene sus
+  editores operativos; Admin reúne la configuración técnica o reservada, la
+  configuración administrativa ya centralizada y la copia entre empresas.
+  No crear fuentes duplicadas ni cruzar datos de empresas.
 - Registrarlo en el catálogo común de apps y en Admin → Apps, roles y permisos, con el mismo identificador canónico en Web, móvil, backend y reglas.
 - Respetar la empresa activa y la pertenencia/habilitación de la persona en cada lectura, escritura y navegación.
 - Si hay más de un nivel operativo, incluir en la tarjeta de Admin el creador de roles (crear, editar, inactivar), niveles iniciales, asignación por persona, nivel individual y sincronización de cambios. Mantener una única fuente de verdad para nombres y capacidades. Si el módulo solo tiene acceso a la app, dejarlo explícito, sin inventar roles.
@@ -69,11 +69,21 @@ Mostrar al usuario principalmente el resultado final: qué quedó hecho, validac
   empresa. En Compras, proveedores, productos, marcas y fichas técnicas los
   crea y edita el equipo de Compras uno a uno: es así a propósito y **no es
   un pendiente de Admin**.
-- **Admin › Maestros por módulo** tiene dos cosas: la configuración que es
-  de Administración (en Compras: las cargas por Excel de proveedores,
-  productos y requisitos documentales, y el plazo de rechazados; además
-  Correo, Tokens DIAN y WhatsApp) y **"Copiar a otras empresas"**. Bodegas y
-  grupos de Compras también se crean en Admin.
+- **Admin › Maestros por módulo** no es otro editor general de maestros
+  operativos. Reúne configuraciones y datos de gobierno del sistema, en
+  especial los parámetros técnicos cuya edición corresponde solo a
+  Desarrollo, además de **"Copiar a otras empresas"**. Para cada parámetro
+  reservado, proteger la escritura en la interfaz y en reglas o servidor;
+  estar dentro de Admin no convierte automáticamente toda opción en
+  exclusiva de Desarrollo.
+- Compras crea y carga proveedores, marcas y productos dentro del módulo, por
+  su propio equipo. Admin conserva la configuración de requisitos
+  documentales, el plazo de rechazados, bodegas y grupos, además de la
+  configuración de Correo, Tokens DIAN y WhatsApp. En particular, los
+  autorizados y la conexión del buzón DIAN y los filtros de Correo son
+  configuraciones; no son registros operativos para cargarlos en Admin.
+  Asignar permisos de edición según cada configuración, sin bloquear las
+  tareas de Compras por una regla global.
 - Ningún módulo muestra otras empresas: nada de "copiar a otra empresa"
   dentro de un módulo. Lo que mueve datos entre empresas va en Admin
   (Maestros por módulo, o Usuarios › Multiempresa para personas, áreas,

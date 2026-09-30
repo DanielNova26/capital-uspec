@@ -53,16 +53,6 @@ class _CorreoDashboardScreenState extends State<CorreoDashboardScreen> {
     }
   }
 
-  void _snack(String message, {bool error = false}) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: error ? Colors.red.shade700 : _correoPrimary,
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<GdPermisos>(
@@ -98,43 +88,20 @@ class _CorreoDashboardScreenState extends State<CorreoDashboardScreen> {
   }
 
   Widget _correoDashboardBody({required _CorreoAccess access}) {
-    final canManage = access.canManage;
     final isWide = kIsWeb && MediaQuery.of(context).size.width >= 980;
-    final tabs = canManage
-        ? const [
-            Tab(icon: Icon(Icons.insights_outlined), text: 'Resumen'),
-            Tab(icon: Icon(Icons.inbox_outlined), text: 'Bandeja'),
-            Tab(icon: Icon(Icons.filter_alt_outlined), text: 'Filtros'),
-          ]
-        : const [
-            Tab(icon: Icon(Icons.insights_outlined), text: 'Resumen'),
-            Tab(icon: Icon(Icons.inbox_outlined), text: 'Bandeja'),
-          ];
-    final views = canManage
-        ? [
-            _DailySummaryTab(service: _service, empresaId: widget.empresaId),
-            _InboxTab(
-              service: _service,
-              empresaId: widget.empresaId,
-              userId: widget.userId,
-              canRadicar: access.canRadicar,
-            ),
-            _RulesTab(
-              service: _service,
-              empresaId: widget.empresaId,
-              userId: widget.userId,
-              onMessage: _snack,
-            ),
-          ]
-        : [
-            _DailySummaryTab(service: _service, empresaId: widget.empresaId),
-            _InboxTab(
-              service: _service,
-              empresaId: widget.empresaId,
-              userId: widget.userId,
-              canRadicar: access.canRadicar,
-            ),
-          ];
+    const tabs = [
+      Tab(icon: Icon(Icons.insights_outlined), text: 'Resumen'),
+      Tab(icon: Icon(Icons.inbox_outlined), text: 'Bandeja'),
+    ];
+    final views = [
+      _DailySummaryTab(service: _service, empresaId: widget.empresaId),
+      _InboxTab(
+        service: _service,
+        empresaId: widget.empresaId,
+        userId: widget.userId,
+        canRadicar: access.canRadicar,
+      ),
+    ];
 
     final tabPanel = DefaultTabController(
       key: ValueKey('${widget.empresaId}_${widget.userId}_${access.rol.valor}'),
@@ -199,9 +166,6 @@ class _CorreoAccess {
   const _CorreoAccess(this.rol);
 
   GdPermisos get permisos => GdPermisos(rol);
-
-  /// Buzones y filtros: administración del módulo.
-  bool get canManage => permisos.puedeAdministrarFiltros;
 
   /// Radicar elige responsable y fecha límite, así que es una asignación y
   /// pide el mismo rol que clasificar.
@@ -1262,12 +1226,14 @@ const _correspondenceDocumentTypes = <String>[
   'Otro',
 ];
 
-class _RulesTab extends StatelessWidget {
+/// Editor canónico de filtros, presentado desde Admin > Maestros por módulo.
+class CorreoFiltrosPanel extends StatelessWidget {
   final CorreoService service;
   final String empresaId;
   final String userId;
   final void Function(String, {bool error}) onMessage;
-  const _RulesTab({
+  const CorreoFiltrosPanel({
+    super.key,
     required this.service,
     required this.empresaId,
     required this.userId,

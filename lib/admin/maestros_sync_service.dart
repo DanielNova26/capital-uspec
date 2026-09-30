@@ -1,7 +1,7 @@
 // Maestros por módulo (29 sep 2026): Admin › Maestros por módulo.
 //
-// Cada módulo crea y edita sus maestros y su configuración en su propia
-// empresa, sin saber que existen las demás. Admin los copia a otras
+// Cada módulo crea y edita sus maestros operativos en su propia empresa, sin
+// saber que existen las demás. Admin mantiene configuraciones y los copia a otras
 // empresas con la función `adminSincronizarMaestros`
 // (functions/src/maestros.ts): solo agrega lo que el destino no tiene, por
 // código o nombre, y nunca cambia lo que ya existe.

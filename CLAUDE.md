@@ -16,9 +16,11 @@ obligatorio para cualquier módulo que crees o amplíes. Coordina hallazgos y
 pendientes con Codex únicamente mediante `MEJORAS.md`.
 
 Todo maestro nuevo debe quedar registrado por empresa en el catálogo común
-de Admin. La edición operativa se hace en el módulo que lo usa, según la
-regla 6; Admin concentra la configuración administrativa y la copia entre
-empresas. Compartir la fuente de datos, sin duplicarla ni cruzar empresas.
+para permitir su copia controlada. La edición operativa se hace en el módulo
+que lo usa, según la regla 6; Admin concentra configuraciones técnicas y
+administrativas ya centralizadas y la copia entre empresas. Los parámetros
+reservados a Desarrollo deben protegerse en reglas o servidor además de la
+interfaz. Compartir la fuente de datos, sin duplicarla ni cruzar empresas.
 Ante datos históricos, preparar una incorporación revisable por empresa y
 documentar la transición en `MEJORAS.md`.
 
@@ -93,11 +95,17 @@ calendario NO son módulos: los tiene todo el personal y nadie los puede quitar.
   empresa. En Compras, proveedores, productos, marcas y fichas técnicas los
   crea y edita el equipo de Compras uno a uno: es así a propósito y **no es
   un pendiente de Admin**.
-- **Admin › Maestros por módulo** tiene dos cosas: la configuración que es
-  de Administración (en Compras: las cargas por Excel de proveedores,
-  productos y requisitos documentales, y el plazo de rechazados; además
-  Correo, Tokens DIAN y WhatsApp) y **"Copiar a otras empresas"**. Bodegas y
-  grupos de Compras también se crean en Admin.
+- **Admin › Maestros por módulo** reúne configuraciones y datos de gobierno,
+  especialmente los parámetros técnicos que solo Desarrollo puede editar,
+  y **"Copiar a otras empresas"**. No duplica el editor operativo de cada
+  módulo. Restringe cada parámetro técnico tanto en la interfaz como en
+  reglas o servidor; no bloquees toda la pestaña sin clasificar sus opciones.
+- Compras crea y carga proveedores, marcas y productos dentro del módulo, por
+  su propio equipo. Admin conserva la configuración de requisitos
+  documentales, el plazo de rechazados, bodegas y grupos, además de Correo,
+  Tokens DIAN y WhatsApp. Autorizados y conexión del buzón DIAN y filtros de
+  Correo son configuraciones. Cada opción conserva el permiso de edición que
+  le corresponda; no quites al equipo de Compras sus cargas operativas.
 - Ningún módulo muestra otras empresas: nada de "copiar a otra empresa"
   dentro de un módulo. Lo que mueve datos entre empresas va en Admin
   (Maestros por módulo, o Usuarios › Multiempresa para personas, áreas,

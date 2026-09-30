@@ -15,10 +15,12 @@ class AdminDianTokensPanel extends StatefulWidget {
     super.key,
     required this.userId,
     required this.empresaId,
+    this.onOpenRoles,
   });
 
   final String userId;
   final String empresaId;
+  final VoidCallback? onOpenRoles;
 
   @override
   State<AdminDianTokensPanel> createState() => _AdminDianTokensPanelState();
@@ -308,6 +310,14 @@ class _AdminDianTokensPanelState extends State<AdminDianTokensPanel> {
                   'Crea roles y asigna Consulta, Operador o Administrador en Apps, roles y permisos → Tokens DIAN. Esta lista refleja la membresía de la empresa activa.',
                   style: TextStyle(color: Color(0xFF617386)),
                 ),
+                if (widget.onOpenRoles != null) ...[
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: widget.onOpenRoles,
+                    icon: const Icon(Icons.manage_accounts_outlined),
+                    label: const Text('Asignar acceso y rol'),
+                  ),
+                ],
                 const SizedBox(height: 14),
                 TextField(
                   controller: _search,

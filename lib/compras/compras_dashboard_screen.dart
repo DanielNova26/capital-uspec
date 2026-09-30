@@ -29,6 +29,7 @@ import 'compras_document_scanner_stub.dart'
     as document_scanner;
 import 'compras_recepcion_logic.dart';
 import 'compras_service.dart';
+import 'compras_catalog_import_screen.dart';
 import 'compras_access_service.dart';
 import 'compras_req_engine.dart';
 import 'compras_tiempos_calidad.dart';
@@ -1034,6 +1035,22 @@ class _ComprasDashboardBody extends StatelessWidget {
                 empresaId: empresaId,
                 svc: svc,
                 userId: userId,
+              ),
+            ),
+          ),
+        ),
+        card(
+          icon: Icons.file_upload_outlined,
+          titulo: 'Cargar catálogo',
+          subtitulo: 'Importar proveedores y productos desde Excel',
+          color: const Color(0xFF0F766E),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ComprasCatalogImportScreen(
+                empresaId: empresaId,
+                userId: userId,
+                service: svc,
               ),
             ),
           ),
