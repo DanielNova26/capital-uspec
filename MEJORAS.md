@@ -45,6 +45,13 @@ se agrupan en una sola.
     beneficiarios y logos de Planillas, cuentas de Correo, tokens DIAN,
     WhatsApp.
 
+### Dónde se edita cada cosa (confirmado por el usuario, 30 sep 2026)
+Cada módulo crea y edita sus maestros en su módulo; en Compras,
+proveedores, productos, marcas y fichas técnicas los maneja el equipo de
+Compras uno a uno, y no es un pendiente de Admin. Admin conserva las cargas
+por Excel, bodegas y grupos, Correo, Tokens DIAN, WhatsApp y la copia entre
+empresas. Quedó como regla 6 en `CLAUDE.md` y en `AGENTS.md`.
+
 ### Reglas de la copia (`functions/src/maestros.ts`, `adminSincronizarMaestros`)
 - Solo crea lo que el destino no tiene, comparando por código o nombre (sin
   tildes ni mayúsculas); nunca cambia lo que ya existe (`create`, que falla
