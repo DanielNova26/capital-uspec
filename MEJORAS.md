@@ -93,6 +93,24 @@ Versión 2.6.12 (26), integrada en `main` por Claude a pedido expreso del
 usuario (el primer intento de integración no llegó a `origin/main` y el
 despliegue publicó la versión anterior). Compilación Web verificada.
 
+**Estado del despliegue (30 sep, noche):** Hosting 2.6.12 (26) y las
+Functions `comprasReporteAbastecimiento1700`,
+`comprasGenerarReporteAbastecimiento` y `adminSincronizarMaestros`
+publicados. **Reglas de Firestore pendientes:** `firebaserules.googleapis.com`
+respondió 503 en todos los intentos (también con las reglas anteriores, no es
+por el cambio). La app funciona sin ellas: solo agregan la validación del
+campo `abastecimientoPeriodo`. Reintentar `firebase deploy --only
+firestore:rules`.
+
+El respaldo de los cambios locales que quedaron en el equipo del usuario
+(`origin/respaldo-local-30sep`) es la primera versión del arreglo de
+Planillas y la regla de Git, ya en `main`. Se portó a `main` la prueba que
+faltaba (gerente con Planillas asignada y aislamiento de otra empresa en
+`registerMissing`); la rama puede borrarse.
+
+**Urgente:** Google deja de aceptar despliegues de Functions con Node.js 20
+el 30 oct 2026; hay que pasar `functions` a Node 22 antes.
+
 Despliegue necesario: reglas de Firestore, Functions
 (`comprasReporteAbastecimiento1700`, `comprasGenerarReporteAbastecimiento`,
 `adminSincronizarMaestros`) y Hosting. Tras desplegar Functions, la primera
