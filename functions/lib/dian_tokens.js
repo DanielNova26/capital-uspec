@@ -126,7 +126,15 @@ function userName(user, fallback) {
         `${text(user.apellidos || user.primerApellido)}`;
     return full.trim() || fallback;
 }
-/** El canónico manda; sin fila, conserva el acceso histórico por app. */
+/**
+ * Resuelve el nivel efectivo de Tokens DIAN para la empresa activa.
+ * El canónico manda; sin fila, conserva el acceso histórico por app.
+ * @param {FirebaseFirestore.DocumentData} user Datos de la persona.
+ * @param {string} empresaId Identificador de la empresa activa.
+ * @param {string} userId Identificador de la persona.
+ * @param {FirebaseFirestore.DocumentData | null} assignment Asignación canónica.
+ * @return {DianLevel} Nivel efectivo de acceso.
+ */
 function nivelTokensDian(user, empresaId, userId, assignment) {
     if (!belongsToCompany(user, empresaId) || !enabledInCompany(user, empresaId)) {
         return "ninguno";
