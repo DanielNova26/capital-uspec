@@ -21,7 +21,15 @@ export {
   securityAdminRevokeDisabledSessions,
   securityAdminResetTemporaryPassword,
   securityAdminClearLoginBlocks,
+  securityAdminAssignInitialPassword,
+  securityRegistrarUsuarioNuevo,
 } from "./security_admin";
+
+// Limpieza por módulo de Admin: datos de prueba, con vista previa.
+export { adminLimpiezaModulo } from "./limpieza";
+
+// Maestros por módulo de Admin: copiar lo que falta a otras empresas.
+export { adminSincronizarMaestros } from "./maestros";
 
 // ICD-11 token broker + proxy (Fase B)
 export { carnetPublico } from "./carnet";

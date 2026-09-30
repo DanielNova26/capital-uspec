@@ -26,6 +26,10 @@ dynamic _stored(dynamic value) {
 class MemoryFirestore extends Fake implements FirebaseFirestore {
   final documents = <String, Map<String, dynamic>>{};
   final rejectWrites = <String>{};
+
+  /// Colecciones cuyo índice compuesto "aún no está desplegado": `orderBy`
+  /// responde `failed-precondition`, como Firestore.
+  final missingIndexes = <String>{};
   void Function()? beforeTransaction;
   int writes = 0;
   int _nextId = 0;
@@ -92,6 +96,19 @@ class _Query extends Fake implements Query<Map<String, dynamic>> {
 
   @override
   Query<Map<String, dynamic>> limit(int limit) => this;
+
+  /// No ordena: quien consulta ordena en memoria si le importa.
+  @override
+  Query<Map<String, dynamic>> orderBy(Object field, {bool descending = false}) {
+    if (db.missingIndexes.contains(path)) {
+      throw FirebaseException(
+        plugin: 'cloud_firestore',
+        code: 'failed-precondition',
+        message: 'The query requires an index.',
+      );
+    }
+    return this;
+  }
 
   @override
   Query<Map<String, dynamic>> where(
@@ -304,7 +321,11 @@ class _Transaction extends Fake implements Transaction {
     }
     final next = _copy(db.documents[reference.path]!);
     for (final entry in data.entries) {
-      final keys = entry.key.toString().split('.');
+      // Un FieldPath es un solo nombre aunque lleve puntos.
+      final key = entry.key;
+      final keys = key is FieldPath
+          ? key.components
+          : key.toString().split('.');
       var current = next;
       for (final key in keys.take(keys.length - 1)) {
         current[key] ??= <String, dynamic>{};
@@ -346,7 +367,13 @@ class _Batch extends Fake implements WriteBatch {
   }
 
   @override
-  Future<void> commit() => db.runTransaction((tx) async {
-    (tx as _Transaction).pending.addAll(transaction.pending);
-  });
+  Future<void> commit() {
+    // Como Firestore: un lote no admite más de 500 escrituras.
+    if (transaction.pending.length > 500) {
+      throw StateError('Un lote de Firestore admite hasta 500 escrituras.');
+    }
+    return db.runTransaction((tx) async {
+      (tx as _Transaction).pending.addAll(transaction.pending);
+    });
+  }
 }

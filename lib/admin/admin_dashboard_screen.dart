@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
-import 'package:todo/services/diagnosticos_service.dart';
 import 'package:todo/services/compras_req_excel_parser.dart';
 import 'package:todo/services/compras_proveedores_excel_parser.dart';
 import 'package:todo/services/compras_productos_excel_parser.dart';
@@ -53,6 +52,18 @@ import 'payment_module_roles_repository.dart';
 import 'library_module_roles_panel.dart';
 import 'correspondence_module_roles_panel.dart';
 import 'payment_module_roles_panel.dart';
+import 'admin_logs_panel.dart';
+import 'estructura_por_empresa.dart';
+import 'module_cleanup_card.dart';
+import 'maestros_sync_card.dart';
+import 'maestros_sync_service.dart';
+import 'module_cleanup_service.dart';
+import 'billing_module_role.dart';
+import 'management_module_role.dart';
+import 'management_module_roles_panel.dart';
+import 'management_module_roles_repository.dart';
+import 'billing_module_roles_panel.dart';
+import 'billing_module_roles_repository.dart';
 import 'table_module_role.dart';
 import 'table_module_roles_panel.dart';
 import 'table_module_roles_repository.dart';
@@ -131,11 +142,12 @@ const List<InternalModuleTabItem> _kAdminModuleTabs = [
   InternalModuleTabItem(label: 'Logs', icon: Icons.history),
   InternalModuleTabItem(label: 'Seguridad', icon: Icons.security_rounded),
   InternalModuleTabItem(label: 'Limpieza', icon: Icons.cleaning_services),
-  InternalModuleTabItem(label: 'Diagnósticos', icon: Icons.medical_information),
-  InternalModuleTabItem(label: 'Compras', icon: Icons.shopping_bag_outlined),
-  InternalModuleTabItem(label: 'Correo', icon: Icons.alternate_email),
-  InternalModuleTabItem(label: 'Tokens DIAN', icon: Icons.vpn_key_outlined),
-  InternalModuleTabItem(label: 'WhatsApp', icon: Icons.chat_outlined),
+  // 29 sep 2026: Compras, Correo, Tokens DIAN y WhatsApp quedan dentro de
+  // "Maestros por módulo", junto con la copia de maestros a otras empresas.
+  InternalModuleTabItem(
+    label: 'Maestros por módulo',
+    icon: Icons.inventory_2_outlined,
+  ),
 ];
 
 class AdminDashboardScreen extends StatefulWidget {
@@ -191,6 +203,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   CorrespondenceModuleRolesRepository get _correspondenceRolesRepo =>
       CorrespondenceModuleRolesRepository(actorId: widget.userId);
   List<PaymentModuleRole> _paymentModuleRoles = [];
+  List<BillingModuleRole> _billingModuleRoles = [];
+  List<ManagementModuleRole> _managementModuleRoles = [];
+  ManagementModuleRolesRepository get _managementRolesRepo =>
+      ManagementModuleRolesRepository(actorId: widget.userId);
+  BillingModuleRolesRepository get _billingRolesRepo =>
+      BillingModuleRolesRepository(actorId: widget.userId);
   // Compras, Rutas e Interventoría: roles configurables con tabla propia.
   Map<String, List<TableModuleRole>> _tableModuleRoles = {};
   TableModuleRolesRepository _tableRolesRepo(TableModuleRoleConfig config) =>
@@ -299,10 +317,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   Set<String> _selectedMigrationUsers = {};
 
   // Diagnósticos: carga de Excel
-  final DiagnosticosService _diagnosticosService = DiagnosticosService();
-  String? _diagnosticosFileName;
-  Uint8List? _diagnosticosBytes;
-  Map<String, int>? _diagnosticosImportResult;
   bool _importandoReqCompras = false;
   final ComprasReqExcelParser _comprasReqParser = ComprasReqExcelParser();
   String? _reqComprasFileName;
@@ -334,7 +348,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       AdminModuleCloseoutService();
   DateTime _moduleCloseoutCutoff = DateTime(DateTime.now().year, 9, 1);
   AdminCloseoutRange _moduleCloseoutRange = AdminCloseoutRange.before;
-  Set<String> _moduleCloseoutModules = {'interventoria', 'facturacion'};
+  Set<String> _moduleCloseoutModules = {'tareas'};
+
+  /// Módulo elegido en Limpieza.
+  String _limpiezaModulo = 'tareas';
+  String _maestrosModulo = kModulosMaestros.first.id;
+  bool _maestrosVerPanel = true;
   AdminModuleCloseoutPreview? _moduleCloseoutPreview;
   bool _moduleCloseoutBusy = false;
 
@@ -523,6 +542,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         selected,
       );
       _paymentModuleRoles = _paymentRolesFromSources(_moduleSources, selected);
+      _billingModuleRoles = _billingRolesFromSources(_moduleSources, selected);
+      _managementModuleRoles = _managementRolesFromSources(
+        _moduleSources,
+        selected,
+      );
       _tableModuleRoles = _tableRolesFromSources(_moduleSources, selected);
       _accessRoles = accessRoles;
       _comprasRoleByUser = comprasRoleByUser;
@@ -606,6 +630,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           empresaId,
         );
         _paymentModuleRoles = _paymentRolesFromSources(
+          _moduleSources,
+          empresaId,
+        );
+        _billingModuleRoles = _billingRolesFromSources(
+          _moduleSources,
+          empresaId,
+        );
+        _managementModuleRoles = _managementRolesFromSources(
           _moduleSources,
           empresaId,
         );
@@ -1135,6 +1167,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       builder: (ctx) {
         final local = {..._selectedMigrationUsers};
         String q = '';
+        int page = 0;
+        final empresaId = _empresaId ?? widget.empresaId;
 
         List<QueryDocumentSnapshot<Map<String, dynamic>>> filtered() {
           if (q.trim().isEmpty) return _users;
@@ -1143,7 +1177,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             final d = u.data();
             final name = _userName(d, u.id).toLowerCase();
             final ced = _safe(d['cedula']).toLowerCase();
-            final cargo = _safe(d['cargo']).toLowerCase();
+            final cargo = _userCargoText(d, empresaId).toLowerCase();
             return name.contains(s) ||
                 ced.contains(s) ||
                 u.id.toLowerCase().contains(s) ||
@@ -1154,6 +1188,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         return StatefulBuilder(
           builder: (ctx2, setLocal) {
             final list = filtered();
+            final pagina = page.clamp(0, pageCountOf(list.length) - 1);
+            final visibles = pageOf(list, pagina);
 
             return SafeArea(
               child: Padding(
@@ -1198,7 +1234,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           fillColor: Colors.white,
                         ),
                         style: const TextStyle(fontFamily: kArial),
-                        onChanged: (v) => setLocal(() => q = v),
+                        onChanged: (v) => setLocal(() {
+                          q = v;
+                          page = 0;
+                        }),
                       ),
 
                       const SizedBox(height: 10),
@@ -1287,20 +1326,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                             side: BorderSide(color: Colors.grey.shade300),
                           ),
                           child: ListView.separated(
-                            itemCount: list.length,
+                            itemCount: visibles.length,
                             separatorBuilder: (_, _) =>
                                 Divider(height: 0, color: Colors.grey.shade200),
                             itemBuilder: (_, i) {
-                              final u = list[i];
+                              final u = visibles[i];
                               final d = u.data();
                               final name = _userName(d, u.id);
                               final ced = _safe(d['cedula']).isNotEmpty
                                   ? _safe(d['cedula'])
                                   : u.id;
-                              final cargo = _safe(d['cargo']);
+                              final cargo = _userCargoText(d, empresaId);
                               final checked = local.contains(u.id);
 
                               return CheckboxListTile(
+                                secondary: UserAvatar(
+                                  userId: u.id,
+                                  nameHint: name,
+                                  radius: 16,
+                                ),
                                 value: checked,
                                 activeColor: kAdminPrimary,
                                 controlAffinity:
@@ -1341,6 +1385,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           ),
                         ),
                       ),
+                      PagerBar(
+                        total: list.length,
+                        page: pagina,
+                        etiqueta: 'personas',
+                        onPageChanged: (p) => setLocal(() => page = p),
+                      ),
                     ],
                   ),
                 ),
@@ -1373,8 +1423,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
     CentroCostoItem centroCanonical = enabledCentros.first;
 
-    // selector centro canónico
-    await showDialog(
+    // Selector del centro. Cancelar no sigue (antes simulaba igual).
+    final elegido = await showDialog<bool>(
       context: context,
       builder: (_) {
         return AlertDialog(
@@ -1403,7 +1453,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(context, false),
               child: const Text(
                 'Cancelar',
                 style: TextStyle(fontFamily: kArial),
@@ -1411,7 +1461,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: kAdminPrimary),
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(context, true),
               child: const Text(
                 'Continuar',
                 style: TextStyle(
@@ -1425,253 +1475,90 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       },
     );
 
+    if (elegido != true || !mounted) return;
     if (!dryRun) {
       final ok = await _confirm(
         title: 'Ejecutar migración de Centro',
         message:
             'Usuarios seleccionados: ${_selectedMigrationUsers.length}\n'
-            'Centro canónico: ${centroCanonical.nombre}\n\n'
-            'Esto SOLO actualizará TBL_USUARIOS (no tareas/cargos/estructura).\n¿Continuar?',
+            'Centro: ${centroCanonical.nombre}\n\n'
+            'Se actualiza la ficha de esta empresa en TBL_USUARIOS; los datos '
+            'generales solo si es su empresa principal. No toca tareas, '
+            'cargos ni la estructura.\n¿Continuar?',
         confirmText: 'Ejecutar',
       );
       if (!ok) return;
     }
 
     setState(() => _loading = true);
-
-    final result = await _mig.normalizeCentroForUsers(
-      empresaId: empresaId,
-      userIds: _selectedMigrationUsers,
-      canonicalCentroId: centroCanonical.centroId,
-      canonicalCentroCodigo: centroCanonical.codigo,
-      canonicalCentroNombre: centroCanonical.nombre,
-      dryRun: dryRun,
-    );
-
-    await _mig.logMigration(
-      adminUserId: widget.userId,
-      empresaId: empresaId,
-      action: 'normalizeCentroForUsers',
-      scanned: result.scanned,
-      updated: result.updated,
-      dryRun: dryRun,
-      extra: {
-        'selectedUsersCount': _selectedMigrationUsers.length,
-        'canonicalCentroId': centroCanonical.centroId,
-        'canonicalCentroCodigo': centroCanonical.codigo,
-        'canonicalCentroNombre': centroCanonical.nombre,
-        'sample': result.sampleUpdatedIds,
-      },
-    );
-
-    _snack(
-      dryRun
-          ? 'SIMULACIÓN Centro: escaneados ${result.scanned}, a cambiar ${result.updated}'
-          : 'Centro ejecutado: escaneados ${result.scanned}, cambiados ${result.updated}',
-    );
-
-    await _loadAll(forceEmpresaId: empresaId);
-  }
-
-  // ---------------- MIGRACIONES: TOKENS SOLO USUARIOS SELECCIONADOS ----------------
-  Future<void> _runNormalizeTokensSelectedUsers({required bool dryRun}) async {
-    final empresaId = _empresaId ?? '';
-    if (empresaId.isEmpty) return;
-
-    if (_selectedMigrationUsers.isEmpty) {
-      _snack('Selecciona usuarios para migrar');
-      return;
-    }
-
-    if (!dryRun) {
-      final ok = await _confirm(
-        title: 'Ejecutar normalización de Tokens',
-        message:
-            'Usuarios seleccionados: ${_selectedMigrationUsers.length}\n\n'
-            'Se copiará token/fcm_token a fcmToken si aplica.\n¿Continuar?',
-        confirmText: 'Ejecutar',
+    try {
+      final result = await _mig.normalizeCentroForUsers(
+        empresaId: empresaId,
+        userIds: _selectedMigrationUsers,
+        canonicalCentroId: centroCanonical.centroId,
+        canonicalCentroCodigo: centroCanonical.codigo,
+        canonicalCentroNombre: centroCanonical.nombre,
+        dryRun: dryRun,
       );
-      if (!ok) return;
-    }
 
-    setState(() => _loading = true);
-
-    final result = await _mig.normalizeUserTokensForUsers(
-      empresaId: empresaId,
-      userIds: _selectedMigrationUsers,
-      dryRun: dryRun,
-    );
-
-    await _mig.logMigration(
-      adminUserId: widget.userId,
-      empresaId: empresaId,
-      action: 'normalizeUserTokensForUsers',
-      scanned: result.scanned,
-      updated: result.updated,
-      dryRun: dryRun,
-      extra: {
-        'selectedUsersCount': _selectedMigrationUsers.length,
-        'sample': result.sampleUpdatedIds,
-      },
-    );
-
-    _snack(
-      dryRun
-          ? 'SIMULACIÓN Tokens: escaneados ${result.scanned}, a cambiar ${result.updated}'
-          : 'Tokens ejecutado: escaneados ${result.scanned}, cambiados ${result.updated}',
-    );
-
-    await _loadAll(forceEmpresaId: empresaId);
-  }
-
-  // ---------------- MIGRACIONES: APP IDs SOLO USUARIOS SELECCIONADOS ----------------
-  Future<void> _runNormalizeAppIdsSelectedUsers({required bool dryRun}) async {
-    final empresaId = _empresaId ?? '';
-    if (empresaId.isEmpty) return;
-
-    if (_selectedMigrationUsers.isEmpty) {
-      _snack('Selecciona usuarios para migrar');
-      return;
-    }
-
-    if (!dryRun) {
-      final ok = await _confirm(
-        title: 'Ejecutar normalización de App IDs',
-        message:
-            'Usuarios seleccionados: ${_selectedMigrationUsers.length}\n\n'
-            'Se reemplazarán IDs cortos (compras, admin…) por IDs completos '
-            '(comprasdashboard, admindashboard…) en el campo "apps".\n¿Continuar?',
-        confirmText: 'Ejecutar',
+      await _mig.logMigration(
+        adminUserId: widget.userId,
+        empresaId: empresaId,
+        action: 'normalizeCentroForUsers',
+        scanned: result.scanned,
+        updated: result.updated,
+        dryRun: dryRun,
+        extra: {
+          'selectedUsersCount': _selectedMigrationUsers.length,
+          'canonicalCentroId': centroCanonical.centroId,
+          'canonicalCentroCodigo': centroCanonical.codigo,
+          'canonicalCentroNombre': centroCanonical.nombre,
+          'sample': result.sampleUpdatedIds,
+        },
       );
-      if (!ok) return;
+
+      _snack(
+        dryRun
+            ? 'SIMULACIÓN Centro: revisados ${result.scanned}, a cambiar ${result.updated}'
+            : 'Centro ejecutado: revisados ${result.scanned}, cambiados ${result.updated}',
+      );
+    } catch (error) {
+      _snack('No se pudo migrar el centro: $error');
+    } finally {
+      await _loadAll(forceEmpresaId: empresaId);
     }
-
-    setState(() => _loading = true);
-
-    final result = await _mig.normalizeAppIdsForUsers(
-      empresaId: empresaId,
-      userIds: _selectedMigrationUsers,
-      dryRun: dryRun,
-    );
-
-    await _mig.logMigration(
-      adminUserId: widget.userId,
-      empresaId: empresaId,
-      action: 'normalizeAppIdsForUsers',
-      scanned: result.scanned,
-      updated: result.updated,
-      dryRun: dryRun,
-      extra: {
-        'selectedUsersCount': _selectedMigrationUsers.length,
-        'sample': result.sampleUpdatedIds,
-      },
-    );
-
-    _snack(
-      dryRun
-          ? 'SIMULACIÓN App IDs: escaneados ${result.scanned}, a cambiar ${result.updated}'
-          : 'App IDs ejecutado: escaneados ${result.scanned}, cambiados ${result.updated}',
-    );
-
-    await _loadAll(forceEmpresaId: empresaId);
   }
 
-  // ---------------- MIGRACIONES: ELIMINAR TODAS LAS TAREAS (EMPRESA ACTIVA) ----------------
-  Future<bool> _confirmDeleteAllTasks(String empresaId) async {
-    final controller = TextEditingController();
-    String typed = '';
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx2, setLocal) {
-            final enabled = typed.trim().toUpperCase() == 'BORRAR';
-
-            return AlertDialog(
-              title: const Text(
-                'Eliminar todas las tareas',
-                style: TextStyle(
-                  fontFamily: kArial,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Empresa activa: $empresaId',
-                    style: const TextStyle(
-                      fontFamily: kArial,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Esta acción eliminará TODAS las tareas de la empresa activa en TBL_TAREAS. '
-                    'No se puede deshacer.',
-                    style: TextStyle(fontFamily: kArial),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Escribe BORRAR para confirmar:',
-                    style: TextStyle(fontFamily: kArial),
-                  ),
-                  const SizedBox(height: 6),
-                  TextField(
-                    controller: controller,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                    ),
-                    style: const TextStyle(fontFamily: kArial),
-                    onChanged: (v) => setLocal(() => typed = v),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text(
-                    'Cancelar',
-                    style: TextStyle(fontFamily: kArial),
-                  ),
-                ),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: kAdminPrimary,
-                  ),
-                  onPressed: enabled ? () => Navigator.pop(ctx, true) : null,
-                  icon: const Icon(Icons.delete_forever),
-                  label: const Text(
-                    'Eliminar',
-                    style: TextStyle(
-                      fontFamily: kArial,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-    return ok == true;
-  }
-
+  // ---------------- REINICIO TOTAL: TODAS LAS TAREAS ----------------
   Future<void> _deleteAllTasksForEmpresa() async {
     final empresaId = _empresaId ?? '';
     if (empresaId.isEmpty) return;
-
-    final ok = await _confirmDeleteAllTasks(empresaId);
+    final total =
+        (await FirebaseFirestore.instance
+                .collection('TBL_TAREAS')
+                .where('empresaId', isEqualTo: empresaId)
+                .count()
+                .get())
+            .count ??
+        0;
+    if (!mounted) return;
+    if (total == 0) {
+      _snack('No hay tareas en esta empresa.');
+      return;
+    }
+    final ok = await confirmarBorrado(
+      context,
+      titulo: 'Borrar todas las tareas',
+      detalle:
+          'Se borrarán las $total tarea(s) de ${_empresaActual?.nombre ?? empresaId}, '
+          'de todos los módulos. Para cerrar sin borrar o borrar solo las de '
+          'un módulo, usa su sección arriba.',
+      boton: 'Borrar $total',
+    );
     if (!ok) return;
-
     setState(() => _loading = true);
-
     const int batchLimit = 400;
     int deleted = 0;
-
     try {
       while (true) {
         final snap = await FirebaseFirestore.instance
@@ -1680,7 +1567,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             .limit(batchLimit)
             .get();
         if (snap.docs.isEmpty) break;
-
         final batch = FirebaseFirestore.instance.batch();
         for (final doc in snap.docs) {
           batch.delete(doc.reference);
@@ -1688,7 +1574,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         await batch.commit();
         deleted += snap.docs.length;
       }
-
       await _mig.logMigration(
         adminUserId: widget.userId,
         empresaId: empresaId,
@@ -1698,33 +1583,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         dryRun: false,
         extra: {'empresaId': empresaId},
       );
-
       _snack('Tareas eliminadas: $deleted');
+    } catch (e) {
+      _snack('No se pudieron borrar todas las tareas: $e');
     } finally {
       await _loadAll(forceEmpresaId: empresaId);
-    }
-  }
-
-  // ---------------- LOGS ----------------
-  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _loadLogs() async {
-    final empresaId = _empresaId ?? '';
-    if (empresaId.isEmpty) return [];
-    try {
-      final snap = await FirebaseFirestore.instance
-          .collection('TBL_MIGRATIONS_LOGS')
-          .where('empresaId', isEqualTo: empresaId)
-          .limit(200)
-          .get();
-      final docs = [...snap.docs];
-      docs.sort((a, b) {
-        final aTs = (a.data()['createdAt'] as Timestamp?) ?? Timestamp(0, 0);
-        final bTs = (b.data()['createdAt'] as Timestamp?) ?? Timestamp(0, 0);
-        return bTs.compareTo(aTs);
-      });
-      return docs.take(50).toList();
-    } catch (e) {
-      _snack('No fue posible cargar logs: $e');
-      return [];
     }
   }
 
@@ -1733,13 +1596,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     final empresaId = _empresaId ?? '';
     if (empresaId.isEmpty) return;
 
-    final ok = await _confirm(
-      title: '⚠ RESETEAR DATOS DE USUARIOS',
-      message:
-          'Se borrarán Áreas, Cargos, Centros y Jefes solo para la empresa $empresaId en ${_users.length} usuarios.\n\n'
-          'NO se borrarán las cuentas de acceso, ni permisos de otras empresas.\n'
-          'Los usuarios quedarán listos para recibir una carga limpia desde Excel.',
-      confirmText: 'SÍ, RESETEAR DATOS',
+    // Quien lo ejecuta no se incluye: perdería el acceso a Admin a mitad.
+    final personas = [
+      for (final u in _users)
+        if (u.id != widget.userId) u,
+    ];
+    if (personas.isEmpty) {
+      _snack('No hay personas que reiniciar en esta empresa.');
+      return;
+    }
+    final ok = await confirmarBorrado(
+      context,
+      titulo: 'Reiniciar los datos de las personas',
+      detalle:
+          '${personas.length} persona(s) quedarán fuera de '
+          '${_empresaActual?.nombre ?? empresaId}: se les quita el área, '
+          'cargo, centro, jefe y los módulos de esta empresa, para recargar '
+          'el Excel. No se borran sus cuentas, contraseñas ni sus datos en '
+          'otras empresas. Tú no te incluyes.',
+      boton: 'Reiniciar ${personas.length}',
     );
     if (!ok) return;
 
@@ -1756,7 +1631,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       hasWrites = false;
     }
 
-    for (final u in _users) {
+    for (final u in personas) {
       final ref = u.reference;
       final data = u.data();
       final updates = _buildScopedUserReset(data, empresaId);
@@ -1897,143 +1772,150 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     }
   }
 
-  // ---------------- LIMPIEZA: BORRAR CATÁLOGOS ----------------
+  // ---------------- REINICIO TOTAL: CATÁLOGOS ----------------
   Future<void> _purgeCatalogs() async {
     final empresaId = _empresaId ?? '';
     if (empresaId.isEmpty) return;
-
-    final ok = await _confirm(
-      title: '⚠ BORRAR TODOS LOS CATÁLOGOS',
-      message:
-          'Se eliminarán TODAS las Áreas, Cargos y Centros de Costo de la empresa $empresaId.\n\n'
-          'Haz esto solo si vas a volver a subir el archivo Excel completo.\n'
-          '¿Estás seguro?',
-      confirmText: 'BORRAR TODO',
+    const colecciones = {
+      'TBL_AREAS': 'áreas',
+      'TBL_CARGOS': 'cargos',
+      'TBL_CENTROS_COSTOS': 'centros de costo',
+    };
+    final conteos = <String, int>{};
+    for (final c in colecciones.keys) {
+      conteos[c] =
+          (await FirebaseFirestore.instance
+                  .collection(c)
+                  .where('empresaId', isEqualTo: empresaId)
+                  .count()
+                  .get())
+              .count ??
+          0;
+    }
+    final total = conteos.values.fold<int>(0, (a, b) => a + b);
+    if (!mounted) return;
+    if (total == 0) {
+      _snack('Esta empresa no tiene catálogos.');
+      return;
+    }
+    final ok = await confirmarBorrado(
+      context,
+      titulo: 'Borrar los catálogos',
+      detalle:
+          'Se borrarán de ${_empresaActual?.nombre ?? empresaId}: '
+          '${colecciones.entries.map((e) => '${conteos[e.key]} ${e.value}').join(', ')}. '
+          'Hazlo solo si vas a volver a subir el Excel completo.',
+      boton: 'Borrar $total',
     );
     if (!ok) return;
 
     setState(() => _loading = true);
     int deletedCount = 0;
-
-    Future<void> deleteCollection(String collName) async {
-      final snap = await FirebaseFirestore.instance
-          .collection(collName)
-          .where('empresaId', isEqualTo: empresaId)
-          .get();
-      for (final doc in snap.docs) {
-        await doc.reference.delete();
-        deletedCount++;
+    try {
+      for (final c in colecciones.keys) {
+        final snap = await FirebaseFirestore.instance
+            .collection(c)
+            .where('empresaId', isEqualTo: empresaId)
+            .get();
+        for (var i = 0; i < snap.docs.length; i += 400) {
+          final batch = FirebaseFirestore.instance.batch();
+          for (final doc in snap.docs.skip(i).take(400)) {
+            batch.delete(doc.reference);
+          }
+          await batch.commit();
+        }
+        deletedCount += snap.docs.length;
       }
+      await _mig.logMigration(
+        adminUserId: widget.userId,
+        empresaId: empresaId,
+        action: 'PURGE_CATALOGS',
+        scanned: deletedCount,
+        updated: deletedCount,
+        dryRun: false,
+        extra: conteos,
+      );
+      _snack('Catálogos eliminados: $deletedCount documento(s).');
+    } catch (e) {
+      _snack('No se pudieron borrar los catálogos: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+      await _loadAll(forceEmpresaId: empresaId);
     }
-
-    await deleteCollection('TBL_AREAS');
-    await deleteCollection('TBL_CARGOS');
-    await deleteCollection('TBL_CENTROS_COSTOS');
-
-    setState(() => _loading = false);
-    _snack('Catálogos eliminados. Total documentos borrados: $deletedCount');
-    await _loadAll(forceEmpresaId: empresaId);
   }
 
-  // ---------------- LIMPIEZA: BORRAR ESTRUCTURA ORGANIZACIONAL ----------------
+  // ---------------- REINICIO TOTAL: ESTRUCTURA ORGANIZACIONAL ----------------
+  // 29 sep 2026: antes borraba TBL_ESTRUCTURA_ORGANIZACIONAL completa, de
+  // todas las empresas, aunque el texto decía "para esta empresa". Ahora solo
+  // toca la de la empresa activa: quien solo está en ella se borra; quien
+  // está también en otras conserva la de ellas.
   Future<void> _purgeOrganizationalStructure() async {
-    final ok = await _confirm(
-      title: '⚠ BORRAR ESTRUCTURA ORGANIZACIONAL',
-      message:
-          'Se eliminarán TODOS los documentos en TBL_ESTRUCTURA_ORGANIZACIONAL.\n\n'
-          'Úsalo solo si vas a volver a subir la estructura completa.\n'
-          '¿Estás seguro?',
-      confirmText: 'BORRAR ESTRUCTURA',
+    final empresaId = _empresaId ?? '';
+    if (empresaId.isEmpty) return;
+    final db = FirebaseFirestore.instance;
+    final col = db.collection('TBL_ESTRUCTURA_ORGANIZACIONAL');
+    final porLista = await col
+        .where('empresas', arrayContains: empresaId)
+        .get();
+    final porPrincipal = await col
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+    final docs = {
+      for (final d in [...porLista.docs, ...porPrincipal.docs]) d.id: d,
+    }.values.toList();
+    final plan = [
+      for (final d in docs) (d, estructuraSinEmpresa(d.data(), empresaId)),
+    ];
+    final borrar = plan.where((p) => p.$2 == null).length;
+    final ajustar = plan.length - borrar;
+    if (!mounted) return;
+    if (plan.isEmpty) {
+      _snack('Esta empresa no tiene estructura organizacional.');
+      return;
+    }
+    final ok = await confirmarBorrado(
+      context,
+      titulo: 'Borrar la estructura organizacional',
+      detalle:
+          'De ${_empresaActual?.nombre ?? empresaId}: se borran $borrar '
+          'registro(s) de personas que solo están en esta empresa y se quita '
+          'esta empresa de $ajustar que también están en otras (conservan la '
+          'de ellas). Úsalo solo si vas a volver a subir la estructura.',
+      boton: 'Borrar ${plan.length}',
     );
     if (!ok) return;
-
-    setState(() => _loading = true);
-
-    int deletedCount = 0;
-    Query<Map<String, dynamic>> query = FirebaseFirestore.instance
-        .collection('TBL_ESTRUCTURA_ORGANIZACIONAL')
-        .limit(400);
-
-    while (true) {
-      final snap = await query.get();
-      if (snap.docs.isEmpty) break;
-
-      WriteBatch batch = FirebaseFirestore.instance.batch();
-      for (final doc in snap.docs) {
-        batch.delete(doc.reference);
-        deletedCount++;
-      }
-      await batch.commit();
-
-      final lastDoc = snap.docs.last;
-      query = FirebaseFirestore.instance
-          .collection('TBL_ESTRUCTURA_ORGANIZACIONAL')
-          .startAfterDocument(lastDoc)
-          .limit(400);
-    }
-
-    setState(() => _loading = false);
-    _snack(
-      'Estructura organizacional eliminada. Total documentos borrados: $deletedCount',
-    );
-    await _loadAll(forceEmpresaId: _empresaId ?? '');
-  }
-
-  Future<void> _pickDiagnosticosExcel() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['xlsx', 'xlsm', 'xls'],
-      withData: true,
-    );
-
-    if (result == null || result.files.isEmpty) return;
-
-    final file = result.files.single;
-    if (file.bytes == null || file.bytes!.isEmpty) {
-      _snack('No se pudo leer el archivo seleccionado.');
-      return;
-    }
-
-    setState(() {
-      _diagnosticosFileName = file.name;
-      _diagnosticosBytes = file.bytes;
-      _diagnosticosImportResult = null;
-    });
-  }
-
-  Future<void> _importarDiagnosticosExcel() async {
-    final empresaId = _empresaId ?? '';
-    final bytes = _diagnosticosBytes;
-
-    if (empresaId.isEmpty) {
-      _snack('Selecciona una empresa antes de importar diagnósticos.');
-      return;
-    }
-    if (bytes == null || bytes.isEmpty) {
-      _snack('Primero selecciona un archivo Excel.');
-      return;
-    }
 
     setState(() => _loading = true);
     try {
-      final result = await _diagnosticosService.importarDiagnosticosDesdeExcel(
-        bytes: bytes,
+      for (var i = 0; i < plan.length; i += 400) {
+        final batch = db.batch();
+        for (final (doc, cambios) in plan.skip(i).take(400)) {
+          if (cambios == null) {
+            batch.delete(doc.reference);
+          } else {
+            batch.update(doc.reference, cambios);
+          }
+        }
+        await batch.commit();
+      }
+      await _mig.logMigration(
+        adminUserId: widget.userId,
         empresaId: empresaId,
-        sobrescribir: true,
+        action: 'PURGE_ESTRUCTURA',
+        scanned: plan.length,
+        updated: plan.length,
+        dryRun: false,
+        extra: {'borrados': borrar, 'ajustados': ajustar},
       );
-      if (!mounted) return;
-      setState(() {
-        _diagnosticosImportResult = result;
-      });
       _snack(
-        'Diagnósticos importados. Médicos: ${result['diagnosticosMedicos'] ?? 0} | Nutricionales: ${result['diagnosticosNutricionales'] ?? 0}',
+        'Estructura de la empresa eliminada: $borrar borrados, $ajustar '
+        'ajustados.',
       );
     } catch (e) {
-      _snack('Error importando diagnósticos: $e');
+      _snack('No se pudo borrar la estructura: $e');
     } finally {
-      if (mounted) {
-        setState(() => _loading = false);
-      }
+      if (mounted) setState(() => _loading = false);
+      await _loadAll(forceEmpresaId: empresaId);
     }
   }
 
@@ -2626,104 +2508,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     );
   }
 
-  Widget _tabDiagnosticos() {
-    final result = _diagnosticosImportResult;
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Card(
-          color: Colors.teal.shade50,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.teal.shade200),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.upload_file,
-                      color: Colors.teal.shade900,
-                      size: 28,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Actualizar diagnósticos',
-                        style: TextStyle(
-                          fontFamily: kArial,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.teal.shade900,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Sube un Excel con diagnósticos para actualizar el catálogo '
-                  'de diagnósticos en Firestore.\n'
-                  'Después de importar, el buscador de diagnóstico clínico leerá primero desde Firestore.',
-                  style: TextStyle(fontFamily: kArial, height: 1.4),
-                ),
-                const SizedBox(height: 16),
-                OutlinedButton.icon(
-                  onPressed: _pickDiagnosticosExcel,
-                  icon: const Icon(Icons.description_outlined),
-                  label: const Text(
-                    'Seleccionar archivo Excel',
-                    style: TextStyle(
-                      fontFamily: kArial,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  _diagnosticosFileName == null
-                      ? 'Sin archivo seleccionado.'
-                      : 'Archivo: $_diagnosticosFileName',
-                  style: const TextStyle(fontFamily: kArial),
-                ),
-                if (result != null) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    'Última carga → Médicos: ${result['diagnosticosMedicos'] ?? 0} | Nutricionales: ${result['diagnosticosNutricionales'] ?? 0}',
-                    style: const TextStyle(
-                      fontFamily: kArial,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.teal.shade700,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    onPressed: _importarDiagnosticosExcel,
-                    icon: const Icon(Icons.cloud_upload),
-                    label: const Text(
-                      'IMPORTAR DIAGNÓSTICOS',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
   // ---------------- LIMPIEZA: NOTIFICACIONES ----------------
 
   /// Cuenta notificaciones de un usuario.
@@ -2980,10 +2764,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     if (request == null || preview == null) return;
     final date = DateFormat('dd/MM/yyyy').format(request.cutoff);
     final modules = request.modules
-        .map(
-          (module) =>
-              module == 'interventoria' ? 'Interventoría' : 'Facturación',
-        )
+        .map((module) => moduloLimpiezaPorId(module).nombre)
         .join(' y ');
     final confirmed = await _confirm(
       title: 'Confirmar cierre administrativo',
@@ -2992,9 +2773,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           'Módulos: $modules\n'
           'Corte: ${request.range.label.toLowerCase()} $date\n\n'
           'Se finalizarán ${preview.tasks} tarea(s) abierta(s), se marcarán '
-          'como leídas ${preview.notifications} notificación(es) y se darán '
-          'por subsanados ${preview.hallazgosSinAsignar} hallazgo(s) de '
-          'interventoría que nunca se asignaron.\n\n'
+          'como leídas ${preview.notifications} notificación(es)'
+          '${request.modules.contains('interventoria') ? ' y se darán por subsanados ${preview.hallazgosSinAsignar} hallazgo(s) de interventoría que nunca se asignaron' : ''}.\n\n'
           'No se borrarán tareas, avances, adjuntos, actas, documentos ni '
           'notificaciones. La operación quedará auditada.',
       confirmText: 'CERRAR Y MARCAR LEÍDAS',
@@ -3037,8 +2817,21 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     }
   }
 
-  Widget _moduleCloseoutCard() {
+  /// "Cerrar sin borrar" del módulo elegido en Limpieza.
+  Widget _moduleCloseoutCard(ModuloLimpiezaInfo modulo) {
     final preview = _moduleCloseoutPreview;
+    final detalle = switch (modulo.id) {
+      'interventoria' =>
+        'Finaliza las tareas abiertas de Interventoría, da por subsanados sus '
+            'hallazgos (también los que nunca se asignaron) y marca como '
+            'leídas sus notificaciones.',
+      'facturacion' =>
+        'Finaliza las tareas abiertas de Facturación, cierra sus '
+            'observaciones y marca como leídas sus notificaciones.',
+      _ =>
+        'Finaliza las tareas creadas a mano que siguen abiertas y marca como '
+            'leídas sus notificaciones.',
+    };
     final canApply = !_moduleCloseoutBusy && preview != null && preview.hayAlgo;
     return Card(
       color: const Color(0xFFEFF6FF),
@@ -3061,7 +2854,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'Cierre por módulo y fecha',
+                    'Cerrar sin borrar',
                     style: TextStyle(
                       fontFamily: kArial,
                       fontSize: 16,
@@ -3073,10 +2866,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               ],
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Finaliza tareas abiertas y marca sus notificaciones como leídas. '
-              'Conserva avances, archivos y trazabilidad; no elimina información.',
-              style: TextStyle(fontFamily: kArial, fontSize: 13, height: 1.4),
+            Text(
+              '$detalle Conserva avances, archivos y trazabilidad; no borra '
+              'nada.',
+              style: const TextStyle(
+                fontFamily: kArial,
+                fontSize: 13,
+                height: 1.4,
+              ),
             ),
             const SizedBox(height: 16),
             LayoutBuilder(
@@ -3135,40 +2932,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 );
               },
             ),
-            const SizedBox(height: 12),
-            const Text(
-              'Módulos incluidos',
-              style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final entry in const {
-                  'interventoria': 'Interventoría',
-                  'facturacion': 'Facturación',
-                }.entries)
-                  FilterChip(
-                    label: Text(entry.value),
-                    selected: _moduleCloseoutModules.contains(entry.key),
-                    onSelected: _moduleCloseoutBusy
-                        ? null
-                        : (selected) {
-                            setState(() {
-                              final modules = Set<String>.from(
-                                _moduleCloseoutModules,
-                              );
-                              selected
-                                  ? modules.add(entry.key)
-                                  : modules.remove(entry.key);
-                              _moduleCloseoutModules = modules;
-                              _moduleCloseoutPreview = null;
-                            });
-                          },
-                  ),
-              ],
-            ),
             if (preview != null) ...[
               const SizedBox(height: 14),
               Container(
@@ -3200,26 +2963,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                             fontWeight: FontWeight.w800,
                           ),
                         ),
-                        Text(
-                          '${preview.hallazgosSinAsignar} hallazgos sin asignar',
-                          style: const TextStyle(
-                            fontFamily: kArial,
-                            fontWeight: FontWeight.w800,
+                        if (modulo.id == 'interventoria')
+                          Text(
+                            '${preview.hallazgosSinAsignar} hallazgos sin asignar',
+                            style: const TextStyle(
+                              fontFamily: kArial,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
-                        ),
                       ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Interventoría: ${preview.tasksByModule['interventoria'] ?? 0} tareas · '
-                      '${preview.notificationsByModule['interventoria'] ?? 0} avisos  |  '
-                      'Facturación: ${preview.tasksByModule['facturacion'] ?? 0} tareas · '
-                      '${preview.notificationsByModule['facturacion'] ?? 0} avisos',
-                      style: const TextStyle(
-                        fontFamily: kArial,
-                        fontSize: 12,
-                        color: Color(0xFF475569),
-                      ),
                     ),
                   ],
                 ),
@@ -3257,404 +3009,540 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     );
   }
 
+  /// Limpieza por módulo (29 sep 2026): se elige el módulo y se ven solo sus
+  /// herramientas. "Cerrar sin borrar" donde el módulo crea tareas que se
+  /// pueden cerrar sin dejar su origen a medias; "Borrar datos de prueba" en
+  /// todos; y al final, aparte, los reinicios totales de la empresa.
   Widget _tabCleanup() {
+    final empresaId = (_empresaId ?? '').trim();
+    final modulo = moduloLimpiezaPorId(_limpiezaModulo);
+    final isMobile = MediaQuery.sizeOf(context).width < 720;
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(isMobile ? 12 : 16),
       children: [
-        _moduleCloseoutCard(),
-        const SizedBox(height: 24),
-        Card(
-          color: Colors.orange.shade50,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.orange.shade200),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.person_remove_outlined,
-                      color: Colors.orange.shade900,
-                      size: 28,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Resetear datos de Usuarios',
-                        style: TextStyle(
-                          fontFamily: kArial,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.orange.shade900,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Esta opción NO borra al usuario ni su contraseña. Limpia cargos, áreas, centros y jefes solo en la empresa activa.\n'
-                  'Úsalo antes de subir un Excel actualizado.',
-                  style: TextStyle(fontFamily: kArial, height: 1.4),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange.shade800,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    onPressed: _resetUsersData,
-                    icon: const Icon(Icons.cleaning_services),
-                    label: const Text(
-                      'LIMPIAR DATOS DE USUARIOS',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+        const Text(
+          'Limpieza por módulo',
+          style: TextStyle(
+            fontFamily: kArial,
+            fontSize: 20,
+            fontWeight: FontWeight.w900,
           ),
         ),
-        const SizedBox(height: 24),
-        Card(
-          color: Colors.red.shade50,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.red.shade200),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.account_tree_outlined,
-                      color: Colors.red.shade900,
-                      size: 28,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Purgar Estructura Organizacional',
-                        style: TextStyle(
-                          fontFamily: kArial,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.red.shade900,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Elimina TODOS los documentos de TBL_ESTRUCTURA_ORGANIZACIONAL para esta empresa.',
-                  style: TextStyle(fontFamily: kArial, height: 1.4),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red.shade800,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    onPressed: _purgeOrganizationalStructure,
-                    icon: const Icon(Icons.delete_forever),
-                    label: const Text(
-                      'BORRAR ESTRUCTURA',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+        const SizedBox(height: 4),
+        const Text(
+          'Elige el módulo. "Cerrar sin borrar" finaliza lo real y conserva el '
+          'historial; "Borrar datos de prueba" elimina registros de la empresa '
+          'activa por periodo, con vista previa. Todo queda en Logs.',
+          style: TextStyle(fontFamily: kArial, color: Colors.black54),
         ),
+        const SizedBox(height: 12),
+        _cleanupModulePicker(isMobile),
+        const SizedBox(height: 16),
+        if (empresaId.isEmpty)
+          const Text('Selecciona una empresa para limpiar.')
+        else ...[
+          if (modulo.cierre) ...[
+            _moduleCloseoutCard(modulo),
+            const SizedBox(height: 16),
+          ],
+          ModuleTestDataCleanupCard(
+            key: ValueKey('limpieza_${empresaId}_${modulo.id}'),
+            empresaId: empresaId,
+            modulo: modulo,
+          ),
+          if (modulo.id == 'tareas') ...[
+            const SizedBox(height: 16),
+            _notificationsCleanupCard(),
+          ],
+          const SizedBox(height: 28),
+          _reinicioTotalSection(),
+        ],
         const SizedBox(height: 24),
-        Card(
-          color: Colors.red.shade50,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.red.shade200),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.folder_delete_outlined,
-                      color: Colors.red.shade900,
-                      size: 28,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Purgar Catálogos (Áreas/Cargos)',
-                        style: TextStyle(
-                          fontFamily: kArial,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.red.shade900,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Elimina TODAS las Áreas, Cargos y Centros de esta empresa. Úsalo si vas a re-subir la estructura completa.',
-                  style: TextStyle(fontFamily: kArial, height: 1.4),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red.shade800,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    onPressed: _purgeCatalogs,
-                    icon: const Icon(Icons.delete_sweep),
-                    label: const Text(
-                      'BORRAR TODOS LOS CATÁLOGOS',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 24),
-        // ---- Notificaciones ----
-        Card(
-          color: Colors.teal.shade50,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.teal.shade200),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.notifications_off_outlined,
-                      color: Colors.teal.shade900,
-                      size: 28,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Limpiar Notificaciones',
-                        style: TextStyle(
-                          fontFamily: kArial,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.teal.shade900,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Elimina entradas de TBL_NOTIFICACIONES para pruebas limpias. '
-                  'No afecta tareas, usuarios ni otras tablas. '
-                  'Muestra cuántas hay antes de confirmar.',
-                  style: TextStyle(
-                    fontFamily: kArial,
-                    fontSize: 13,
-                    height: 1.4,
-                  ),
-                ),
+      ],
+    );
+  }
 
-                // --- Por empresa activa ---
-                const Divider(height: 28),
-                Text(
-                  'Por empresa activa${_empresaId != null ? " (${_empresaId!})" : ""}',
-                  style: TextStyle(
-                    fontFamily: kArial,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.teal.shade800,
-                  ),
+  /// Admin › Maestros por módulo (29 sep 2026). Cada módulo edita sus
+  /// maestros y su configuración en su empresa, sin saber de las demás; aquí
+  /// está lo que es de Administración (la configuración de Compras, Correo,
+  /// Tokens DIAN y WhatsApp) y la copia de maestros a otras empresas.
+  Widget _tabMaestros() {
+    final empresaId = (_empresaId ?? widget.empresaId).trim();
+    final modulo = moduloMaestrosPorId(_maestrosModulo);
+    final isMobile = MediaQuery.sizeOf(context).width < 720;
+    final pad = isMobile ? 12.0 : 16.0;
+    final panel = modulo.panel;
+    final verPanel = panel != null && (!modulo.sincroniza || _maestrosVerPanel);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: EdgeInsets.fromLTRB(pad, pad, pad, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Maestros por módulo',
+                style: TextStyle(
+                  fontFamily: kArial,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  '${_users.length} usuario${_users.length == 1 ? "" : "s"} cargados.',
-                  style: TextStyle(
-                    fontFamily: kArial,
-                    fontSize: 12,
-                    color: Colors.teal.shade700,
-                  ),
-                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Cada módulo crea y edita sus maestros en su empresa. Aquí '
+                'está la configuración que es de Administración y la copia '
+                'de maestros a otras empresas.',
+                style: TextStyle(fontFamily: kArial, color: Colors.black54),
+              ),
+              const SizedBox(height: 12),
+              _maestrosModulePicker(isMobile),
+              if (panel != null && modulo.sincroniza) ...[
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.teal.shade800,
-                          side: BorderSide(color: Colors.teal.shade400),
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                        ),
-                        onPressed: (_empresaId == null || _users.isEmpty)
-                            ? null
-                            : () => _cleanNotificacionesEmpresa(
-                                soloNoLeidas: true,
-                              ),
-                        icon: const Icon(
-                          Icons.mark_email_unread_outlined,
-                          size: 18,
-                        ),
-                        label: const Text(
-                          'Solo no leídas',
-                          style: TextStyle(fontFamily: kArial, fontSize: 12),
-                        ),
-                      ),
+                SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment(
+                      value: true,
+                      icon: Icon(Icons.tune_rounded),
+                      label: Text('Configuración'),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.teal.shade700,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                        ),
-                        onPressed: (_empresaId == null || _users.isEmpty)
-                            ? null
-                            : () => _cleanNotificacionesEmpresa(
-                                soloNoLeidas: false,
-                              ),
-                        icon: const Icon(Icons.delete_sweep, size: 18),
-                        label: const Text(
-                          'Todas',
-                          style: TextStyle(fontFamily: kArial, fontSize: 12),
-                        ),
-                      ),
+                    ButtonSegment(
+                      value: false,
+                      icon: Icon(Icons.sync_alt_rounded),
+                      label: Text('Copiar a otras empresas'),
                     ),
                   ],
-                ),
-
-                // --- Por usuario ---
-                const Divider(height: 28),
-                Text(
-                  'Por usuario específico',
-                  style: TextStyle(
-                    fontFamily: kArial,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.teal.shade800,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                if (_users.isEmpty)
-                  const Text(
-                    'Selecciona una empresa primero para cargar usuarios.',
-                    style: TextStyle(
-                      fontFamily: kArial,
-                      fontSize: 12,
-                      color: Colors.grey,
-                    ),
-                  )
-                else
-                  DropdownButtonFormField<String>(
-                    initialValue: _notifCleanUserId,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Usuario (cédula)',
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      labelStyle: TextStyle(fontFamily: kArial),
-                    ),
-                    items: _users.map((u) {
-                      final data = u.data();
-                      final nombre = _userName(data, u.id);
-                      return DropdownMenuItem<String>(
-                        value: u.id,
-                        child: Text(
-                          '$nombre  (${u.id})',
-                          style: const TextStyle(
-                            fontFamily: kArial,
-                            fontSize: 13,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      );
-                    }).toList(),
-                    onChanged: (v) => setState(() => _notifCleanUserId = v),
-                  ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.teal.shade800,
-                          side: BorderSide(color: Colors.teal.shade400),
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                        ),
-                        onPressed: _notifCleanUserId == null
-                            ? null
-                            : () => _cleanNotificacionesUsuario(
-                                userId: _notifCleanUserId!,
-                                soloNoLeidas: true,
-                              ),
-                        icon: const Icon(
-                          Icons.mark_email_unread_outlined,
-                          size: 18,
-                        ),
-                        label: const Text(
-                          'Solo no leídas',
-                          style: TextStyle(fontFamily: kArial, fontSize: 12),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.teal.shade700,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                        ),
-                        onPressed: _notifCleanUserId == null
-                            ? null
-                            : () => _cleanNotificacionesUsuario(
-                                userId: _notifCleanUserId!,
-                                soloNoLeidas: false,
-                              ),
-                        icon: const Icon(Icons.delete_sweep, size: 18),
-                        label: const Text(
-                          'Todas',
-                          style: TextStyle(fontFamily: kArial, fontSize: 12),
-                        ),
-                      ),
-                    ),
-                  ],
+                  selected: {_maestrosVerPanel},
+                  onSelectionChanged: (v) =>
+                      setState(() => _maestrosVerPanel = v.first),
                 ),
               ],
+            ],
+          ),
+        ),
+        Expanded(
+          child: empresaId.isEmpty
+              ? const Center(child: Text('Selecciona una empresa.'))
+              : verPanel
+              ? _panelAdminModulo(panel, empresaId)
+              : ListView(
+                  padding: EdgeInsets.fromLTRB(pad, 8, pad, 24),
+                  children: [
+                    MaestrosSyncCard(
+                      key: ValueKey('maestros_${empresaId}_${modulo.id}'),
+                      userId: widget.userId,
+                      empresaId: empresaId,
+                      modulo: modulo,
+                      empresas: [
+                        for (final e in _empresas)
+                          (id: e.empresaId, nombre: e.nombre),
+                      ],
+                    ),
+                  ],
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _panelAdminModulo(PanelAdminModulo panel, String empresaId) =>
+      switch (panel) {
+        PanelAdminModulo.compras => _tabReqCompras(),
+        PanelAdminModulo.correo => AdminCorreoPanel(
+          userId: widget.userId,
+          empresaId: empresaId,
+        ),
+        PanelAdminModulo.tokensDian => AdminDianTokensPanel(
+          userId: widget.userId,
+          empresaId: empresaId,
+        ),
+        PanelAdminModulo.whatsapp => AdminWhatsAppPanel(
+          userId: widget.userId,
+          empresaId: empresaId,
+        ),
+      };
+
+  /// Web: todos los módulos a la vista. Móvil: una lista desplegable.
+  Widget _maestrosModulePicker(bool isMobile) {
+    void elegir(String id) => setState(() => _maestrosModulo = id);
+    if (isMobile) {
+      return DropdownButtonFormField<String>(
+        initialValue: _maestrosModulo,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: 'Módulo',
+          border: OutlineInputBorder(),
+          isDense: true,
+        ),
+        items: [
+          for (final m in kModulosMaestros)
+            DropdownMenuItem(
+              value: m.id,
+              child: Row(
+                children: [
+                  Icon(m.icono, size: 18, color: m.color),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(m.nombre, overflow: TextOverflow.ellipsis),
+                  ),
+                ],
+              ),
+            ),
+        ],
+        onChanged: (id) {
+          if (id != null) elegir(id);
+        },
+      );
+    }
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final m in kModulosMaestros)
+          ChoiceChip(
+            avatar: Icon(m.icono, size: 18, color: m.color),
+            label: Text(m.nombre),
+            selected: _maestrosModulo == m.id,
+            onSelected: (_) => elegir(m.id),
+          ),
+      ],
+    );
+  }
+
+  void _seleccionarModuloLimpieza(String id) => setState(() {
+    _limpiezaModulo = id;
+    _moduleCloseoutModules = {id};
+    _moduleCloseoutPreview = null;
+  });
+
+  /// Web: todos los módulos a la vista. Móvil: una lista desplegable.
+  Widget _cleanupModulePicker(bool isMobile) {
+    if (isMobile) {
+      return DropdownButtonFormField<String>(
+        initialValue: _limpiezaModulo,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: 'Módulo',
+          border: OutlineInputBorder(),
+          isDense: true,
+        ),
+        items: [
+          for (final m in kModulosLimpieza)
+            DropdownMenuItem(
+              value: m.id,
+              child: Row(
+                children: [
+                  Icon(m.icono, size: 18, color: m.color),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(m.nombre, overflow: TextOverflow.ellipsis),
+                  ),
+                ],
+              ),
+            ),
+        ],
+        onChanged: (id) {
+          if (id != null) _seleccionarModuloLimpieza(id);
+        },
+      );
+    }
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final m in kModulosLimpieza)
+          ChoiceChip(
+            avatar: Icon(m.icono, size: 18, color: m.color),
+            label: Text(m.nombre),
+            selected: _limpiezaModulo == m.id,
+            onSelected: (_) => _seleccionarModuloLimpieza(m.id),
+          ),
+      ],
+    );
+  }
+
+  Widget _notificationsCleanupCard() => Card(
+    color: Colors.teal.shade50,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+      side: BorderSide(color: Colors.teal.shade200),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.notifications_off_outlined,
+                color: Colors.teal.shade900,
+                size: 28,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Limpiar Notificaciones',
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.teal.shade900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Elimina entradas de TBL_NOTIFICACIONES para pruebas limpias. '
+            'No afecta tareas, usuarios ni otras tablas. '
+            'Muestra cuántas hay antes de confirmar.',
+            style: TextStyle(fontFamily: kArial, fontSize: 13, height: 1.4),
+          ),
+
+          // --- Por empresa activa ---
+          const Divider(height: 28),
+          Text(
+            'Por empresa activa${_empresaId != null ? " (${_empresaId!})" : ""}',
+            style: TextStyle(
+              fontFamily: kArial,
+              fontWeight: FontWeight.w700,
+              color: Colors.teal.shade800,
             ),
           ),
+          const SizedBox(height: 4),
+          Text(
+            '${_users.length} usuario${_users.length == 1 ? "" : "s"} cargados.',
+            style: TextStyle(
+              fontFamily: kArial,
+              fontSize: 12,
+              color: Colors.teal.shade700,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.teal.shade800,
+                    side: BorderSide(color: Colors.teal.shade400),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  onPressed: (_empresaId == null || _users.isEmpty)
+                      ? null
+                      : () => _cleanNotificacionesEmpresa(soloNoLeidas: true),
+                  icon: const Icon(Icons.mark_email_unread_outlined, size: 18),
+                  label: const Text(
+                    'Solo no leídas',
+                    style: TextStyle(fontFamily: kArial, fontSize: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.teal.shade700,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  onPressed: (_empresaId == null || _users.isEmpty)
+                      ? null
+                      : () => _cleanNotificacionesEmpresa(soloNoLeidas: false),
+                  icon: const Icon(Icons.delete_sweep, size: 18),
+                  label: const Text(
+                    'Todas',
+                    style: TextStyle(fontFamily: kArial, fontSize: 12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          // --- Por usuario ---
+          const Divider(height: 28),
+          Text(
+            'Por usuario específico',
+            style: TextStyle(
+              fontFamily: kArial,
+              fontWeight: FontWeight.w700,
+              color: Colors.teal.shade800,
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (_users.isEmpty)
+            const Text(
+              'Selecciona una empresa primero para cargar usuarios.',
+              style: TextStyle(
+                fontFamily: kArial,
+                fontSize: 12,
+                color: Colors.grey,
+              ),
+            )
+          else
+            DropdownButtonFormField<String>(
+              initialValue: _notifCleanUserId,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Usuario (cédula)',
+                border: OutlineInputBorder(),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                labelStyle: TextStyle(fontFamily: kArial),
+              ),
+              items: _users.map((u) {
+                final data = u.data();
+                final nombre = _userName(data, u.id);
+                return DropdownMenuItem<String>(
+                  value: u.id,
+                  child: Text(
+                    '$nombre  (${u.id})',
+                    style: const TextStyle(fontFamily: kArial, fontSize: 13),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                );
+              }).toList(),
+              onChanged: (v) => setState(() => _notifCleanUserId = v),
+            ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.teal.shade800,
+                    side: BorderSide(color: Colors.teal.shade400),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  onPressed: _notifCleanUserId == null
+                      ? null
+                      : () => _cleanNotificacionesUsuario(
+                          userId: _notifCleanUserId!,
+                          soloNoLeidas: true,
+                        ),
+                  icon: const Icon(Icons.mark_email_unread_outlined, size: 18),
+                  label: const Text(
+                    'Solo no leídas',
+                    style: TextStyle(fontFamily: kArial, fontSize: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.teal.shade700,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  onPressed: _notifCleanUserId == null
+                      ? null
+                      : () => _cleanNotificacionesUsuario(
+                          userId: _notifCleanUserId!,
+                          soloNoLeidas: false,
+                        ),
+                  icon: const Icon(Icons.delete_sweep, size: 18),
+                  label: const Text(
+                    'Todas',
+                    style: TextStyle(fontFamily: kArial, fontSize: 12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
+
+  /// Reinicios de toda la empresa: aparte, con conteo previo y BORRAR.
+  Widget _reinicioTotalSection() {
+    Widget item({
+      required IconData icono,
+      required String titulo,
+      required String detalle,
+      required Future<void> Function() accion,
+    }) => ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(icono, color: const Color(0xFF991B1B)),
+      title: Text(
+        titulo,
+        style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800),
+      ),
+      subtitle: Text(detalle, style: const TextStyle(fontFamily: kArial)),
+      trailing: OutlinedButton(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: const Color(0xFFB91C1C),
+        ),
+        onPressed: _loading ? null : accion,
+        child: const Text('Revisar y borrar'),
+      ),
+      isThreeLine: true,
+    );
+    return ExpansionTile(
+      tilePadding: const EdgeInsets.symmetric(horizontal: 14),
+      childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+      collapsedBackgroundColor: const Color(0xFFFEF2F2),
+      backgroundColor: const Color(0xFFFEF2F2),
+      collapsedShape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Color(0xFFFCA5A5)),
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Color(0xFFFCA5A5)),
+      ),
+      leading: const Icon(
+        Icons.warning_amber_rounded,
+        color: Color(0xFFB91C1C),
+      ),
+      title: const Text(
+        'Reinicio total de la empresa',
+        style: TextStyle(
+          fontFamily: kArial,
+          fontWeight: FontWeight.w900,
+          color: Color(0xFF7F1D1D),
+        ),
+      ),
+      subtitle: const Text(
+        'Borra todo lo de un tipo en la empresa activa. Cada uno muestra '
+        'cuánto borra y pide escribir BORRAR.',
+      ),
+      children: [
+        item(
+          icono: Icons.task_alt_rounded,
+          titulo: 'Todas las tareas',
+          detalle: 'Todas las tareas de la empresa, de todos los módulos.',
+          accion: _deleteAllTasksForEmpresa,
+        ),
+        item(
+          icono: Icons.person_remove_outlined,
+          titulo: 'Datos de las personas en la empresa',
+          detalle:
+              'Quita a las personas de esta empresa (área, cargo, centro, jefe '
+              'y módulos) para recargar el Excel. No borra cuentas ni datos de '
+              'otras empresas; tú no te incluyes.',
+          accion: _resetUsersData,
+        ),
+        item(
+          icono: Icons.account_tree_outlined,
+          titulo: 'Estructura organizacional',
+          detalle:
+              'La estructura de esta empresa. Quien está en otras empresas '
+              'conserva la de ellas.',
+          accion: _purgeOrganizationalStructure,
+        ),
+        item(
+          icono: Icons.folder_delete_outlined,
+          titulo: 'Catálogos (áreas, cargos y centros)',
+          detalle:
+              'Todas las áreas, cargos y centros de costo de esta empresa.',
+          accion: _purgeCatalogs,
         ),
       ],
     );
@@ -3806,20 +3694,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     _tabLogs(),
     SecurityAdminPanel(empresaId: _empresaId ?? widget.empresaId),
     _tabCleanup(),
-    _tabDiagnosticos(),
-    _tabReqCompras(),
-    AdminCorreoPanel(
-      userId: widget.userId,
-      empresaId: _empresaId ?? widget.empresaId,
-    ),
-    AdminDianTokensPanel(
-      userId: widget.userId,
-      empresaId: _empresaId ?? widget.empresaId,
-    ),
-    AdminWhatsAppPanel(
-      userId: widget.userId,
-      empresaId: _empresaId ?? widget.empresaId,
-    ),
+    _tabMaestros(),
   ];
 
   List<TaskModuleRole> _taskRolesFromSources(
@@ -3875,6 +3750,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         'nutricion' => _nutricionRoleByUser,
         _ => const {},
       };
+
+  List<ManagementModuleRole> _managementRolesFromSources(
+    AdminModuleSources sources,
+    String empresaId,
+  ) => [
+    for (final source in sources.roles)
+      if (ManagementModuleRole.fromData(source.id, source.data)
+          case final role?)
+        if (role.empresaId == empresaId) role,
+  ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+  List<BillingModuleRole> _billingRolesFromSources(
+    AdminModuleSources sources,
+    String empresaId,
+  ) => [
+    for (final source in sources.roles)
+      if (BillingModuleRole.fromData(source.id, source.data) case final role?)
+        if (role.empresaId == empresaId) role,
+  ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
   List<PaymentModuleRole> _paymentRolesFromSources(
     AdminModuleSources sources,
@@ -4088,6 +3982,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       'Ficha de la empresa: rolPlanillas. Roles configurables en TBL_ROLES, vinculados por rolPlanillasId.',
     'facturacion' =>
       'Ficha de la empresa: rolFac y establecimientoFacId · Creador pendiente de revisar.',
+    'gerencia' =>
+      'Ficha de la empresa: permisosGerencia. Roles configurables en TBL_ROLES, vinculados por rolGerenciaId. Sin rol no ve datos.',
     _ =>
       'Acceso por Apps. Los niveles internos se revisarán al trabajar este módulo.',
   };
@@ -4436,6 +4332,174 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       final result = await _tableRolesRepo(
         config,
       ).synchronize(empresaId, role.id);
+      _snack(
+        result.failedUserIds.isEmpty
+            ? 'Rol ${role.name} guardado: ${result.updated} personas actualizadas.'
+            : 'Rol guardado: ${result.updated} personas actualizadas y ${result.failedUserIds.length} pendientes. Usa Sincronizar asignados para reintentar.',
+      );
+    } catch (error) {
+      throw StateError(
+        'El rol está guardado; faltó sincronizar sus asignados. Actualiza y reintenta: $error',
+      );
+    } finally {
+      await _reloadAccessMatrix();
+    }
+  }
+
+  Widget _billingRoleSelector(
+    QueryDocumentSnapshot<Map<String, dynamic>> user,
+    String empresaId,
+  ) {
+    final current = billingRoleIdOf(user.data(), empresaId);
+    return DropdownButtonFormField<String>(
+      key: ValueKey('billing_role_${user.id}_${current}_$_accessReloadVersion'),
+      initialValue: current,
+      isExpanded: true,
+      decoration: const InputDecoration(
+        labelText: 'Rol de Facturación',
+        isDense: true,
+      ),
+      items: [
+        const DropdownMenuItem(value: '', child: Text('Nivel individual')),
+        for (final role in _billingModuleRoles)
+          if (role.enabled || role.id == current)
+            DropdownMenuItem(
+              value: role.id,
+              enabled: role.enabled,
+              child: Text(
+                '${role.name}${role.enabled ? "" : " · Inactivo"}',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+        if (current.isNotEmpty &&
+            !_billingModuleRoles.any((role) => role.id == current))
+          DropdownMenuItem(
+            value: current,
+            enabled: false,
+            child: const Text('Rol sin definición válida'),
+          ),
+      ],
+      onChanged: (value) async {
+        try {
+          if ((value ?? '').isEmpty) {
+            await _billingRolesRepo.setIndividualLevel(
+              empresaId: empresaId,
+              userId: user.id,
+            );
+            _snack(
+              'Facturación: se conserva el nivel actual como nivel individual.',
+            );
+          } else {
+            await _billingRolesRepo.assign(
+              empresaId: empresaId,
+              userId: user.id,
+              roleId: value!,
+            );
+            _snack('Rol de Facturación asignado y nivel sincronizado.');
+          }
+        } catch (error) {
+          _snack('No se pudo asignar el rol de Facturación: $error');
+        }
+        await _reloadAccessMatrix();
+      },
+    );
+  }
+
+  /// Gerencia no tiene nivel individual: sin rol no ve nada (29 sep 2026).
+  Widget _managementRoleSelector(
+    QueryDocumentSnapshot<Map<String, dynamic>> user,
+    String empresaId,
+  ) {
+    final current = managementRoleIdOf(user.data(), empresaId);
+    return DropdownButtonFormField<String>(
+      key: ValueKey(
+        'management_role_${user.id}_${current}_$_accessReloadVersion',
+      ),
+      initialValue: current,
+      isExpanded: true,
+      decoration: const InputDecoration(
+        labelText: 'Rol de Gerencia',
+        isDense: true,
+      ),
+      items: [
+        const DropdownMenuItem(value: '', child: Text('Sin rol (no ve nada)')),
+        for (final role in _managementModuleRoles)
+          if (role.enabled || role.id == current)
+            DropdownMenuItem(
+              value: role.id,
+              enabled: role.enabled,
+              child: Text(
+                '${role.name}${role.enabled ? "" : " · Inactivo"}',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+        if (current.isNotEmpty &&
+            !_managementModuleRoles.any((role) => role.id == current))
+          DropdownMenuItem(
+            value: current,
+            enabled: false,
+            child: const Text('Rol sin definición válida'),
+          ),
+      ],
+      onChanged: (value) async {
+        try {
+          if ((value ?? '').isEmpty) {
+            await _managementRolesRepo.removeRole(
+              empresaId: empresaId,
+              userId: user.id,
+            );
+            _snack('Gerencia: rol retirado; la persona ya no ve datos.');
+          } else {
+            await _managementRolesRepo.assign(
+              empresaId: empresaId,
+              userId: user.id,
+              roleId: value!,
+            );
+            _snack('Rol de Gerencia asignado y permisos sincronizados.');
+          }
+        } catch (error) {
+          _snack('No se pudo asignar el rol de Gerencia: $error');
+        }
+        await _reloadAccessMatrix();
+      },
+    );
+  }
+
+  Future<void> _synchronizeManagementRole(
+    String empresaId,
+    ManagementModuleRole role,
+  ) async {
+    try {
+      final result = await _managementRolesRepo.synchronize(empresaId, role.id);
+      _snack(
+        result.failedUserIds.isEmpty
+            ? 'Rol ${role.name} guardado: ${result.updated} personas actualizadas.'
+            : 'Rol guardado: ${result.updated} personas actualizadas y ${result.failedUserIds.length} pendientes. Usa Sincronizar asignados para reintentar.',
+      );
+    } catch (error) {
+      throw StateError(
+        'El rol está guardado; faltó sincronizar sus asignados. Actualiza y reintenta: $error',
+      );
+    } finally {
+      await _reloadAccessMatrix();
+    }
+  }
+
+  /// Quienes tienen la app de Gerencia en la empresa y ningún rol.
+  List<String> _managementAppHoldersWithoutRole(String empresaId) => [
+    for (final user in _users)
+      if (_matrixUserHasApp(user, managementRolesAppId, empresaId) &&
+          managementRoleIdOf(user.data(), empresaId).isEmpty &&
+          personaHabilitadaEn(user.data(), empresaId))
+        user.id,
+  ];
+
+  Future<void> _synchronizeBillingRole(
+    String empresaId,
+    BillingModuleRole role,
+  ) async {
+    try {
+      final result = await _billingRolesRepo.synchronize(empresaId, role.id);
       _snack(
         result.failedUserIds.isEmpty
             ? 'Rol ${role.name} guardado: ${result.updated} personas actualizadas.'
@@ -5965,6 +6029,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         return 'Consulta, solicitudes, selección, gestión y administración';
       case 'nutricion':
         return 'Consulta, atención clínica, menús y coordinación';
+      case 'gerencia':
+        return 'Acceso y rol: áreas, empresas, pestañas y exportación';
       case 'visitas':
         return 'Gerencia ve y administra todas las áreas. El jefe (director) programa y administra formatos y equipo de su área; el área se toma de la ficha o del cargo. El firmante es el administrador del establecimiento que firma las visitas desde su módulo.';
       case 'admin':
@@ -5977,6 +6043,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   Map<String, String> _matrixModuleRoleOptions(_AccessMatrixModule module) {
     if (module.key == 'tareas') {
       return {for (final role in _taskModuleRoles) role.id: role.name};
+    }
+    if (module.key == 'gerencia') {
+      return {for (final role in _managementModuleRoles) role.id: role.name};
     }
     if (module.hasPlanillasRole) return kPlanillasRoleLabels;
     return module.roles;
@@ -5998,6 +6067,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         return talentoHumanoTableRoles.levelDescription(roleKey);
       case 'nutricion':
         return nutricionTableRoles.levelDescription(roleKey);
+      case 'gerencia':
+        for (final role in _managementModuleRoles) {
+          if (role.id == roleKey) return role.effectivePermissions.descripcion;
+        }
+        return 'Definición pendiente de revisar.';
       case 'correo':
         return correspondenceLevelDescription(roleKey);
       case 'gestion_documental':
@@ -6226,6 +6300,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   bool _matrixModuleHasRoles(_AccessMatrixModule module) =>
       module.key == 'tareas' ||
+      module.key == 'gerencia' ||
       module.hasPlanillasRole ||
       module.roles.isNotEmpty;
 
@@ -6345,6 +6420,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     switch (module.key) {
       case 'tareas':
         final id = taskRoleIdOf(data, empresaId);
+        return id.isEmpty ? null : id;
+      case 'gerencia':
+        final id = managementRoleIdOf(data, empresaId);
         return id.isEmpty ? null : id;
       case 'compras':
         return resolveComprasLevel(
@@ -6721,6 +6799,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       await _reloadAccessMatrix();
       return;
     }
+    // Facturación: el nivel, su vínculo y el establecimiento en una sola
+    // escritura (el establecimiento se conserva o se deduce del centro).
+    if (module.key == 'facturacion') {
+      await _billingRolesRepo.setIndividualLevel(
+        empresaId: empresaId,
+        userId: userDoc.id,
+        level: hasRole ? cleanRole : '',
+      );
+      _snack('Facturación: nivel individual actualizado.');
+      await _reloadAccessMatrix();
+      return;
+    }
     if (planillas || module.key == 'planillas_pago') {
       await _paymentRolesRepo.setIndividualLevel(
         empresaId: empresaId,
@@ -6731,46 +6821,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       await _reloadAccessMatrix();
       return;
     }
-    if (hasRole) {
-      await _repo.grantUserApps(
-        userId: userDoc.id,
-        empresaId: empresaId,
-        appIds: [module.appId],
-      );
-    }
-
-    {
-      final data = userDoc.data();
-      switch (module.key) {
-        case 'facturacion':
-          final extra = <String, dynamic>{};
-          final deleteFields = <String>[];
-          if (hasRole && cleanRole == kRolEstablecimiento) {
-            final estId = _inferFacturacionEstablecimientoId(data, empresaId);
-            if (estId != null && estId.isNotEmpty) {
-              extra['establecimientoFacId'] = estId;
-            }
-          } else {
-            deleteFields.add('establecimientoFacId');
-          }
-          await _setScopedUserRoleField(
-            userDoc: userDoc,
-            empresaId: empresaId,
-            field: 'rolFac',
-            value: hasRole ? cleanRole : null,
-            extraScoped: extra,
-            deleteScopedFields: deleteFields,
-          );
-          break;
-      }
-    }
-
-    _snack(
-      hasRole
-          ? '${module.label}: rol asignado'
-          : '${module.label}: rol interno retirado',
-    );
-    await _reloadAccessMatrix();
+    // Todos los módulos con rol interno tienen su repositorio arriba.
+    _snack('${module.label}: no tiene un rol interno que asignar aquí.');
   }
 
   Future<void> _setMatrixFacturacionEstablecimiento({
@@ -7038,6 +7090,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   style: TextStyle(fontSize: 11, color: kAdminMuted),
                 ),
               ],
+              if (module.key == 'gerencia') ...[
+                const SizedBox(height: 8),
+                _managementRoleSelector(userDoc, empresaId),
+                const SizedBox(height: 6),
+                const Text(
+                  'Sin rol no ve datos en Gerencia aunque tenga la app.',
+                  style: TextStyle(fontSize: 11, color: kAdminMuted),
+                ),
+              ],
+              if (module.key == 'facturacion') ...[
+                const SizedBox(height: 8),
+                _billingRoleSelector(userDoc, empresaId),
+                const SizedBox(height: 6),
+                const Text(
+                  'El nivel individual desvincula el rol creado.',
+                  style: TextStyle(fontSize: 11, color: kAdminMuted),
+                ),
+              ],
               if (module.key == 'gestion_documental') ...[
                 const SizedBox(height: 8),
                 _libraryRoleSelector(userDoc, empresaId),
@@ -7174,7 +7244,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                         )
                       : null,
                 ),
-              ] else if (!module.hasPlanillasRole)
+              ] else if (!module.hasPlanillasRole && module.key != 'gerencia')
                 const Padding(
                   padding: EdgeInsets.only(top: 4),
                   child: Text(
@@ -7460,7 +7530,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             modulo: 'Tokens DIAN',
             visible: 'tokensdiandashboard',
             permisos: 'TBL_DIAN_TOKEN_ROLES: Consulta, Operador, Administrador',
-            donde: 'Matriz central; buzón en Admin > Tokens DIAN',
+            donde: 'Matriz central / Admin > Maestros por módulo > Tokens DIAN',
           ),
           (
             modulo: 'Talento Humano',
@@ -8703,6 +8773,92 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 );
                 _snack(
                   '${result.updated} niveles anteriores consolidados; ${result.failedUserIds.length} pendientes de reintento.',
+                );
+              } finally {
+                await _reloadAccessMatrix();
+              }
+            },
+          ),
+          const SizedBox(height: 14),
+        ],
+        if (module.key == 'gerencia') ...[
+          ManagementModuleRolesPanel(
+            key: ValueKey('management_roles_$empresaId'),
+            roles: _managementModuleRoles,
+            pendingSyncCount: (role) => _users
+                .where((u) => managementRoleNeedsSync(u.data(), role))
+                .length,
+            appHoldersWithoutRole: _managementAppHoldersWithoutRole(
+              empresaId,
+            ).length,
+            onSave: (name, description, permissions, enabled, previous) async {
+              final role = await _managementRolesRepo.save(
+                empresaId: empresaId,
+                name: name,
+                description: description,
+                permissions: permissions,
+                enabled: enabled,
+                previous: previous,
+              );
+              await _synchronizeManagementRole(empresaId, role);
+            },
+            onSynchronize: (role) =>
+                _synchronizeManagementRole(empresaId, role),
+            onCreateDefaults: () async {
+              try {
+                final count = await _managementRolesRepo.ensureDefaults(
+                  empresaId,
+                );
+                _snack(
+                  '$count roles iniciales de Gerencia creados. Asigna cada rol a sus personas.',
+                );
+              } finally {
+                await _reloadAccessMatrix();
+              }
+            },
+            onAssignAppHolders: (role) async {
+              try {
+                final result = await _managementRolesRepo.assignMany(
+                  empresaId: empresaId,
+                  roleId: role.id,
+                  userIds: _managementAppHoldersWithoutRole(empresaId),
+                );
+                _snack(
+                  result.failedUserIds.isEmpty
+                      ? '${role.name} asignado a ${result.updated} persona(s).'
+                      : '${role.name} asignado a ${result.updated} persona(s); ${result.failedUserIds.length} no se pudieron asignar.',
+                );
+              } finally {
+                await _reloadAccessMatrix();
+              }
+            },
+          ),
+          const SizedBox(height: 14),
+        ],
+        if (module.key == 'facturacion') ...[
+          BillingModuleRolesPanel(
+            key: ValueKey('billing_roles_$empresaId'),
+            roles: _billingModuleRoles,
+            pendingSyncCount: (role) => _users
+                .where((u) => billingRoleNeedsSync(u.data(), role))
+                .length,
+            onSave: (name, description, level, enabled, previous) async {
+              final role = await _billingRolesRepo.save(
+                empresaId: empresaId,
+                name: name,
+                description: description,
+                level: level,
+                enabled: enabled,
+                previous: previous,
+              );
+              await _synchronizeBillingRole(empresaId, role);
+            },
+            onSynchronize: (role) => _synchronizeBillingRole(empresaId, role),
+            onCreateDefaults: () async {
+              try {
+                final count = await _billingRolesRepo.ensureDefaults(empresaId);
+                _snack(
+                  '$count roles iniciales de Facturación creados. Asigna cada rol a sus personas.',
                 );
               } finally {
                 await _reloadAccessMatrix();
@@ -11010,7 +11166,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           'El emoji identificará todos los mensajes de WhatsApp, '
                           'sin mostrar el nombre de la empresa. El nombre corto '
                           'y el color se conservarán solo para alertas internas. '
-                          'Este mismo emoji aparece en Admin > WhatsApp.',
+                          'Este mismo emoji aparece en Admin > Maestros por módulo > WhatsApp.',
                           style: TextStyle(
                             fontFamily: kArial,
                             fontSize: 12,
@@ -11670,7 +11826,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 ),
                 const SizedBox(height: 6),
                 const Text(
-                  'Primero selecciona usuarios. Luego puedes simular o ejecutar.',
+                  'Arreglos puntuales de fichas en la empresa activa. Primero '
+                  'selecciona usuarios; luego simula (cuenta sin escribir) o '
+                  'ejecuta. Cada corrida queda en Logs.',
                   style: TextStyle(
                     fontFamily: kArial,
                     fontSize: 12,
@@ -11720,7 +11878,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                         .map(
                           (id) => Chip(
                             backgroundColor: const Color(0xFFE8FBFF),
-                            label: Text(
+                            avatar: UserAvatar(userId: id, radius: 11),
+                            label: UserNameText(
                               id,
                               style: const TextStyle(
                                 fontFamily: kArial,
@@ -11804,228 +11963,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             ),
           ),
         ),
-
-        const SizedBox(height: 12),
-
-        Card(
-          color: kAdminCard,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Tokens (fcmToken) → SOLO usuarios seleccionados',
-                  style: TextStyle(
-                    fontFamily: kArial,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () =>
-                            _runNormalizeTokensSelectedUsers(dryRun: true),
-                        icon: const Icon(Icons.visibility),
-                        label: const Text(
-                          'Simular',
-                          style: TextStyle(fontFamily: kArial),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: kAdminPrimary,
-                        ),
-                        onPressed: () =>
-                            _runNormalizeTokensSelectedUsers(dryRun: false),
-                        icon: const Icon(Icons.play_arrow),
-                        label: const Text(
-                          'Ejecutar',
-                          style: TextStyle(
-                            fontFamily: kArial,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-
-        const SizedBox(height: 12),
-
-        Card(
-          color: kAdminCard,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'App IDs (formato canónico) → SOLO usuarios seleccionados',
-                  style: TextStyle(
-                    fontFamily: kArial,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  'Convierte IDs cortos (compras, admin…) a IDs completos (comprasdashboard, admindashboard…).',
-                  style: TextStyle(
-                    fontFamily: kArial,
-                    fontSize: 12,
-                    color: Colors.black54,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () =>
-                            _runNormalizeAppIdsSelectedUsers(dryRun: true),
-                        icon: const Icon(Icons.visibility),
-                        label: const Text(
-                          'Simular',
-                          style: TextStyle(fontFamily: kArial),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: kAdminPrimary,
-                        ),
-                        onPressed: () =>
-                            _runNormalizeAppIdsSelectedUsers(dryRun: false),
-                        icon: const Icon(Icons.play_arrow),
-                        label: const Text(
-                          'Ejecutar',
-                          style: TextStyle(
-                            fontFamily: kArial,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-
-        const SizedBox(height: 12),
-
-        Card(
-          color: kAdminCard,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Eliminar todas las tareas (empresa activa)',
-                  style: TextStyle(
-                    fontFamily: kArial,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Útil para reiniciar el entorno en periodo de prueba.',
-                  style: TextStyle(
-                    fontFamily: kArial,
-                    fontSize: 12,
-                    color: Colors.black54,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red.shade700,
-                    ),
-                    onPressed: _deleteAllTasksForEmpresa,
-                    icon: const Icon(Icons.delete_forever),
-                    label: const Text(
-                      'Eliminar todas las tareas',
-                      style: TextStyle(
-                        fontFamily: kArial,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
       ],
     );
   }
 
   // ---------------- TAB: LOGS ----------------
   Widget _tabLogs() {
-    return FutureBuilder(
-      future: _loadLogs(),
-      builder:
-          (
-            context,
-            AsyncSnapshot<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-            snap,
-          ) {
-            if (!snap.hasData) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            final docs = snap.data ?? [];
-            if (docs.isEmpty) {
-              return const Center(
-                child: Text('Sin logs', style: TextStyle(fontFamily: kArial)),
-              );
-            }
-
-            return ListView.separated(
-              padding: const EdgeInsets.all(12),
-              itemCount: docs.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 10),
-              itemBuilder: (_, i) {
-                final d = docs[i].data();
-                final action = (d['action'] ?? '').toString();
-                final scanned = (d['scanned'] ?? 0).toString();
-                final updated = (d['updated'] ?? 0).toString();
-                final dryRun = (d['dryRun'] as bool?) ?? false;
-
-                return Card(
-                  color: kAdminCard,
-                  child: ListTile(
-                    leading: const Icon(Icons.bolt, color: kAdminAccent),
-                    title: Text(
-                      action,
-                      style: const TextStyle(
-                        fontFamily: kArial,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    subtitle: Text(
-                      'Scanned: $scanned • Updated: $updated • ${dryRun ? "SIMULACIÓN" : "EJECUTADO"}',
-                      style: const TextStyle(fontFamily: kArial),
-                    ),
-                  ),
-                );
-              },
-            );
-          },
+    final empresaId = _empresaId ?? widget.empresaId;
+    return AdminLogsPanel(
+      key: ValueKey('logs_$empresaId'),
+      empresaId: empresaId,
     );
   }
 
@@ -16797,11 +16744,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
         // Mover cédulas al survivor y eliminar el loser.
         if (cedulas.isNotEmpty) {
-          batch.set(
-            db.collection('TBL_CARGOS').doc(survivor.docId),
-            {'cedulas': FieldValue.arrayUnion(cedulas.toList())},
-            SetOptions(merge: true),
-          );
+          batch.set(db.collection('TBL_CARGOS').doc(survivor.docId), {
+            'cedulas': FieldValue.arrayUnion(cedulas.toList()),
+          }, SetOptions(merge: true));
           writes++;
         }
         batch.delete(db.collection('TBL_CARGOS').doc(l.docId));

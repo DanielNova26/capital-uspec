@@ -483,7 +483,7 @@ class NutricionService {
     int version = 1,
     bool activa = true,
   }) async {
-    final ref = _db.collection(_collDietas).doc(codigo);
+    final ref = await _refPorCodigo(_collDietas, empresaId, codigo);
     await ref.set({
       'empresaId': empresaId,
       'codigo': codigo,
@@ -498,6 +498,27 @@ class NutricionService {
       'version': version,
       'activa': activa,
     }, SetOptions(merge: true));
+  }
+
+  /// Documento de una dieta o patología de la empresa por su código.
+  ///
+  /// 30 sep 2026: antes el id era el código solo, así que importar "HIPO"
+  /// en una empresa reescribía la dieta "HIPO" de otra (y se la quitaba,
+  /// porque cambiaba su `empresaId`). Ahora se usa la que la empresa ya tiene
+  /// con ese código o, si no hay, `{empresaId}_{codigo}` como la siembra.
+  Future<DocumentReference<Map<String, dynamic>>> _refPorCodigo(
+    String coleccion,
+    String empresaId,
+    String codigo,
+  ) async {
+    final existentes = await _db
+        .collection(coleccion)
+        .where('empresaId', isEqualTo: empresaId)
+        .where('codigo', isEqualTo: codigo)
+        .limit(1)
+        .get();
+    if (existentes.docs.isNotEmpty) return existentes.docs.first.reference;
+    return _db.collection(coleccion).doc('${empresaId}_$codigo');
   }
 
   Future<void> importarCatalogos({
@@ -538,7 +559,8 @@ class NutricionService {
         final rowData = _rowToMap(headers, row);
         final codigo = (rowData['codigo'] ?? '').toString();
         if (codigo.isEmpty) continue;
-        await _db.collection(_collPatologias).doc(codigo).set({
+        final ref = await _refPorCodigo(_collPatologias, empresaId, codigo);
+        await ref.set({
           'empresaId': empresaId,
           'codigo': codigo,
           'nombre': rowData['nombre']?.toString(),

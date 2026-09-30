@@ -58,6 +58,7 @@ import '../widgets/paged_list.dart';
 import '../widgets/user_avatar.dart';
 import 'gerencia_areas.dart';
 import 'gerencia_hallazgos_export.dart';
+import 'gerencia_permisos.dart';
 
 const _kInk = Color(0xFF0F172A);
 const _kMuted = Color(0xFF64748B);
@@ -147,6 +148,13 @@ class GerenciaInterventoriaTab extends StatefulWidget {
   final String empresaPrincipal;
   final bool isDesktop;
 
+  /// Lo que deja ver el rol de Gerencia: con "solo su área" quedan los
+  /// hallazgos cuya área es la de su ficha. `null`: sin límite (pruebas).
+  final GerenciaAcceso? alcance;
+
+  /// El rol permite descargar PDF y Excel.
+  final bool puedeExportar;
+
   const GerenciaInterventoriaTab({
     super.key,
     required this.userId,
@@ -157,6 +165,8 @@ class GerenciaInterventoriaTab extends StatefulWidget {
     this.areaDeUsuario,
     this.empresaNombres = const {},
     this.empresaPrincipal = '',
+    this.alcance,
+    this.puedeExportar = true,
   });
 
   @override
@@ -627,7 +637,13 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
             ),
           );
         }
-        final todos = snap.data ?? const <InterventoriaHallazgo>[];
+        final alcance = widget.alcance;
+        final todos = [
+          for (final h in snap.data ?? const <InterventoriaHallazgo>[])
+            if (alcance == null ||
+                alcance.incluye(h.empresaId, _etiquetaArea(h)))
+              h,
+        ];
         final opcionesArea = opcionesFiltroArea(
           widget.areas,
           todos.map(_etiquetaArea),
@@ -913,7 +929,7 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
     List<InterventoriaHallazgo> hallazgos, {
     required bool pdf,
   }) async {
-    if (_exportando) return;
+    if (_exportando || !widget.puedeExportar) return;
     setState(() => _exportando = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
@@ -1312,7 +1328,7 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
     AlcanceExportacion alcance, {
     required bool pdf,
   }) async {
-    if (_exportando) return;
+    if (_exportando || !widget.puedeExportar) return;
     setState(() => _exportando = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
@@ -1361,12 +1377,14 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
     required IconData icono,
     required String tooltip,
     required VoidCallback onPressed,
-  }) => IconButton(
-    tooltip: tooltip,
-    visualDensity: VisualDensity.compact,
-    onPressed: _exportando ? null : onPressed,
-    icon: Icon(icono, size: 20, color: _kInk),
-  );
+  }) => !widget.puedeExportar
+      ? const SizedBox.shrink()
+      : IconButton(
+          tooltip: tooltip,
+          visualDensity: VisualDensity.compact,
+          onPressed: _exportando ? null : onPressed,
+          icon: Icon(icono, size: 20, color: _kInk),
+        );
 
   // ── Gráfica y detalle ─────────────────────────────────────────────────────
 

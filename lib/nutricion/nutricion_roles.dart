@@ -25,10 +25,10 @@ enum NutricionLevel {
   /// reportes porque las pantallas clínicas aún contienen formularios.
   List<int> get pestanas => switch (this) {
     ninguno => const [],
-    consulta => const [5],
-    clinico => const [0, 3, 4, 5],
-    menus => const [1, 2, 5],
-    coordinador || administrador => const [0, 1, 2, 3, 4, 5],
+    consulta => const [5, 6],
+    clinico => const [0, 3, 4, 5, 6],
+    menus => const [1, 2, 5, 6],
+    coordinador || administrador => const [0, 1, 2, 3, 4, 5, 6],
   };
 }
 

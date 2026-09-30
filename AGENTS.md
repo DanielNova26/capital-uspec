@@ -36,11 +36,11 @@ No quiero:
 ## Contrato obligatorio al crear o ampliar un módulo
 Antes de dar un módulo por terminado, comprobar lo siguiente:
 
-- Registrar **todos sus maestros y configuraciones por empresa en Admin**,
-  con editor y fuente canónica allí. El módulo operativo consume esa fuente;
-  no crea un segundo editor ni una copia del catálogo. Si existe un maestro
-  histórico en el módulo, ofrecer revisión e incorporación segura en Admin
-  antes de retirar el flujo anterior.
+- Registrar los maestros y configuraciones por empresa en el catálogo común
+  de Admin. Su edición sigue la regla «Maestros por módulo» de este archivo:
+  cada módulo mantiene sus editores operativos; Admin centraliza la
+  configuración administrativa y la copia entre empresas. No crear fuentes
+  duplicadas ni cruzar datos de empresas.
 - Registrarlo en el catálogo común de apps y en Admin → Apps, roles y permisos, con el mismo identificador canónico en Web, móvil, backend y reglas.
 - Respetar la empresa activa y la pertenencia/habilitación de la persona en cada lectura, escritura y navegación.
 - Si hay más de un nivel operativo, incluir en la tarjeta de Admin el creador de roles (crear, editar, inactivar), niveles iniciales, asignación por persona, nivel individual y sincronización de cambios. Mantener una única fuente de verdad para nombres y capacidades. Si el módulo solo tiene acceso a la app, dejarlo explícito, sin inventar roles.
@@ -64,6 +64,25 @@ Para coordinar cambios entre Codex y Claude, usar `MEJORAS.md` como bitácora co
 
 ## Comunicación en cada conversación
 Mostrar al usuario principalmente el resultado final: qué quedó hecho, validación y pendientes reales. No narrar comandos, razonamiento interno ni una cronología del proceso. Las actualizaciones intermedias, si son necesarias, deben ser breves y limitarse a hallazgos o bloqueos que cambien el resultado. Esta regla se aplica a Codex y Claude en cada conversación de este repositorio.
+## Maestros por módulo (decisión del usuario, 30 sep 2026)
+- Cada módulo crea y edita sus maestros **en su módulo**, en su propia
+  empresa. En Compras, proveedores, productos, marcas y fichas técnicas los
+  crea y edita el equipo de Compras uno a uno: es así a propósito y **no es
+  un pendiente de Admin**.
+- **Admin › Maestros por módulo** tiene dos cosas: la configuración que es
+  de Administración (en Compras: las cargas por Excel de proveedores,
+  productos y requisitos documentales, y el plazo de rechazados; además
+  Correo, Tokens DIAN y WhatsApp) y **"Copiar a otras empresas"**. Bodegas y
+  grupos de Compras también se crean en Admin.
+- Ningún módulo muestra otras empresas: nada de "copiar a otra empresa"
+  dentro de un módulo. Lo que mueve datos entre empresas va en Admin
+  (Maestros por módulo, o Usuarios › Multiempresa para personas, áreas,
+  cargos y centros).
+- La copia (`adminSincronizarMaestros`, `functions/src/maestros.ts`) solo
+  agrega lo que el destino no tiene y nunca pisa. Un maestro nuevo se agrega
+  al catálogo del servidor y a `kModulosMaestros`
+  (`lib/admin/maestros_sync_service.dart`); `test/admin/maestros_sync_test.dart`
+  falla si no coinciden.
 
 ## Gemini
 Responsable de:

@@ -507,7 +507,7 @@ class _ZeusExportScreenState extends State<ZeusExportScreen> {
     if (!_newUserFormKey.currentState!.validate() || _creatingUser) return;
     setState(() => _creatingUser = true);
     try {
-      await _service.createBasicUser(
+      final claveInicial = await _service.createBasicUser(
         empresaId: widget.empresaId,
         cedula: _newCedula.text.replaceAll(RegExp(r'[^0-9]'), ''),
         primerNombre: _newPrimerNombre.text,
@@ -519,6 +519,7 @@ class _ZeusExportScreenState extends State<ZeusExportScreen> {
         cargo: _newCargo.text,
         centroCostos: _newCentro.text,
         soloNuevo: widget.createUserOnly,
+        creadoPor: widget.userId,
       );
       if (!mounted) return;
       _newCedula.clear();
@@ -538,9 +539,13 @@ class _ZeusExportScreenState extends State<ZeusExportScreen> {
       }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'Usuario activado. Cédula y contraseña temporal: 123456.',
+            claveInicial
+                ? 'Usuario activado. Entra con su cédula y la clave inicial '
+                      '123456; la cambiará al entrar.'
+                : 'Usuario activado. Ya tenía su propia contraseña: la '
+                      'conserva.',
           ),
         ),
       );

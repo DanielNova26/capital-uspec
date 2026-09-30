@@ -506,7 +506,9 @@ service cloud.firestore {
           'planillaspagodashboard', 'bibliotecadocumentaldashboard',
           'tareasdashboard', 'comprasdashboard', 'rutasdashboard',
           'interventoriadashboard', 'visitasdashboard',
-          'tokensdiandashboard', 'talentohumanodashboard', 'nutriciondashboard']
+          'tokensdiandashboard', 'talentohumanodashboard',
+          'nutriciondashboard', 'facturaciondashboard',
+          'gerenciadashboard']
         && (data.moduleId != 'comprasdashboard' || data.get('baseRole', '') in ['admin','calidad','compras','bodega','consultas'])
         && (data.moduleId != 'tokensdiandashboard' || data.get('baseRole', '') in ['consulta','operador','administrador'])
         && (data.moduleId != 'talentohumanodashboard' || data.get('baseRole', '') in ['consulta','solicitante','reclutador','gestor','administrador'])
@@ -549,6 +551,22 @@ service cloud.firestore {
     }
     match /TBL_AUTH_ADMIN_AUDIT/{document=**} {
       allow read, write: if false;
+    }
+
+    // Registro de ingresos (29 sep 2026): cada quien agrega el suyo al
+    // entrar, con su equipo; lo lee Admin de esa empresa o Desarrollo. Antes
+    // estaba en la regla general: cualquiera veía y borraba los ingresos (y
+    // los equipos) de todas las empresas. Nadie lo edita ni lo borra.
+    match /TBL_LOGIN_SESIONES/{sesionId} {
+      allow read: if isDeveloperFor(resource.data.get('empresaId', ''))
+        || (belongsToCompany(resource.data.get('empresaId', ''))
+          && tieneAppAdminEn(resource.data.empresaId));
+      allow create: if isSignedIn()
+        && request.resource.data.get('userId', '')
+          == request.auth.token.userDocId
+        && request.resource.data.get('empresaId', '') is string
+        && request.resource.data.empresaId.size() > 0;
+      allow update, delete: if false;
     }
 
     // ── Nutrición (28 sep 2026) ───────────────────────────────────────────
@@ -669,6 +687,12 @@ service cloud.firestore {
       allow list: if documentoDeSuEmpresa();
       allow create: if documentoDeSuEmpresa() && nutricionEscribeClinica(request.resource.data.empresaId);
       allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeClinica(resource.data.empresaId);
+    }
+    // Evaluaciones diagnósticas del paciente (29 sep 2026): son datos de
+    // salud y seguían en la regla general, legibles desde cualquier empresa.
+    match /TBL_EVALUACIONES_DIAGNOSTICAS/{docId} {
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
     }
 
     // Historial del paciente: `{empresa}-{paciente}/registros`. La consulta
@@ -1438,6 +1462,28 @@ service cloud.firestore {
       allow delete: if gestionaRolesDeModulo(empresaId,'comprasdashboard');
     }
 
+    // Bitácora de Admin (Logs): migraciones, limpiezas, cierres,
+    // multiempresa. Antes estaba en la regla general y cualquiera la leía,
+    // la editaba o la borraba (29 sep 2026). Solo se agrega: nadie la cambia.
+    // La crea quien firma la acción, con la hora del servidor; el nombre de
+    // la empresa no se exige al crear porque Multiempresa registra con la
+    // empresa de referencia de la persona (o '*') en el mismo lote que su
+    // cambio, y negar el registro tumbaría el cambio.
+    match /TBL_MIGRATIONS_LOGS/{logId} {
+      allow read: if isDeveloperFor(resource.data.get('empresaId', ''))
+        || (belongsToCompany(resource.data.get('empresaId', ''))
+          && tieneAppAdminEn(resource.data.empresaId));
+      allow create: if isSignedIn()
+        && !cuentaInhabilitada(currentUser())
+        && request.resource.data.get('adminUserId', '')
+          == request.auth.token.userDocId
+        && request.resource.data.get('action', '') is string
+        && request.resource.data.action.size() > 0
+        && request.resource.data.get('empresaId', '') is string
+        && request.resource.data.get('createdAt', null) == request.time;
+      allow update, delete: if false;
+    }
+
     match /TBL_ROLES/{docId} {
       allow read: if isSignedIn();
       allow create: if esRolDeModulo(request.resource.data)
@@ -1509,6 +1555,38 @@ service cloud.firestore {
     // Contadores y códigos internos se escriben exclusivamente en Functions.
     match /TBL_GD_CONTADORES/{docId} {
       allow read, write: if false;
+    }
+
+    // ── Facturación (29 sep 2026) ─────────────────────────────────────────
+    // Estaba en la regla general: cualquiera con sesión, de cualquier
+    // empresa, leía y cambiaba obligaciones, revisiones y observaciones.
+    // Ahora cada documento es de su empresa (`documentoDeSuEmpresa`); la
+    // configuración va por el id. El nivel (Gestión, Establecimiento, Visor)
+    // vive en la ficha del usuario, que todavía escribe cualquiera (P0): por
+    // eso no se exige por acción.
+    match /TBL_FAC_CONFIG/{empresaId} {
+      allow read, write: if belongsToCompany(empresaId);
+    }
+
+    match /TBL_FAC_OBLIGACIONES/{docId} {
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
+    }
+    match /TBL_FAC_ESTABLECIMIENTOS/{docId} {
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
+    }
+    match /TBL_FAC_REVISIONES/{docId} {
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
+    }
+    match /TBL_FAC_OBSERVACIONES/{docId} {
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
+    }
+    match /TBL_FAC_AUTORIZACIONES/{docId} {
+      allow get: if resource == null || documentoDeSuEmpresa();
+      allow list, create, update, delete: if documentoDeSuEmpresa();
     }
 
     // ── Rutas (28 sep 2026) ───────────────────────────────────────────────
@@ -1781,6 +1859,7 @@ service cloud.firestore {
           'TBL_VISITAS_GRUPOS',
           'TBL_CORREO_ROLES',
           'TBL_ROLES',
+          'TBL_MIGRATIONS_LOGS',
           'TBL_GD_TIPOS_DOCUMENTALES',
           'TBL_GD_EXPEDIENTES_EVENTOS',
           'TBL_GD_COLABORACION',
@@ -1799,6 +1878,7 @@ service cloud.firestore {
           'TBL_AUTH_LOGIN_ATTEMPTS',
           'TBL_AUTH_RECOVERY_CHALLENGES',
           'TBL_AUTH_ADMIN_AUDIT',
+          'TBL_LOGIN_SESIONES',
           'TBL_PAGOS_BENEFICIARIOS',
           'TBL_PAGOS_BENEFICIARIOS_CUENTA',
           'TBL_RUTAS',
@@ -1830,7 +1910,14 @@ service cloud.firestore {
           'TBL_INGREDIENTES',
           'TBL_DIRECTORIO_NUTRICION',
           'TBL_CITAS_NUTRICION',
-           'TBL_HISTORIAL_NUTRICION'
+          'TBL_EVALUACIONES_DIAGNOSTICAS',
+           'TBL_HISTORIAL_NUTRICION',
+          'TBL_FAC_CONFIG',
+          'TBL_FAC_OBLIGACIONES',
+          'TBL_FAC_ESTABLECIMIENTOS',
+          'TBL_FAC_REVISIONES',
+          'TBL_FAC_OBSERVACIONES',
+          'TBL_FAC_AUTORIZACIONES'
         ]);
     }
   }

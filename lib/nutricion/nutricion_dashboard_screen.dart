@@ -12,6 +12,7 @@ import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'catalogos/nutricion_catalogos_screen.dart';
+import 'diagnosticos/nutricion_diagnosticos_screen.dart';
 import 'firmas/nutricion_firmas_screen.dart';
 import 'ingredientes/nutricion_ingredientes_screen.dart';
 import 'menus/nutricion_menus_screen.dart';
@@ -184,6 +185,11 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
     InternalModuleTabItem(label: 'Pacientes', icon: Icons.badge_outlined),
     InternalModuleTabItem(label: 'Firmas', icon: Icons.draw_outlined),
     InternalModuleTabItem(label: 'Reportes', icon: Icons.bar_chart_outlined),
+    // Antes en Admin › Diagnósticos: es el catálogo que usa la atención.
+    InternalModuleTabItem(
+      label: 'Diagnósticos',
+      icon: Icons.medical_information_outlined,
+    ),
   ];
 
   final List<String> _establecimientos = const ['Establecimiento principal'];
@@ -365,6 +371,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
       'Directorio de Pacientes',
       'Firmas y Consentimientos',
       'Reportes Operativos',
+      'Catálogo de Diagnósticos',
     ];
     const subs = [
       'Registro clínico y seguimiento de pacientes.',
@@ -373,6 +380,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
       'Expedientes históricos del sistema.',
       'Validación de firmas digitales y sellos.',
       'Generación de documentos técnicos en Excel.',
+      'Diagnósticos médicos y nutricionales del selector de la atención.',
     ];
 
     return GuardedModulePage(
@@ -490,9 +498,13 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
         userId: widget.userId,
         showAppBar: false,
       ),
-      _ => NutricionReportesScreen(
+      5 => NutricionReportesScreen(
         empresaId: widget.empresaId,
         showAppBar: false,
+      ),
+      _ => NutricionDiagnosticosScreen(
+        userId: widget.userId,
+        empresaId: widget.empresaId,
       ),
     };
   }

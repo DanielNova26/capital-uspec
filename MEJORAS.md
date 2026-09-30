@@ -9,11 +9,12 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 ## Revisión final de Admin y contrato multiplataforma — 30 sep 2026 (Codex ↔ Claude)
 
 `AGENTS.md` y `CLAUDE.md` exigen cobertura Web adaptable, Android e iOS,
-validación por ancho lógico (390/768/1024/1366 px y texto ampliado), y que
-todo maestro nuevo o histórico termine con editor y fuente por empresa en
-**Admin → Gestión interna**. El módulo operativo debe consumir esa fuente,
-sin mantener un segundo editor. El contrato conserva UX diferenciada para
-Web y móvil y lógica/permisos compartidos. Como excepción de esta sesión,
+validación por ancho lógico (390/768/1024/1366 px y texto ampliado), y
+registro de maestros por empresa en el catálogo de Admin. La decisión
+posterior del 30 sep sitúa la edición operativa dentro de cada módulo y
+centraliza en Admin la configuración administrativa y la copia entre
+empresas. El contrato conserva UX diferenciada para Web y móvil y
+lógica/permisos compartidos. Como excepción de esta sesión,
 el usuario hará Git personalmente; Codex no ejecutará add, commit ni push.
 
 **Perfiles generales:** se mantienen en Admin → Apps, roles y permisos como
@@ -285,7 +286,451 @@ esperan que se libere un `.git/index.lock` antiguo: la revisión automática
 rechazó retirarlo desde esta sesión.
 
 ---
+---
 
+## Integración de cambios concurrentes en `main` — 30 sep 2026 (Codex)
+
+Se conservaron los niveles de Tokens DIAN, Talento Humano y Nutrición junto
+con los de Facturación y Gerencia en Admin y en `firestore.rules`. La nueva
+pestaña de Diagnósticos de Nutrición quedó incluida en la navegación de todos
+los niveles que pueden consultar, sin saltar el filtro de pestañas por rol.
+La bitácora mantiene los cambios de ambas sesiones y `AGENTS.md`/`CLAUDE.md`
+usan la decisión más reciente documentada sobre edición de maestros en cada
+módulo y copia entre empresas desde Admin.
+
+Validación de la integración: 1.405 pruebas Flutter y 133 de Functions
+aprobadas; `flutter build web --no-pub` correcto. El análisis dirigido no
+detectó errores; persisten 9 avisos de estilo/elementos sin uso. La
+compilación Android y la de iOS no se pudieron verificar en esta integración.
+
+---
+
+## Admin › Maestros por módulo: copiar maestros a otras empresas — 30 sep 2026 (Claude)
+
+Pedido: todo lo de "mover entre empresas" que estaba dentro de los módulos
+pasa a Admin, para copiar los maestros y la configuración de un módulo a
+otras empresas; los módulos no necesitan saber que hay otras empresas.
+Decisiones: todos los maestros (no solo documentos: configuración,
+establecimientos…); **agregar lo que falta**; cada módulo sigue editando sus
+maestros y Admin copia; las pestañas Compras, Correo, Tokens DIAN y WhatsApp
+se agrupan en una sola.
+
+### Cómo queda
+- Nueva pestaña **Admin › Maestros por módulo** (reemplaza Compras, Correo,
+  Tokens DIAN y WhatsApp). Arriba se elige el módulo (chips en web, lista
+  en móvil). Donde había panel propio (Compras, Correo, Tokens DIAN,
+  WhatsApp) sigue igual en "Configuración".
+- **Copiar a otras empresas**: se eligen las empresas destino (solo donde se
+  es Administración; las demás se ven pero no se eligen) y qué maestros
+  (todos por defecto) → "Ver qué se copiaría" (por empresa y maestro:
+  nuevos, ya estaban, sin código ni nombre, campos por completar, ejemplos)
+  → "Copiar lo que falta" con confirmación.
+- Qué se copia:
+  - Compras: configuración, grupos, bodegas, marcas, proveedores,
+    productos, fichas técnicas y requisitos documentales.
+  - Interventoría: configuración y reglas de subsanación.
+  - Visitas: formatos y ubicaciones de establecimientos.
+  - Facturación: obligaciones y qué documentos no aplican por
+    establecimiento (el mes y las fechas límite son de cada empresa).
+  - Rutas: configuración, movilidad (sin las cédulas de alerta),
+    establecimientos, rutas, placas y horarios.
+  - Nutrición: ingredientes, patologías, dietas, plantillas de menú y menús.
+  - Correspondencia: tipos documentales.
+  - Biblioteca documental: cada documento con su versión vigente y su
+    archivo (duplicado en Storage).
+  - Talento Humano: plantillas de documentos (con su Word) y valores por
+    defecto de Zeus.
+  - No se copian personas ni lo que es de cada empresa: grupos de Visitas,
+    beneficiarios y logos de Planillas, cuentas de Correo, tokens DIAN,
+    WhatsApp.
+
+### Dónde se edita cada cosa (confirmado por el usuario, 30 sep 2026)
+Cada módulo crea y edita sus maestros en su módulo; en Compras,
+proveedores, productos, marcas y fichas técnicas los maneja el equipo de
+Compras uno a uno, y no es un pendiente de Admin. Admin conserva las cargas
+por Excel, bodegas y grupos, Correo, Tokens DIAN, WhatsApp y la copia entre
+empresas. Quedó como regla 6 en `CLAUDE.md` y en `AGENTS.md`.
+
+### Reglas de la copia (`functions/src/maestros.ts`, `adminSincronizarMaestros`)
+- Solo crea lo que el destino no tiene, comparando por código o nombre (sin
+  tildes ni mayúsculas); nunca cambia lo que ya existe (`create`, que falla
+  si el documento apareció entre la vista previa y la copia). Se puede
+  repetir.
+- Configuración: completa solo los campos vacíos, por dentro de los mapas;
+  las listas que el destino ya tiene se respetan.
+- Las referencias se traducen al destino: el producto a su marca, la ficha
+  a su producto, proveedor y marca, el formato a su área, la ubicación a su
+  centro. Áreas, cargos y centros se buscan por nombre (centros también por
+  código); si el destino no los tiene, la vista previa lo avisa y remite a
+  Usuarios › Multiempresa para enviarlos (el id queda como el que crea ese
+  envío, así se enlazan al enviarlos). En Interventoría avisa los cargos de
+  las reglas que el destino no tiene (antes lo avisaba el diálogo del
+  módulo).
+- Marcas: si el código (MRC-0003) ya lo usa otra marca en el destino, se le
+  da el siguiente libre y se ajusta el consecutivo del destino.
+- Exige ser Administración en la empresa activa **y** en cada destino. Queda
+  en Logs de las dos: "Maestros: copiados a otras empresas" y "Maestros:
+  recibidos de otra empresa".
+
+### Sale de los módulos
+- Biblioteca documental: el botón "COPIAR A OTRA EMPRESA" y su servicio.
+- Interventoría: "Copiar a otras empresas" del maestro de subsanaciones
+  (reglas y configuración) y sus métodos del servicio.
+
+### Corregido de paso
+- **Limpieza › Compras** borraba la parametrización de requisitos
+  documentales (`TBL_COMPRAS_REQ_DOCUMENTOS`) como si fuera un registro de
+  prueba. Ahora es un maestro: solo se borra si se pide incluir maestros.
+- **Nutrición:** importar dietas o patologías desde Excel usaba el código
+  como id, así que la misma dieta en otra empresa se sobrescribía (y se le
+  cambiaba la empresa). Ahora se usa la de la empresa o
+  `{empresa}_{código}`.
+- Los textos que mandaban a "Admin > WhatsApp" o "Admin → Tokens DIAN"
+  apuntan a la nueva pestaña.
+
+Pruebas: 1.367 de la app (5 nuevas de Maestros por módulo; salen las 5 del
+diálogo de copia de Interventoría), 130 de Functions (15 nuevas).
+Despliegue: `firebase deploy --only functions,hosting` (sin cambios de
+reglas ni índices).
+
+## Diagnósticos pasa de Admin a Nutrición — 29 sep 2026 (Claude)
+
+Admin › Diagnósticos no revisaba el sistema: cargaba el catálogo de
+diagnósticos que usa solo Nutrición. Ahora es la pestaña **Nutrición ›
+Diagnósticos** (`lib/nutricion/diagnosticos/nutricion_diagnosticos_screen.dart`).
+
+- Explica qué usa cada búsqueda: los **nutricionales** salen siempre del
+  catálogo; los **médicos** (CIE-11) se buscan primero en línea en la OMS y
+  el catálogo es el respaldo. Muestra cuántos hay cargados o que se usa la
+  plantilla de la app.
+- **Consultar**: médicos o nutricionales, buscador por código, nombre o
+  detalle, de a 20.
+- **Actualizar desde Excel** (solo Admin o Desarrollo; el resto consulta):
+  descargar la plantilla, elegir el archivo e importar.
+- **Corregido:** la importación iba en un solo lote y Firestore no acepta
+  más de 500 escrituras: la plantilla que trae la app (unos 3.600
+  diagnósticos médicos) nunca se podía importar. Ahora va de a 400.
+- El catálogo es uno para todas las empresas: ya no guarda un `empresaId`
+  (que hacía creer que era de una), sino desde qué empresa y quién lo
+  actualizó.
+- **Reglas:** `TBL_EVALUACIONES_DIAGNOSTICAS` (evaluaciones del paciente,
+  datos de salud) seguía en la regla general, legible desde cualquier
+  empresa; ahora queda en su empresa como el resto de Nutrición. También
+  entra en Limpieza › Nutrición.
+- El doble de Firestore de las pruebas ahora rechaza lotes de más de 500,
+  como el real.
+- Pruebas: 1.367 de la app, 115 de Functions, 109 de reglas (2 omitidas
+  desde antes). Despliegue: `firebase deploy --only
+  firestore:rules,functions,hosting`.
+
+## Admin › Limpieza por módulo — 29 sep 2026 (Claude)
+
+Pedido: enfocar Limpieza a cada módulo y a su necesidad; estamos en pruebas
+y hay muchos datos de prueba en casi todos. Decisiones: las dos cosas
+(cerrar lo real sin borrar y borrar lo de prueba) y los reinicios totales
+aparte, con doble confirmación.
+
+### Cómo queda
+- Arriba se elige el **módulo** (chips en web, lista en móvil): Tareas y
+  notificaciones, Interventoría, Visitas, Facturación, Compras, Rutas,
+  Nutrición, Correspondencia, Correo, Biblioteca documental, Planillas de
+  pago, Talento Humano, Tokens DIAN y WhatsApp. Cada uno muestra solo lo
+  suyo.
+- **Cerrar sin borrar** (Tareas, Interventoría, Facturación): finaliza las
+  tareas abiertas por fecha de corte y da por leídas sus notificaciones;
+  Interventoría además da por subsanados sus hallazgos y Facturación cierra
+  sus observaciones. Nuevo: **tareas creadas a mano** (sin marca de ningún
+  módulo). Visitas, Compras y Correspondencia no lo tienen: cerrar solo su
+  tarea dejaría el origen (visita, recepción, expediente) a medias.
+- **Borrar datos de prueba** (todos): periodo (todo, antes de, desde, entre
+  fechas) → "Ver qué se borraría" con el conteo por colección → escribir
+  BORRAR. Borra los registros del módulo, **sus tareas y sus
+  notificaciones**. Maestros y configuración (productos, proveedores,
+  formatos, rutas, dietas, consecutivos de radicado…) solo con el
+  interruptor "Incluir maestros". Los pacientes se borran con su historial.
+  Registros sin fecha: con un periodo no se tocan (se avisa cuántos); con
+  "Todo" sí.
+- Función `adminLimpiezaModulo` (`functions/src/limpieza.ts`): solo Admin de
+  la empresa, solo documentos con `empresaId` de la empresa activa (los
+  consecutivos, por el prefijo del id). Nunca toca personas, empresas,
+  roles, credenciales, áreas, cargos ni centros. Queda en Logs.
+- Los **adjuntos** (fotos, PDF en Storage) no se borran.
+
+### Reinicio total (aparte, al final)
+Todas las tareas · Datos de las personas en la empresa · Estructura
+organizacional · Catálogos. Cada uno cuenta antes y pide escribir BORRAR.
+- **Corregido (grave):** "Purgar estructura" borraba la estructura
+  organizacional de **todas las empresas**, aunque decía "para esta
+  empresa". Ahora solo la de la empresa activa: quien está también en otras
+  conserva la de ellas.
+- "Datos de las personas" ya no incluye a quien lo ejecuta (perdía su
+  acceso a Admin a mitad) y su texto dice lo que hace de verdad: quita a las
+  personas de la empresa (área, cargo, centro, jefe y módulos) para
+  recargar el Excel.
+- Catálogos y estructura ahora quedan en Logs. "Eliminar todas las tareas"
+  pasó de Migraciones a Reinicio total.
+
+### Pruebas
+- Nuevas: `functions/test/limpieza.test.js` (5; entre ellas que el catálogo
+  nunca toque personas, roles ni credenciales y que cada colección sea de un
+  solo módulo), `test/admin/module_cleanup_test.dart` (6; entre ellas que la
+  lista de módulos de la app sea la del servidor) y 1 en el cierre.
+- Totales: 1.365 de la app, 115 de Functions, 108 de reglas (sin cambios).
+  `flutter analyze` sin errores.
+
+### Despliegue
+`firebase deploy --only functions,hosting`.
+
+## Admin › Seguridad: clave inicial y registro de accesos — 29 sep 2026 (Claude)
+
+Admin queda para Daniel y Oscar. Pedido: dejar de generar claves temporales
+una por una, registrar a cada persona nueva y ver con claridad quién entra,
+quién no y desde qué equipo.
+
+### Clave inicial 123456
+- **Botón "Asignar 123456 a N"** en Seguridad, para todos los que **nunca
+  han iniciado sesión** en la empresa activa. También por persona (menú de
+  la tarjeta). Función `securityAdminAssignInitialPassword`.
+- "Nunca ha iniciado sesión" (`functions/src/ingresos.ts`): sin ningún
+  ingreso registrado **y** sin clave propia (sin credencial, o con una
+  temporal o inicial aún sin cambiar). A quien ya entró o ya puso su clave
+  no se le toca: a esos se les sigue generando la contraseña temporal.
+- La clave se guarda **cifrada** en `TBL_AUTH_CREDENTIALS` (nunca en texto)
+  y la persona queda con cambio obligatorio: al entrar crea su contraseña
+  (8 o más caracteres) y sus preguntas de seguridad. Se excluyen
+  inhabilitados, Desarrollo y quien la ejecuta. Queda en la actividad.
+- El servidor ahora marca cada ingreso (`ultimoIngresoSeguroAt`), así
+  "nunca ha entrado" no depende de que la app alcance a registrarlo.
+
+### Personas nuevas
+- Trigger `securityRegistrarUsuarioNuevo`: toda persona creada (Admin,
+  Talento Humano o carga) deja un registro **"Persona nueva"** en la
+  actividad de Seguridad de sus empresas, con quién la creó (`creadoPor`,
+  que ahora escribe el alta de Admin/TH). Si llega sin clave o con 123456 en
+  texto, la clave queda cifrada y se borra el texto.
+- Corregido: activar de nuevo a alguien que ya entró (Talento Humano) o
+  pasar por "primera vez" le volvía a poner 123456 y a exigir el cambio,
+  aunque ya tuviera su propia clave (y esa 123456 no le servía). Ahora la
+  conserva y el mensaje lo dice.
+
+### Registro de accesos
+- La app guarda en cada ingreso **el equipo**: computador, celular o
+  tablet; marca y modelo del celular (Samsung SM-A515F, iPhone 15 Pro…),
+  sistema (Android 14, iOS 17.5, Windows 11…) y si fue por la app o por
+  navegador (cuál). En la app instalada con `device_info_plus` (dependencia
+  nueva); en el navegador por el user agent y, en Chrome/Edge, las "client
+  hints", que traen el modelo que el user agent ya no trae. Safari no dice
+  el modelo del iPhone: sale "iPhone".
+- Seguridad muestra:
+  - **Accesos a la app**: Nunca han entrado · Ya entraron · Desde computador
+    · Desde celular (cada tarjeta filtra la lista) y los celulares por marca.
+  - En cada persona: último ingreso ("Hoy 10:32", "Hace 3 días") con su
+    equipo, "Nunca ha iniciado sesión", "Clave inicial 123456" pendiente y
+    "Nuevo" (creada hace 30 días o menos).
+  - **Registro de ingresos** de los últimos 30 días: quién, cuándo, cómo
+    (contraseña, sesión guardada, huella/rostro) y desde qué equipo, con
+    filtro por tipo y de a 20.
+  - **Actividad administrativa** con nombres (no cédulas), las acciones
+    nuevas, de a 20 y ordenada por el servidor.
+- Los ingresos anteriores solo guardaban "web/android": salen como "sin
+  detalle" hasta el próximo ingreso de cada persona.
+
+### Servidor (reglas)
+- `TBL_LOGIN_SESIONES` sale de la regla general: cada quien agrega su
+  propio ingreso; lo lee Admin de esa empresa o Desarrollo; nadie lo edita
+  ni lo borra. Antes cualquiera veía y borraba los ingresos de todas las
+  empresas.
+- Índice nuevo `TBL_AUTH_ADMIN_AUDIT` (`empresaId` + `createdAt`
+  descendente). Sin él, la actividad se ve como antes.
+
+### Pruebas
+- Nuevas: `test/services/device_descriptor_test.dart` (11),
+  `test/admin/security_access_test.dart` (8),
+  `functions/test/ingresos.test.js` (6) y
+  `functions/test/login_sesiones.rules.js` (3).
+- Totales: 1.358 de la app, 110 de Functions, 108 de reglas (2 omitidas
+  desde antes). `flutter analyze` sin errores. `flutter build web` compila.
+
+### Despliegue
+`firebase deploy --only firestore:rules,firestore:indexes,functions,hosting`.
+La app Android/iOS toma la dependencia nueva en su próxima compilación
+(`flutter pub get`; en iOS, `pod install`).
+
+## Admin: Migraciones y Logs revisados — 29 sep 2026 (Claude)
+
+Se revisó para qué sirve cada herramienta hoy. Lo que ya no cumple un papel
+se retiró; lo demás se corrigió.
+
+### Migraciones (Usuarios → Migraciones de usuarios)
+- **Centro de costos: se queda, corregida.** Asigna un centro del catálogo a
+  las personas elegidas.
+  - Escribía el centro también en los datos generales aunque se migrara
+    desde una empresa que no es la principal: le cambiaba el centro de su
+    empresa principal. Ahora los datos generales solo se tocan si es su
+    principal.
+  - Escribía la ficha con `set(merge)`, que no entiende rutas con punto:
+    creaba campos sueltos llamados `empresasDetalle.X.centroId` y **la ficha
+    nunca cambiaba**. Ahora escribe la ficha de verdad y borra esos campos
+    sueltos si quedaron.
+  - Quien no es de la empresa activa no se toca. "Cancelar" al elegir el
+    centro ya cancela (antes simulaba igual).
+- **Tokens (fcmToken): retirada.** La app registra el token de cada
+  dispositivo en `fcmTokens` al entrar y las notificaciones leen ese campo
+  primero; copiar tokens viejos a `fcmToken` no le servía a nadie.
+- **App IDs: retirada.** La app, las reglas y Admin ya aceptan el nombre
+  corto y el largo de cada app, y Admin guarda el largo en cada cambio. El
+  único lugar que comparaba exacto (Visitas en el calendario del inicio) ya
+  compara por equivalencia.
+- **Eliminar todas las tareas: se queda** como estaba (pide escribir BORRAR
+  y queda en Logs). Sirve para reiniciar una empresa en prueba.
+- El selector de personas muestra foto, nombre y cargo de la empresa activa,
+  de a 20 por página; los elegidos se ven con nombre y foto, no con la
+  cédula.
+
+### Logs
+- **Servidor:** `TBL_MIGRATIONS_LOGS` sale de la regla general. La lee Admin
+  de esa empresa o Desarrollo; se agrega solo a nombre propio y con la hora
+  del servidor; nadie la edita ni la borra. No se exige la empresa al crear:
+  Multiempresa registra con la empresa de referencia de la persona (o `*`)
+  en el mismo lote que su cambio, y negar el registro tumbaría el cambio.
+- **Pantalla** (`lib/admin/admin_logs_panel.dart`): trae los 200 más
+  recientes ordenados por el servidor (antes 200 sin orden, de los que
+  mostraba 50), con persona (foto y nombre), fecha, la acción en español,
+  conteos y Simulación/Ejecutado, de a 20 por página. Ya no vuelve a leer la
+  bitácora en cada redibujo de Admin. Sin el índice nuevo desplegado, cae a
+  la consulta de antes.
+- Aclara que no registra el día a día (asignar roles, apps, editar
+  personas).
+
+### Pruebas
+- Nuevas: `test/admin/admin_migrations_logs_test.dart` (8) y
+  `functions/test/admin_logs.rules.js` (3).
+- Totales: 1.339 de la app, 104 de Functions, 105 de reglas (2 omitidas
+  desde antes). `flutter analyze` sin errores.
+
+### Despliegue
+`firebase deploy --only firestore:rules,firestore:indexes,hosting` (índice
+nuevo `TBL_MIGRATIONS_LOGS`: `empresaId` + `createdAt` descendente).
+
+## Admin: roles configurables de Gerencia — 29 sep 2026 (Claude)
+
+Gerencia no tenía niveles: quien tenía la app veía todo. Decisiones del
+usuario: el rol limita **áreas, empresas, pestañas y exportar**, y lo que se
+agregue después; "solo su área" es **la de su ficha**; **sin rol no ve
+nada**; los **Puntos** salen de lo que el rol deja ver.
+
+### Qué hace
+- **Rol por permisos** (como Tareas, no por niveles). Catálogo único en
+  `lib/gerencia/gerencia_permisos.dart` (`kGerenciaPermisos`): Todas las
+  áreas, Todas sus empresas, Pestaña Dashboard, Pestaña Puntos, Pestaña
+  Interventoría y Exportar. Admin pinta un interruptor por permiso; un
+  permiso nuevo se agrega ahí y queda **apagado** en los roles que ya
+  existían hasta que Admin lo encienda.
+- Definición en `TBL_ROLES/{empresa}_mod_gerencia_{nombre}` con
+  `permissions`. Asignar escribe en la ficha de la empresa
+  `rolGerenciaId/Nombre/Version` y `permisosGerencia`, y la app. Los nombres
+  no chocan con la detección de Gerencia que hace Visitas por el rol
+  general. Archivos: `management_module_role.dart`,
+  `management_module_roles_repository.dart` y
+  `management_module_roles_panel.dart`.
+- **Sin rol no ve nada**, aunque tenga la app: el módulo dice "No tienes un
+  rol de Gerencia en esta empresa" y no carga datos. Desarrollo entra con
+  todo. No hay nivel individual: en la matriz el selector va de "Sin rol
+  (no ve nada)" a los roles creados.
+- **Alcance en el módulo** (`resolverAccesoGerencia`):
+  - Manda el rol de la **empresa activa**: pestañas y exportar.
+  - "Todas sus empresas" suma las otras empresas **solo si allí también
+    tiene rol** de Gerencia; en cada una, el límite de áreas es el de su
+    propio rol.
+  - "Solo su área": tareas, gráficas, ranking de Puntos y hallazgos de
+    Interventoría quedan en el área de su ficha (con el cargo de respaldo,
+    como el resto de Gerencia), comparada por nombre normalizado. Sin área
+    en la ficha no ve registros. Un aviso dice qué área está viendo.
+  - Sin Exportar desaparecen los botones de PDF y Excel de Interventoría.
+- Inactivar un rol deja a sus asignados sin acceso. Editar sincroniza.
+- **Transición**: hoy todos los que tienen la app quedarían sin ver nada.
+  El panel muestra cuántos son y, por rol, un botón **"Asignar a quienes
+  tienen la app sin rol"** (con confirmación). Hay tres roles iniciales:
+  Gerencia general (todo), Director de área (su área, todas las pestañas y
+  exportar) y Consulta de indicadores (su área, solo Dashboard).
+
+### Servidor (reglas)
+- `TBL_ROLES` acepta `gerenciadashboard` (solo Admin de la empresa o
+  Desarrollo).
+- **El límite es del módulo, no del servidor**: Gerencia lee `TBL_TAREAS`,
+  que sigue en la regla general, y los permisos viven en la ficha, que
+  todavía escribe cualquiera (P0 de `TBL_USUARIOS`).
+
+### Pruebas
+- Nuevas: `test/gerencia/gerencia_permisos_test.dart` (11),
+  `test/admin/management_module_roles_test.dart` (8) y
+  `functions/test/gerencia.rules.js` (2).
+- Totales: 1.331 de la app, 104 de Functions, 102 de reglas (2 omitidas
+  desde antes). `flutter analyze` sin errores.
+
+### Despliegue
+`firebase deploy --only firestore:rules,hosting`. **Justo después de
+publicar**, en cada empresa: Admin → Gerencia → "Crear roles iniciales" y
+"Asignar a quienes tienen la app sin rol". Mientras tanto, quien tenga la
+app sin rol no ve datos (las reglas nuevas hacen falta para guardar los
+roles, por eso no se puede hacer antes).
+
+### Quedan sin roles configurables
+Tokens DIAN (lista de autorizados), Talento Humano, Nutrición y
+Administración.
+
+## Admin: roles configurables de Facturación — 29 sep 2026 (Claude)
+
+Siguiente módulo del centro **Admin → Apps, roles y permisos**. Facturación
+guarda el rol en la ficha (`empresasDetalle.{empresa}.rolFac`), como
+Planillas, así que sigue ese patrón y no el de tabla.
+
+### Qué hace
+- Creador con los tres niveles que ya resuelve `resolveFacAccessMode`:
+  **Visor** (consulta), **Establecimiento** (carga documentos de un solo
+  establecimiento) y **Gestión de Facturación** (todo el módulo). Textos en
+  `lib/facturacion/fac_role_access.dart`.
+- Definición en `TBL_ROLES/{empresa}_mod_facturacion_{nombre}`. Asignar
+  escribe en una transacción `rolFac` y su vínculo
+  (`rolFacId/Nombre/Version`) en la ficha de la empresa, la raíz solo en la
+  principal, y la app. Archivos: `billing_module_role.dart`,
+  `billing_module_roles_repository.dart` y `billing_module_roles_panel.dart`.
+- **El establecimiento.** Con Establecimiento se conserva el
+  `establecimientoFacId` que tenga o se deduce de su centro de costo en
+  esta empresa (por id, nombre o código del maestro), como hacía la matriz;
+  con otro nivel se retira. Sin centro de costo el módulo sigue diciendo
+  "Falta asignar el establecimiento" y se elige en la matriz, igual que
+  antes.
+- Inactivar deja **Visor** explícito; nivel individual desvincula; "Sin rol"
+  deja `rolFac` vacío (consulta). Editar sincroniza a sus personas.
+- Admin: panel en Facturación, selector de rol en la matriz y el nivel
+  individual por el repositorio. Se quitó el camino viejo que escribía
+  `rolFac` directo (ya no lo usaba ningún módulo).
+- Los avisos a Gestión de Facturación (`_getFacturacionUserIds`) ya no le
+  llegan a quien le retiraron la app.
+
+### Servidor (reglas)
+- `TBL_ROLES` acepta `facturaciondashboard` (solo Admin de la empresa o
+  Desarrollo).
+- **Facturación queda por empresa**: sus 6 colecciones salen de la regla
+  general (`documentoDeSuEmpresa`; `TBL_FAC_CONFIG` por el id). Todas sus
+  consultas ya filtraban por empresa. No se exige nivel por acción: vive en
+  la ficha, que todavía escribe cualquiera (P0).
+
+### Pruebas
+- Nuevas: `test/admin/billing_module_roles_test.dart` (7) y
+  `functions/test/facturacion.rules.js` (2; fallan con las reglas
+  anteriores).
+- Totales: 1.312 de la app, 104 de Functions, 100 de reglas (2 omitidas
+  desde antes), también con la comprobación de habilitado duplicada.
+  `flutter analyze` sin errores.
+
+### Despliegue
+`firebase deploy --only firestore:rules,hosting`.
+
+### Quedan sin roles configurables
+Tokens DIAN (lista de autorizados), Talento Humano, Nutrición, Gerencia y
+Administración: hay que definir primero qué niveles tendrían.
 ## Homogeneidad del centro de roles — 29 sep 2026 (Codex)
 
 Se comparó Compras con Correspondencia y el panel compartido de Rutas,

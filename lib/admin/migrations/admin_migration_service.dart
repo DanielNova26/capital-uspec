@@ -70,14 +70,10 @@ class AdminMigrationService {
         },
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
-      batch.set(
-        _db.collection('TBL_ESTRUCTURA_ORGANIZACIONAL').doc(user.id),
-        {
-          if (fullName.isNotEmpty) 'nombre': fullName,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
+      batch.set(_db.collection('TBL_ESTRUCTURA_ORGANIZACIONAL').doc(user.id), {
+        if (fullName.isNotEmpty) 'nombre': fullName,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
       writes += 2;
 
       final employee = await _db
@@ -135,8 +131,23 @@ class AdminMigrationService {
   }
 
   // =========================
-  // 1) CENTRO: SOLO USUARIOS SELECCIONADOS
+  // CENTRO DE COSTOS: SOLO USUARIOS SELECCIONADOS
   // =========================
+
+  /// Pone el centro de costos elegido a las personas seleccionadas, en la
+  /// ficha de [empresaId]. La raíz solo si [empresaId] es su empresa
+  /// principal: en las demás, la raíz describe otra empresa.
+  ///
+  /// 29 sep 2026: antes escribía la raíz siempre (a quien se migraba desde
+  /// otra empresa le cambiaba el centro de la principal) y la ficha con
+  /// `set(merge)`, que no entiende rutas con punto: creaba campos sueltos
+  /// llamados `empresasDetalle.X.centroId` y la ficha quedaba igual. Ahora
+  /// escribe la ficha de verdad y borra esos campos sueltos. Quien no es de
+  /// la empresa no se toca.
+  ///
+  /// Las migraciones de tokens y de nombres de apps se retiraron: la app ya
+  /// registra el token de cada dispositivo en `fcmTokens` al entrar, y la app
+  /// y las reglas aceptan los nombres cortos y largos de las apps.
   Future<MigrationResult> normalizeCentroForUsers({
     required String empresaId,
     required Set<String> userIds,
@@ -149,13 +160,22 @@ class AdminMigrationService {
     int updated = 0;
     final sample = <String>[];
 
-    if (userIds.isEmpty) {
+    if (userIds.isEmpty || empresaId.trim().isEmpty) {
       return const MigrationResult(
         scanned: 0,
         updated: 0,
         sampleUpdatedIds: [],
       );
     }
+
+    final valores = <String, String>{
+      'centroId': canonicalCentroId.trim(),
+      'centroCodigo': canonicalCentroCodigo.trim(),
+      'centroCostos': canonicalCentroNombre.trim(),
+    };
+    bool distinto(Map<String, dynamic> fuente) => valores.entries.any(
+      (e) => (fuente[e.key] ?? '').toString().trim() != e.value,
+    );
 
     final ids = userIds.toList()..sort();
 
@@ -164,200 +184,42 @@ class AdminMigrationService {
 
     for (final uid in ids) {
       final ref = _db.collection('TBL_USUARIOS').doc(uid);
-
-      // Leemos para saber si hace falta (solo para conteo exacto en dryRun)
       final snap = await ref.get();
       if (!snap.exists) continue;
 
       final d = snap.data() ?? {};
-
+      if (!userBelongsToEmpresa(d, empresaId)) continue;
       scanned++;
 
-      final currentCentroId = (d['centroId'] ?? '').toString().trim();
-      final currentCodigo = (d['centroCodigo'] ?? '').toString().trim();
-      final currentNombre = (d['centroCostos'] ?? d['centro_costos'] ?? '')
-          .toString()
-          .trim();
-
+      final ficha = getUserCompanyDetail(d, empresaId) ?? const {};
+      final raiz = raizEsDeEmpresa(d, empresaId);
+      final sueltos = [
+        for (final campo in valores.keys)
+          if (d.containsKey('empresasDetalle.$empresaId.$campo'))
+            'empresasDetalle.$empresaId.$campo',
+      ];
       final needs =
-          currentCentroId != canonicalCentroId ||
-          currentCodigo != canonicalCentroCodigo ||
-          (currentNombre.isNotEmpty && currentNombre != canonicalCentroNombre);
-
+          distinto(ficha) || (raiz && distinto(d)) || sueltos.isNotEmpty;
       if (!needs) continue;
 
       updated++;
       if (sample.length < 10) sample.add('TBL_USUARIOS:$uid');
+      if (dryRun) continue;
 
-      if (!dryRun) {
-        batch ??= _db.batch();
+      batch ??= _db.batch();
+      batch.update(ref, <Object, Object?>{
+        for (final e in valores.entries)
+          'empresasDetalle.$empresaId.${e.key}': e.value,
+        if (raiz) ...valores,
+        for (final campo in sueltos) FieldPath([campo]): FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      writes++;
 
-        final update = <String, dynamic>{
-          'centroId': canonicalCentroId,
-          'centroCodigo': canonicalCentroCodigo,
-          'centroCostos': canonicalCentroNombre,
-          'updatedAt': FieldValue.serverTimestamp(),
-          // Mantener empresasDetalle para la empresa activa
-          'empresasDetalle.$empresaId.centroId': canonicalCentroId,
-          'empresasDetalle.$empresaId.centroCodigo': canonicalCentroCodigo,
-          'empresasDetalle.$empresaId.centroCostos': canonicalCentroNombre,
-        };
-
-        batch.set(ref, update, SetOptions(merge: true));
-        writes++;
-
-        if (writes >= 450) {
-          await batch.commit();
-          batch = null;
-          writes = 0;
-        }
-      }
-    }
-
-    if (!dryRun && batch != null && writes > 0) {
-      await batch.commit();
-    }
-
-    return MigrationResult(
-      scanned: scanned,
-      updated: updated,
-      sampleUpdatedIds: sample,
-    );
-  }
-
-  // =========================
-  // 2) TOKEN: SOLO USUARIOS SELECCIONADOS
-  // =========================
-  Future<MigrationResult> normalizeUserTokensForUsers({
-    required String empresaId,
-    required Set<String> userIds,
-    bool dryRun = true,
-  }) async {
-    int scanned = 0;
-    int updated = 0;
-    final sample = <String>[];
-
-    if (userIds.isEmpty) {
-      return const MigrationResult(
-        scanned: 0,
-        updated: 0,
-        sampleUpdatedIds: [],
-      );
-    }
-
-    final ids = userIds.toList()..sort();
-
-    WriteBatch? batch;
-    int writes = 0;
-
-    for (final uid in ids) {
-      final ref = _db.collection('TBL_USUARIOS').doc(uid);
-      final snap = await ref.get();
-      if (!snap.exists) continue;
-
-      final d = snap.data() ?? {};
-      scanned++;
-
-      final fcmToken = (d['fcmToken'] ?? '').toString().trim();
-      final token = (d['token'] ?? '').toString().trim();
-      final fcm_token = (d['fcm_token'] ?? '').toString().trim();
-
-      final canonical = fcmToken.isNotEmpty
-          ? fcmToken
-          : (token.isNotEmpty ? token : fcm_token);
-
-      if (canonical.isEmpty) continue;
-
-      final needs = fcmToken != canonical;
-      if (!needs) continue;
-
-      updated++;
-      if (sample.length < 10) sample.add('TBL_USUARIOS:$uid');
-
-      if (!dryRun) {
-        batch ??= _db.batch();
-        batch.set(ref, {
-          'fcmToken': canonical,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-        writes++;
-
-        if (writes >= 450) {
-          await batch.commit();
-          batch = null;
-          writes = 0;
-        }
-      }
-    }
-
-    if (!dryRun && batch != null && writes > 0) {
-      await batch.commit();
-    }
-
-    return MigrationResult(
-      scanned: scanned,
-      updated: updated,
-      sampleUpdatedIds: sample,
-    );
-  }
-
-  // =========================
-  // 3) APP IDs: SOLO USUARIOS SELECCIONADOS
-  // =========================
-  Future<MigrationResult> normalizeAppIdsForUsers({
-    required String empresaId,
-    required Set<String> userIds,
-    bool dryRun = true,
-  }) async {
-    int scanned = 0;
-    int updated = 0;
-    final sample = <String>[];
-
-    if (userIds.isEmpty) {
-      return const MigrationResult(
-        scanned: 0,
-        updated: 0,
-        sampleUpdatedIds: [],
-      );
-    }
-
-    final ids = userIds.toList()..sort();
-
-    WriteBatch? batch;
-    int writes = 0;
-
-    for (final uid in ids) {
-      final ref = _db.collection('TBL_USUARIOS').doc(uid);
-      final snap = await ref.get();
-      if (!snap.exists) continue;
-
-      final d = snap.data() ?? {};
-      scanned++;
-
-      final rawApps = (d['apps'] as List<dynamic>? ?? [])
-          .map((e) => e?.toString() ?? '')
-          .where((s) => s.isNotEmpty)
-          .toList();
-
-      final (:ids, :changed) = normalizeAppIdList(rawApps);
-      if (!changed) continue;
-
-      updated++;
-      if (sample.length < 10) sample.add('TBL_USUARIOS:$uid');
-
-      if (!dryRun) {
-        batch ??= _db.batch();
-        batch.set(ref, {
-          'apps': ids,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-        writes++;
-
-        if (writes >= 450) {
-          await batch.commit();
-          batch = null;
-          writes = 0;
-        }
+      if (writes >= 450) {
+        await batch.commit();
+        batch = null;
+        writes = 0;
       }
     }
 

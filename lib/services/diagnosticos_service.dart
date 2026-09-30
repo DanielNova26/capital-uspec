@@ -123,10 +123,17 @@ class DiagnosticosService {
   // IMPORTACIÓN DESDE EXCEL
   // ---------------------------------------------------------------------------
 
-  /// Importa diagnósticos desde Excel (CIE-11 + Nutricionales)
+  /// Importa diagnósticos desde Excel (CIE-11 + Nutricionales).
+  ///
+  /// El catálogo es uno solo para todas las empresas (el id es el código):
+  /// se guarda desde qué empresa y quién lo actualizó, no un `empresaId`
+  /// que hacía creer que era de una sola (29 sep 2026). Se escribe de a 400:
+  /// un lote de Firestore no admite más de 500 y antes un Excel más grande
+  /// no se importaba.
   Future<Map<String, int>> importarDiagnosticosDesdeExcel({
     required Uint8List bytes,
     required String empresaId,
+    String userId = '',
     bool sobrescribir = false,
   }) async {
     final parser = DiagnosticosExcelParser();
@@ -134,9 +141,13 @@ class DiagnosticosService {
 
     int countMedicos = 0;
     int countNutri = 0;
+    final origen = <String, dynamic>{
+      'actualizadoDesdeEmpresa': empresaId,
+      if (userId.trim().isNotEmpty) 'actualizadoPor': userId.trim(),
+    };
+    final lote = _LoteEscritura(_db);
 
     // Importar diagnósticos médicos (CIE-11)
-    final batch1 = _db.batch();
     for (final row in workbook.diagnosticosMedicos) {
       final codigo = row['codigoCie11']?.toString() ?? '';
       if (codigo.isEmpty) continue;
@@ -173,8 +184,8 @@ class DiagnosticosService {
         }
       }
 
-      batch1.set(docRef, {
-        'empresaId': empresaId,
+      await lote.set(docRef, {
+        ...origen,
         'codigoCie11': codigo,
         'nombre': row['nombre']?.toString() ?? '',
         'categoria': row['categoria']?.toString(),
@@ -193,10 +204,8 @@ class DiagnosticosService {
 
       countMedicos++;
     }
-    await batch1.commit();
 
     // Importar diagnósticos nutricionales
-    final batch2 = _db.batch();
     for (final row in workbook.diagnosticosNutricionales) {
       final codigo = row['codigo']?.toString() ?? '';
       if (codigo.isEmpty) continue;
@@ -213,8 +222,8 @@ class DiagnosticosService {
         restricciones = _parseRestricciones(restricStr);
       }
 
-      batch2.set(docRef, {
-        'empresaId': empresaId,
+      await lote.set(docRef, {
+        ...origen,
         'codigo': codigo,
         'nombre': row['nombre']?.toString() ?? '',
         'descripcion': row['descripcion']?.toString(),
@@ -229,7 +238,7 @@ class DiagnosticosService {
 
       countNutri++;
     }
-    await batch2.commit();
+    await lote.cerrar();
 
     _invalidateCache();
 
@@ -240,6 +249,19 @@ class DiagnosticosService {
   }
 
   bool get cacheLoadedFromFirestore => _cacheLoadedFromFirestore;
+
+  /// Cuántos diagnósticos hay cargados en la base. Sin ninguno, la app usa
+  /// la plantilla que trae (assets/diagnosticos_template.xlsx).
+  Future<({int medicos, int nutricionales})> contarEnBase() async {
+    final resultados = await Future.wait([
+      _db.collection(_collDiagnosticosMedicos).count().get(),
+      _db.collection(_collDiagnosticosNutricionales).count().get(),
+    ]);
+    return (
+      medicos: resultados[0].count ?? 0,
+      nutricionales: resultados[1].count ?? 0,
+    );
+  }
 
   // ---------------------------------------------------------------------------
   // BÚSQUEDA DE DIAGNÓSTICOS
@@ -584,7 +606,7 @@ class DiagnosticosService {
         'codigoCie11': dx.codigoCie11,
         'nombre': dx.nombre,
         'activo': true,
-        'empresaId': empresaId,
+        'enriquecidoDesdeEmpresa': empresaId,
         'source': 'firestore_enriched',
         'icdUri': dx.icdUri,
         'language': dx.language ?? 'es',
@@ -707,5 +729,28 @@ class DiagnosticosService {
         .replaceAll('ú', 'u')
         .replaceAll('ü', 'u')
         .replaceAll('ñ', 'n');
+  }
+}
+
+/// Escrituras de a 400 por lote (Firestore admite hasta 500).
+class _LoteEscritura {
+  _LoteEscritura(this._db);
+  final FirebaseFirestore _db;
+  WriteBatch? _batch;
+  int _pendientes = 0;
+
+  Future<void> set(
+    DocumentReference<Map<String, dynamic>> ref,
+    Map<String, dynamic> data,
+    SetOptions options,
+  ) async {
+    (_batch ??= _db.batch()).set(ref, data, options);
+    if (++_pendientes >= 400) await cerrar();
+  }
+
+  Future<void> cerrar() async {
+    if (_batch != null && _pendientes > 0) await _batch!.commit();
+    _batch = null;
+    _pendientes = 0;
   }
 }

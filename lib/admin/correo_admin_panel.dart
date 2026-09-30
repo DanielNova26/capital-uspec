@@ -186,7 +186,7 @@ class _AdminCorreoPanelState extends State<AdminCorreoPanel> {
           ),
           const SizedBox(height: 4),
           const Text(
-            'Conecta buzones, revisa el estado técnico y ejecuta el procesamiento. Los filtros se administran dentro del módulo Correo y los números desde Admin > WhatsApp.',
+            'Conecta buzones, revisa el estado técnico y ejecuta el procesamiento. Los filtros se administran dentro del módulo Correo y los números desde Admin > Maestros por módulo > WhatsApp.',
             style: TextStyle(color: _muted),
           ),
           const SizedBox(height: 18),
@@ -626,13 +626,13 @@ class _AdminCorreoPanelState extends State<AdminCorreoPanel> {
 
   String _whatsAppStatus() {
     if (_state['whatsappEnabled'] == false) {
-      return 'Servicio deshabilitado desde Admin > WhatsApp.';
+      return 'Servicio deshabilitado desde Admin > Maestros por módulo > WhatsApp.';
     }
     if (_state['whatsappModuleEnabled'] == false) {
       return 'El módulo Correo no está autorizado para enviar.';
     }
     if (_state['whatsappConfigured'] != true) {
-      return 'Pendiente de configuración en Admin > WhatsApp.';
+      return 'Pendiente de configuración en Admin > Maestros por módulo > WhatsApp.';
     }
     if (_state['whatsappConnected'] == true) {
       return 'Conectado y disponible para las alertas de los filtros.';

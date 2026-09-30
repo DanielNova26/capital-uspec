@@ -111,8 +111,10 @@ class FacturacionService {
       for (final doc in snap.docs) {
         final data = doc.data();
         // El rol sobrevive al retiro: sin este filtro se notifica a personal
-        // que Talento Humano ya inhabilitó en la empresa.
+        // que Talento Humano ya inhabilitó en la empresa. Y retirar la app en
+        // Admin cierra el acceso: tampoco se le avisa a quien ya no la tiene.
         if (!personaHabilitadaEn(data, empresaId)) continue;
+        if (!userHasApp(data, kFacAppId, empresaId: empresaId)) continue;
         final detalle = data['empresasDetalle'];
         if (detalle is Map) {
           final emp = detalle[empresaId];

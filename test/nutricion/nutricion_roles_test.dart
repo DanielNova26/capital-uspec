@@ -47,10 +47,10 @@ void main() {
   });
 
   test('las capacidades dejan un punto de extensión para nuevas secciones', () {
-    expect(NutricionLevel.consulta.pestanas, [5]);
-    expect(NutricionLevel.clinico.pestanas, [0, 3, 4, 5]);
-    expect(NutricionLevel.menus.pestanas, [1, 2, 5]);
-    expect(NutricionLevel.coordinador.pestanas, [0, 1, 2, 3, 4, 5]);
+    expect(NutricionLevel.consulta.pestanas, [5, 6]);
+    expect(NutricionLevel.clinico.pestanas, [0, 3, 4, 5, 6]);
+    expect(NutricionLevel.menus.pestanas, [1, 2, 5, 6]);
+    expect(NutricionLevel.coordinador.pestanas, [0, 1, 2, 3, 4, 5, 6]);
     expect(NutricionLevel.consulta.puedeAtender, isFalse);
     expect(NutricionLevel.clinico.puedeAtender, isTrue);
     expect(NutricionLevel.menus.puedeGestionarMenus, isTrue);

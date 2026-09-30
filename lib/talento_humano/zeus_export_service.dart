@@ -4,6 +4,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:excel/excel.dart';
 
 import '../utils/user_company.dart';
+import 'personnel_requisition_service.dart'
+    show personnelNeedsTemporaryPassword, personnelTemporaryPassword;
 
 class ZeusExportFilter {
   final String estado;
@@ -223,7 +225,9 @@ class ZeusExportService {
         .set(clean, SetOptions(merge: true));
   }
 
-  Future<void> createBasicUser({
+  /// Crea o activa a la persona. Devuelve si quedó con la clave inicial
+  /// 123456 (quien ya tenía su propia clave la conserva).
+  Future<bool> createBasicUser({
     required String empresaId,
     required String cedula,
     required String primerNombre,
@@ -235,6 +239,9 @@ class ZeusExportService {
     required String cargo,
     required String centroCostos,
     bool soloNuevo = false,
+
+    /// Quién la crea: queda en la actividad de Admin › Seguridad.
+    String creadoPor = '',
   }) async {
     if (soloNuevo &&
         (!RegExp(r'^[0-9]+$').hasMatch(cedula) ||
@@ -281,13 +288,20 @@ class ZeusExportService {
         },
       },
     };
-    if (!existing.exists ||
-        (existing.data()?['password'] ?? '').toString().trim().isEmpty) {
+    // Quien ya entró tiene su clave cifrada (sin `password`): antes se le
+    // volvía a poner 123456 y a exigir el cambio, y esa clave no le servía.
+    final claveInicial =
+        !existing.exists ||
+        personnelNeedsTemporaryPassword(existing.data() ?? const {});
+    if (claveInicial) {
       payload.addAll({
-        'password': '123456',
+        'password': personnelTemporaryPassword,
         'needsPasswordChange': true,
-        'createdAt': FieldValue.serverTimestamp(),
       });
+    }
+    if (!existing.exists) {
+      payload['createdAt'] = FieldValue.serverTimestamp();
+      if (creadoPor.trim().isNotEmpty) payload['creadoPor'] = creadoPor.trim();
     }
     if (soloNuevo) {
       // Desde Admin el alta no puede reescribir una identidad existente ni
@@ -306,6 +320,7 @@ class ZeusExportService {
     } else {
       await ref.set(payload, SetOptions(merge: true));
     }
+    return claveInicial;
   }
 
   Future<Uint8List> exportToExcelBytes(ZeusExportSummary summary) async {

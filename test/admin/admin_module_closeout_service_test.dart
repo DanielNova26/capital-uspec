@@ -18,6 +18,33 @@ void main() {
       expect(adminCloseoutModuleFromTask({'sourceModule': 'compras'}), isEmpty);
     });
 
+    test('tareas a mano: sin marca de ningún módulo', () {
+      expect(
+        adminCloseoutModuleFromTask({
+          'origen': 'manual',
+          'sourceModule': 'tareas',
+        }),
+        'tareas',
+      );
+      expect(adminCloseoutModuleFromTask({}), 'tareas');
+      expect(adminCloseoutModuleFromTask({'origen': 'excel'}), 'tareas');
+      // Las de un módulo no son de Tareas.
+      expect(
+        adminCloseoutModuleFromTask({'origen': 'visita', 'visitaId': 'v1'}),
+        isEmpty,
+      );
+      expect(
+        adminCloseoutModuleFromTask({
+          'source': {'moduleId': 'gestion_documental'},
+        }),
+        isEmpty,
+      );
+      expect(
+        adminCloseoutModuleFromTask({'creador_id': 'interventoria_automatica'}),
+        'interventoria',
+      );
+    });
+
     test('solo considera abiertas las tareas no finalizadas', () {
       expect(adminCloseoutTaskIsOpen({'estado': 'en_progreso'}), isTrue);
       expect(adminCloseoutTaskIsOpen({'estado': 'por_aprobar'}), isTrue);

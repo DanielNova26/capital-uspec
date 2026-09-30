@@ -1061,7 +1061,9 @@ class _HomeScreenState extends State<HomeScreen> {
         // Visitas en el calendario: solo si el módulo está en sus accesos
         // (o es desarrollador); de lo contrario las reglas rechazarían la
         // consulta. Re-suscribe solo cuando cambia cédula/empresa.
-        if (isDev || apps.contains(kVisitasAppId)) {
+        // La app puede estar guardada con nombre corto o largo ('visitas' o
+        // 'visitasdashboard'): se comparan como equivalentes.
+        if (isDev || apps.any((app) => appIdsEquivalent(app, kVisitasAppId))) {
           unawaited(
             _restartVisitasSubscription(cedula, scopeEmpresa, userData),
           );

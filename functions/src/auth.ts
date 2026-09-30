@@ -292,6 +292,11 @@ export const authIniciarSesion = functions
         await migrateCredential(selected, password);
       }
       await clearFailures(context, input);
+      // Rastro del ingreso en el servidor: con él, Seguridad sabe quién ya
+      // entró aunque la app no alcance a registrarlo. No detiene el ingreso.
+      await selected.ref.set({
+        ultimoIngresoSeguroAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, {merge: true}).catch(() => undefined);
       return {
         ...session,
         needsPasswordChange: selected.data.needsPasswordChange === true,
