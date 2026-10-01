@@ -1798,9 +1798,9 @@ class _RegistroVisitaTabState extends State<_RegistroVisitaTab> {
         });
         return;
       }
-      final ubicaciones = await widget.svc
-          .streamUbicaciones(widget.empresaId)
-          .first;
+      final ubicaciones = await widget.svc.ubicacionesDeEmpresa(
+        widget.empresaId,
+      );
       if (!mounted) return;
       setState(() {
         _resultado = resolverRegistroVisita(
@@ -6035,12 +6035,10 @@ class _FormatosTabState extends State<_FormatosTab> {
     final areaJefe = widget.esDesarrollador
         ? ''
         : await widget.svc.areaDeUsuario(widget.empresaId, widget.userId);
-    final formatos = await widget.svc
-        .streamFormatos(
-          widget.empresaId,
-          areaId: widget.esDesarrollador ? null : areaJefe,
-        )
-        .first;
+    final formatos = await widget.svc.formatosDeEmpresa(
+      widget.empresaId,
+      areaId: widget.esDesarrollador ? null : areaJefe,
+    );
     if (mounted)
       setState(() {
         _departamentos = areas;

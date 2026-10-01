@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../core/transaccion_legible.dart';
 import '../rutas/rutas_models.dart' show kRutasRolDesarrollador;
 import '../utils/user_company.dart';
 import '../visitas/visitas_models.dart' show kVisitasRolGerencia;
@@ -138,7 +139,7 @@ class TableModuleRolesRepository {
     }
     final id = previous?.id ?? '${empresaId}_mod_${config.slug}_$key';
     final ref = _db.collection('TBL_ROLES').doc(id);
-    return _db.runTransaction((transaction) async {
+    return _db.runTransactionLegible((transaction) async {
       final current = await transaction.get(ref);
       final currentRole = current.exists
           ? TableModuleRole.fromData(config, id, current.data()!)
@@ -257,7 +258,7 @@ class TableModuleRolesRepository {
     final campos = nivel == null
         ? const <String, dynamic>{}
         : await _campos(empresaId, userId, nivel);
-    await _db.runTransaction((transaction) async {
+    await _db.runTransactionLegible((transaction) async {
       final userSnap = await transaction.get(userRef);
       final roleSnap = await transaction.get(roleRef);
       final assignment = await transaction.get(assignmentRef);
@@ -321,7 +322,7 @@ class TableModuleRolesRepository {
     final campos = level != null && level.isNotEmpty
         ? await _campos(empresaId, userId, level)
         : const <String, dynamic>{};
-    await _db.runTransaction((transaction) async {
+    await _db.runTransactionLegible((transaction) async {
       final snapshot = await transaction.get(userRef);
       final assignment = await transaction.get(assignmentRef);
       final user = snapshot.data();
@@ -425,7 +426,7 @@ class TableModuleRolesRepository {
         final campos = nivel == null
             ? const <String, dynamic>{}
             : await _campos(empresaId, candidate.id, nivel);
-        final changed = await _db.runTransaction((transaction) async {
+        final changed = await _db.runTransactionLegible((transaction) async {
           final user = await transaction.get(candidate.reference);
           final definition = await transaction.get(
             _db.collection('TBL_ROLES').doc(roleId),
@@ -521,7 +522,7 @@ class TableModuleRolesRepository {
         continue;
       }
       try {
-        final created = await _db.runTransaction((transaction) async {
+        final created = await _db.runTransactionLegible((transaction) async {
           final userSnap = await transaction.get(candidate.reference);
           final assignmentRef = _assignmentRef(empresaId, candidate.id);
           final assignment = await transaction.get(assignmentRef);

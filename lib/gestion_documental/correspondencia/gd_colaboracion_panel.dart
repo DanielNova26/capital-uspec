@@ -57,7 +57,10 @@ class _GdColaboracionPanelState extends State<GdColaboracionPanel> {
           label: const Text('Vincular documento'),
         ),
         child: StreamBuilder<List<GdDocumentoVinculado>>(
-          stream: _service.streamVinculosExpediente(widget.expediente.id),
+          stream: _service.streamVinculosExpediente(
+            empresaId: widget.expediente.empresaId,
+            expedienteId: widget.expediente.id,
+          ),
           builder: (context, snapshot) {
             if (snapshot.hasError) {
               return Text(
@@ -120,7 +123,10 @@ class _GdColaboracionPanelState extends State<GdColaboracionPanel> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             StreamBuilder<List<GdColaboracionEntrada>>(
-              stream: _service.streamColaboracion(widget.expediente.id),
+              stream: _service.streamColaboracion(
+                empresaId: widget.expediente.empresaId,
+                expedienteId: widget.expediente.id,
+              ),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return Text(
@@ -218,7 +224,8 @@ class _GdColaboracionPanelState extends State<GdColaboracionPanel> {
                     width: compact ? double.infinity : 270,
                     child: StreamBuilder<List<GdDocumentoVinculado>>(
                       stream: _service.streamVinculosExpediente(
-                        widget.expediente.id,
+                        empresaId: widget.expediente.empresaId,
+                        expedienteId: widget.expediente.id,
                       ),
                       builder: (context, snapshot) {
                         final documents = <String, GdDocumentoVinculado>{};

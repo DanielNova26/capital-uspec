@@ -69,6 +69,14 @@ class _SvcFalso implements VisitasService {
   }
 
   @override
+  Future<List<VisitaCentro>> centrosDeEmpresa(String empresaId) =>
+      streamCentros(empresaId).first;
+
+  @override
+  Future<List<VisitaUbicacion>> ubicacionesDeEmpresa(String empresaId) =>
+      streamUbicaciones(empresaId).first;
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 

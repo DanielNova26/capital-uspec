@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../core/transaccion_legible.dart';
 import '../utils/user_company.dart';
 import 'payment_module_role.dart';
 import 'table_module_role.dart';
@@ -76,7 +77,7 @@ class PaymentModuleRolesRepository {
     }
     final id = previous?.id ?? '${empresaId}_mod_planillas_$key';
     final ref = _db.collection('TBL_ROLES').doc(id);
-    return _db.runTransaction((transaction) async {
+    return _db.runTransactionLegible((transaction) async {
       final current = await transaction.get(ref);
       final currentRole = current.exists
           ? PaymentModuleRole.fromData(id, current.data()!)
@@ -148,7 +149,7 @@ class PaymentModuleRolesRepository {
     await _requireAdmin(empresaId);
     final userRef = _db.collection('TBL_USUARIOS').doc(userId);
     final roleRef = _db.collection('TBL_ROLES').doc(roleId);
-    await _db.runTransaction((transaction) async {
+    await _db.runTransactionLegible((transaction) async {
       final userSnap = await transaction.get(userRef);
       final roleSnap = await transaction.get(roleRef);
       final role = roleSnap.exists
@@ -187,7 +188,7 @@ class PaymentModuleRolesRepository {
       throw ArgumentError('Nivel de Planillas no válido.');
     }
     final ref = _db.collection('TBL_USUARIOS').doc(userId);
-    await _db.runTransaction((transaction) async {
+    await _db.runTransactionLegible((transaction) async {
       final snapshot = await transaction.get(ref);
       final user = snapshot.data();
       if (user == null ||
@@ -237,7 +238,7 @@ class PaymentModuleRolesRepository {
   }) async {
     await _requireAdmin(empresaId);
     final ref = _db.collection('TBL_USUARIOS').doc(userId);
-    await _db.runTransaction((transaction) async {
+    await _db.runTransactionLegible((transaction) async {
       final snapshot = await transaction.get(ref);
       final user = snapshot.data();
       if (user == null || !userBelongsToEmpresa(user, empresaId)) {
@@ -266,7 +267,7 @@ class PaymentModuleRolesRepository {
       throw StateError('Falta el administrador o la empresa.');
     }
     final ref = _db.collection('TBL_USUARIOS').doc(userId);
-    await _db.runTransaction((transaction) async {
+    await _db.runTransactionLegible((transaction) async {
       final actor = await transaction.get(
         _db.collection('TBL_USUARIOS').doc(actorId),
       );
@@ -375,7 +376,7 @@ class PaymentModuleRolesRepository {
     for (final candidate in users) {
       if (paymentRoleIdOf(candidate.data(), empresaId) != roleId) continue;
       try {
-        final changed = await _db.runTransaction((transaction) async {
+        final changed = await _db.runTransactionLegible((transaction) async {
           final user = await transaction.get(candidate.reference);
           final definition = await transaction.get(
             _db.collection('TBL_ROLES').doc(roleId),

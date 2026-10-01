@@ -802,7 +802,10 @@ class _GdDetailScreenState extends State<GdDetailScreen>
           ),
           const Divider(height: 28),
           StreamBuilder<List<GdDocumentoVinculado>>(
-            stream: _collaborationService.streamVinculosDocumento(doc.docId),
+            stream: _collaborationService.streamVinculosDocumento(
+              empresaId: widget.empresaId,
+              documentoId: doc.docId,
+            ),
             builder: (context, snapshot) {
               if (snapshot.hasError) {
                 return Text(
@@ -1914,6 +1917,18 @@ class _GdDetailScreenState extends State<GdDetailScreen>
     return StreamBuilder<List<FlujoEventoDoc>>(
       stream: _service.streamHistorial(doc.docId),
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(
+                'No se pudo cargar el historial: ${snapshot.error}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontFamily: kArial),
+              ),
+            ),
+          );
+        }
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }

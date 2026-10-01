@@ -138,19 +138,15 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
       final areaJefe = widget.esDesarrollador
           ? ''
           : await widget.svc.areaDeUsuario(widget.empresaId, widget.jefeId);
-      final centros = await widget.svc.streamCentros(widget.empresaId).first;
-      final grupos = await widget.svc
-          .streamGrupos(
-            widget.empresaId,
-            areaId: widget.esDesarrollador ? null : areaJefe,
-          )
-          .first;
+      final centros = await widget.svc.centrosDeEmpresa(widget.empresaId);
+      final grupos = await widget.svc.gruposDeEmpresa(
+        widget.empresaId,
+        areaId: widget.esDesarrollador ? null : areaJefe,
+      );
       final areas = await widget.svc.areasDeEmpresa(widget.empresaId);
       List<VisitaUbicacion>? ubicaciones;
       try {
-        ubicaciones = await widget.svc
-            .streamUbicaciones(widget.empresaId)
-            .first;
+        ubicaciones = await widget.svc.ubicacionesDeEmpresa(widget.empresaId);
       } catch (_) {
         // Solo es informativo: programar no depende de esto.
       }

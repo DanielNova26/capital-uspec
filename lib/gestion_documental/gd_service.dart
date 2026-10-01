@@ -1484,18 +1484,22 @@ class GdService {
   }
 
   /// Stream de todas las versiones de un documento.
+  ///
+  /// Sin `orderBy('numero')` en el servidor: junto al filtro por `docId`
+  /// exige un índice compuesto que no está desplegado, y sin él la vista
+  /// previa de toda la Biblioteca cae con failed-precondition. Un documento
+  /// tiene pocas versiones; se ordenan aquí.
   Stream<List<VersionDoc>> streamVersiones(String docId) {
-    return _verCol
-        .where('docId', isEqualTo: docId)
-        .orderBy('numero', descending: false)
-        .snapshots()
-        .asyncMap((snap) async {
-          final versions = <VersionDoc>[];
-          for (final doc in snap.docs) {
-            versions.add(await _hydrateVersionPdfUrl(doc.id, doc.data()));
-          }
-          return versions;
-        });
+    return _verCol.where('docId', isEqualTo: docId).snapshots().asyncMap((
+      snap,
+    ) async {
+      final versions = <VersionDoc>[];
+      for (final doc in snap.docs) {
+        versions.add(await _hydrateVersionPdfUrl(doc.id, doc.data()));
+      }
+      versions.sort((a, b) => a.numero.compareTo(b.numero));
+      return versions;
+    });
   }
 
   /// Lee una versión específica.
@@ -1506,16 +1510,23 @@ class GdService {
   }
 
   /// Stream del historial de eventos de un documento (append-only).
+  ///
+  /// El orden va en el cliente por la misma razón que [streamVersiones]; un
+  /// evento recién escrito (sin `realizadoEn` resuelto) queda arriba.
   Stream<List<FlujoEventoDoc>> streamHistorial(String docId) {
-    return _flujoCol
-        .where('docId', isEqualTo: docId)
-        .orderBy('realizadoEn', descending: true)
-        .snapshots()
-        .map(
-          (snap) => snap.docs
-              .map((d) => FlujoEventoDoc.fromMap(d.id, d.data()))
-              .toList(),
-        );
+    return _flujoCol.where('docId', isEqualTo: docId).snapshots().map((snap) {
+      final events = snap.docs
+          .map((d) => FlujoEventoDoc.fromMap(d.id, d.data()))
+          .toList();
+      events.sort((a, b) {
+        final ta = a.realizadoEn, tb = b.realizadoEn;
+        if (ta == null && tb == null) return 0;
+        if (ta == null) return -1;
+        if (tb == null) return 1;
+        return tb.compareTo(ta);
+      });
+      return events;
+    });
   }
 
   /// Lee el documento maestro una vez.

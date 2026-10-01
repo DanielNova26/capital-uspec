@@ -103,7 +103,7 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
           : await widget.svc.areaDeUsuario(widget.empresaId, widget.userId);
       final areas = await widget.svc.areasDeEmpresa(widget.empresaId);
       final equipo = await widget.svc.equipoVisitas(widget.empresaId);
-      final centros = await widget.svc.streamCentros(widget.empresaId).first;
+      final centros = await widget.svc.centrosDeEmpresa(widget.empresaId);
       if (!mounted) return;
       setState(() {
         _areaJefe = areaJefe;
@@ -803,7 +803,7 @@ class _GrupoDialogState extends State<_GrupoDialog> {
   Future<void> _leerCentros() async {
     if (_errorCentros != null) setState(() => _errorCentros = null);
     try {
-      final c = await widget.svc.streamCentros(widget.grupo.empresaId).first;
+      final c = await widget.svc.centrosDeEmpresa(widget.grupo.empresaId);
       if (mounted) setState(() => _todos = c);
     } catch (e) {
       if (mounted) {

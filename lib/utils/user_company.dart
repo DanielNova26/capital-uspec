@@ -79,6 +79,13 @@ bool appIdsEquivalent(String? rawA, String? rawB) {
   return _canonicalAppId(a) == _canonicalAppId(b);
 }
 
+/// Una lista guardada en la ficha, o vacía si el campo trae otra cosa. Un
+/// `as List` aquí lanzaba con un dato viejo (un mapa o un texto) de CUALQUIER
+/// empresa de la persona, y como [planearAppsPorEmpresa] recorre todas, el
+/// cambio de rol fallaba en una empresa por un dato de otra.
+Iterable<dynamic> _lista(Object? raw) =>
+    raw is Iterable && raw is! String ? raw : const [];
+
 List<String> extractUserEmpresaIds(Map<String, dynamic> data) {
   final ordered = <String>[];
   final seen = <String>{};
@@ -89,8 +96,7 @@ List<String> extractUserEmpresaIds(Map<String, dynamic> data) {
     ordered.add(id);
   }
 
-  final empresas = data['empresas'] as List<dynamic>? ?? const [];
-  for (final empresa in empresas) {
+  for (final empresa in _lista(data['empresas'])) {
     addCandidate(empresa?.toString());
   }
 
@@ -170,17 +176,13 @@ List<String> extractUserApps(Map<String, dynamic> data, {String? empresaId}) {
   // para no ocultar módulos existentes (por ejemplo Rutas). Esta suma es la
   // que dejaba pasar módulos de una empresa a otra: desaparece cuando se
   // fijan los módulos por empresa.
-  final apps = data['apps'] as List<dynamic>? ?? const [];
-  for (final app in apps) {
+  for (final app in _lista(data['apps'])) {
     addCandidate(app?.toString());
   }
 
   final detail = getUserCompanyDetail(data, empresaId);
-  final scopedApps = detail?['apps'] as List<dynamic>?;
-  if (scopedApps != null) {
-    for (final app in scopedApps) {
-      addCandidate(app?.toString());
-    }
+  for (final app in _lista(detail?['apps'])) {
+    addCandidate(app?.toString());
   }
 
   return ordered;
@@ -655,8 +657,7 @@ bool userBelongsToEmpresa(Map<String, dynamic> data, String? empresaId) {
 bool hasExplicitEmpresaScope(Map<String, dynamic> data) {
   if (normalizeEmpresaId(data['empresaId']?.toString()) != null) return true;
 
-  final empresas = data['empresas'] as List<dynamic>? ?? const [];
-  for (final empresa in empresas) {
+  for (final empresa in _lista(data['empresas'])) {
     if (normalizeEmpresaId(empresa?.toString()) != null) {
       return true;
     }

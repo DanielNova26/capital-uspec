@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../core/transaccion_legible.dart';
 import '../gerencia/gerencia_permisos.dart';
 import '../utils/user_company.dart';
 import 'management_module_role.dart';
@@ -71,7 +72,7 @@ class ManagementModuleRolesRepository {
     }
     final id = previous?.id ?? '${empresaId}_mod_gerencia_$key';
     final ref = _db.collection('TBL_ROLES').doc(id);
-    return _db.runTransaction((transaction) async {
+    return _db.runTransactionLegible((transaction) async {
       final current = await transaction.get(ref);
       final currentRole = current.exists
           ? ManagementModuleRole.fromData(id, current.data()!)
@@ -142,7 +143,7 @@ class ManagementModuleRolesRepository {
   Future<void> _assign(String empresaId, String userId, String roleId) async {
     final userRef = _db.collection('TBL_USUARIOS').doc(userId);
     final roleRef = _db.collection('TBL_ROLES').doc(roleId);
-    await _db.runTransaction((transaction) async {
+    await _db.runTransactionLegible((transaction) async {
       final userSnap = await transaction.get(userRef);
       final roleSnap = await transaction.get(roleRef);
       final role = roleSnap.exists
@@ -195,7 +196,7 @@ class ManagementModuleRolesRepository {
   }) async {
     await _requireAdmin(empresaId);
     final ref = _db.collection('TBL_USUARIOS').doc(userId);
-    await _db.runTransaction((transaction) async {
+    await _db.runTransactionLegible((transaction) async {
       final snapshot = await transaction.get(ref);
       final user = snapshot.data();
       if (user == null || !userBelongsToEmpresa(user, empresaId)) {
@@ -223,7 +224,7 @@ class ManagementModuleRolesRepository {
     for (final candidate in snapshot.docs) {
       if (managementRoleIdOf(candidate.data(), empresaId) != roleId) continue;
       try {
-        final changed = await _db.runTransaction((transaction) async {
+        final changed = await _db.runTransactionLegible((transaction) async {
           final user = await transaction.get(candidate.reference);
           final definition = await transaction.get(
             _db.collection('TBL_ROLES').doc(roleId),

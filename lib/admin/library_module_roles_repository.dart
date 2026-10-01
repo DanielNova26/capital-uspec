@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../core/transaccion_legible.dart';
 import '../utils/user_company.dart';
 import 'library_module_role.dart';
 import 'task_module_role.dart' show canManageModuleRoles;
@@ -61,7 +62,7 @@ class LibraryModuleRolesRepository {
     }
     final id = previous?.id ?? '${empresaId}_mod_biblioteca_$key';
     final ref = _db.collection('TBL_ROLES').doc(id);
-    return _db.runTransaction((transaction) async {
+    return _db.runTransactionLegible((transaction) async {
       final current = await transaction.get(ref);
       final currentRole = current.exists
           ? LibraryModuleRole.fromData(id, current.data()!)
@@ -133,7 +134,7 @@ class LibraryModuleRolesRepository {
     await _requireAdmin(empresaId);
     final userRef = _db.collection('TBL_USUARIOS').doc(userId);
     final roleRef = _db.collection('TBL_ROLES').doc(roleId);
-    await _db.runTransaction((transaction) async {
+    await _db.runTransactionLegible((transaction) async {
       final userSnap = await transaction.get(userRef);
       final roleSnap = await transaction.get(roleRef);
       final role = roleSnap.exists
@@ -172,7 +173,7 @@ class LibraryModuleRolesRepository {
       throw ArgumentError('Nivel documental no válido.');
     }
     final ref = _db.collection('TBL_USUARIOS').doc(userId);
-    await _db.runTransaction((transaction) async {
+    await _db.runTransactionLegible((transaction) async {
       final snapshot = await transaction.get(ref);
       final user = snapshot.data();
       if (user == null ||
@@ -228,7 +229,7 @@ class LibraryModuleRolesRepository {
     for (final candidate in users) {
       if (libraryRoleIdOf(candidate.data(), empresaId) != roleId) continue;
       try {
-        final changed = await _db.runTransaction((transaction) async {
+        final changed = await _db.runTransactionLegible((transaction) async {
           final user = await transaction.get(candidate.reference);
           final definition = await transaction.get(
             _db.collection('TBL_ROLES').doc(roleId),

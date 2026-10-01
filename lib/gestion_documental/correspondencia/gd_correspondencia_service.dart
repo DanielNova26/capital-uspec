@@ -55,8 +55,14 @@ class GdCorrespondenciaService {
       .snapshots()
       .map((doc) => doc.exists ? GdExpediente.fromFirestore(doc) : null);
 
-  Stream<List<GdExpedienteEvento>> streamEventos(String expedienteId) => _db
+  /// Con `empresaId` en la consulta: sin él la regla de lectura no se puede
+  /// probar y el listado cae con permission-denied.
+  Stream<List<GdExpedienteEvento>> streamEventos({
+    required String empresaId,
+    required String expedienteId,
+  }) => _db
       .collection('TBL_GD_EXPEDIENTES_EVENTOS')
+      .where('empresaId', isEqualTo: empresaId)
       .where('expedienteId', isEqualTo: expedienteId)
       .snapshots()
       .map((snap) {

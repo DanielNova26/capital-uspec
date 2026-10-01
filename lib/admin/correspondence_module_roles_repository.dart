@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../core/transaccion_legible.dart';
 import '../utils/user_company.dart';
 import 'correspondence_module_role.dart';
 import 'task_module_role.dart' show canManageModuleRoles;
@@ -100,7 +101,7 @@ class CorrespondenceModuleRolesRepository {
     }
     final id = previous?.id ?? '${empresaId}_mod_correspondencia_$key';
     final ref = _db.collection('TBL_ROLES').doc(id);
-    return _db.runTransaction((transaction) async {
+    return _db.runTransactionLegible((transaction) async {
       final current = await transaction.get(ref);
       final currentRole = current.exists
           ? CorrespondenceModuleRole.fromData(id, current.data()!)
@@ -194,7 +195,7 @@ class CorrespondenceModuleRolesRepository {
     await _requireAdmin(empresaId);
     final userRef = _db.collection('TBL_USUARIOS').doc(userId);
     final roleRef = _db.collection('TBL_ROLES').doc(roleId);
-    await _db.runTransaction((transaction) async {
+    await _db.runTransactionLegible((transaction) async {
       final userSnap = await transaction.get(userRef);
       final roleSnap = await transaction.get(roleRef);
       final role = roleSnap.exists
@@ -241,7 +242,7 @@ class CorrespondenceModuleRolesRepository {
     final assignmentRef = _db
         .collection('TBL_CORREO_ROLES')
         .doc('${empresaId}_$userId');
-    await _db.runTransaction((transaction) async {
+    await _db.runTransactionLegible((transaction) async {
       final snapshot = await transaction.get(ref);
       final assignment = await transaction.get(assignmentRef);
       final user = snapshot.data();
@@ -321,7 +322,7 @@ class CorrespondenceModuleRolesRepository {
         continue;
       }
       try {
-        final changed = await _db.runTransaction((transaction) async {
+        final changed = await _db.runTransactionLegible((transaction) async {
           final user = await transaction.get(candidate.reference);
           final definition = await transaction.get(
             _db.collection('TBL_ROLES').doc(roleId),

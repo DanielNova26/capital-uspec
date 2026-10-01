@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../core/transaccion_legible.dart';
 import '../facturacion/fac_role_access.dart';
 import '../facturacion/facturacion_models.dart';
 import '../utils/user_company.dart';
@@ -69,7 +70,7 @@ class BillingModuleRolesRepository {
     }
     final id = previous?.id ?? '${empresaId}_mod_facturacion_$key';
     final ref = _db.collection('TBL_ROLES').doc(id);
-    return _db.runTransaction((transaction) async {
+    return _db.runTransactionLegible((transaction) async {
       final current = await transaction.get(ref);
       final currentRole = current.exists
           ? BillingModuleRole.fromData(id, current.data()!)
@@ -191,7 +192,7 @@ class BillingModuleRolesRepository {
     final establecimiento = nivel == null
         ? const <String, dynamic>{}
         : await _establecimiento(previo, empresaId, nivel);
-    await _db.runTransaction((transaction) async {
+    await _db.runTransactionLegible((transaction) async {
       final userSnap = await transaction.get(userRef);
       final roleSnap = await transaction.get(roleRef);
       final role = roleSnap.exists
@@ -237,7 +238,7 @@ class BillingModuleRolesRepository {
     final establecimiento = level == null
         ? const <String, dynamic>{}
         : await _establecimiento(previo, empresaId, level);
-    await _db.runTransaction((transaction) async {
+    await _db.runTransactionLegible((transaction) async {
       final snapshot = await transaction.get(ref);
       final user = snapshot.data();
       if (user == null || !userBelongsToEmpresa(user, empresaId)) {
@@ -293,7 +294,7 @@ class BillingModuleRolesRepository {
         final establecimiento = nivel == null
             ? const <String, dynamic>{}
             : await _establecimiento(candidate.data(), empresaId, nivel);
-        final changed = await _db.runTransaction((transaction) async {
+        final changed = await _db.runTransactionLegible((transaction) async {
           final user = await transaction.get(candidate.reference);
           final definition = await transaction.get(
             _db.collection('TBL_ROLES').doc(roleId),

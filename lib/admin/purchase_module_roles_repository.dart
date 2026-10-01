@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../core/transaccion_legible.dart';
 import '../utils/user_company.dart';
 import 'purchase_module_role.dart';
 import 'task_module_role.dart' show canManageModuleRoles;
@@ -119,7 +120,7 @@ class PurchaseModuleRolesRepository {
     }
     final id = previous?.id ?? '${empresaId}_mod_compras_$key';
     final ref = _db.collection('TBL_ROLES').doc(id);
-    return _db.runTransaction((transaction) async {
+    return _db.runTransactionLegible((transaction) async {
       final current = await transaction.get(ref);
       final currentRole = current.exists
           ? PurchaseModuleRole.fromData(id, current.data()!)
@@ -214,7 +215,7 @@ class PurchaseModuleRolesRepository {
     await _requireOtherActorForModuleAdmin(empresaId, userId);
     final userRef = _db.collection('TBL_USUARIOS').doc(userId);
     final roleRef = _db.collection('TBL_ROLES').doc(roleId);
-    await _db.runTransaction((transaction) async {
+    await _db.runTransactionLegible((transaction) async {
       final userSnap = await transaction.get(userRef);
       final roleSnap = await transaction.get(roleRef);
       final role = roleSnap.exists
@@ -270,7 +271,7 @@ class PurchaseModuleRolesRepository {
     final assignmentRef = _db
         .collection('TBL_COMPRAS_ROLES')
         .doc('${empresaId}_$userId');
-    await _db.runTransaction((transaction) async {
+    await _db.runTransactionLegible((transaction) async {
       final snapshot = await transaction.get(ref);
       final assignment = await transaction.get(assignmentRef);
       final user = snapshot.data();
@@ -359,7 +360,7 @@ class PurchaseModuleRolesRepository {
         continue;
       }
       try {
-        final changed = await _db.runTransaction((transaction) async {
+        final changed = await _db.runTransactionLegible((transaction) async {
           final user = await transaction.get(candidate.reference);
           final definition = await transaction.get(
             _db.collection('TBL_ROLES').doc(roleId),
@@ -449,7 +450,7 @@ class PurchaseModuleRolesRepository {
           .toList();
       final existingRef = legacy.isEmpty ? null : legacy.first.reference;
       try {
-        final changed = await _db.runTransaction((tx) async {
+        final changed = await _db.runTransactionLegible((tx) async {
           final userSnap = await tx.get(candidate.reference);
           final canonicalRef = _db
               .collection('TBL_COMPRAS_ROLES')

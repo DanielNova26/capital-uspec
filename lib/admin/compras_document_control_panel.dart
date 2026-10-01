@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../compras/compras_models.dart';
+import '../core/transaccion_legible.dart';
 import '../services/task_service.dart';
 
 const _primary = Color(0xFF0F172A);
@@ -293,7 +294,7 @@ class ComprasAdminControlService {
   }) async {
     final first = records.first;
     final ref = _db.collection(first.collection).doc(first.documentId);
-    await _db.runTransaction((transaction) async {
+    await _db.runTransactionLegible((transaction) async {
       final snap = await transaction.get(ref);
       if (!snap.exists) return;
       final data = snap.data() ?? const <String, dynamic>{};

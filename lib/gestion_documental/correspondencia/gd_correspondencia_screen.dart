@@ -1125,7 +1125,11 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
                       ),
               ),
               const SizedBox(height: 16),
-              _Timeline(service: _service, expedienteId: expediente.id),
+              _Timeline(
+                service: _service,
+                empresaId: expediente.empresaId,
+                expedienteId: expediente.id,
+              ),
               const SizedBox(height: 40),
             ],
           ),
@@ -2343,14 +2347,22 @@ class _AttachmentTile extends StatelessWidget {
 
 class _Timeline extends StatelessWidget {
   final GdCorrespondenciaService service;
+  final String empresaId;
   final String expedienteId;
-  const _Timeline({required this.service, required this.expedienteId});
+  const _Timeline({
+    required this.service,
+    required this.empresaId,
+    required this.expedienteId,
+  });
   @override
   Widget build(BuildContext context) => _SectionCard(
     title: 'Trazabilidad del expediente',
     icon: Icons.history,
     child: StreamBuilder<List<GdExpedienteEvento>>(
-      stream: service.streamEventos(expedienteId),
+      stream: service.streamEventos(
+        empresaId: empresaId,
+        expedienteId: expedienteId,
+      ),
       builder: (_, snapshot) {
         final rows = snapshot.data ?? const <GdExpedienteEvento>[];
         if (rows.isEmpty) return const Text('Aún no hay eventos registrados.');

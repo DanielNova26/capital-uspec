@@ -197,16 +197,28 @@ class VisitasService {
   CollectionReference<Map<String, dynamic>> get _grupos =>
       _db.collection(kVisitasGruposCol);
 
+  // Lecturas únicas (`...DeEmpresa`): van con `get()`, no con
+  // `stream...().first`. El primer evento de un listener puede salir de la
+  // caché con solo los documentos que ya se habían leído: el jefe abre
+  // Visitas leyendo SU rol (`areaDeUsuario`) y la lista de roles llegaba con
+  // ese único documento, así que todo su equipo salía "Sin rol" y su
+  // departamento con 0 profesionales (1 oct 2026). Desarrollo no lee su rol
+  // antes y por eso no lo veía. `get()` espera al servidor si hay conexión.
+
   // ── Roles ─────────────────────────────────────────────────────────────
 
-  Stream<List<VisitaRolDoc>> streamRoles(String empresaId) => _roles
-      .where('empresaId', isEqualTo: empresaId)
-      .snapshots()
-      .map(
-        (s) =>
-            s.docs.map((d) => VisitaRolDoc.fromMap(d.id, d.data())).toList()
-              ..sort((a, b) => a.nombre.compareTo(b.nombre)),
-      );
+  Query<Map<String, dynamic>> _rolesQuery(String empresaId) =>
+      _roles.where('empresaId', isEqualTo: empresaId);
+
+  static List<VisitaRolDoc> _rolesDe(QuerySnapshot<Map<String, dynamic>> s) =>
+      s.docs.map((d) => VisitaRolDoc.fromMap(d.id, d.data())).toList()
+        ..sort((a, b) => a.nombre.compareTo(b.nombre));
+
+  Stream<List<VisitaRolDoc>> streamRoles(String empresaId) =>
+      _rolesQuery(empresaId).snapshots().map(_rolesDe);
+
+  Future<List<VisitaRolDoc>> rolesDeEmpresa(String empresaId) async =>
+      _rolesDe(await _rolesQuery(empresaId).get());
 
   /// Rol del usuario en la empresa, o null si no tiene ninguno.
   /// El desarrollador entra como jefe: lo resuelve quien abre el módulo.
@@ -284,19 +296,27 @@ class VisitasService {
 
   // ── Grupos (maestro de equipo) ────────────────────────────────────────
 
-  Stream<List<VisitaGrupo>> streamGrupos(String empresaId, {String? areaId}) {
+  Query<Map<String, dynamic>> _gruposQuery(String empresaId, String? areaId) {
     Query<Map<String, dynamic>> q = _grupos.where(
       'empresaId',
       isEqualTo: empresaId,
     );
     if (areaId != null) q = q.where('areaId', isEqualTo: areaId);
-    return q.snapshots().map(
-      (s) => s.docs.map((d) => VisitaGrupo.fromMap(d.id, d.data())).toList()
-        ..sort(
-          (a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()),
-        ),
-    );
+    return q;
   }
+
+  static List<VisitaGrupo> _gruposDe(QuerySnapshot<Map<String, dynamic>> s) =>
+      s.docs.map((d) => VisitaGrupo.fromMap(d.id, d.data())).toList()..sort(
+        (a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()),
+      );
+
+  Stream<List<VisitaGrupo>> streamGrupos(String empresaId, {String? areaId}) =>
+      _gruposQuery(empresaId, areaId).snapshots().map(_gruposDe);
+
+  Future<List<VisitaGrupo>> gruposDeEmpresa(
+    String empresaId, {
+    String? areaId,
+  }) async => _gruposDe(await _gruposQuery(empresaId, areaId).get());
 
   /// Guarda el grupo. Un profesional pertenece a un solo grupo de su área:
   /// si ya estaba en otro, sale de ese en el mismo lote.
@@ -336,27 +356,33 @@ class VisitasService {
 
   // ── Catálogos que el módulo consume ───────────────────────────────────
 
-  Stream<List<VisitaCentro>> streamCentros(String empresaId) => _db
+  Query<Map<String, dynamic>> _centrosQuery(String empresaId) => _db
       .collection('TBL_CENTROS_COSTOS')
-      .where('empresaId', isEqualTo: empresaId)
-      .snapshots()
-      .map((s) {
-        final list = s.docs
-            .where((d) => (d.data()['enabled'] as bool?) ?? true)
-            .map(
-              (d) => VisitaCentro(
-                id: (d.data()['centroId'] ?? d.id).toString(),
-                nombre: (d.data()['nombre'] ?? d.id).toString(),
-                subcentros: subcentrosDesdeData(d.data()['subcentros']),
-                docId: d.id,
-              ),
-            )
-            .toList();
-        list.sort(
-          (a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()),
-        );
-        return list;
-      });
+      .where('empresaId', isEqualTo: empresaId);
+
+  static List<VisitaCentro> _centrosDe(QuerySnapshot<Map<String, dynamic>> s) {
+    final list = s.docs
+        .where((d) => (d.data()['enabled'] as bool?) ?? true)
+        .map(
+          (d) => VisitaCentro(
+            id: (d.data()['centroId'] ?? d.id).toString(),
+            nombre: (d.data()['nombre'] ?? d.id).toString(),
+            subcentros: subcentrosDesdeData(d.data()['subcentros']),
+            docId: d.id,
+          ),
+        )
+        .toList();
+    list.sort(
+      (a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()),
+    );
+    return list;
+  }
+
+  Stream<List<VisitaCentro>> streamCentros(String empresaId) =>
+      _centrosQuery(empresaId).snapshots().map(_centrosDe);
+
+  Future<List<VisitaCentro>> centrosDeEmpresa(String empresaId) async =>
+      _centrosDe(await _centrosQuery(empresaId).get());
 
   /// Personal activo de la empresa. Es de quien el jefe escoge al
   /// profesional; su área sirve para proponerle el formato correcto.
@@ -543,7 +569,7 @@ class VisitasService {
   /// acceso en Admin no aparecía en ninguna parte del módulo.
   Future<List<VisitaPersona>> equipoVisitas(String empresaId) async {
     final personal = await personalDeEmpresa(empresaId);
-    final roles = await streamRoles(empresaId).first;
+    final roles = await rolesDeEmpresa(empresaId);
     final rolPorUsuario = {for (final r in roles) r.userId: r};
     return [
       for (final p in personal)
@@ -608,15 +634,18 @@ class VisitasService {
 
   // ── Maestro de ubicaciones ────────────────────────────────────────────
 
+  Query<Map<String, dynamic>> _ubicacionesQuery(String empresaId) =>
+      _ubicaciones.where('empresaId', isEqualTo: empresaId);
+
+  static List<VisitaUbicacion> _ubicacionesDe(
+    QuerySnapshot<Map<String, dynamic>> s,
+  ) => s.docs.map((d) => VisitaUbicacion.fromMap(d.id, d.data())).toList();
+
   Stream<List<VisitaUbicacion>> streamUbicaciones(String empresaId) =>
-      _ubicaciones
-          .where('empresaId', isEqualTo: empresaId)
-          .snapshots()
-          .map(
-            (s) => s.docs
-                .map((d) => VisitaUbicacion.fromMap(d.id, d.data()))
-                .toList(),
-          );
+      _ubicacionesQuery(empresaId).snapshots().map(_ubicacionesDe);
+
+  Future<List<VisitaUbicacion>> ubicacionesDeEmpresa(String empresaId) async =>
+      _ubicacionesDe(await _ubicacionesQuery(empresaId).get());
 
   Future<void> guardarUbicacion(VisitaUbicacion u) => _ubicaciones
       .doc(VisitaUbicacion.docId(u.empresaId, u.centroId, u.subcentroId))
@@ -726,21 +755,30 @@ class VisitasService {
 
   // ── Formatos ──────────────────────────────────────────────────────────
 
-  Stream<List<VisitaFormato>> streamFormatos(
-    String empresaId, {
-    String? areaId,
-  }) {
+  Query<Map<String, dynamic>> _formatosQuery(String empresaId, String? areaId) {
     Query<Map<String, dynamic>> query = _formatos.where(
       'empresaId',
       isEqualTo: empresaId,
     );
     if (areaId != null) query = query.where('areaId', isEqualTo: areaId);
-    return query.snapshots().map(
-      (s) =>
-          s.docs.map((d) => VisitaFormato.fromMap(d.id, d.data())).toList()
-            ..sort((a, b) => a.areaNombre.compareTo(b.areaNombre)),
-    );
+    return query;
   }
+
+  static List<VisitaFormato> _formatosDe(
+    QuerySnapshot<Map<String, dynamic>> s,
+  ) =>
+      s.docs.map((d) => VisitaFormato.fromMap(d.id, d.data())).toList()
+        ..sort((a, b) => a.areaNombre.compareTo(b.areaNombre));
+
+  Stream<List<VisitaFormato>> streamFormatos(
+    String empresaId, {
+    String? areaId,
+  }) => _formatosQuery(empresaId, areaId).snapshots().map(_formatosDe);
+
+  Future<List<VisitaFormato>> formatosDeEmpresa(
+    String empresaId, {
+    String? areaId,
+  }) async => _formatosDe(await _formatosQuery(empresaId, areaId).get());
 
   Future<VisitaFormato?> getFormato(String id) async {
     final d = await _formatos.doc(id).get();
@@ -1014,7 +1052,7 @@ class VisitasService {
     VisitaProfesional v, {
     required String cargo,
   }) async {
-    final formatos = await streamFormatos(v.empresaId, areaId: v.areaId).first;
+    final formatos = await formatosDeEmpresa(v.empresaId, areaId: v.areaId);
     return formatosParaVisita(formatos, visita: v, cargo: cargo);
   }
 

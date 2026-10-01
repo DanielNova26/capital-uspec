@@ -16,6 +16,7 @@ import 'compras_models.dart';
 import 'compras_access_service.dart';
 import '../admin/purchase_module_roles_repository.dart';
 import '../admin/task_module_role.dart' show canManageModuleRoles;
+import '../core/transaccion_legible.dart';
 import '../utils/user_company.dart' show personaHabilitadaEn, raizEsDeEmpresa;
 import 'compras_recepcion_logic.dart';
 import 'compras_req_engine.dart';
@@ -90,35 +91,11 @@ class ComprasService {
     return data;
   }
 
-  /// `runTransaction` que deja ver el error real.
-  ///
-  /// En Flutter web el manejador de la transacción se convierte en una
-  /// promesa de JavaScript; si adentro se lanza un `StateError` (por ejemplo,
-  /// una validación de documentos de la corrección), lo
-  /// que llega afuera es un envoltorio genérico: "Dart exception thrown from
-  /// converted Future. Use the properties 'error'…". Bodega lo vio el 21 sep
-  /// 2026 al enviar correcciones y no había forma de saber qué faltaba. Aquí
-  /// se guarda el error de adentro y se relanza tal cual afuera.
-  Future<T> _transaccion<T>(
-    Future<T> Function(Transaction tx) manejador,
-  ) async {
-    Object? fallo;
-    StackTrace? traza;
-    try {
-      return await _db.runTransaction<T>((tx) async {
-        try {
-          return await manejador(tx);
-        } catch (e, s) {
-          fallo = e;
-          traza = s;
-          rethrow;
-        }
-      });
-    } catch (e, s) {
-      if (fallo != null) Error.throwWithStackTrace(fallo!, traza ?? s);
-      rethrow;
-    }
-  }
+  /// `runTransaction` que deja ver el error real en web
+  /// ([TransaccionLegible]): Bodega lo vio el 21 sep 2026 al enviar
+  /// correcciones y no había forma de saber qué faltaba.
+  Future<T> _transaccion<T>(Future<T> Function(Transaction tx) manejador) =>
+      _db.runTransactionLegible<T>(manejador);
 
   Future<int> obtenerDiasPlazoRechazados(String empresaId) async {
     try {

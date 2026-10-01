@@ -35,18 +35,26 @@ class GdColaboracionService {
         return rows;
       });
 
-  Stream<List<GdDocumentoVinculado>> streamVinculosExpediente(
-    String expedienteId,
-  ) => _db
+  // Vínculos, colaboración y eventos se leen siempre con `empresaId`: la regla
+  // exige `belongsToCompany(resource.data.empresaId)` y, sin ese filtro en la
+  // consulta, Firestore no puede probarla y rechaza el listado entero con
+  // permission-denied, aunque cada documento sea de la empresa activa.
+  Stream<List<GdDocumentoVinculado>> streamVinculosExpediente({
+    required String empresaId,
+    required String expedienteId,
+  }) => _db
       .collection('TBL_GD_VINCULOS')
+      .where('empresaId', isEqualTo: empresaId)
       .where('expedienteId', isEqualTo: expedienteId)
       .snapshots()
       .map(_mapLinks);
 
-  Stream<List<GdDocumentoVinculado>> streamVinculosDocumento(
-    String documentoId,
-  ) => _db
+  Stream<List<GdDocumentoVinculado>> streamVinculosDocumento({
+    required String empresaId,
+    required String documentoId,
+  }) => _db
       .collection('TBL_GD_VINCULOS')
+      .where('empresaId', isEqualTo: empresaId)
       .where('documentoId', isEqualTo: documentoId)
       .snapshots()
       .map(_mapLinks);
@@ -63,22 +71,25 @@ class GdColaboracionService {
     return rows;
   }
 
-  Stream<List<GdColaboracionEntrada>> streamColaboracion(String expedienteId) =>
-      _db
-          .collection('TBL_GD_COLABORACION')
-          .where('expedienteId', isEqualTo: expedienteId)
-          .snapshots()
-          .map((snapshot) {
-            final rows = snapshot.docs
-                .map(GdColaboracionEntrada.fromFirestore)
-                .toList();
-            rows.sort(
-              (a, b) => (a.createdAt ?? DateTime(0)).compareTo(
-                b.createdAt ?? DateTime(0),
-              ),
-            );
-            return rows;
-          });
+  Stream<List<GdColaboracionEntrada>> streamColaboracion({
+    required String empresaId,
+    required String expedienteId,
+  }) => _db
+      .collection('TBL_GD_COLABORACION')
+      .where('empresaId', isEqualTo: empresaId)
+      .where('expedienteId', isEqualTo: expedienteId)
+      .snapshots()
+      .map((snapshot) {
+        final rows = snapshot.docs
+            .map(GdColaboracionEntrada.fromFirestore)
+            .toList();
+        rows.sort(
+          (a, b) => (a.createdAt ?? DateTime(0)).compareTo(
+            b.createdAt ?? DateTime(0),
+          ),
+        );
+        return rows;
+      });
 
   Future<void> vincularDocumento({
     required GdExpediente expediente,
@@ -215,6 +226,7 @@ class GdColaboracionService {
     if (documentoId.isNotEmpty) {
       final links = await _db
           .collection('TBL_GD_VINCULOS')
+          .where('empresaId', isEqualTo: expediente.empresaId)
           .where('expedienteId', isEqualTo: expediente.id)
           .get();
       for (final link in links.docs) {

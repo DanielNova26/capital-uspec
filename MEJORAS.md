@@ -6,6 +6,88 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Admin: error ilegible al cambiar el rol de Interventoría y Visitas: el jefe veía a su equipo "Sin rol" — 1 oct 2026 (Claude)
+
+**Visitas › Equipo (Director de Calidad).** El jefe veía a sus profesionales
+"Sin rol" y su departamento con 0 profesionales; Desarrollo y Gerencia los
+veían bien. No eran las reglas (el jefe sí lista `TBL_VISITAS_ROLES`,
+probado en emulador): `equipoVisitas` leía los roles con
+`streamRoles(empresaId).first`, y el primer evento de un listener puede salir
+de la caché con solo los documentos ya leídos. El jefe abre Visitas leyendo
+su propio rol (`areaDeUsuario`), así que la lista llegaba con ese único
+documento. Desarrollo no lee su rol antes y por eso no lo veía.
+- `VisitasService` tiene lecturas únicas con `get()` (`rolesDeEmpresa`,
+  `centrosDeEmpresa`, `gruposDeEmpresa`, `formatosDeEmpresa`,
+  `ubicacionesDeEmpresa`) que comparten consulta y conversión con sus
+  `stream...`. Equipo, Programar, el diálogo de ubicación y los formatos de la
+  visita ya no usan `stream...().first`.
+- **Pendiente (mismo patrón, fuera de Visitas):**
+  `gerencia_interventoria_tab.dart` (`streamReglasSubsanacion(...).first`) e
+  `interventoria_maestro_revision.dart` (`streamCentrosCosto(eid).first`).
+
+**Admin › Apps, roles y permisos › Interventoría.** "No se pudo cambiar el
+rol de Interventoría: Dart exception thrown from converted Future…". En web,
+cualquier excepción dentro del manejador de una transacción sale envuelta
+y esconde la causa. No eran las reglas: en el emulador, Desarrollo, Admin y el
+administrador del módulo hacen la transacción completa de
+`setIndividualLevel` (`functions/test/admin_roles_transaccion.rules.js`).
+- `lib/core/transaccion_legible.dart` (`runTransactionLegible`) guarda el
+  error de adentro y lo relanza afuera; la transacción se aborta igual. Lo
+  usan todos los repositorios de roles de Admin, el inventario de módulos, el
+  control documental de Compras y `ComprasService._transaccion`, que ya
+  tenía su propia copia de este arreglo.
+- `extractUserApps`/`extractUserEmpresaIds` ya no hacen `as List` sobre
+  `apps`/`empresas`: un dato viejo con otra forma en CUALQUIER empresa de la
+  persona tumbaba el cambio, porque `planearAppsPorEmpresa` las recorre
+  todas.
+- **Pendiente:** no se pudo ver la causa exacta en los datos (la lectura de
+  producción no está autorizada en esta sesión). Con la nueva versión el
+  mensaje dice el motivo real. Si vuelve a fallar, revisar la ficha de esa
+  persona según el texto que aparezca.
+- Pruebas: `test/core/transaccion_legible_test.dart`, regla nueva en
+  emulador (4/4 + 21 de roles existentes) y `flutter test` de core, admin,
+  visitas, compras, utils y gestión documental en verde (907). Sin
+  verificación visual en Web, Android ni iOS.
+
+## Biblioteca Documental: vista previa y Correspondencia relacionada caían en todos los documentos — 1 oct 2026 (Claude)
+
+Reporte del usuario: al abrir cualquier documento de la Biblioteca, la vista
+previa decía "No se pudo cargar la versión del documento"
+(`failed-precondition`, índice `TBL_DOCUMENTOS_VERSIONES` docId+numero) y
+"Correspondencia relacionada" decía `permission-denied`.
+
+- **Versiones e historial sin índice compuesto.** `GdService.streamVersiones`
+  y `streamHistorial` usaban `where('docId') + orderBy(...)`, que exige un
+  índice compuesto que no está desplegado (confirmado con
+  `firebase firestore:indexes`). Ahora filtran solo por `docId` y ordenan en
+  el cliente (versiones por `numero` ascendente; historial por
+  `realizadoEn` descendente, el evento recién escrito arriba), como ya
+  hacía `streamDocumentos`. La pestaña Historial muestra el error en vez de
+  quedarse cargando.
+- **Consultas con `empresaId` en vínculos, colaboración y eventos.** Las
+  reglas de `TBL_GD_VINCULOS`, `TBL_GD_COLABORACION` y
+  `TBL_GD_EXPEDIENTES_EVENTOS` son `belongsToCompany(resource.data.empresaId)`;
+  una consulta sin ese filtro no se puede probar y Firestore rechaza el
+  listado entero. `streamVinculosDocumento`, `streamVinculosExpediente`,
+  `streamColaboracion`, `streamEventos` y la búsqueda de vínculos al
+  comentar ahora reciben y filtran por la empresa (la activa en el detalle
+  de la Biblioteca; la del expediente, ya validada contra la activa, en
+  Correspondencia). Esto también arregla "Documentos vinculados", "Mesa de
+  colaboración" y "Trazabilidad del expediente" en Correspondencia, que
+  tenían la misma falla. Todos los registros existentes llevan `empresaId`
+  (la regla de creación lo exige y los eventos del servidor lo escriben).
+- Sin cambios en `firestore.rules` ni índices: no hace falta deploy de
+  reglas, solo publicar la app.
+- Prueba nueva en emulador: `functions/test/gd_biblioteca_consultas.rules.js`
+  (sin empresa se rechaza, con empresa se lee, otra empresa se rechaza).
+  `flutter test test/gestion_documental` en verde.
+- **Pendiente para Codex:** confirmar y publicar en `main`. Sin verificación
+  visual en Web, Android ni iOS (requiere sesión real contra producción);
+  validar en las tres plataformas abriendo un documento de la Biblioteca y
+  un expediente de Correspondencia. De paso: `PpService.streamLotes` y
+  `streamPlanillasPorLote` usan índices que tampoco están desplegados, pero
+  hoy nadie los llama.
+
 ## Git compartido entre Claude y Codex — 30 sep 2026
 
 Por decisión del usuario, Claude también puede sincronizar, confirmar y subir

@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../core/app_catalog.dart';
 import '../core/apps_empresa.dart';
+import '../core/transaccion_legible.dart';
 import '../utils/user_company.dart';
 import 'task_module_role.dart';
 
@@ -162,7 +163,7 @@ class AdminModuleInventoryRepository {
         continue;
       }
       final ref = _db.collection('TBL_APPS').doc('${empresaId}_${entry.appId}');
-      final added = await _db.runTransaction((transaction) async {
+      final added = await _db.runTransactionLegible((transaction) async {
         if ((await transaction.get(ref)).exists) return false;
         transaction.set(ref, {
           'empresaId': empresaId,
