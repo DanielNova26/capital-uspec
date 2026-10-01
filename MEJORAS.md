@@ -48,6 +48,11 @@ administrador del módulo hacen la transacción completa de
   emulador (4/4 + 21 de roles existentes) y `flutter test` de core, admin,
   visitas, compras, utils y gestión documental en verde (907). Sin
   verificación visual en Web, Android ni iOS.
+- **Publicado en web** (commit `01a57ff`, misma versión 2.6.12+26):
+  `flutter build web --release --no-tree-shake-icons --no-wasm-dry-run` y
+  `firebase deploy --only hosting`. to-do-gestion.web.app y
+  to-do-gestion.com responden 200 con el bundle nuevo. Android e iOS siguen
+  con la compilación anterior.
 
 ## Biblioteca Documental: vista previa y Correspondencia relacionada caían en todos los documentos — 1 oct 2026 (Claude)
 
