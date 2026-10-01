@@ -6,6 +6,45 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Visitas: ubicación dentro de Iniciar, reasignación obligatoria, ubicaciones fuera del profesional y dictado del plan de acción — 1 oct 2026 (Claude)
+
+Pedido del usuario: "que el dónde estoy quede combinado al hacer inicio,
+que si alguien no cumple la visita primero tenga que solicitar reasignación y
+quede registro, que a los profesionales no les salga lo de ubicaciones, y que
+plan de acción permita por micrófono y que salga algo de hable ahora".
+
+- **"¿Dónde estoy?" dentro de Iniciar.** Ya no hay botón aparte en Registro
+  de visita. Al tocar Iniciar la app toma el GPS, muestra en la tarjeta del
+  establecimiento si quedó dentro ("Estás en el establecimiento (a N m)") o
+  a cuántos metros, y con esa misma lectura inicia (`iniciar(...,
+  posicion:)`); el servicio vuelve a comprobar contra la referencia.
+- **Reasignación obligatoria de lo incumplido.** `visitaIncumplida`: pasó su
+  día programada o en curso (las pruebas no cuentan). El jefe ya no la mueve
+  por su cuenta: el profesional solicita la reasignación ("¿Por qué no se
+  cumplió?" + fecha propuesta), la solicitud queda con `tipo:
+  'reasignacion'` y, al aprobarla (o reprogramarla con la solicitud
+  pendiente), la entrada del historial lleva `incumplida: true`. El detalle
+  muestra "No cumplida · …" y al jefe le avisa que falta la solicitud.
+  Reglas: `esReprogramacionDeVisita` exige solicitud pendiente si ya pasó
+  `fechaProgramada + 1 día`.
+- **Ubicaciones fuera del profesional.** Sin el "¿Dónde estoy?" ya no ve el
+  maestro (establecimiento más cercano, radios); la tarjeta de inicio no
+  habla del maestro ni de "Visitas > Ubicaciones". Reglas: listar
+  `TBL_VISITAS_UBICACIONES` solo Desarrollo, Gerencia y jefes
+  (`administraVisitasEn`); el profesional sigue leyendo por id la de SU
+  establecimiento para iniciar y cerrar.
+- **Plan de acción por micrófono** y aviso **"Hable ahora…"** con el
+  micrófono latiendo en todos los dictados de Visitas (observación,
+  respuesta, observaciones generales y plan de acción).
+- Pruebas: `functions/test/visitas_reasignacion.rules.js` (6) y todas las
+  de Visitas en emulador (43/43); `flutter test test/visitas` 146/146 con el
+  grupo nuevo de reasignación.
+- **Pendiente:** desplegar `firestore.rules` (sin eso el bloqueo de
+  reasignación y el de listar ubicaciones solo están en la app) y publicar
+  web/móvil. `resolverRegistroVisita` quedó sin uso en la app (solo sus
+  pruebas). Sin verificación visual en Web, Android ni iOS; el dictado y el
+  GPS hay que probarlos en el teléfono.
+
 ## Admin: error ilegible al cambiar el rol de Interventoría y Visitas: el jefe veía a su equipo "Sin rol" — 1 oct 2026 (Claude)
 
 **Visitas › Equipo (Director de Calidad).** El jefe veía a sus profesionales

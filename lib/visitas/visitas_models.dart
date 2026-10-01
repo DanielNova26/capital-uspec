@@ -170,9 +170,13 @@ bool visitasPuedeReprogramar({
   required String? rol,
   required VisitaProfesional visita,
   required String userId,
+  DateTime? ahora,
 }) {
-  if (visita.estado != kVisitaProgramada) return false;
-  return _administra(rol);
+  if (visita.estado != kVisitaProgramada || !_administra(rol)) return false;
+  // 1 oct 2026: una visita que no se cumplió no la mueve el jefe por su
+  // cuenta; primero el profesional pide la reasignación (queda el registro).
+  return !visitaIncumplida(visita, ahora ?? DateTime.now()) ||
+      visita.solicitudFecha?.pendiente == true;
 }
 
 /// El maestro de ubicaciones es de Desarrollo y Gerencia (26 sep 2026: "solo
@@ -1248,6 +1252,11 @@ class VisitaReprogramacion {
   final String porNombre;
   final Timestamp? at;
 
+  /// La visita no se cumplió en la fecha [de] (1 oct 2026): pasó ese día
+  /// sin hacerse o sin cerrarse, y se reasignó a pedido del profesional.
+  /// Es el registro del incumplimiento.
+  final bool incumplida;
+
   const VisitaReprogramacion({
     required this.de,
     required this.a,
@@ -1255,6 +1264,7 @@ class VisitaReprogramacion {
     required this.porId,
     required this.porNombre,
     this.at,
+    this.incumplida = false,
   });
 
   Map<String, dynamic> toMap() => {
@@ -1264,6 +1274,7 @@ class VisitaReprogramacion {
     'porId': porId,
     'porNombre': porNombre,
     'at': at ?? Timestamp.now(),
+    if (incumplida) 'incumplida': true,
   };
 
   factory VisitaReprogramacion.fromMap(Map<String, dynamic> d) =>
@@ -1274,6 +1285,7 @@ class VisitaReprogramacion {
         porId: (d['porId'] ?? '').toString(),
         porNombre: (d['porNombre'] ?? '').toString(),
         at: d['at'] is Timestamp ? d['at'] as Timestamp : null,
+        incumplida: d['incumplida'] == true,
       );
 }
 
@@ -1302,6 +1314,10 @@ class VisitaSolicitudFecha {
   final String respondidaPorId;
   final String respondidaPorNombre;
 
+  /// Se pidió porque la visita no se cumplió ([visitaIncumplida]): es una
+  /// solicitud de reasignación, no un simple cambio de fecha.
+  final bool reasignacion;
+
   const VisitaSolicitudFecha({
     required this.fecha,
     required this.motivo,
@@ -1312,6 +1328,7 @@ class VisitaSolicitudFecha {
     this.respuesta = '',
     this.respondidaPorId = '',
     this.respondidaPorNombre = '',
+    this.reasignacion = false,
   });
 
   bool get pendiente => estado == kSolicitudPendiente;
@@ -1326,6 +1343,7 @@ class VisitaSolicitudFecha {
     'respuesta': respuesta,
     'respondidaPorId': respondidaPorId,
     'respondidaPorNombre': respondidaPorNombre,
+    if (reasignacion) 'tipo': 'reasignacion',
   };
 
   factory VisitaSolicitudFecha.fromMap(Map<String, dynamic> d) =>
@@ -1339,6 +1357,7 @@ class VisitaSolicitudFecha {
         respuesta: (d['respuesta'] ?? '').toString(),
         respondidaPorId: (d['respondidaPorId'] ?? '').toString(),
         respondidaPorNombre: (d['respondidaPorNombre'] ?? '').toString(),
+        reasignacion: d['tipo'] == 'reasignacion',
       );
 
   VisitaSolicitudFecha respondida({
@@ -1356,6 +1375,7 @@ class VisitaSolicitudFecha {
     respuesta: respuesta,
     respondidaPorId: porId,
     respondidaPorNombre: porNombre,
+    reasignacion: reasignacion,
   );
 }
 
@@ -2330,8 +2350,8 @@ String? motivoNoIniciaHoy(VisitaProfesional v, DateTime ahora) {
   final fecha = _ddmmaaaa(dia);
   return _soloDia(ahora).isBefore(dia)
       ? 'Esta visita es para el $fecha: se inicia ese día.'
-      : 'Esta visita era para el $fecha y ya pasó. Solo se hace el día '
-            'programado: pídele a tu jefe inmediato el cambio de fecha.';
+      : 'Esta visita era para el $fecha y no se cumplió. Solicita la '
+            'reasignación a tu jefe inmediato: queda registrada con tu motivo.';
 }
 
 /// Por qué no se puede cerrar hoy (28 sep 2026). Se cierra el mismo día en
@@ -2365,6 +2385,27 @@ bool visitaVencida(VisitaProfesional v, DateTime ahora) {
   ).add(const Duration(days: 1));
   return !ahora.isBefore(limite);
 }
+
+/// La visita no se cumplió (1 oct 2026): pasó su día sin hacerse
+/// (programada) o sin cerrarse (en curso). Solo se reasigna si el
+/// profesional lo solicita primero, y la reasignación queda marcada como
+/// incumplimiento ([VisitaReprogramacion.incumplida]). Las pruebas no
+/// cuentan. Mismo criterio que `esReprogramacionDeVisita` en las reglas.
+bool visitaIncumplida(VisitaProfesional v, DateTime ahora) {
+  if (v.esPrueba) return false;
+  if (v.estado != kVisitaProgramada && v.estado != kVisitaEnCurso) {
+    return false;
+  }
+  return _soloDia(ahora).isAfter(_soloDia(v.fechaProgramada));
+}
+
+/// Lo que se le dice al jefe que intenta mover una visita incumplida sin
+/// solicitud del profesional.
+String mensajeReasignacionRequerida(VisitaProfesional v) =>
+    'La visita del ${_ddmmaaaa(_soloDia(v.fechaProgramada))} no se cumplió. '
+    'Para reasignarla, primero ${v.profesionalNombre.trim().isEmpty ? 'el profesional' : v.profesionalNombre.trim()} '
+    'debe solicitarlo desde su Registro de visita; así queda el registro del '
+    'incumplimiento con su motivo.';
 
 // ── Consolidado mensual ─────────────────────────────────────────────────────
 

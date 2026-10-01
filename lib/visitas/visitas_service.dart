@@ -1076,16 +1076,26 @@ class VisitasService {
     if (v.estado != kVisitaProgramada) {
       throw const VisitasException('Solo se reprograma una visita programada.');
     }
+    // 1 oct 2026: si no se cumplió, primero la solicita el profesional (las
+    // reglas exigen lo mismo).
+    final solicitud = v.solicitudFecha;
+    final incumplida = visitaIncumplida(v, DateTime.now());
+    if (incumplida && solicitud?.pendiente != true) {
+      throw VisitasException(mensajeReasignacionRequerida(v));
+    }
     final fecha = DateTime(nuevaFecha.year, nuevaFecha.month, nuevaFecha.day);
     final cambio = VisitaReprogramacion(
       de: v.fechaProgramada,
       a: fecha,
-      motivo: motivo,
+      motivo: incumplida && solicitud != null
+          ? 'Reasignación solicitada: ${solicitud.motivo}'
+                '${motivo.trim().isEmpty ? '' : ' · ${motivo.trim()}'}'
+          : motivo,
       porId: actorId,
       porNombre: actorNombre,
+      incumplida: incumplida,
     );
     // Si el profesional había pedido un cambio, el jefe lo resolvió aquí.
-    final solicitud = v.solicitudFecha;
     await _visitas.doc(v.id).update({
       'fechaProgramada': Timestamp.fromDate(fecha),
       'reprogramaciones': FieldValue.arrayUnion([cambio.toMap()]),
@@ -1141,11 +1151,15 @@ class VisitasService {
       hoy: DateTime.now(),
     );
     if (error != null) throw VisitasException(error);
+    // Si la visita no se cumplió es una solicitud de reasignación: queda
+    // marcada así en la visita y en el aviso al jefe (1 oct 2026).
+    final reasignacion = visitaIncumplida(v, DateTime.now());
     final solicitud = VisitaSolicitudFecha(
       fecha: fecha,
       motivo: motivo.trim(),
       porId: actorId,
       porNombre: actorNombre,
+      reasignacion: reasignacion,
     );
     await _visitas.doc(v.id).update({
       'solicitudCambioFecha': solicitud.toMap(),
@@ -1158,11 +1172,18 @@ class VisitasService {
     }
     await _tasks.pushNotification(
       toUserId: v.asignadoPorId,
-      title: 'Solicitud de cambio de fecha · ${v.establecimiento}',
-      description:
-          '$actorNombre pide pasar la visita del ${_diaMes(v.fechaProgramada)} '
-          'al ${_diaMes(fecha)}: ${motivo.trim()}. Apruébala o recházala '
-          'desde el cronograma de Visitas.',
+      title: reasignacion
+          ? 'Solicitud de reasignación · ${v.establecimiento}'
+          : 'Solicitud de cambio de fecha · ${v.establecimiento}',
+      description: reasignacion
+          ? '$actorNombre no cumplió la visita del '
+                '${_diaMes(v.fechaProgramada)} y pide reasignarla para el '
+                '${_diaMes(fecha)}: ${motivo.trim()}. Apruébala o recházala '
+                'desde el cronograma de Visitas.'
+          : '$actorNombre pide pasar la visita del '
+                '${_diaMes(v.fechaProgramada)} al ${_diaMes(fecha)}: '
+                '${motivo.trim()}. Apruébala o recházala desde el cronograma '
+                'de Visitas.',
       type: 'visita_solicitud_fecha',
       taskId: 'visita:${v.id}',
       fromId: actorId,
@@ -1208,12 +1229,16 @@ class VisitasService {
         'updatedAt': FieldValue.serverTimestamp(),
       });
     } else {
+      final incumplida = visitaIncumplida(v, DateTime.now());
       final cambio = VisitaReprogramacion(
         de: v.fechaProgramada,
         a: fecha,
-        motivo: 'Solicitud del profesional: ${solicitud.motivo}',
+        motivo: incumplida
+            ? 'Reasignación solicitada: ${solicitud.motivo}'
+            : 'Solicitud del profesional: ${solicitud.motivo}',
         porId: actorId,
         porNombre: actorNombre,
+        incumplida: incumplida,
       );
       await _visitas.doc(v.id).update({
         'fechaProgramada': Timestamp.fromDate(fecha),
@@ -1303,6 +1328,11 @@ class VisitasService {
     required String ciudad,
     required String cargoProfesional,
     VisitaFormato? formato,
+
+    /// La que la pantalla acaba de tomar para mostrarle al profesional dónde
+    /// está (1 oct 2026: "¿Dónde estoy?" va dentro de Iniciar). Sin ella se
+    /// lee aquí. Igual se comprueba contra la referencia del maestro.
+    Position? posicion,
   }) async {
     final noHoy = motivoNoIniciaHoy(v, DateTime.now());
     if (noHoy != null) throw VisitasException(noHoy);
@@ -1335,7 +1365,7 @@ class VisitasService {
             centroId: v.centroId,
             subcentroId: v.subcentroId,
           );
-    final pos = v.esPrueba ? null : await posicionActual();
+    final pos = v.esPrueba ? null : (posicion ?? await posicionActual());
     if (!v.esPrueba) {
       final check = verificarUbicacionInicio(
         referencia: ref,

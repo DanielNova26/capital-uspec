@@ -164,6 +164,7 @@ void main() {
             rol: kVisitasRolGerencia,
             visita: visita(estado: kVisitaProgramada),
             userId: 'g',
+            ahora: DateTime(2026, 9, 20, 8),
           ),
           isTrue,
         );

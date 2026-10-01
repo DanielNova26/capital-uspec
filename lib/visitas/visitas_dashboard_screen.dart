@@ -19,6 +19,7 @@ import 'package:file_saver/file_saver.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:geolocator/geolocator.dart' show Position;
 import 'package:image_picker/image_picker.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:table_calendar/table_calendar.dart';
@@ -1195,13 +1196,18 @@ Future<bool> _pedirCambioFecha(
 }) async {
   final hoy = DateTime.now();
   final inicio = DateTime(hoy.year, hoy.month, hoy.day);
+  // 1 oct 2026: si la visita no se cumplió, es una solicitud de
+  // reasignación y el motivo queda como registro del incumplimiento.
+  final reasignacion = visitaIncumplida(visita, hoy);
   DateTime? fecha;
   final motivo = TextEditingController();
   final ok = await showDialog<bool>(
     context: context,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setLocal) => AlertDialog(
-        title: const Text('Pedir cambio de fecha'),
+        title: Text(
+          reasignacion ? 'Solicitar reasignación' : 'Pedir cambio de fecha',
+        ),
         content: SizedBox(
           width: 420,
           child: Column(
@@ -1209,8 +1215,13 @@ Future<bool> _pedirCambioFecha(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'Tu jefe inmediato decide. Mientras no responda, la visita '
-                'sigue para el ${_dd(visita.fechaProgramada)}.',
+                reasignacion
+                    ? 'La visita del ${_dd(visita.fechaProgramada)} no se '
+                          'cumplió. Escribe por qué y la fecha que propones: '
+                          'queda registrado en la visita y tu jefe inmediato '
+                          'decide.'
+                    : 'Tu jefe inmediato decide. Mientras no responda, la '
+                          'visita sigue para el ${_dd(visita.fechaProgramada)}.',
                 style: const TextStyle(fontSize: 12, color: Colors.black54),
               ),
               const SizedBox(height: 10),
@@ -1238,9 +1249,11 @@ Future<bool> _pedirCambioFecha(
                 maxLines: 2,
                 textCapitalization: TextCapitalization.sentences,
                 onChanged: (_) => setLocal(() {}),
-                decoration: const InputDecoration(
-                  labelText: 'Motivo',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: reasignacion
+                      ? '¿Por qué no se cumplió?'
+                      : 'Motivo',
+                  border: const OutlineInputBorder(),
                 ),
               ),
             ],
@@ -1274,7 +1287,12 @@ Future<bool> _pedirCambioFecha(
       actorNombre: actorNombre,
     );
     if (context.mounted) {
-      _snack(context, 'Solicitud enviada a tu jefe inmediato.');
+      _snack(
+        context,
+        reasignacion
+            ? 'Solicitud de reasignación enviada a tu jefe inmediato.'
+            : 'Solicitud enviada a tu jefe inmediato.',
+      );
     }
     return true;
   } on VisitasException catch (e) {
@@ -1293,16 +1311,23 @@ Widget? _estadoSolicitud(VisitaProfesional v) {
   final (color, texto) = switch (s.estado) {
     kSolicitudPendiente => (
       const Color(0xFFB45309),
-      '${s.porNombre.isEmpty ? 'El profesional' : s.porNombre} pidió pasarla '
-          'al ${_dd(s.fecha)}: esperando respuesta del jefe inmediato.',
+      s.reasignacion
+          ? '${s.porNombre.isEmpty ? 'El profesional' : s.porNombre} no '
+                'cumplió la visita y pidió reasignarla para el '
+                '${_dd(s.fecha)}: esperando respuesta del jefe inmediato.'
+          : '${s.porNombre.isEmpty ? 'El profesional' : s.porNombre} pidió '
+                'pasarla al ${_dd(s.fecha)}: esperando respuesta del jefe '
+                'inmediato.',
     ),
     kSolicitudAprobada => (
       const Color(0xFF15803D),
-      'Cambio de fecha aprobado${s.respondidaPorNombre.isEmpty ? '' : ' por ${s.respondidaPorNombre}'}.',
+      '${s.reasignacion ? 'Reasignación' : 'Cambio de fecha'} aprobado'
+          '${s.respondidaPorNombre.isEmpty ? '' : ' por ${s.respondidaPorNombre}'}.',
     ),
     _ => (
       const Color(0xFFB91C1C),
-      'Cambio de fecha rechazado${s.respondidaPorNombre.isEmpty ? '' : ' por ${s.respondidaPorNombre}'}'
+      '${s.reasignacion ? 'Reasignación' : 'Cambio de fecha'} rechazado'
+          '${s.respondidaPorNombre.isEmpty ? '' : ' por ${s.respondidaPorNombre}'}'
           '${s.respuesta.isEmpty ? '' : ': ${s.respuesta}'}',
     ),
   };
@@ -1766,13 +1791,12 @@ class _RegistroVisitaTab extends StatefulWidget {
   State<_RegistroVisitaTab> createState() => _RegistroVisitaTabState();
 }
 
+// 1 oct 2026: el "¿Dónde estoy?" ya no es un botón aparte que le mostraba
+// al profesional el maestro de ubicaciones (el establecimiento más cercano,
+// su radio): va dentro de Iniciar, que dice dónde quedó respecto de SU
+// establecimiento y con esa misma lectura inicia.
 class _RegistroVisitaTabState extends State<_RegistroVisitaTab> {
   late final Stream<List<VisitaProfesional>> _stream;
-
-  // "¿Dónde estoy?": comprobación opcional con el GPS.
-  bool _buscando = false;
-  RegistroVisitaResultado? _resultado;
-  String? _error;
 
   @override
   void initState() {
@@ -1781,42 +1805,6 @@ class _RegistroVisitaTabState extends State<_RegistroVisitaTab> {
       widget.empresaId,
       profesionalId: widget.userId,
     );
-  }
-
-  Future<void> _dondeEstoy(List<VisitaProfesional> visitas) async {
-    setState(() {
-      _buscando = true;
-      _error = null;
-    });
-    try {
-      final pos = await widget.svc.posicionActual();
-      if (pos == null) {
-        setState(() {
-          _error =
-              'No se pudo obtener la ubicación del dispositivo. Activa el GPS '
-              'y dale permiso a la aplicación.';
-        });
-        return;
-      }
-      final ubicaciones = await widget.svc.ubicacionesDeEmpresa(
-        widget.empresaId,
-      );
-      if (!mounted) return;
-      setState(() {
-        _resultado = resolverRegistroVisita(
-          lat: pos.latitude,
-          lng: pos.longitude,
-          precisionMetros: pos.accuracy,
-          ubicaciones: ubicaciones,
-          visitasDelProfesional: visitas,
-          ahora: DateTime.now(),
-        );
-      });
-    } catch (e) {
-      if (mounted) setState(() => _error = 'No se pudo consultar: $e');
-    } finally {
-      if (mounted) setState(() => _buscando = false);
-    }
   }
 
   void _abrir(VisitaProfesional v) => Navigator.push(
@@ -1832,10 +1820,6 @@ class _RegistroVisitaTabState extends State<_RegistroVisitaTab> {
     ),
   );
 
-  String _nombre(VisitaUbicacion u) => u.subcentroNombre.isEmpty
-      ? u.centroNombre
-      : '${u.centroNombre} — ${u.subcentroNombre}';
-
   Widget _seccion(String titulo, {Color? color}) => Padding(
     padding: const EdgeInsets.fromLTRB(4, 14, 4, 6),
     child: Text(
@@ -1850,6 +1834,7 @@ class _RegistroVisitaTabState extends State<_RegistroVisitaTab> {
 
   Widget _visita(VisitaProfesional v, {required String accion}) {
     final pedida = v.solicitudFecha?.pendiente == true;
+    final reasignacion = pedida && v.solicitudFecha!.reasignacion;
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
@@ -1873,7 +1858,10 @@ class _RegistroVisitaTabState extends State<_RegistroVisitaTab> {
             v.tieneFormato ? v.formatoNombre : 'eliges el formato al iniciar',
             _dd(v.fechaProgramada),
             if (v.esPrueba) 'PRUEBA',
-            if (pedida) 'pediste cambio de fecha',
+            if (pedida)
+              reasignacion
+                  ? 'pediste la reasignación'
+                  : 'pediste cambio de fecha',
           ].join(' · '),
           style: const TextStyle(fontFamily: _kFont, fontSize: 12),
         ),
@@ -1888,7 +1876,7 @@ class _RegistroVisitaTabState extends State<_RegistroVisitaTab> {
                         actorId: widget.userId,
                         actorNombre: widget.nombreUsuario,
                       ),
-                      child: const Text('Pedir otra fecha'),
+                      child: const Text('Solicitar reasignación'),
                     ))
             : FilledButton(
                 onPressed: () => _abrir(v),
@@ -1910,7 +1898,6 @@ class _RegistroVisitaTabState extends State<_RegistroVisitaTab> {
         }
         final visitas = snap.data!;
         final r = visitasParaRegistro(visitas, DateTime.now());
-        final ubic = _resultado;
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
           children: [
@@ -1969,14 +1956,15 @@ class _RegistroVisitaTabState extends State<_RegistroVisitaTab> {
               for (final v in r.hoy) _visita(v, accion: 'Iniciar'),
             if (r.vencidas.isNotEmpty) ...[
               _seccion(
-                'Pasaron sin hacerse (${r.vencidas.length})',
+                'No se cumplieron (${r.vencidas.length})',
                 color: const Color(0xFFB91C1C),
               ),
               const Padding(
                 padding: EdgeInsets.fromLTRB(4, 0, 4, 6),
                 child: Text(
-                  'Ya no se pueden hacer: pídele a tu jefe inmediato otra '
-                  'fecha.',
+                  'No se hicieron en su fecha. Solicita la reasignación a tu '
+                  'jefe inmediato con el motivo: queda registrada en la '
+                  'visita.',
                   style: TextStyle(fontSize: 12, color: Colors.black54),
                 ),
               ),
@@ -1986,45 +1974,6 @@ class _RegistroVisitaTabState extends State<_RegistroVisitaTab> {
                 itemBuilder: (context, v, _) => _visita(v, accion: ''),
               ),
             ],
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: _buscando ? null : () => _dondeEstoy(visitas),
-              icon: _buscando
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.my_location_rounded),
-              label: Text(_buscando ? 'Ubicándote…' : '¿Dónde estoy?'),
-            ),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  _error!,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFFB91C1C),
-                  ),
-                ),
-              ),
-            if (ubic != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  ubic.enUnEstablecimiento
-                      ? 'Estás en ${_nombre(ubic.ubicacionActual!)}.'
-                            '${ubic.listas.isEmpty ? ' No tienes una visita para hoy aquí.' : ''}'
-                      : ubic.masCercana == null
-                      ? 'La empresa no tiene ubicaciones cargadas en el maestro.'
-                      : 'No estás en ningún establecimiento registrado. El más '
-                            'cercano es ${_nombre(ubic.masCercana!)}, a '
-                            '${ubic.distanciaMasCercana!.round()} m (radio '
-                            '${ubic.masCercana!.radioMetros.round()} m).',
-                  style: const TextStyle(fontFamily: _kFont, fontSize: 12),
-                ),
-              ),
           ],
         );
       },
@@ -2078,6 +2027,10 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
   // Referencia del maestro de ubicaciones; null = no cargada.
   VisitaUbicacion? _referencia;
   bool _referenciaBuscada = false;
+
+  /// Dónde quedó el profesional respecto del establecimiento la última vez
+  /// que tocó Iniciar (1 oct 2026: el "¿Dónde estoy?" va dentro de Iniciar).
+  VerificacionUbicacion? _dondeEstoy;
 
   /// La ciudad sale del maestro de ubicaciones y no se escribe (26 sep 2026:
   /// "fijar todo, que no se permita editar": un dedo mal puesto queda en el
@@ -2397,12 +2350,32 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
     }
     setState(() => _ocupado = true);
     try {
+      // "¿Dónde estoy?" dentro de Iniciar: se toma la ubicación, se muestra
+      // dónde quedó respecto de este establecimiento y, si está dentro, se
+      // inicia con esa misma lectura (el servicio la vuelve a comprobar).
+      Position? posicion;
+      if (!v.esPrueba) {
+        posicion = await widget.svc.posicionActual();
+        final check = verificarUbicacionInicio(
+          referencia: _referencia,
+          lat: posicion?.latitude,
+          lng: posicion?.longitude,
+          precisionMetros: posicion?.accuracy,
+        );
+        if (!mounted) return;
+        setState(() => _dondeEstoy = check);
+        if (!check.permitido) {
+          await _avisoBloqueo(check.motivo);
+          return;
+        }
+      }
       await widget.svc.iniciar(
         v,
         responsable: _responsable,
         ciudad: _ciudad.text.trim(),
         cargoProfesional: _cargoProf.text.trim(),
         formato: elegido,
+        posicion: posicion,
       );
       // El formato elegido es el de la visita desde ya; el stream trae la
       // copia guardada enseguida.
@@ -2455,14 +2428,19 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
     }
   }
 
-  /// Botón de pedir otra fecha, o el estado de la que ya se pidió.
+  /// Botón de pedir otra fecha (o la reasignación, si ya no se cumplió),
+  /// o el estado de la que ya se pidió.
   List<Widget> _cambioDeFecha(VisitaProfesional v) => [
     ?_estadoSolicitud(v),
     if (v.solicitudFecha?.pendiente != true)
       TextButton.icon(
         onPressed: _ocupado ? null : () => _pedirOtraFecha(v),
         icon: const Icon(Icons.edit_calendar_outlined, size: 18),
-        label: const Text('No puedo en esta fecha: pedir otra a mi jefe'),
+        label: Text(
+          visitaIncumplida(v, DateTime.now())
+              ? 'No se cumplió: solicitar la reasignación a mi jefe'
+              : 'No puedo en esta fecha: pedir otra a mi jefe',
+        ),
       ),
   ];
 
@@ -2910,13 +2888,13 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
               Expanded(
                 child: Text(
                   !_referenciaBuscada
-                      ? 'Buscando la ubicación del establecimiento…'
+                      ? 'Buscando el establecimiento…'
                       : ok
-                      ? 'Ubicación de referencia cargada · radio ${ref.radioMetros.round()} m. '
-                            'Debes estar dentro para iniciar.'
-                      : 'Este establecimiento no tiene ubicación en el maestro. '
-                            'No se puede iniciar hasta que Desarrollo o '
-                            'Gerencia la carguen en Visitas > Ubicaciones.',
+                      ? 'Al tocar Iniciar, la app comprueba con el GPS que '
+                            'estés en el establecimiento.'
+                      : 'Este establecimiento aún no tiene su ubicación '
+                            'registrada, así que la visita no se puede '
+                            'iniciar. Avísale a tu jefe inmediato.',
                   style: TextStyle(
                     fontFamily: _kFont,
                     fontSize: 12,
@@ -2926,6 +2904,7 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
               ),
             ],
           ),
+          if (ok && _dondeEstoy != null) _resultadoDondeEstoy(_dondeEstoy!),
           if (ok) ...[
             if (donde.isNotEmpty)
               Padding(
@@ -2952,6 +2931,41 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  /// Lo que encontró Iniciar: dentro, o a cuántos metros quedó.
+  Widget _resultadoDondeEstoy(VerificacionUbicacion d) {
+    final color = d.permitido
+        ? const Color(0xFF166534)
+        : const Color(0xFF991B1B);
+    return Padding(
+      padding: const EdgeInsets.only(left: 32, top: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            d.permitido ? Icons.my_location_rounded : Icons.wrong_location,
+            size: 16,
+            color: color,
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              d.permitido
+                  ? 'Estás en el establecimiento'
+                        '${d.distancia == null ? '' : ' (a ${d.distancia!.round()} m)'}.'
+                  : d.motivo,
+              style: TextStyle(
+                fontFamily: _kFont,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: color,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -3131,7 +3145,7 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
                   ? null
                   : () => _iniciar(v),
               icon: const Icon(Icons.play_arrow_rounded),
-              label: Text(_ocupado ? 'Ubicando…' : 'Iniciar visita'),
+              label: Text(_ocupado ? 'Ubicándote…' : 'Iniciar visita'),
             ),
             const SizedBox(height: 8),
             ..._cambioDeFecha(v),
@@ -4163,6 +4177,20 @@ class _ItemCardState extends State<_ItemCard> {
     widget.onCambio(_actual.copyWith(valor: _dd(d)));
   }
 
+  /// Plan de acción por micrófono (1 oct 2026), igual que la observación.
+  Future<void> _dictarAccion() async {
+    final texto = await showDialog<String>(
+      context: context,
+      builder: (_) => _DictadoDialog(
+        inicial: _accion.text,
+        titulo: 'Dictar plan de acción',
+      ),
+    );
+    if (texto == null) return;
+    _accion.text = texto.trim();
+    widget.onCambio(_actual.copyWith(accion: texto.trim()));
+  }
+
   Future<void> _dictarValor() async {
     final texto = await showDialog<String>(
       context: context,
@@ -4307,10 +4335,18 @@ class _ItemCardState extends State<_ItemCard> {
         TextField(
           controller: _accion,
           focusNode: _focusAccion,
-          decoration: const InputDecoration(
+          textCapitalization: TextCapitalization.sentences,
+          minLines: 1,
+          maxLines: 4,
+          decoration: InputDecoration(
             isDense: true,
-            hintText: 'Qué se debe hacer',
-            border: OutlineInputBorder(),
+            hintText: 'Qué se debe hacer (escribe o dicta)',
+            border: const OutlineInputBorder(),
+            suffixIcon: IconButton(
+              tooltip: 'Dictar el plan de acción',
+              icon: const Icon(Icons.mic_none),
+              onPressed: _dictarAccion,
+            ),
           ),
         ),
         const SizedBox(height: 6),
@@ -5079,8 +5115,18 @@ class _DictadoDialog extends StatefulWidget {
   State<_DictadoDialog> createState() => _DictadoDialogState();
 }
 
-class _DictadoDialogState extends State<_DictadoDialog> {
+class _DictadoDialogState extends State<_DictadoDialog>
+    with SingleTickerProviderStateMixin {
   final _speech = stt.SpeechToText();
+
+  /// Latido del micrófono mientras escucha (1 oct 2026: "que salga algo de
+  /// hable ahora"): sin él no se sabía si ya se podía hablar.
+  late final AnimationController _latido = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 800),
+    lowerBound: .85,
+    upperBound: 1.15,
+  );
   late String _texto = widget.inicial;
 
   /// Lo que había antes de esta tanda de dictado.
@@ -5098,7 +5144,7 @@ class _DictadoDialogState extends State<_DictadoDialog> {
   Future<void> _init() async {
     final ok = await _speech.initialize(
       onStatus: (s) {
-        if (mounted) setState(() => _escuchando = s == 'listening');
+        if (mounted) _alEscuchar(s == 'listening');
       },
       onError: (e) {
         if (mounted) setState(() => _error = e.errorMsg);
@@ -5109,12 +5155,22 @@ class _DictadoDialogState extends State<_DictadoDialog> {
     if (ok) _escuchar();
   }
 
+  /// Cambia el estado del micrófono y su latido fuera de `build`.
+  void _alEscuchar(bool escuchando) {
+    setState(() => _escuchando = escuchando);
+    if (escuchando) {
+      _latido.repeat(reverse: true);
+    } else {
+      _latido.stop();
+    }
+  }
+
   Future<void> _escuchar() async {
     setState(() {
-      _escuchando = true;
       _error = null;
       _base = _texto.trim();
     });
+    _alEscuchar(true);
     await _speech.listen(
       localeId: 'es_CO',
       listenOptions: stt.SpeechListenOptions(
@@ -5140,7 +5196,52 @@ class _DictadoDialogState extends State<_DictadoDialog> {
   @override
   void dispose() {
     _speech.cancel();
+    _latido.dispose();
     super.dispose();
+  }
+
+  /// "Hable ahora" mientras el micrófono escucha; si se detuvo, cómo seguir.
+  Widget _avisoMicrofono() {
+    final color = _escuchando ? const Color(0xFFDC2626) : Colors.black54;
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: _escuchando
+              ? const Color(0xFFFEE2E2)
+              : const Color(0xFFF1F5F9),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            ScaleTransition(
+              scale: _latido,
+              child: Icon(
+                _escuchando ? Icons.mic : Icons.mic_off,
+                color: color,
+                size: 28,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                _escuchando
+                    ? 'Hable ahora…'
+                    : 'Micrófono en pausa. Toque «Dictar más» para seguir.',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: _escuchando ? 16 : 12,
+                  fontWeight: _escuchando ? FontWeight.w900 : FontWeight.w600,
+                  color: color,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -5166,6 +5267,7 @@ class _DictadoDialogState extends State<_DictadoDialog> {
               'Preparando el micrófono…',
               style: TextStyle(fontFamily: _kFont, fontSize: 12),
             ),
+          if (_disponible && _error == null) _avisoMicrofono(),
           if (_error != null)
             Text(
               'No se pudo dictar: $_error',
@@ -5445,6 +5547,26 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
                 ],
               ),
               const SizedBox(height: 12),
+              if (visitasPuedeProgramar(widget.rol) &&
+                  visitaIncumplida(v, DateTime.now()) &&
+                  v.solicitudFecha?.pendiente != true)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEE2E2),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFFCA5A5)),
+                  ),
+                  child: Text(
+                    mensajeReasignacionRequerida(v),
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 12,
+                      color: Color(0xFF991B1B),
+                    ),
+                  ),
+                ),
               ?_estadoSolicitud(v),
               if (v.solicitudFecha?.pendiente == true &&
                   visitasPuedeResponderSolicitud(widget.rol) &&
@@ -5530,6 +5652,7 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
                   v.reprogramaciones
                       .map(
                         (r) =>
+                            '${r.incumplida ? 'No cumplida · ' : ''}'
                             '${_dd(r.de)} → ${_dd(r.a)} · ${r.porNombre}: ${r.motivo}',
                       )
                       .join('\n'),

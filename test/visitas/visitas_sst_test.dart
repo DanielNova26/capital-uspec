@@ -297,7 +297,12 @@ void main() {
         profesionalId: '999',
       );
       expect(
-        visitasPuedeReprogramar(rol: kVisitasRolJefe, visita: ajena, userId: '222'),
+        visitasPuedeReprogramar(
+          rol: kVisitasRolJefe,
+          visita: ajena,
+          userId: '222',
+          ahora: DateTime(2026, 9, 17, 8),
+        ),
         isTrue,
       );
       expect(

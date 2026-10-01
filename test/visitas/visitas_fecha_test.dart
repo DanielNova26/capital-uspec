@@ -100,7 +100,7 @@ void main() {
       );
       expect(
         motivoNoIniciaHoy(v, DateTime(2026, 10, 7, 8)),
-        contains('cambio de fecha'),
+        contains('reasignación'),
       );
     });
 
@@ -150,6 +150,108 @@ void main() {
       expect(r.hoy.map((v) => v.id), ['hoy']);
       expect(r.enCurso.map((v) => v.id), ['curso']);
       expect(r.vencidas.map((v) => v.id), ['ayer']);
+    });
+  });
+
+  // 1 oct 2026: "si alguien no cumple la visita, primero tenga que
+  // solicitar reasignación y quede registro".
+  group('reasignación de una visita incumplida', () {
+    final dia = DateTime(2026, 10, 6);
+    final despues = DateTime(2026, 10, 7, 8);
+    final pendiente = VisitaSolicitudFecha(
+      fecha: DateTime(2026, 10, 9),
+      motivo: 'Incapacidad',
+      porId: 'yesika',
+      porNombre: 'Yesika',
+      reasignacion: true,
+    );
+
+    test('incumplida: pasó su día programada o en curso; pruebas no', () {
+      expect(
+        visitaIncumplida(visita(fecha: dia), DateTime(2026, 10, 6, 23)),
+        isFalse,
+      );
+      expect(visitaIncumplida(visita(fecha: dia), despues), isTrue);
+      expect(
+        visitaIncumplida(visita(fecha: dia, estado: kVisitaEnCurso), despues),
+        isTrue,
+      );
+      expect(
+        visitaIncumplida(visita(fecha: dia, estado: kVisitaTerminada), despues),
+        isFalse,
+      );
+      expect(
+        visitaIncumplida(visita(fecha: dia, esPrueba: true), despues),
+        isFalse,
+      );
+    });
+
+    test('el jefe no la mueve sin la solicitud del profesional', () {
+      expect(
+        visitasPuedeReprogramar(
+          rol: kVisitasRolJefe,
+          visita: visita(fecha: dia),
+          userId: 'zuly',
+          ahora: DateTime(2026, 10, 5),
+        ),
+        isTrue,
+        reason: 'antes de su día se mueve sin pedirla',
+      );
+      expect(
+        visitasPuedeReprogramar(
+          rol: kVisitasRolJefe,
+          visita: visita(fecha: dia),
+          userId: 'zuly',
+          ahora: despues,
+        ),
+        isFalse,
+      );
+      expect(
+        visitasPuedeReprogramar(
+          rol: kVisitasRolJefe,
+          visita: visita(fecha: dia, solicitud: pendiente),
+          userId: 'zuly',
+          ahora: despues,
+        ),
+        isTrue,
+      );
+      expect(
+        mensajeReasignacionRequerida(visita(fecha: dia)),
+        allOf(contains('06/10/2026'), contains('Yesika'), contains('registro')),
+      );
+    });
+
+    test('la solicitud y el historial guardan el incumplimiento', () {
+      expect(pendiente.toMap()['tipo'], 'reasignacion');
+      final leida = VisitaSolicitudFecha.fromMap(pendiente.toMap());
+      expect(leida.reasignacion, isTrue);
+      expect(
+        leida
+            .respondida(aprobada: true, porId: 'zuly', porNombre: 'Zuly')
+            .reasignacion,
+        isTrue,
+      );
+      final sinTipo = Map<String, dynamic>.from(pendiente.toMap())
+        ..remove('tipo');
+      expect(VisitaSolicitudFecha.fromMap(sinTipo).reasignacion, isFalse);
+
+      final cambio = VisitaReprogramacion(
+        de: dia,
+        a: DateTime(2026, 10, 9),
+        motivo: 'Reasignación solicitada: Incapacidad',
+        porId: 'zuly',
+        porNombre: 'Zuly',
+        incumplida: true,
+      );
+      expect(VisitaReprogramacion.fromMap(cambio.toMap()).incumplida, isTrue);
+      final comun = VisitaReprogramacion(
+        de: dia,
+        a: DateTime(2026, 10, 9),
+        motivo: 'Paro',
+        porId: 'zuly',
+        porNombre: 'Zuly',
+      );
+      expect(comun.toMap().containsKey('incumplida'), isFalse);
     });
   });
 

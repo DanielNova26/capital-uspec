@@ -1275,21 +1275,32 @@ service cloud.firestore {
     // Reprogramar solo mueve la fecha y añade al historial; el estado sigue
     // en 'programada'. Si el profesional había pedido el cambio, queda
     // resuelto en la misma escritura.
+    // 1 oct 2026: una visita que no se cumplió (ya pasó su día) solo se
+    // mueve si el profesional pidió la reasignación: así queda el registro
+    // del incumplimiento. Mismo criterio que `visitaIncumplida` en la app.
     function esReprogramacionDeVisita() {
       return request.resource.data.estado == 'programada'
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['fechaProgramada', 'reprogramaciones',
-            'solicitudCambioFecha', 'updatedAt']);
+            'solicitudCambioFecha', 'updatedAt'])
+        && (resource.data.get('esPrueba', false) == true
+          || request.time < resource.data.fechaProgramada + duration.value(1, 'd')
+          || resource.data.get('solicitudCambioFecha', {}).get('estado', '') == 'pendiente');
     }
 
     // Maestro de ubicaciones de los establecimientos: lo lee cualquiera
     // que participe en Visitas (el profesional lo necesita para iniciar),
     // lo escriben Desarrollo y Gerencia (26 sep 2026). Ni los profesionales
     // ni los jefes de área: es lo que decide si una visita se puede iniciar.
+    // 1 oct 2026: el maestro completo solo lo listan quienes programan o lo
+    // administran (Desarrollo, Gerencia y jefes). El profesional ya no tiene
+    // el "¿Dónde estoy?" que lo listaba entero: lee por id la referencia de
+    // SU establecimiento al iniciar y al cerrar.
     match /TBL_VISITAS_UBICACIONES/{docId} {
       allow get: if resource == null
         || participaEnVisitas(resource.data.empresaId);
-      allow list: if participaEnVisitas(resource.data.empresaId);
+      allow list: if belongsToCompany(resource.data.empresaId)
+        && administraVisitasEn(resource.data.empresaId);
       allow create: if belongsToCompany(request.resource.data.empresaId)
         && (isDeveloper() || isDeveloperIn(request.resource.data.empresaId)
           || esGerenciaVisitas(request.resource.data.empresaId));
