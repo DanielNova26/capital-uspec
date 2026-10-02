@@ -197,6 +197,20 @@
       ]
     },
     {
+      "collectionGroup": "TBL_WHATSAPP_AUDITORIA",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "empresaId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "TBL_RUTAS_MOV_MEDICIONES",
       "queryScope": "COLLECTION",
       "fields": [

@@ -340,6 +340,24 @@ service cloud.firestore {
           || (propias is list && propias.hasAny(admin)));
     }
 
+    // Mismo contrato de empresa activa para la app de Correo. El rol interno
+    // determina las acciones del módulo; la consulta de avisos exige acceso
+    // efectivo a la app incluso si existe una asignación histórica de rol.
+    function tieneAppCorreoEn(empresaId) {
+      let u = currentUser();
+      let detalle = u.get('empresasDetalle', {});
+      let bloque = detalle is map ? detalle.get(empresaId, {}) : {};
+      let propias = bloque is map ? bloque.get('apps', null) : null;
+      let raiz = u.get('apps', []);
+      let correo = ['correodashboard', 'correo'];
+      return u.get('appsPorEmpresa', false) == true
+        ? (propias is list
+          ? propias.hasAny(correo)
+          : (raizEsDeEmpresa(u, empresaId) && raiz is list && raiz.hasAny(correo)))
+        : ((raiz is list && raiz.hasAny(correo))
+          || (propias is list && propias.hasAny(correo)));
+    }
+
     function tieneAppTokensDianEn(empresaId) {
       let u = currentUser();
       let detalle = u.get('empresasDetalle', {});
@@ -567,6 +585,29 @@ service cloud.firestore {
         && request.resource.data.get('empresaId', '') is string
         && request.resource.data.empresaId.size() > 0;
       allow update, delete: if false;
+    }
+
+    // La auditoría de envíos contiene identificadores de Meta y errores de
+    // entrega. Solo Admin de esa empresa o Desarrollo la consulta; el servidor
+    // registra y concilia los eventos. Los estados crudos son solo del servidor.
+    match /TBL_WHATSAPP_AUDITORIA/{auditId} {
+      allow read: if isDeveloperFor(resource.data.get('empresaId', ''))
+        || (belongsToCompany(resource.data.get('empresaId', ''))
+          && tieneAppAdminEn(resource.data.empresaId));
+      allow write: if false;
+    }
+    match /TBL_WHATSAPP_META_ESTADOS/{statusId} {
+      allow read, write: if false;
+    }
+
+    // Contiene teléfonos, contenido del aviso y errores del proveedor. Correo
+    // y Admin solo lo consultan en su empresa; Functions crea y actualiza.
+    match /TBL_CORREO_ALERTAS/{alertId} {
+      allow read: if isDeveloperFor(resource.data.get('empresaId', ''))
+        || (belongsToCompany(resource.data.get('empresaId', ''))
+          && (tieneAppAdminEn(resource.data.empresaId)
+            || tieneAppCorreoEn(resource.data.empresaId)));
+      allow write: if false;
     }
 
     // ── Nutrición (28 sep 2026) ───────────────────────────────────────────
@@ -1890,6 +1931,8 @@ service cloud.firestore {
         && !(collection in [
           'TBL_COMPRAS_ROLES','TBL_COMPRAS_CONFIG',
           'TBL_WHATSAPP_CONFIG',
+          'TBL_WHATSAPP_AUDITORIA','TBL_WHATSAPP_META_ESTADOS',
+          'TBL_CORREO_ALERTAS',
           'TBL_CORREO_LISTADOS',
           'TBL_CORREO_REGLAS',
           'TBL_GD_EXPEDIENTES',

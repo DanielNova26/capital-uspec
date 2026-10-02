@@ -9187,3 +9187,34 @@ sabe poner filtros, así que se escriben en el XML del libro). Lógica en
   el error `failed-precondition` en vez de la lista. Ahora se ordena en el
   cliente (más reciente primero; los que no tienen `updatedAt` van al final,
   antes el servidor los ocultaba). No requiere desplegar índices.
+
+## 2026-10-02 — WhatsApp Meta: entrega y avisos automáticos (Codex)
+
+- La WABA activa de la captura está disponible y tiene método de pago. La
+  WABA antigua bloqueada no corresponde al número emisor de producción; se
+  corrigió `WHATSAPP_WABA_ID` en el `.env` local ignorado por Git. El HTTP 200
+  con `wamid` solo acredita aceptación inicial, no entrega.
+- La prueba controlada de Admin y Correo envía `hello_world/en_US`, aprobada
+  en la WABA activa, para probar fuera de la ventana de conversación de 24 h.
+  Los avisos con `templateKey` reconocido usan siempre una plantilla Meta;
+  si Meta no la encuentra, queda un error explícito en la auditoría. Las cinco
+  plantillas operativas están aprobadas en la WABA activa; Planillas y
+  Facturación usan allí el idioma `en`.
+- Se añadió webhook de estados firmado con HMAC, conciliación por `wamid`,
+  trazabilidad de entregado/leído/fallido por empresa y reglas que reservan
+  la auditoría a Admin de su empresa y al servidor. Se añadió el índice para
+  ordenar la trazabilidad. La UI distingue aceptación de entrega.
+- Validación local: compilación TypeScript, pruebas enfocadas de plantillas y
+  webhook, `flutter test test/whatsapp` y análisis estático del panel Admin.
+  Las pruebas de reglas quedaron escritas, pero el emulador Firestore no
+  arrancó en este equipo por un error de conexión local de Java.
+- **Pendiente para producción:** desplegar Functions, reglas, índice y Web;
+  sincronizar plantillas de cada empresa en Admin con la WABA activa;
+  configurar `WHATSAPP_META_APP_SECRET` y el token de verificación en Functions;
+  registrar el callback `whatsappMetaWebhook` y el campo `messages` en Meta
+  Developers; suscribir la WABA activa; hacer una nueva prueba y comprobar el
+  estado final. No se pueden recuperar estados anteriores sin webhook.
+  La prueba visual en Web a 390/768/1024/1366 y con texto ampliado, y las
+  pruebas Android/iOS, no se hicieron en este equipo. La citación disciplinaria
+  carece de plantilla y su módulo no está habilitado en el servicio central;
+  requiere una configuración y aprobación de plantilla aparte.

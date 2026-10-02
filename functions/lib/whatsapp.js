@@ -23,7 +23,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.whatsappAdminProbar = exports.whatsappAdminAsignarListado = exports.whatsappAdminNormalizarNumeros = exports.whatsappAdminGuardarListado = exports.whatsappAdminDirectorio = exports.whatsappAdminEnviarPlantillaRevision = exports.whatsappAdminSincronizarPlantillas = exports.whatsappAdminGuardar = exports.whatsappAdminEstado = exports.whatsappOpenWaMonitor = void 0;
+exports.whatsappAdminProbar = exports.whatsappAdminAsignarListado = exports.whatsappAdminNormalizarNumeros = exports.whatsappAdminGuardarListado = exports.whatsappAdminDirectorio = exports.whatsappAdminEnviarPlantillaRevision = exports.whatsappAdminSincronizarPlantillas = exports.whatsappAdminGuardar = exports.whatsappAdminEstado = exports.whatsappOpenWaMonitor = exports.WhatsAppCloudProvider = void 0;
 exports.normalizePhone = normalizePhone;
 exports.createWhatsAppProvider = createWhatsAppProvider;
 exports.nextOpenWaMonitorState = nextOpenWaMonitorState;
@@ -31,6 +31,7 @@ exports.getWhatsAppPublicState = getWhatsAppPublicState;
 exports.getWhatsAppRouteListId = getWhatsAppRouteListId;
 exports.sendWhatsAppRoute = sendWhatsAppRoute;
 exports.sendWhatsAppDirect = sendWhatsAppDirect;
+exports.adminControlledTestMetadata = adminControlledTestMetadata;
 exports.normalizeStoredRecipients = normalizeStoredRecipients;
 /**
  * Servicio central de WhatsApp.
@@ -49,6 +50,10 @@ const CONFIG_COLLECTION = "TBL_WHATSAPP_CONFIG";
 const LIST_COLLECTION = "TBL_CORREO_LISTADOS";
 const NOTIFICATION_COLLECTION = "TBL_NOTIFICACIONES";
 const PURCHASE_NEW_SUPPLIER_ROUTE = "compras_nuevo_proveedor";
+const ADMIN_CLOUD_TEST_TEMPLATE = {
+    name: "hello_world",
+    language: "en_US",
+};
 const SUPPORTED_LIST_MODULES = new Set([
     "correo",
     "compras",
@@ -146,7 +151,7 @@ const MESSAGE_TEMPLATE_DEFINITIONS = {
             accion: { label: "Siguiente responsable", sample: "Revisión de Auditoría" },
         },
         metaName: "planilla_pago_actualizacion",
-        metaLanguage: "es",
+        metaLanguage: "en",
         metaCategory: "UTILITY",
     },
     interventoria_actividad: {
@@ -196,7 +201,7 @@ const MESSAGE_TEMPLATE_DEFINITIONS = {
             fechaLimite: { label: "Fecha límite", sample: "23/09/2026" },
         },
         metaName: "facturacion_documento_rechazado",
-        metaLanguage: "es",
+        metaLanguage: "en",
         metaCategory: "UTILITY",
     },
 };
@@ -695,15 +700,23 @@ class WhatsAppCloudProvider {
         }
         const templateKey = normalize(input.metadata?.templateKey);
         const templateState = this.config.metaTemplates[templateKey];
+        const definition = MESSAGE_TEMPLATE_DEFINITIONS[templateKey];
+        const approvedTemplate = templateState?.status === "APPROVED"
+            ? templateState
+            : undefined;
         const explicitTemplate = text(input.metadata?.metaTemplateName);
-        const configuredTemplate = explicitTemplate || text(templateState?.name);
+        const configuredTemplate = explicitTemplate ||
+            text(approvedTemplate?.name) || text(definition?.metaName);
         const language = text(input.metadata?.metaTemplateLanguage) ||
-            text(templateState?.language) || "es";
-        const useTemplate = Boolean(explicitTemplate) ||
-            (Boolean(configuredTemplate) && templateState?.status === "APPROVED");
+            text(approvedTemplate?.language) || text(definition?.metaLanguage) || "es";
+        // Los avisos automáticos con clave conocida deben salir como plantilla.
+        // Si la plantilla no existe en Meta, su error explícito queda auditado.
+        const useTemplate = Boolean(explicitTemplate) || Boolean(definition);
         const templateVariables = Array.isArray(input.metadata?.metaTemplateParameters)
             ? input.metadata.metaTemplateParameters.map(text)
-            : templateVariablesFromMetadata(input.metadata?.templateVariables, templateState?.variableOrder || []);
+            : templateVariablesFromMetadata(input.metadata?.templateVariables, approvedTemplate?.variableOrder?.length
+                ? approvedTemplate.variableOrder
+                : definition?.placeholders || []);
         const body = useTemplate
             ? {
                 messaging_product: "whatsapp",
@@ -746,6 +759,7 @@ class WhatsAppCloudProvider {
         };
     }
 }
+exports.WhatsAppCloudProvider = WhatsAppCloudProvider;
 function templateVariablesFromMetadata(value, order = []) {
     if (!value || typeof value !== "object" || Array.isArray(value))
         return [];
@@ -1229,6 +1243,22 @@ async function audit(input) {
 }
 function isCloudProvider(provider) {
     return ["whatsapp_cloud", "cloud", "whatsappcloud"].includes(normalize(provider));
+}
+/** La prueba Cloud usa una plantilla aprobada fuera de la ventana de 24 h.
+ * @param {string} provider Proveedor seleccionado.
+ * @param {string} userId Identificador del administrador.
+ * @return {Record<string, unknown>} Metadatos para el envío de prueba.
+ */
+function adminControlledTestMetadata(provider, userId) {
+    const metadata = {
+        type: "admin_whatsapp_test",
+        userId,
+    };
+    if (isCloudProvider(provider)) {
+        metadata.metaTemplateName = ADMIN_CLOUD_TEST_TEMPLATE.name;
+        metadata.metaTemplateLanguage = ADMIN_CLOUD_TEST_TEMPLATE.language;
+    }
+    return metadata;
 }
 function metaGraphRoot(config) {
     const configured = new URL(config.baseUrl);
@@ -1997,7 +2027,7 @@ exports.whatsappAdminProbar = functions
             prioridad: "prueba",
             mensaje: text(data?.mensaje) ||
                 "✅ Prueba del servicio central de WhatsApp desde Administración.",
-            metadata: { type: "admin_whatsapp_test", userId: caller.userId },
+            metadata: adminControlledTestMetadata(provider.name, caller.userId),
         });
         await audit({
             empresaId: caller.empresaId,
@@ -2014,6 +2044,12 @@ exports.whatsappAdminProbar = functions
             provider: provider.name,
             providerMessageId: result.providerMessageId || null,
             status: result.rawStatus,
+            testTemplate: isCloudProvider(provider.name)
+                ? ADMIN_CLOUD_TEST_TEMPLATE.name
+                : null,
+            testTemplateLanguage: isCloudProvider(provider.name)
+                ? ADMIN_CLOUD_TEST_TEMPLATE.language
+                : null,
         };
     }
     catch (error) {

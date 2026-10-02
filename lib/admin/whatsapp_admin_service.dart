@@ -264,6 +264,7 @@ class WhatsAppAdminService {
   Stream<List<Map<String, dynamic>>> streamEnvios(String empresaId) => _db
       .collection('TBL_CORREO_ALERTAS')
       .where('empresaId', isEqualTo: empresaId)
+      .orderBy('createdAt', descending: true)
       .limit(100)
       .snapshots()
       .map((snapshot) {
@@ -280,6 +281,7 @@ class WhatsAppAdminService {
   Stream<List<Map<String, dynamic>>> streamAuditoria(String empresaId) => _db
       .collection('TBL_WHATSAPP_AUDITORIA')
       .where('empresaId', isEqualTo: empresaId)
+      .orderBy('createdAt', descending: true)
       .limit(50)
       .snapshots()
       .map((snapshot) {

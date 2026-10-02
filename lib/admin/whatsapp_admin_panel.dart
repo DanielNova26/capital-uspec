@@ -136,6 +136,7 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
   bool _assigningList = false;
   bool _normalizingPhones = false;
   bool _showApiKey = false;
+  Map<String, dynamic>? _lastTestResult;
   String _purchaseNewSupplierListId = '';
   String _planillasTesoreriaAuditoriaListId = '';
   String _planillasAuditoriaGerenciaListId = '';
@@ -166,6 +167,9 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
     if (oldWidget.empresaId != widget.empresaId) {
       _directoryBaseCache = null;
       _directoryCache = null;
+      _lastTestResult = null;
+      _testPhone.clear();
+      _testMessage.clear();
       _load();
     }
   }
@@ -355,26 +359,39 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
       _message('Ingresa el número que recibirá la prueba.', error: true);
       return;
     }
+    final empresaId = widget.empresaId;
+    final provider = _provider;
+    final isCloud = _isCloud;
     setState(() => _testing = true);
     try {
-      await _service.probar(
-        empresaId: widget.empresaId,
+      final result = await _service.probar(
+        empresaId: empresaId,
         userId: widget.userId,
         telefono: _testPhone.text.trim(),
-        mensaje: _testMessage.text.trim(),
+        mensaje: isCloud ? '' : _testMessage.text.trim(),
       );
+      if (!mounted || widget.empresaId != empresaId || _provider != provider) {
+        return;
+      }
+      setState(() => _lastTestResult = result);
       _message(
-        _provider == 'whatsapp_cloud'
-            ? 'WhatsApp oficial aceptó el mensaje de prueba.'
-            : 'El proveedor aceptó el mensaje de prueba.',
+        isCloud
+            ? 'Meta aceptó la solicitud de prueba. Consulta la trazabilidad para confirmar la entrega.'
+            : 'El proveedor aceptó la prueba. Consulta la trazabilidad para confirmar la entrega.',
       );
-      await _load();
     } catch (error) {
+      if (!mounted || widget.empresaId != empresaId || _provider != provider) {
+        return;
+      }
+      setState(() => _lastTestResult = null);
       _message('La prueba falló: $error', error: true);
     } finally {
       if (mounted) setState(() => _testing = false);
     }
   }
+
+  bool get _isCloud =>
+      const {'whatsapp_cloud', 'cloud', 'whatsappcloud'}.contains(_provider);
 
   Future<void> _assignRoute({
     required String routeId,
@@ -541,7 +558,10 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
             ),
             DropdownMenuItem(value: 'http', child: Text('HTTP genérico')),
           ],
-          onChanged: (value) => setState(() => _provider = value ?? 'openwa'),
+          onChanged: (value) => setState(() {
+            _provider = value ?? 'openwa';
+            _lastTestResult = null;
+          }),
         ),
         const SizedBox(height: 14),
         TextField(
@@ -2059,11 +2079,7 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
   }
 
   Widget _statusCard() {
-    final isCloud = const {
-      'whatsapp_cloud',
-      'cloud',
-      'whatsappcloud',
-    }.contains(_provider);
+    final isCloud = _isCloud;
     final connected = _state['connected'] == true;
     final configured =
         _state['apiKeyConfigured'] == true &&
@@ -2074,26 +2090,38 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
       title: isCloud ? 'Estado de WhatsApp oficial' : 'Estado de OpenWA',
       subtitle: isCloud
           ? (configured
-                ? 'Meta Cloud API configurada y disponible.'
+                ? 'Meta Cloud API configurada. Consulta abajo la entrega de cada mensaje.'
                 : 'Configuración de Meta incompleta.')
           : connected
           ? 'Sesión conectada y disponible.'
           : configured
           ? 'Configurado, pero la sesión no está lista.'
           : 'Configuración incompleta.',
-      icon: ready ? Icons.check_circle : Icons.warning_amber_rounded,
-      iconColor: ready ? _accent : Colors.orange.shade700,
+      icon: isCloud && ready
+          ? Icons.settings_outlined
+          : ready
+          ? Icons.check_circle
+          : Icons.warning_amber_rounded,
+      iconColor: isCloud && ready
+          ? Colors.blueGrey
+          : ready
+          ? _accent
+          : Colors.orange.shade700,
       child: Wrap(
         spacing: 8,
         runSpacing: 8,
         children: [
           _pill(
             isCloud
-                ? (configured ? 'Configurado' : 'Incompleto')
+                ? (configured ? 'API configurada' : 'Incompleta')
                 : connected
                 ? 'Conectado'
                 : status,
-            ready ? _accent : Colors.orange.shade700,
+            isCloud && ready
+                ? Colors.blueGrey
+                : ready
+                ? _accent
+                : Colors.orange.shade700,
           ),
           _pill(
             'Origen: ${_state['source'] == 'firestore' ? 'Admin' : 'Variables actuales'}',
@@ -2110,12 +2138,15 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
 
   Widget _testCard() => _card(
     title: 'Prueba controlada',
-    subtitle: 'Comprueba el número y la aceptación del proveedor.',
+    subtitle: _isCloud
+        ? 'Meta usa una plantilla aprobada. La aceptación inicial no confirma la entrega.'
+        : 'Comprueba la aceptación del proveedor. La entrega se confirma por separado.',
     icon: Icons.send_to_mobile_outlined,
     child: Column(
       children: [
         TextField(
           controller: _testPhone,
+          enabled: !_testing,
           keyboardType: TextInputType.phone,
           decoration: const InputDecoration(
             labelText: 'Número de WhatsApp',
@@ -2124,15 +2155,25 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
           ),
         ),
         const SizedBox(height: 12),
-        TextField(
-          controller: _testMessage,
-          minLines: 2,
-          maxLines: 3,
-          decoration: const InputDecoration(
-            labelText: 'Mensaje opcional',
-            border: OutlineInputBorder(),
+        if (_isCloud)
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Se enviará la plantilla de prueba aprobada por Meta. El texto libre solo funciona dentro de la ventana de conversación de 24 horas.',
+              style: TextStyle(fontFamily: _font, color: _muted),
+            ),
+          )
+        else
+          TextField(
+            controller: _testMessage,
+            enabled: !_testing,
+            minLines: 2,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              labelText: 'Mensaje opcional',
+              border: OutlineInputBorder(),
+            ),
           ),
-        ),
         const SizedBox(height: 12),
         SizedBox(
           width: double.infinity,
@@ -2148,13 +2189,62 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
             label: Text(_testing ? 'Probando...' : 'Enviar prueba'),
           ),
         ),
+        if (_lastTestResult != null) ...[
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              border: Border.all(color: Colors.blue.shade100),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Respuesta inicial: solicitud aceptada',
+                  style: TextStyle(
+                    fontFamily: _font,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Revisa el estado posterior en Control y trazabilidad.',
+                  style: TextStyle(fontFamily: _font, color: _muted),
+                ),
+                if ((_lastTestResult!['testTemplate'] ?? '')
+                    .toString()
+                    .isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Plantilla: ${_lastTestResult!['testTemplate']}',
+                    style: const TextStyle(fontFamily: _font, color: _muted),
+                  ),
+                ],
+                if ((_lastTestResult!['providerMessageId'] ?? '')
+                    .toString()
+                    .isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  SelectableText(
+                    '${_isCloud ? 'ID de Meta' : 'ID del proveedor'}: ${_lastTestResult!['providerMessageId']}',
+                    style: const TextStyle(fontFamily: _font, color: _muted),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
       ],
     ),
   );
 
   Widget _auditCard() => _card(
     title: 'Control y trazabilidad',
-    subtitle: 'Últimos cambios administrativos y envíos procesados.',
+    subtitle: _isCloud
+        ? 'Aceptación, entrega y errores informados por Meta.'
+        : 'Aceptación y errores informados por el proveedor.',
     icon: Icons.manage_history,
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2162,6 +2252,12 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
         StreamBuilder<List<Map<String, dynamic>>>(
           stream: _service.streamAuditoria(widget.empresaId),
           builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Text(
+                'No fue posible cargar la trazabilidad: ${snapshot.error}',
+                style: const TextStyle(color: Colors.red, fontFamily: _font),
+              );
+            }
             final rows = snapshot.data ?? const [];
             if (rows.isEmpty) {
               return const Text(
@@ -2170,20 +2266,32 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
               );
             }
             return Column(
-              children: rows.take(4).map((row) {
+              children: rows.take(10).map((row) {
                 final details = row['details'] is Map
                     ? Map<String, dynamic>.from(row['details'] as Map)
                     : const <String, dynamic>{};
-                final module = (details['moduleId'] ?? '').toString();
+                final action = (row['action'] ?? '').toString();
+                final status = (details['status'] ?? '')
+                    .toString()
+                    .toLowerCase();
+                final failed =
+                    action == 'send_failed' ||
+                    (action == 'delivery_status' && status == 'failed');
+                final delivered =
+                    action == 'delivery_status' &&
+                    (status == 'delivered' || status == 'read');
                 return _logRow(
-                  icon: Icons.admin_panel_settings_outlined,
-                  title: _auditLabel((row['action'] ?? '').toString()),
-                  subtitle: [
-                    if (module.isNotEmpty) 'Módulo $module',
-                    _date(row['createdAt']),
-                  ].join(' · '),
-                  color: (row['action'] ?? '') == 'send_failed'
+                  icon: failed
+                      ? Icons.error_outline
+                      : delivered
+                      ? Icons.check_circle_outline
+                      : Icons.history_outlined,
+                  title: _auditLabel(action, details),
+                  subtitle: _auditDetails(row, details),
+                  color: failed
                       ? Colors.red
+                      : delivered
+                      ? _accent
                       : Colors.indigo,
                 );
               }).toList(),
@@ -2194,6 +2302,12 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
         StreamBuilder<List<Map<String, dynamic>>>(
           stream: _service.streamEnvios(widget.empresaId),
           builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Text(
+                'No fue posible cargar los envíos: ${snapshot.error}',
+                style: const TextStyle(color: Colors.red, fontFamily: _font),
+              );
+            }
             final rows = snapshot.data ?? const [];
             if (rows.isEmpty) {
               return const Text(
@@ -2203,15 +2317,38 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
             }
             return Column(
               children: rows.take(6).map((row) {
-                final state = (row['estado'] ?? '').toString();
-                final ok = ['aceptado', 'enviado'].contains(state);
+                final state = (row['estado'] ?? '').toString().toLowerCase();
+                final delivered = [
+                  'entregado',
+                  'delivered',
+                  'leido',
+                  'read',
+                ].contains(state);
+                final failed = [
+                  'fallido',
+                  'failed',
+                  'rechazado',
+                ].contains(state);
+                final recipient =
+                    (row['destinatarioNombre'] ?? row['destinatario'] ?? '')
+                        .toString();
                 return _logRow(
-                  icon: ok ? Icons.check_circle_outline : Icons.error_outline,
+                  icon: delivered
+                      ? Icons.check_circle_outline
+                      : failed
+                      ? Icons.error_outline
+                      : Icons.schedule_outlined,
                   title:
                       '${row['origen'] ?? 'correo'} · ${row['categoria'] ?? 'WhatsApp'}',
-                  subtitle:
-                      '$state · ${row['destinatarioNombre'] ?? row['destinatario'] ?? ''}',
-                  color: ok ? _accent : Colors.orange.shade700,
+                  subtitle: [
+                    _alertStatusLabel(state),
+                    if (recipient.isNotEmpty) recipient,
+                  ].join(' · '),
+                  color: delivered
+                      ? _accent
+                      : failed
+                      ? Colors.red
+                      : Colors.orange.shade700,
                 );
               }).toList(),
             );
@@ -2343,15 +2480,81 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
     ),
   );
 
-  String _auditLabel(String action) => switch (action) {
-    'config_updated' => 'Configuración actualizada',
-    'test_sent' => 'Prueba enviada',
-    'send_accepted' => 'Envío aceptado por WhatsApp',
-    'send_failed' => 'Envío rechazado o fallido',
-    'recipient_list_created' => 'Lista de destinatarios creada',
-    'recipient_list_updated' => 'Lista de destinatarios actualizada',
-    'recipient_route_updated' => 'Asignación de lista actualizada',
-    _ => action,
+  String _auditLabel(String action, Map<String, dynamic> details) {
+    if (action == 'delivery_status') {
+      return switch ((details['status'] ?? '').toString().toLowerCase()) {
+        'sent' => 'Meta procesó el mensaje · entrega pendiente',
+        'delivered' => 'Entregado al teléfono según Meta',
+        'read' => 'Leído según Meta',
+        'failed' => 'Meta no entregó el mensaje',
+        _ => 'Meta informó un estado de entrega',
+      };
+    }
+    final cloud = details['provider'] == 'whatsapp_cloud';
+    return switch (action) {
+      'config_updated' => 'Configuración actualizada',
+      'test_sent' =>
+        cloud
+            ? 'Prueba aceptada por Meta (respuesta inicial)'
+            : 'Prueba aceptada por el proveedor',
+      'send_accepted' =>
+        cloud
+            ? 'Solicitud aceptada por Meta'
+            : 'Solicitud aceptada por el proveedor',
+      'send_failed' => 'Solicitud de envío rechazada',
+      'recipient_list_created' => 'Lista de destinatarios creada',
+      'recipient_list_updated' => 'Lista de destinatarios actualizada',
+      'recipient_route_updated' => 'Asignación de lista actualizada',
+      _ => action,
+    };
+  }
+
+  String _auditDetails(Map<String, dynamic> row, Map<String, dynamic> details) {
+    final parts = <String>[_date(row['createdAt'])];
+    final module = (details['moduleId'] ?? '').toString();
+    if (module.isNotEmpty) parts.add('Módulo $module');
+    final last4 = (details['destinationLast4'] ?? '').toString();
+    if (last4.isNotEmpty) parts.add('Número ···$last4');
+    final latestStatus = (details['deliveryStatus'] ?? '').toString();
+    if (latestStatus.isNotEmpty && row['action'] == 'send_accepted') {
+      parts.add(
+        'Estado actual: ${_alertStatusLabel(latestStatus.toLowerCase())}',
+      );
+    }
+    final messageId = (details['providerMessageId'] ?? '').toString();
+    if (messageId.isNotEmpty) {
+      final idSuffix = messageId.length > 12
+          ? messageId.substring(messageId.length - 12)
+          : messageId;
+      parts.add('ID ···$idSuffix');
+    }
+    final errorCode =
+        (details['errorCode'] ?? details['deliveryErrorCode'] ?? '').toString();
+    final errorMessage =
+        (details['errorMessage'] ??
+                details['deliveryErrorMessage'] ??
+                details['error'] ??
+                '')
+            .toString();
+    if (errorCode.isNotEmpty || errorMessage.isNotEmpty) {
+      parts.add(
+        [
+          if (errorCode.isNotEmpty) 'Error $errorCode',
+          if (errorMessage.isNotEmpty) errorMessage,
+        ].join(': '),
+      );
+    }
+    return parts.join(' · ');
+  }
+
+  String _alertStatusLabel(String status) => switch (status) {
+    'aceptado' || 'enviado' => 'Aceptado · entrega no confirmada aquí',
+    'sent' => 'Procesado por Meta · entrega pendiente',
+    'entregado' || 'delivered' => 'Entregado según Meta',
+    'leido' || 'read' => 'Leído según Meta',
+    'fallido' || 'failed' || 'rechazado' => 'No entregado',
+    '' => 'Estado sin confirmar',
+    _ => status,
   };
 
   String _date(dynamic value) {

@@ -3891,7 +3891,7 @@ exports.correoProbarRegla = functions
     });
     return { matches: outcome.matches, palabrasClave: outcome.palabrasClave, categoria: rule.categoria };
 });
-/** Verifica el proveedor OpenWA con una alerta de prueba controlada. */
+/** Verifica WhatsApp con una alerta de prueba controlada. */
 exports.correoProbarWhatsApp = functions
     .region(REGION)
     .https.onCall(async (data, context) => {
@@ -3913,13 +3913,17 @@ exports.correoProbarWhatsApp = functions
         empresaId: caller.empresaId,
         prioridad: "prueba",
         mensaje: text(data?.mensaje) || "✅ Prueba de integración WhatsApp desde el módulo Correo.",
-        metadata: { type: "correo_test" },
+        metadata: {
+            ...(0, whatsapp_1.adminControlledTestMetadata)(provider.name, caller.userId),
+            type: "correo_test",
+        },
     });
     return {
         ok: true,
         accepted: true,
         providerMessageId: result.providerMessageId || null,
         status: result.rawStatus,
+        testTemplate: provider.name === "whatsapp_cloud" ? "hello_world" : null,
     };
 });
 /** Estado no sensible para la pantalla de configuración. */

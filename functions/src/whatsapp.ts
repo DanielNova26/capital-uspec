@@ -24,6 +24,10 @@ const CONFIG_COLLECTION = "TBL_WHATSAPP_CONFIG";
 const LIST_COLLECTION = "TBL_CORREO_LISTADOS";
 const NOTIFICATION_COLLECTION = "TBL_NOTIFICACIONES";
 const PURCHASE_NEW_SUPPLIER_ROUTE = "compras_nuevo_proveedor";
+const ADMIN_CLOUD_TEST_TEMPLATE = {
+  name: "hello_world",
+  language: "en_US",
+} as const;
 const SUPPORTED_LIST_MODULES = new Set([
   "correo",
   "compras",
@@ -152,7 +156,7 @@ const MESSAGE_TEMPLATE_DEFINITIONS: Record<
       accion: { label: "Siguiente responsable", sample: "Revisión de Auditoría" },
     },
     metaName: "planilla_pago_actualizacion",
-    metaLanguage: "es",
+    metaLanguage: "en",
     metaCategory: "UTILITY",
   },
   interventoria_actividad: {
@@ -203,7 +207,7 @@ const MESSAGE_TEMPLATE_DEFINITIONS: Record<
       fechaLimite: { label: "Fecha límite", sample: "23/09/2026" },
     },
     metaName: "facturacion_documento_rechazado",
-    metaLanguage: "es",
+    metaLanguage: "en",
     metaCategory: "UTILITY",
   },
 };
@@ -833,7 +837,7 @@ class GenericHttpWhatsAppProvider implements WhatsAppProvider {
 }
 
 /** Envío directo por WhatsApp Cloud API de Meta. */
-class WhatsAppCloudProvider implements WhatsAppProvider {
+export class WhatsAppCloudProvider implements WhatsAppProvider {
   readonly name = "whatsapp_cloud";
 
   constructor(private readonly config: WhatsAppRuntimeConfig) {}
@@ -848,17 +852,25 @@ class WhatsAppCloudProvider implements WhatsAppProvider {
     }
     const templateKey = normalize(input.metadata?.templateKey);
     const templateState = this.config.metaTemplates[templateKey];
+    const definition = MESSAGE_TEMPLATE_DEFINITIONS[templateKey];
+    const approvedTemplate = templateState?.status === "APPROVED"
+      ? templateState
+      : undefined;
     const explicitTemplate = text(input.metadata?.metaTemplateName);
-    const configuredTemplate = explicitTemplate || text(templateState?.name);
+    const configuredTemplate = explicitTemplate ||
+      text(approvedTemplate?.name) || text(definition?.metaName);
     const language = text(input.metadata?.metaTemplateLanguage) ||
-      text(templateState?.language) || "es";
-    const useTemplate = Boolean(explicitTemplate) ||
-      (Boolean(configuredTemplate) && templateState?.status === "APPROVED");
+      text(approvedTemplate?.language) || text(definition?.metaLanguage) || "es";
+    // Los avisos automáticos con clave conocida deben salir como plantilla.
+    // Si la plantilla no existe en Meta, su error explícito queda auditado.
+    const useTemplate = Boolean(explicitTemplate) || Boolean(definition);
     const templateVariables = Array.isArray(input.metadata?.metaTemplateParameters)
       ? input.metadata!.metaTemplateParameters.map(text)
       : templateVariablesFromMetadata(
         input.metadata?.templateVariables,
-        templateState?.variableOrder || []
+        approvedTemplate?.variableOrder?.length
+          ? approvedTemplate.variableOrder
+          : definition?.placeholders || []
       );
     const body: Record<string, unknown> = useTemplate
       ? {
@@ -1516,6 +1528,26 @@ function isCloudProvider(provider: string): boolean {
   return ["whatsapp_cloud", "cloud", "whatsappcloud"].includes(
     normalize(provider)
   );
+}
+
+/** La prueba Cloud usa una plantilla aprobada fuera de la ventana de 24 h.
+ * @param {string} provider Proveedor seleccionado.
+ * @param {string} userId Identificador del administrador.
+ * @return {Record<string, unknown>} Metadatos para el envío de prueba.
+ */
+export function adminControlledTestMetadata(
+  provider: string,
+  userId: string
+): Record<string, unknown> {
+  const metadata: Record<string, unknown> = {
+    type: "admin_whatsapp_test",
+    userId,
+  };
+  if (isCloudProvider(provider)) {
+    metadata.metaTemplateName = ADMIN_CLOUD_TEST_TEMPLATE.name;
+    metadata.metaTemplateLanguage = ADMIN_CLOUD_TEST_TEMPLATE.language;
+  }
+  return metadata;
 }
 
 function metaGraphRoot(config: WhatsAppRuntimeConfig): string {
@@ -2505,7 +2537,7 @@ export const whatsappAdminProbar = functions
         mensaje:
           text(data?.mensaje) ||
           "✅ Prueba del servicio central de WhatsApp desde Administración.",
-        metadata: { type: "admin_whatsapp_test", userId: caller.userId },
+        metadata: adminControlledTestMetadata(provider.name, caller.userId),
       });
       await audit({
         empresaId: caller.empresaId,
@@ -2522,6 +2554,12 @@ export const whatsappAdminProbar = functions
         provider: provider.name,
         providerMessageId: result.providerMessageId || null,
         status: result.rawStatus,
+        testTemplate: isCloudProvider(provider.name)
+          ? ADMIN_CLOUD_TEST_TEMPLATE.name
+          : null,
+        testTemplateLanguage: isCloudProvider(provider.name)
+          ? ADMIN_CLOUD_TEST_TEMPLATE.language
+          : null,
       };
     } catch (error) {
       throw adminOperationError(
