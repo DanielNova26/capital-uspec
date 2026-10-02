@@ -78,13 +78,32 @@ Claude completó, corrigió y validó.
   `rutas.rules.js` usaba `TBL_TAREAS` como ejemplo de la regla general y
   ahora usa una colección sin regla propia.
 - **Versión 2.6.13 (27)** para comprobar la publicación.
+- **Comprobación de publicación (2 oct 2026):** `main` y `origin/main`
+  coinciden en `251ceddb`; la Web pública (`to-do-gestion.com/version.json`)
+  informa `2.6.13+27` y las Functions consultadas están activas. La App
+  Store colombiana aún muestra iOS `2.5.0 (12)` (11 sep 2026), por lo que
+  iOS 2.6.13 no está publicada allí. La ficha pública de Play para
+  `com.todogestion.app` devuelve 404; no se puede comprobar el canal de
+  pruebas de Play sin entrar a Play Console. El AAB local es del 23 sep;
+  al intentar generar el nuevo en este entorno, Gradle falla antes de
+  compilar con `Unable to establish loopback connection` en
+  `UnixDomainSockets.connect0`. Ejecutarlo desde una terminal independiente
+  o un entorno CI/Mac y confirmar que el AAB sea `2.6.13+27`.
+  El índice `participantes_uid` + `empresaId` aún no aparece en el proyecto.
+  La prueba remota de `firestore.rules` recibió HTTP 503 `UNAVAILABLE` de
+  `firebaserules.googleapis.com/v1/projects/integra360-94704:test`, sin
+  diagnóstico de sintaxis; no se desplegaron las reglas.
 - **Pendiente:**
-  - Desplegar juntos `firestore.rules` y `firestore.indexes.json` (índice
-    `participantes_uid` + `empresaId`), y publicar Web/Android/iOS **en el
-    mismo paso**: una app vieja todavía consulta el Home sin empresa y
-    recibiría permission-denied. Las reglas comparten archivo con el trabajo
-    de Interventoría del mismo día (concepto sanitario), también sin
-    desplegar.
+  - Coordinar Android/iOS 2.6.13 con el despliegue de `firestore.rules` e
+    `firestore.indexes.json` (índice `participantes_uid` + `empresaId`):
+    una app móvil vieja todavía consulta el Home sin empresa y recibiría
+    permission-denied. Una vez disponibles ambas versiones en las tiendas,
+    configurar `TBL_CONFIG/APP_VERSION` (`minBuildAndroid` y `minBuildIos`
+    en 27, con sus URL de tienda) para forzar la actualización de los
+    clientes anteriores; verificar el documento y el aviso en cada plataforma.
+    La Web ya informa 2.6.13+27. Las reglas comparten
+    archivo con el trabajo de Interventoría del mismo día (concepto
+    sanitario), también sin desplegar.
   - Tareas reasignadas antes de este cambio no tienen `participantes_uid`:
     no salen en "Antes asignadas" (sí se leen por `reasignada_desde_uid`).
     Si se quiere el histórico, preparar una incorporación revisable por
