@@ -13,6 +13,7 @@ import 'package:crypto/crypto.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
 import '../core/task_contract.dart';
+import '../utils/user_company.dart';
 
 class TaskAttachment {
   final String filename;
@@ -54,19 +55,34 @@ class TaskService {
     return def;
   }
 
+  void _requireActiveAssignee(
+    Map<String, dynamic> task,
+    String byUserId,
+  ) {
+    if (_s(task, ['asignado_uid', 'assignedTo']) != byUserId.trim()) {
+      throw StateError('Solo el responsable actual puede registrar esta acción.');
+    }
+    final status = TaskContract.normalizeStatus(task['estado'] ?? task['status']);
+    if (status == 'finalizado' || status == 'por_aprobar') {
+      throw StateError('La tarea ya está finalizada o pendiente de aprobación.');
+    }
+  }
+
   String _taskEventDescription(
     Map<String, dynamic> task,
     String detail,
     String? emitterName,
   ) {
     final now = DateTime.now();
-    final date = '${now.day.toString().padLeft(2, '0')}/'
+    final date =
+        '${now.day.toString().padLeft(2, '0')}/'
         '${now.month.toString().padLeft(2, '0')}/${now.year}';
-    final responsible = _s(
-      task,
-      ['asignado_nombre', 'assignedToName', 'asignado_uid', 'assignedTo'],
-      def: 'Sin asignar',
-    );
+    final responsible = _s(task, [
+      'asignado_nombre',
+      'assignedToName',
+      'asignado_uid',
+      'assignedTo',
+    ], def: 'Sin asignar');
     final emitter = (emitterName ?? '').trim().isEmpty
         ? 'Sistema'
         : emitterName!.trim();
@@ -382,6 +398,13 @@ class TaskService {
     final col = taskRef.collection('avances');
     final doc = col.doc();
 
+    // Validar antes de subir evita archivos huérfanos si la tarea cambió de
+    // responsable o ya entró a aprobación. La transacción cierra la carrera.
+    final taskSnap = await taskRef.get();
+    if (!taskSnap.exists) throw StateError('La tarea ya no existe.');
+    final t = taskSnap.data() ?? <String, dynamic>{};
+    _requireActiveAssignee(t, byUserId);
+
     final uploaded = (attachments == null || attachments.isEmpty)
         ? <Map<String, dynamic>>[]
         : await _uploadMany(
@@ -392,8 +415,6 @@ class TaskService {
 
     // Extraemos los datos de la tarea ANTES de la transacción para poder
     // notificar DESPUÉS de que la transacción commitee (sin riesgo de retry duplicado).
-    final taskSnap = await taskRef.get();
-    final t = taskSnap.data() ?? <String, dynamic>{};
     final jefeId = _s(t, ['jefe_uid', 'bossId', 'delegatedTo']);
     final titulo = _s(t, ['titulo', 'title'], def: 'Tarea');
     final empresaIdTask = _s(t, ['empresaId', 'empresa_id']);
@@ -401,6 +422,8 @@ class TaskService {
     await _db.runTransaction((trx) async {
       final snap = await trx.get(taskRef);
       final tInner = snap.data() ?? <String, dynamic>{};
+      if (!snap.exists) throw StateError('La tarea ya no existe.');
+      _requireActiveAssignee(tInner, byUserId);
 
       final currentEstado = (tInner['estado'] ?? tInner['status'] ?? '')
           .toString()
@@ -457,8 +480,8 @@ class TaskService {
           description: _taskEventDescription(
             t,
             nextDate == null
-              ? '$titulo · $message'
-              : '$titulo · $message · Próxima: ${nextDate.toString().split(" ").first}',
+                ? '$titulo · $message'
+                : '$titulo · $message · Próxima: ${nextDate.toString().split(" ").first}',
             byUserName,
           ),
           taskId: taskId,
@@ -485,6 +508,11 @@ class TaskService {
     final col = taskRef.collection('novedades');
     final doc = col.doc();
 
+    final taskSnap = await taskRef.get();
+    if (!taskSnap.exists) throw StateError('La tarea ya no existe.');
+    final t = taskSnap.data() ?? <String, dynamic>{};
+    _requireActiveAssignee(t, byUserId);
+
     final uploaded = (attachments == null || attachments.isEmpty)
         ? <Map<String, dynamic>>[]
         : await _uploadMany(
@@ -495,8 +523,6 @@ class TaskService {
 
     // Extraemos los datos de la tarea ANTES de la transacción para notificar
     // DESPUÉS de que la transacción commitee.
-    final taskSnap = await taskRef.get();
-    final t = taskSnap.data() ?? <String, dynamic>{};
     final jefeId = _s(t, ['jefe_uid', 'bossId', 'delegatedTo']);
     final titulo = _s(t, ['titulo', 'title'], def: 'Tarea');
     final empresaIdTask = _s(t, ['empresaId', 'empresa_id']);
@@ -504,6 +530,8 @@ class TaskService {
     await _db.runTransaction((trx) async {
       final snap = await trx.get(taskRef);
       final tInner = snap.data() ?? <String, dynamic>{};
+      if (!snap.exists) throw StateError('La tarea ya no existe.');
+      _requireActiveAssignee(tInner, byUserId);
 
       final currentEstado = (tInner['estado'] ?? tInner['status'] ?? '')
           .toString()
@@ -551,7 +579,11 @@ class TaskService {
         await pushNotificationToMany(
           toUserIds: recipients,
           title: 'Novedad en tarea',
-          description: _taskEventDescription(t, '$titulo · $message', byUserName),
+          description: _taskEventDescription(
+            t,
+            '$titulo · $message',
+            byUserName,
+          ),
           taskId: taskId,
           type: 'task_novedad',
           fromId: byUserId,
@@ -593,15 +625,65 @@ class TaskService {
     // Prioridad del actor: byUserId/byUserName (UI) > performedBy/performedByName
     final actorId = (byUserId ?? performedBy ?? '').trim();
     final targetUid = newAssignedTo.trim();
+    if (actorId.isEmpty) {
+      throw ArgumentError(
+        'La reasignación requiere identificar al responsable actual.',
+      );
+    }
     if (targetUid.isEmpty) {
       throw ArgumentError('newAssignedTo no puede estar vacío.');
     }
+    final targetRef = _db.collection('TBL_USUARIOS').doc(targetUid);
 
     await _db.runTransaction((trx) async {
       final snap = await trx.get(taskRef);
+      if (!snap.exists) throw StateError('La tarea ya no existe.');
+      final targetSnap = await trx.get(targetRef);
       final t = snap.data() ?? <String, dynamic>{};
       final prevAssignedUid = _s(t, ['asignado_uid', 'assignedTo']);
       final prevAssignedName = _s(t, ['asignado_nombre', 'assignedToName']);
+      final empresaId = _s(t, ['empresaId']);
+      if (empresaId.isEmpty) {
+        throw StateError('La tarea no tiene empresa válida.');
+      }
+      if (_s(t, ['sourceModule', 'origen']) != 'interventoria') {
+        throw StateError('Esta tarea requiere aprobación para reasignarse.');
+      }
+      if (prevAssignedUid != actorId) {
+        throw StateError(
+          'Solo el responsable actual puede reasignar esta tarea.',
+        );
+      }
+      if (prevAssignedUid == targetUid) {
+        throw StateError(
+          'Selecciona una persona diferente al responsable actual.',
+        );
+      }
+      if (TaskContract.normalizeStatus(t['estado'] ?? t['status']) ==
+              'finalizado' ||
+          (t['solicitud_finalizacion_estado'] ?? '').toString() ==
+              'pendiente') {
+        throw StateError(
+          'La tarea ya está finalizada o pendiente de aprobación.',
+        );
+      }
+      final target = targetSnap.data();
+      if (target == null ||
+          !userBelongsToEmpresa(target, empresaId) ||
+          !personaHabilitadaEn(target, empresaId)) {
+        throw StateError(
+          'La persona de destino no está habilitada en esta empresa.',
+        );
+      }
+      final targetArea = resolveScopedStringWithFallbacks(
+        target,
+        empresaId,
+        const ['areaId', 'area_id', 'departamentoId', 'departamento_id'],
+        const ['areaId', 'area_id', 'departamentoId', 'departamento_id'],
+      ).trim();
+      final resolvedArea = targetArea.isNotEmpty
+          ? targetArea
+          : (newAreaId ?? '').trim();
       if (_s(t, ['sourceModule', 'origen']) == 'interventoria') {
         hallazgoId = _s(t, ['hallazgoId', 'sourceEntityId']);
       }
@@ -610,8 +692,9 @@ class TaskService {
         'asignado_uid': targetUid,
         if (newAssignedToName != null && newAssignedToName.trim().isNotEmpty)
           'asignado_nombre': newAssignedToName.trim(),
-        if (newAreaId != null && newAreaId.trim().isNotEmpty)
-          'areaId': newAreaId.trim(),
+        'areaId': resolvedArea,
+        if (newCargoNombre != null && newCargoNombre.trim().isNotEmpty)
+          'asignado_cargo_nombre': newCargoNombre.trim(),
 
         // estado recomendado al reasignar
         'estado': 'en_progreso',
@@ -623,6 +706,10 @@ class TaskService {
         'reasignada_desde_uid': prevAssignedUid,
         'reasignada_desde_nombre': prevAssignedName,
         if (actorId.isNotEmpty) 'reasignada_por_uid': actorId,
+        'participantes_uid': FieldValue.arrayUnion([
+          prevAssignedUid,
+          targetUid,
+        ]),
 
         // limpia solicitudes pendientes si existieran
         'reasignacion_pendiente': FieldValue.delete(),

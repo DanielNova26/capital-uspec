@@ -120,7 +120,8 @@ class TaskRouteGuard {
       );
     }
 
-    if (!userBelongsToEmpresa(userResolution.data, taskEmpresaId)) {
+    if (!userBelongsToEmpresa(userResolution.data, taskEmpresaId) ||
+        !personaHabilitadaEn(userResolution.data, taskEmpresaId)) {
       return TaskAccessValidation(
         allowed: false,
         message:
@@ -152,11 +153,21 @@ class TaskRouteGuard {
       taskData['approverId'],
       bossId,
     ]);
+    final participants = taskData['participantes_uid'] is Iterable
+        ? (taskData['participantes_uid'] as Iterable)
+              .map((value) => value.toString().trim())
+              .toSet()
+        : <String>{};
+    final previousAssignedId = (taskData['reasignada_desde_uid'] ?? '')
+        .toString()
+        .trim();
 
     if (!knownIds.contains(creatorId) &&
         !knownIds.contains(assignedId) &&
         !knownIds.contains(bossId) &&
-        !knownIds.contains(approverId)) {
+        !knownIds.contains(approverId) &&
+        !knownIds.contains(previousAssignedId) &&
+        !knownIds.any(participants.contains)) {
       return TaskAccessValidation(
         allowed: false,
         message: 'La tarea no está asignada ni vinculada al usuario actual.',

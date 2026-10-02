@@ -24,6 +24,7 @@ import '../gestion_documental/correspondencia/gd_correspondencia_screen.dart';
 import 'complete_task_screen.dart' hide kArial;
 import 'notify_avances_screen.dart' hide kArial;
 import 'notify_novedades_screen.dart' hide kArial;
+import 'task_history_screen.dart' show TaskActivityScreen;
 import '../core/area_directory.dart';
 
 const Color kMarronOscuro = Color(0xFF145DA0);
@@ -286,6 +287,23 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     return await launchUrlString(url, mode: LaunchMode.externalApplication);
   }
 
+  /// Clave de un nombre de cargo para emparejar TBL_USUARIOS con TBL_CARGOS:
+  /// el mismo cargo viene con tildes, mayúsculas y espacios distintos.
+  static String _claveCargo(String cargo) {
+    var s = cargo.toLowerCase().trim();
+    const acentos = {
+      'á': 'a',
+      'é': 'e',
+      'í': 'i',
+      'ó': 'o',
+      'ú': 'u',
+      'ü': 'u',
+      'ñ': 'n',
+    };
+    acentos.forEach((k, v) => s = s.replaceAll(k, v));
+    return s.replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
+  }
+
   bool _finishPending(Map<String, dynamic> data) {
     final state = (data['solicitud_finalizacion_estado'] ?? '')
         .toString()
@@ -314,6 +332,9 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
     final taskData = doc.data();
+    final esInterventoria =
+        (taskData['origen'] ?? '').toString() == 'interventoria' ||
+        taskData['permite_reasignacion_director'] == true;
     final empresaId = _selectedEmpresaId?.trim().isNotEmpty == true
         ? _selectedEmpresaId!.trim()
         : (_empresaIds.length == 1 ? _empresaIds.first : '');
@@ -333,6 +354,25 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         .collection('TBL_CARGOS')
         .where('empresaId', isEqualTo: empresaId)
         .get();
+    final centros = <String, String>{};
+    final centroAliases = <String, String>{};
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('TBL_CENTROS_COSTOS')
+          .where('empresaId', isEqualTo: empresaId)
+          .get();
+      for (final d in snap.docs) {
+        if (d.data()['enabled'] == false) continue;
+        final id = (d.data()['centroId'] ?? d.id).toString().trim();
+        if (id.isEmpty) continue;
+        centros[id] = (d.data()['nombre'] ?? d.data()['codigo'] ?? id)
+            .toString();
+        centroAliases[d.id] = id;
+        centroAliases[id] = id;
+      }
+    } catch (_) {
+      // El filtro de sede es auxiliar; área y persona siguen disponibles.
+    }
     final userDocs = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
     try {
       final snap = await FirebaseFirestore.instance
@@ -396,6 +436,18 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                   : areaCargo),
       };
     }).toList();
+    // La mayoría del personal no guarda `areaId`: el área vive en su cargo
+    // (TBL_CARGOS.areaId). Sin este puente, al elegir otra área para
+    // reasignar casi nadie aparecía.
+    final areaPorCargo = <String, String>{};
+    for (final c in cargos) {
+      final area = (c['areaId'] ?? '').trim();
+      if (area.isEmpty) continue;
+      final id = (c['id'] ?? '').trim();
+      if (id.isNotEmpty) areaPorCargo.putIfAbsent('id:$id', () => area);
+      final clave = _claveCargo(c['nombre'] ?? '');
+      if (clave.isNotEmpty) areaPorCargo.putIfAbsent('nombre:$clave', () => area);
+    }
     final usuarios = userDocs.values
         .map((d) {
           final m = d.data();
@@ -441,6 +493,46 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
             const ['cargo', 'cargoNombre', 'cargo_nombre', 'puesto'],
             const ['cargo', 'cargoNombre', 'cargo_nombre', 'puesto'],
           ).trim();
+          if (areaId.isEmpty) {
+            areaId =
+                areaPorCargo['id:$cargoId'] ??
+                areaPorCargo['nombre:${_claveCargo(cargo)}'] ??
+                '';
+          }
+          final detalle = getUserCompanyDetail(m, empresaId);
+          Object? datoCentro(String key) => detalle?.containsKey(key) == true
+              ? detalle![key]
+              : (raizEsDeEmpresa(m, empresaId) ? m[key] : null);
+          final centrosUsuario = <String>{};
+          for (final key in const [
+            'centrosTrabajoIds',
+            'centrosOperacionIds',
+          ]) {
+            final raw = datoCentro(key);
+            if (raw is Iterable && raw is! String) {
+              centrosUsuario.addAll(
+                raw.map((e) => e.toString().trim()).where((e) => e.isNotEmpty),
+              );
+            }
+          }
+          for (final key in const ['centroTrabajoId', 'centroOperacionId']) {
+            final value = (datoCentro(key) ?? '').toString().trim();
+            if (value.isNotEmpty) centrosUsuario.add(value);
+          }
+          if (centrosUsuario.isEmpty) {
+            final administrativo = resolveScopedStringWithFallbacks(
+              m,
+              empresaId,
+              const ['centroId'],
+              const ['centroId'],
+            ).trim();
+            if (administrativo.isNotEmpty && administrativo != 'global') {
+              centrosUsuario.add(administrativo);
+            }
+          }
+          final cobertura = centrosUsuario
+              .map((id) => centroAliases[id] ?? id)
+              .toSet();
           return {
             'id': d.id,
             'nombre': nombre.isEmpty ? d.id : nombre,
@@ -448,6 +540,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
             'areaNombre': areaName.isEmpty ? areaNameById(areaId) : areaName,
             'cargoId': cargoId,
             'cargo': cargo,
+            'centrosCobertura': cobertura.join('|'),
           };
         })
         .whereType<Map<String, String>>()
@@ -460,13 +553,17 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     }
     // '' = todas las áreas.
     areas.insert(0, {'id': '', 'nombre': 'Todas las áreas'});
-    String selectedAreaId = areaTarea.isNotEmpty ? areaTarea : taskAreaId;
-    String selectedAreaName = taskAreaId.isEmpty
-        ? ''
-        : areaNameById(taskAreaId);
+    // Mostrar toda la empresa desde el inicio. El área elegida filtra, y la
+    // persona seleccionada determina el destino efectivo de la tarea.
+    String selectedAreaId = '';
+    String selectedAreaName = '';
+    String selectedCentroId = '';
     String? selectedCargoId;
     String search = '';
     Map<String, String>? pickedUser;
+    final centroOptions = centros.entries.toList()
+      ..sort((a, b) => a.value.compareTo(b.value));
+    final centroTarea = _str(taskData, ['centroId', 'centroCostoId']).trim();
 
     if (!mounted) return;
     final bool? ok = await showDialog<bool>(
@@ -483,6 +580,12 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
 
           final filteredUsers = usuarios.where((u) {
             if (u['id'] == widget.userId) return false;
+            if (selectedCentroId.isNotEmpty &&
+                !(u['centrosCobertura'] ?? '')
+                    .split('|')
+                    .contains(selectedCentroId)) {
+              return false;
+            }
             if (!areaCatalogo.coincide(
                   filtro: selectedAreaId,
                   valor: u['areaId'],
@@ -515,18 +618,37 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
           }).toList()..sort((a, b) => a['nombre']!.compareTo(b['nombre']!));
 
           return AlertDialog(
-            title: const Text('Solicitar reasignación'),
+            title: Text(
+              esInterventoria ? 'Reasignar tarea' : 'Solicitar reasignación',
+            ),
             content: SizedBox(
-              width: 520,
+              width: MediaQuery.sizeOf(context).width < 600
+                  ? MediaQuery.sizeOf(context).width - 80
+                  : 520,
+              height:
+                  (MediaQuery.sizeOf(context).height -
+                          MediaQuery.viewInsetsOf(context).bottom -
+                          180)
+                      .clamp(160.0, 520.0)
+                      .toDouble(),
               child: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    if (esInterventoria &&
+                        centroTarea.isNotEmpty &&
+                        centroTarea != 'global') ...[
+                      Text(
+                        'Centro del hallazgo: ${centros[centroAliases[centroTarea] ?? centroTarea] ?? centroTarea}. La sede no cambia al reasignar.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                     DropdownButtonFormField<String>(
                       initialValue: selectedAreaId,
                       isExpanded: true,
                       decoration: const InputDecoration(
-                        labelText: 'Área de destino',
+                        labelText: 'Filtrar por área de destino',
                         border: OutlineInputBorder(),
                         prefixIcon: Icon(Icons.account_tree_outlined),
                       ),
@@ -555,6 +677,38 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                       },
                     ),
                     const SizedBox(height: 12),
+                    if (centros.isNotEmpty) ...[
+                      DropdownButtonFormField<String>(
+                        initialValue: selectedCentroId,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Filtrar por centro de trabajo',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.location_city_outlined),
+                        ),
+                        items: [
+                          const DropdownMenuItem<String>(
+                            value: '',
+                            child: Text('Todos los centros'),
+                          ),
+                          ...centroOptions.map(
+                            (centro) => DropdownMenuItem<String>(
+                              value: centro.key,
+                              child: Text(
+                                centro.value,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ),
+                        ],
+                        onChanged: (value) => setDialogState(() {
+                          selectedCentroId = value ?? '';
+                          pickedUser = null;
+                        }),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                     DropdownButtonFormField<String>(
                       initialValue: selectedCargoId,
                       decoration: const InputDecoration(
@@ -605,7 +759,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                           ? const Padding(
                               padding: EdgeInsets.all(16),
                               child: Text(
-                                'No hay personas activas de esta área para los filtros seleccionados.',
+                                'No hay personas activas de esta empresa con los filtros seleccionados.',
                               ),
                             )
                           : ListView.builder(
@@ -630,6 +784,11 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                                       'cargoNombre': user['cargo'] ?? '',
                                     };
                                   }),
+                                  secondary: UserAvatar(
+                                    userId: user['id'],
+                                    nameHint: user['nombre'],
+                                    radius: 16,
+                                  ),
                                   title: Text(user['nombre']!),
                                   subtitle: Text(
                                     [
@@ -638,6 +797,11 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                                           .trim()
                                           .isNotEmpty)
                                         user['cargo']!,
+                                      if ((user['areaNombre'] ?? '')
+                                          .toString()
+                                          .trim()
+                                          .isNotEmpty)
+                                        user['areaNombre']!,
                                       user['id']!,
                                     ].join(' • '),
                                   ),
@@ -659,7 +823,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                 onPressed: pickedUser == null
                     ? null
                     : () => Navigator.pop(context, true),
-                child: const Text('Enviar'),
+                child: Text(esInterventoria ? 'Reasignar' : 'Enviar solicitud'),
               ),
             ],
           );
@@ -671,21 +835,35 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       return;
     }
 
-    final data = doc.data();
-    final esInterventoria =
-        (data['origen'] ?? '').toString() == 'interventoria' ||
-        data['permite_reasignacion_director'] == true;
     if (esInterventoria) {
       // Tareas de Interventoría: reasignación directa sin aprobación
-      await TaskService().reassignTask(
-        taskId: doc.id,
-        newAssignedTo: pickedUser!['id']!,
-        newAssignedToName: pickedUser!['nombre'],
-        newAreaId: pickedUser!['areaId'],
-        newCargoNombre: pickedUser!['cargoNombre'],
-        byUserId: widget.userId,
-        byUserName: _currentUserName(),
-      );
+      try {
+        await TaskService().reassignTask(
+          taskId: doc.id,
+          newAssignedTo: pickedUser!['id']!,
+          newAssignedToName: pickedUser!['nombre'],
+          newAreaId: pickedUser!['areaId'],
+          newCargoNombre: pickedUser!['cargoNombre'],
+          byUserId: widget.userId,
+          byUserName: _currentUserName(),
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Tarea reasignada a ${pickedUser!['nombre']}'),
+            ),
+          );
+        }
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              e is StateError ? e.message : 'No se pudo reasignar la tarea.',
+            ),
+          ),
+        );
+      }
     } else {
       // Flujo normal: solicitud de reasignación (requiere aprobación)
       final now = Timestamp.now();
@@ -700,6 +878,12 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
           }
           if (status == 'finalizado') {
             throw StateError('La tarea ya fue finalizada.');
+          }
+          if (status == 'por_aprobar' || _finishPending(latest)) {
+            throw StateError(
+              'La finalización está pendiente de aprobación; no se puede '
+              'reasignar.',
+            );
           }
           final pending =
               _str(latest, ['solicitud_reasignacion_estado']).toLowerCase() ==
@@ -774,71 +958,6 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
           );
         } catch (_) {}
       }
-    }
-  }
-
-  Future<void> _quickRequestFinish(
-    QueryDocumentSnapshot<Map<String, dynamic>> doc,
-  ) async {
-    final ref = doc.reference;
-    final finalizacionRef = ref.collection('finalizacion').doc();
-    final now = Timestamp.now();
-    final byName = _currentUserName();
-
-    try {
-      await FirebaseFirestore.instance.runTransaction((trx) async {
-        final snap = await trx.get(ref);
-        final data = snap.data() ?? <String, dynamic>{};
-        final assignedId = _str(data, ['asignado_uid', 'assignedTo']);
-        final status = _resolvedStatus(data);
-        if (assignedId != widget.userId) {
-          throw StateError('La tarea ya no está asignada a tu usuario.');
-        }
-        if (status == 'finalizado') {
-          throw StateError('La tarea ya fue finalizada.');
-        }
-        if (_finishPending(data)) {
-          throw StateError(
-            'Ya existe una solicitud de finalización pendiente.',
-          );
-        }
-
-        trx.update(ref, {
-          'estado': 'por_aprobar',
-          'status': 'por_aprobar',
-          'solicitud_finalizacion_estado': 'pendiente',
-          'solicitud_finalizacion_at': now,
-          'solicitud_finalizacion_by_uid': widget.userId,
-          'solicitud_finalizacion_by_nombre': byName,
-          'lastEventType': 'solicitud_finalizacion',
-          'lastEventAt': now,
-          'lastEventText': 'Solicitud de finalización enviada por $byName',
-          'fecha_actualizacion': now,
-          'updatedAt': now,
-          'actualizada_en': now,
-        });
-        trx.set(finalizacionRef, {
-          'type': 'solicitud_finalizacion',
-          'message': 'Solicitud de finalización enviada por $byName',
-          'attachments': const [],
-          'createdAt': now,
-          'createdBy': widget.userId,
-          'createdByName': byName,
-        });
-      });
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Solicitud de finalización enviada.')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            e is StateError ? e.message : 'No se pudo finalizar la tarea.',
-          ),
-        ),
-      );
     }
   }
 
@@ -1004,7 +1123,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         ? 'Abre Facturación en el documento indicado y envíalo a revisión.'
         : requiresAttachment
         ? 'Requiere evidencias'
-        : 'Envío rápido';
+        : 'Explica el cumplimiento y solicita aprobación.';
 
     showModalBottomSheet(
       context: context,
@@ -1158,20 +1277,16 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                               }
                               return;
                             }
-                            if (requiresAttachment) {
-                              await Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => CompleteTaskScreen(
-                                    taskId: taskId,
-                                    currentUserId: widget.userId,
-                                    requestFinish: true,
-                                    requestFinishByName: _currentUserName(),
-                                  ),
+                            await Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => CompleteTaskScreen(
+                                  taskId: taskId,
+                                  currentUserId: widget.userId,
+                                  requestFinish: true,
+                                  requestFinishByName: _currentUserName(),
                                 ),
-                              );
-                            } else {
-                              await _quickRequestFinish(doc);
-                            }
+                              ),
+                            );
                           },
                   ),
                 _ActionTile(
@@ -1209,6 +1324,23 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                   },
                 ),
                 _ActionTile(
+                  icon: Icons.history_rounded,
+                  color: Colors.blueGrey,
+                  title: 'Ver historial de actividad',
+                  subtitle: 'Consulta novedades, avances y finalizaciones.',
+                  onTap: () async {
+                    Navigator.pop(context);
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => TaskActivityScreen(
+                          taskId: taskId,
+                          currentUserId: widget.userId,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                _ActionTile(
                   icon: hasPendingReassign
                       ? Icons.hourglass_top_rounded
                       : Icons.swap_horiz_rounded,
@@ -1220,14 +1352,16 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                   title: hasPendingReassign
                       ? 'Reasignación en espera'
                       : esInterventoria
-                      ? 'Reasignar a mi equipo'
+                      ? 'Reasignar tarea'
                       : 'Solicitar reasignación',
                   subtitle: hasPendingReassign
                       ? 'Ya existe una solicitud de reasignación pendiente.'
+                      : finishPending
+                      ? 'La finalización está pendiente de aprobación.'
                       : esInterventoria
-                      ? 'Asigna esta tarea directamente a un miembro de tu equipo.'
-                      : 'Propón mover la tarea a otro responsable.',
-                  onTap: hasPendingReassign
+                      ? 'Elige área y persona de esta empresa. El cambio se aplica directamente.'
+                      : 'Elige área y persona de esta empresa. Tu jefe aprueba el cambio.',
+                  onTap: hasPendingReassign || finishPending
                       ? null
                       : () async {
                           Navigator.pop(context);

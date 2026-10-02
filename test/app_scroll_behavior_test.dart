@@ -117,9 +117,44 @@ void main() {
       expect(find.byType(SingleChildScrollView), findsOneWidget);
     });
 
-    testWidgets('en escritorio envuelve en Scrollbar', (tester) async {
-      await tester.pumpWidget(_appConBarraHorizontal(TargetPlatform.windows));
+    testWidgets('en escritorio, con controlador, envuelve en Scrollbar', (
+      tester,
+    ) async {
+      final controller = ScrollController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          scrollBehavior: const AppScrollBehavior(),
+          theme: ThemeData(platform: TargetPlatform.windows),
+          home: Scaffold(
+            body: BarraHorizontal(
+              controller: controller,
+              child: SingleChildScrollView(
+                controller: controller,
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: List.generate(
+                    40,
+                    (i) => SizedBox(width: 120, child: Text('celda $i')),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      // La suya y no la del tema: una sola.
       expect(find.byType(Scrollbar), findsOneWidget);
+    });
+
+    testWidgets('en escritorio, sin controlador, no suma una segunda barra', (
+      tester,
+    ) async {
+      // Sin controlador la de aquí no podía arrastrarse (28 sep 2026): deja
+      // la que AppScrollBehavior ya pone, atada al scroll real.
+      await tester.pumpWidget(_appConBarraHorizontal(TargetPlatform.windows));
+      expect(find.byType(Scrollbar), findsNothing);
+      expect(find.byType(SingleChildScrollView), findsOneWidget);
     });
   });
 }

@@ -132,6 +132,34 @@ const Map<String, List<SeccionActa>> kSeccionesPorTipoActa = {
 bool tieneCatalogoPropio(String? tipoActa) =>
     kSeccionesPorTipoActa.containsKey((tipoActa ?? '').trim().toUpperCase());
 
+/// "el maestro" del acta regular, o "el maestro de Estación de policía".
+///
+/// El 3.1 de un acta de policía no existe en el acta regular (que salta del
+/// 3 al 3.2), y quien leía "el maestro no define responsable para 3.1" lo
+/// buscaba en el maestro regular y no lo encontraba (28 sep 2026).
+String nombreMaestroDeActa(String? tipoActa) {
+  final tipo = (tipoActa ?? '').trim().toUpperCase();
+  return tieneCatalogoPropio(tipo)
+      ? 'el maestro de ${etiquetaTipoActa(tipo)}'
+      : 'el maestro';
+}
+
+/// Actas con catálogo propio que tienen el numeral [numeral] ("3.1").
+List<String> actasPropiasConNumeral(String numeral) {
+  final partes = numeral.trim().split('.');
+  if (partes.length != 2) return const [];
+  final seccion = int.tryParse(partes[0]);
+  final posicion = int.tryParse(partes[1]);
+  if (seccion == null || posicion == null || posicion < 1) return const [];
+  return [
+    for (final acta in kSeccionesPorTipoActa.entries)
+      if (acta.value.any(
+        (s) => s.numero == seccion && s.aspectos.length >= posicion,
+      ))
+        acta.key,
+  ];
+}
+
 // ───────────────────────────────────────────────────────────────────────────
 // INSTALACIONES FÍSICAS Y SANITARIAS - INFRAESTRUCTURA
 //

@@ -35,6 +35,84 @@ class TaskHistoryScreen extends StatefulWidget {
   State<TaskHistoryScreen> createState() => _TaskHistoryScreenState();
 }
 
+/// Consulta el registro de una tarea mientras sigue activa o después de su
+/// aprobación. El guard valida empresa activa y vínculo con la tarea antes de
+/// leer las subcolecciones de procesos.
+class TaskActivityScreen extends StatefulWidget {
+  final String taskId;
+  final String currentUserId;
+
+  const TaskActivityScreen({
+    super.key,
+    required this.taskId,
+    required this.currentUserId,
+  });
+
+  @override
+  State<TaskActivityScreen> createState() => _TaskActivityScreenState();
+}
+
+class _TaskActivityScreenState extends State<TaskActivityScreen> {
+  Future<TaskAccessValidation>? _validation;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _validation ??= TaskRouteGuard().validateTaskAccess(
+      context,
+      userIdentity: widget.currentUserId,
+      taskId: widget.taskId,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Historial de actividad'),
+        backgroundColor: kBrand,
+        foregroundColor: Colors.white,
+      ),
+      body: SafeArea(
+        child: FutureBuilder<TaskAccessValidation>(
+          future: _validation,
+          builder: (context, snap) {
+            if (snap.connectionState != ConnectionState.done) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snap.hasError) {
+              return const Center(child: Text('No se pudo abrir la tarea.'));
+            }
+            final access = snap.data;
+            if (access == null || !access.allowed) {
+              return Center(child: Text(access?.message ?? 'Acceso denegado'));
+            }
+            final data = access.taskData ?? const <String, dynamic>{};
+            return Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1100),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+                      child: Text(
+                        (data['titulo'] ?? data['title'] ?? 'Tarea').toString(),
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                    ),
+                    Expanded(child: _ProcesosTab(taskId: widget.taskId)),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
 class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
   bool _routeValidationDone = false;
   bool _routeAllowed = true;
@@ -75,7 +153,7 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
     }
 
     return DefaultTabController(
-      length: 2,
+      length: 3,
       initialIndex: widget.initialTabIndex,
       child: Scaffold(
         appBar: AppBar(
@@ -91,6 +169,7 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 720),
                 child: const TabBar(
+                  isScrollable: true,
                   tabs: [
                     Tab(
                       text: 'Mis tareas',
@@ -99,6 +178,10 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
                     Tab(
                       text: 'Tareas que asigné',
                       icon: Icon(Icons.manage_accounts_rounded),
+                    ),
+                    Tab(
+                      text: 'Antes asignadas',
+                      icon: Icon(Icons.history_rounded),
                     ),
                   ],
                   labelColor: Colors.white,
@@ -123,6 +206,12 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
               isAsignado: false,
               highlightId: widget.highlightTaskId,
             ),
+            _HistoryTab(
+              userId: widget.currentUserId,
+              isAsignado: false,
+              participante: true,
+              highlightId: widget.highlightTaskId,
+            ),
           ],
         ),
       ),
@@ -133,11 +222,13 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
 class _HistoryTab extends StatefulWidget {
   final String userId;
   final bool isAsignado;
+  final bool participante;
   final String? highlightId;
 
   const _HistoryTab({
     required this.userId,
     required this.isAsignado,
+    this.participante = false,
     this.highlightId,
   });
 
@@ -153,6 +244,7 @@ class _HistoryTabState extends State<_HistoryTab> {
   DateTime? _endDate;
   bool _didAutoOpen = false;
   bool _showAllTasks = false;
+  String _statusFilter = 'todas';
 
   Map<String, String> _areas = {'todas': 'Todas las áreas'};
   String? _selectedEmpresaId;
@@ -175,7 +267,8 @@ class _HistoryTabState extends State<_HistoryTab> {
   void didUpdateWidget(covariant _HistoryTab oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.userId != widget.userId ||
-        oldWidget.isAsignado != widget.isAsignado) {
+        oldWidget.isAsignado != widget.isAsignado ||
+        oldWidget.participante != widget.participante) {
       _taskStream = _buildTaskStream();
     }
   }
@@ -202,6 +295,7 @@ class _HistoryTabState extends State<_HistoryTab> {
 
   bool get _hasFilters =>
       _searchCtrl.text.isNotEmpty ||
+      (widget.participante && _statusFilter != 'todas') ||
       _areaFilter != 'todas' ||
       _startDate != null;
 
@@ -209,12 +303,16 @@ class _HistoryTabState extends State<_HistoryTab> {
     Query<Map<String, dynamic>> q = FirebaseFirestore.instance.collection(
       'TBL_TAREAS',
     );
-    if (widget.isAsignado) {
+    if (widget.participante) {
+      q = q.where('participantes_uid', arrayContains: widget.userId);
+    } else if (widget.isAsignado) {
       q = q.where('asignado_uid', isEqualTo: widget.userId);
     } else {
       q = q.where('creador_id', isEqualTo: widget.userId);
     }
-    q = q.where('estado', isEqualTo: 'finalizado');
+    if (!widget.participante) {
+      q = q.where('estado', isEqualTo: 'finalizado');
+    }
     if (_selectedEmpresaId != null) {
       q = q.where('empresaId', isEqualTo: _selectedEmpresaId);
     }
@@ -228,7 +326,19 @@ class _HistoryTabState extends State<_HistoryTab> {
     return docs.where((d) {
       final m = d.data();
       // Pestaña de las que asigné: fuera lo que asignó Interventoría.
-      if (!widget.isAsignado && !laAsignoEstaPersona(m, widget.userId)) {
+      if (!widget.isAsignado &&
+          !widget.participante &&
+          !laAsignoEstaPersona(m, widget.userId)) {
+        return false;
+      }
+      if (widget.participante &&
+          (m['asignado_uid'] ?? m['assignedTo'] ?? '').toString() ==
+              widget.userId) {
+        return false;
+      }
+      if (widget.participante &&
+          _statusFilter != 'todas' &&
+          (m['estado'] ?? '').toString() != _statusFilter) {
         return false;
       }
       final title = (m['titulo'] ?? '').toString().toLowerCase();
@@ -293,7 +403,7 @@ class _HistoryTabState extends State<_HistoryTab> {
                     child: TaskModernCard(
                       data: hit[i].data(),
                       onTap: () => _showHistoryDetail(hit[i]),
-                      isHistorical: true,
+                      isHistorical: hit[i].data()['estado'] == 'finalizado',
                     ),
                   ),
                 ),
@@ -319,7 +429,7 @@ class _HistoryTabState extends State<_HistoryTab> {
                 child: TaskModernCard(
                   data: filtered[i].data(),
                   onTap: () => _showHistoryDetail(filtered[i]),
-                  isHistorical: true,
+                  isHistorical: filtered[i].data()['estado'] == 'finalizado',
                 ),
               ),
             ),
@@ -358,11 +468,17 @@ class _HistoryTabState extends State<_HistoryTab> {
       searchController: _searchCtrl,
       onSearchChanged: (_) => setState(() {}),
       searchHint: 'Buscar por título...',
-      quickFilters: const [
-        TaskQuickFilter(label: 'Finalizadas', value: 'finalizado'),
-      ],
-      selectedQuickFilter: 'finalizado',
-      onQuickFilterChanged: (_) {},
+      quickFilters: widget.participante
+          ? const [
+              TaskQuickFilter(label: 'Todas', value: 'todas'),
+              TaskQuickFilter(label: 'Por aprobar', value: 'por_aprobar'),
+              TaskQuickFilter(label: 'Finalizadas', value: 'finalizado'),
+            ]
+          : const [TaskQuickFilter(label: 'Finalizadas', value: 'finalizado')],
+      selectedQuickFilter: widget.participante ? _statusFilter : 'finalizado',
+      onQuickFilterChanged: widget.participante
+          ? (value) => setState(() => _statusFilter = value)
+          : (_) {},
       dropdowns: [
         TaskFilterDropdownData(
           label: 'Área',
@@ -390,6 +506,7 @@ class _HistoryTabState extends State<_HistoryTab> {
       ],
       onClearFilters: () => setState(() {
         _searchCtrl.clear();
+        _statusFilter = 'todas';
         _areaFilter = 'todas';
         _startDate = null;
         _endDate = null;
@@ -619,7 +736,9 @@ class _HistoryDetailSheetState extends State<_HistoryDetailSheet>
                 ),
                 const SizedBox(height: 16),
                 TaskPanelHeader(
-                  eyebrow: 'TAREA FINALIZADA',
+                  eyebrow: (m['estado'] ?? '').toString() == 'finalizado'
+                      ? 'TAREA FINALIZADA'
+                      : 'ACTIVIDAD DE TAREA',
                   title: (m['titulo'] ?? '(Sin título)').toString(),
                 ),
                 const SizedBox(height: 12),
@@ -1035,9 +1154,14 @@ class _ProcesoEntry extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final message = (data['message'] ?? '').toString();
+    // La devolución del aprobador guarda su motivo en `reason`.
+    final message = (data['message'] ?? data['reason'] ?? '').toString();
+    final comment = (data['comment'] ?? data['comentario'] ?? '')
+        .toString()
+        .trim();
     final byName = (data['byName'] ?? data['createdByName'] ?? '').toString();
-    final byId = (data['byId'] ?? data['createdBy'] ?? '').toString();
+    final byId = (data['byId'] ?? data['by'] ?? data['createdBy'] ?? '')
+        .toString();
     final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
 
     // attachments pueden venir en 'attachments' (avances/novedades) o 'attachments' (finalizacion)
@@ -1110,6 +1234,19 @@ class _ProcesoEntry extends StatelessWidget {
                   height: 1.4,
                   color: Colors.black87,
                 ),
+              ),
+            ),
+          if (comment.isNotEmpty)
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                14,
+                message.isEmpty ? 10 : 0,
+                14,
+                10,
+              ),
+              child: Text(
+                isFinalizacion ? 'Comentario: $comment' : comment,
+                style: const TextStyle(fontSize: 14, height: 1.4),
               ),
             ),
           // Archivos adjuntos

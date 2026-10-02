@@ -125,6 +125,10 @@ export {
   interventoriaResolverEliminacion,
   interventoriaEliminarActa,
 } from "./interventoria_deletion";
+export {interventoriaCambiarAprobador} from "./interventoria_aprobador";
+// Tareas — al cambiar el jefe inmediato de alguien, sus tareas activas pasan
+// al jefe nuevo y a él se le avisa.
+export {tareasReemplazarJefeInmediato} from "./jefe_inmediato_sync";
 export {visitasEliminarFormato, visitasEliminarPrueba} from "./visitas_cleanup";
 export {visitasBuscarLugar} from "./visitas_lugares";
 export {

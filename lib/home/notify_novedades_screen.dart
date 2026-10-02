@@ -25,9 +25,12 @@ import 'package:todo/utils/task_status.dart';
 import 'package:todo/widgets/task_action_context_card.dart';
 
 import '../services/task_service.dart';
+import 'complete_task_screen.dart' show CompleteTaskScreen;
 
 const Color kMarronOscuro = Color(0xFF145DA0);
 const String kArial = 'Arial';
+
+enum _NovedadDecision { guardarNovedad, irAFinalizacion }
 
 class NotifyNovedadesScreen extends StatefulWidget {
   final String taskId;
@@ -357,6 +360,65 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
       return;
     }
 
+    final decision = await showDialog<_NovedadDecision>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('¿Novedad o finalización?'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Una novedad informa un inconveniente o bloqueo y mantiene la '
+                'tarea abierta. Si ya se cumplió, registra una finalización '
+                'para enviarla a aprobación.',
+              ),
+              if (_picked.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                const Text(
+                  'Si vas a finalización, podrás adjuntar allí las evidencias. '
+                  'Los archivos seleccionados aquí no se trasladan.',
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Seguir editando'),
+          ),
+          OutlinedButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, _NovedadDecision.irAFinalizacion),
+            child: const Text('Ir a finalización'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, _NovedadDecision.guardarNovedad),
+            child: const Text('Guardar novedad'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || decision == null) return;
+    if (decision == _NovedadDecision.irAFinalizacion) {
+      final completed = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => CompleteTaskScreen(
+            taskId: widget.taskId,
+            currentUserId: widget.currentUserId,
+            requestFinish: true,
+            requestFinishByName: _currentUserName,
+            initialComment: _descCtrl.text.trim(),
+          ),
+        ),
+      );
+      if (mounted && completed == true) Navigator.of(context).pop(true);
+      return;
+    }
+
     setState(() {
       _busy = true;
       _error = null;
@@ -449,163 +511,178 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
         child: GestureDetector(
           behavior: HitTestBehavior.translucent,
           onTap: () => FocusScope.of(context).unfocus(),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: TaskActionContextCard(
-                  title: _taskTitle ?? 'Cargando tarea...',
-                  status: estado,
-                  dueDate: _taskDueDate(),
-                  icon: Icons.report_problem_outlined,
-                  accentColor: Colors.orange.shade700,
-                  subtitle: _currentUserName == null
-                      ? null
-                      : 'Reporta: $_currentUserName',
-                ),
-              ),
-
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
-                child: TextField(
-                  controller: _descCtrl,
-                  minLines: 3,
-                  maxLines: 6,
-                  maxLength: _maxDescLen,
-                  decoration: InputDecoration(
-                    labelText: 'Descripción de la novedad',
-                    hintText: '¿Qué ocurrió?',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  onChanged: (_) => setState(() {}),
-                ),
-              ),
-
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                child: Row(
+          child: SingleChildScrollView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 720),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Expanded(
-                      child: _ActionButton(
-                        icon: Icons.attach_file,
-                        label: 'Adjuntar\narchivos',
-                        onTap: _busy ? null : _pickFiles,
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                      child: TaskActionContextCard(
+                        title: _taskTitle ?? 'Cargando tarea...',
+                        status: estado,
+                        dueDate: _taskDueDate(),
+                        icon: Icons.report_problem_outlined,
+                        accentColor: Colors.orange.shade700,
+                        subtitle: _currentUserName == null
+                            ? null
+                            : 'Reporta: $_currentUserName',
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _ActionButton(
-                        icon: _takingPhoto
-                            ? Icons.hourglass_top
-                            : Icons.camera_alt,
-                        label: _takingPhoto ? 'Procesando...' : 'Tomar foto',
-                        onTap: _busy || _takingPhoto ? null : _takePhoto,
+
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+                      child: TextField(
+                        controller: _descCtrl,
+                        minLines: 3,
+                        maxLines: 6,
+                        maxLength: _maxDescLen,
+                        decoration: InputDecoration(
+                          labelText: 'Descripción de la novedad',
+                          hintText: '¿Qué ocurrió?',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ),
+
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: _ActionButton(
+                              icon: Icons.attach_file,
+                              label: 'Adjuntar\narchivos',
+                              onTap: _busy ? null : _pickFiles,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _ActionButton(
+                              icon: _takingPhoto
+                                  ? Icons.hourglass_top
+                                  : Icons.camera_alt,
+                              label: _takingPhoto
+                                  ? 'Procesando...'
+                                  : 'Tomar foto',
+                              onTap: _busy || _takingPhoto ? null : _takePhoto,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    if (_picked.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: _picked.length,
+                          separatorBuilder: (_, _) => const SizedBox(height: 8),
+                          itemBuilder: (_, i) {
+                            final f = _picked[i];
+                            final isImg =
+                                f.name.toLowerCase().endsWith('.png') ||
+                                f.name.toLowerCase().endsWith('.jpg') ||
+                                f.name.toLowerCase().endsWith('.jpeg');
+                            return Container(
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.grey.shade300),
+                              ),
+                              child: ListTile(
+                                leading: Icon(
+                                  isImg
+                                      ? Icons.image
+                                      : Icons.insert_drive_file_outlined,
+                                ),
+                                title: Text(
+                                  f.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(
+                                  '${(f.size / 1024).toStringAsFixed(1)} KB',
+                                ),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.close),
+                                  onPressed: _busy
+                                      ? null
+                                      : () =>
+                                            setState(() => _picked.removeAt(i)),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      )
+                    else
+                      const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: Text(
+                          'Puedes adjuntar fotos o documentos como evidencia.',
+                          style: TextStyle(
+                            fontFamily: kArial,
+                            color: Colors.black54,
+                          ),
+                        ),
+                      ),
+
+                    if (_error != null)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+                        child: Text(
+                          _error!,
+                          style: const TextStyle(color: Colors.red),
+                        ),
+                      ),
+
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _busy || !_canSend ? null : _submit,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: kMarronOscuro,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          icon: _busy
+                              ? const SizedBox(
+                                  height: 18,
+                                  width: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.send_rounded),
+                          label: Text(
+                            _busy ? 'Enviando...' : 'Enviar novedad',
+                            style: const TextStyle(fontFamily: kArial),
+                          ),
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
-
-              if (_picked.isNotEmpty)
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                    child: ListView.separated(
-                      itemCount: _picked.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 8),
-                      itemBuilder: (_, i) {
-                        final f = _picked[i];
-                        final isImg =
-                            f.name.toLowerCase().endsWith('.png') ||
-                            f.name.toLowerCase().endsWith('.jpg') ||
-                            f.name.toLowerCase().endsWith('.jpeg');
-                        return Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.grey.shade300),
-                          ),
-                          child: ListTile(
-                            leading: Icon(
-                              isImg
-                                  ? Icons.image
-                                  : Icons.insert_drive_file_outlined,
-                            ),
-                            title: Text(
-                              f.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            subtitle: Text(
-                              '${(f.size / 1024).toStringAsFixed(1)} KB',
-                            ),
-                            trailing: IconButton(
-                              icon: const Icon(Icons.close),
-                              onPressed: _busy
-                                  ? null
-                                  : () => setState(() => _picked.removeAt(i)),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                )
-              else
-                const Padding(
-                  padding: EdgeInsets.only(top: 8),
-                  child: Text(
-                    'Puedes adjuntar fotos o documentos como evidencia.',
-                    style: TextStyle(fontFamily: kArial, color: Colors.black54),
-                  ),
-                ),
-
-              if (_error != null)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
-                  child: Text(
-                    _error!,
-                    style: const TextStyle(color: Colors.red),
-                  ),
-                ),
-
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: _busy || !_canSend ? null : _submit,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: kMarronOscuro,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    icon: _busy
-                        ? const SizedBox(
-                            height: 18,
-                            width: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.send_rounded),
-                    label: Text(
-                      _busy ? 'Enviando...' : 'Enviar novedad',
-                      style: const TextStyle(fontFamily: kArial),
-                    ),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),

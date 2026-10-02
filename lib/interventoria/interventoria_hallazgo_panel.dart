@@ -9,8 +9,12 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 import '../core/user_directory.dart';
+import '../core/task_permissions.dart';
+import '../home/complete_task_screen.dart';
+import '../home/task_history_screen.dart' show TaskActivityScreen;
 import '../widgets/memo_stream_builder.dart';
 import '../widgets/user_avatar.dart';
+import 'interventoria_actas_catalogo.dart';
 import 'interventoria_models.dart';
 import 'interventoria_service.dart';
 import 'interventoria_tablero_asignacion.dart';
@@ -190,6 +194,7 @@ class _InterventoriaHallazgoPanelState
                   const SizedBox(height: 8),
                   _AvanceDeTarea(
                     tareaId: _h.tareaId,
+                    currentUserId: widget.userId,
                     puedeAprobar: puedeAprobarHallazgo(_h, widget.userId),
                     aprobadorNombre: _h.aprobadorNombre,
                     onAprobar: () => _resolverSubsanacion(true),
@@ -332,6 +337,17 @@ class _InterventoriaHallazgoPanelState
                     color: _ink,
                   ),
                 ),
+                // El numeral se busca en el maestro de SU acta: el 3.1 de
+                // policía no existe en el acta regular.
+                if (tieneCatalogoPropio(_h.tipoActa))
+                  Text(
+                    'Acta de ${etiquetaTipoActa(_h.tipoActa).toLowerCase()}',
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: _accent,
+                    ),
+                  ),
                 const SizedBox(height: 3),
                 Text(
                   _h.descripcion,
@@ -468,8 +484,10 @@ class _InterventoriaHallazgoPanelState
           else
             Text(
               _h.numeralParaMatriz.isEmpty
-                  ? 'No se pudo identificar el numeral del acta. Elige tú el responsable.'
-                  : 'Elige manualmente la persona responsable de este numeral.',
+                  ? 'No se pudo identificar el numeral del acta. Elige tú el '
+                        'responsable y quién aprueba.'
+                  : 'Elige manualmente quién responde por este numeral y '
+                        'quién aprueba la subsanación.',
               style: const TextStyle(fontSize: 13),
             ),
           if (_h.aprobadorNombre.trim().isNotEmpty) ...[
@@ -505,6 +523,20 @@ class _InterventoriaHallazgoPanelState
                       style: const TextStyle(fontSize: 12),
                     ),
                   ),
+                  if (asignado && _h.id.trim().isNotEmpty)
+                    OutlinedButton.icon(
+                      onPressed: _cambiarAprobador,
+                      style: OutlinedButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      icon: const Icon(Icons.verified_user_outlined, size: 16),
+                      label: Text(
+                        _h.aprobadorNombre.trim().isEmpty
+                            ? 'Elegir aprobador'
+                            : 'Cambiar aprobador',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
                   if (asignado)
                     TextButton.icon(
                       onPressed: _quitarAsignacion,
@@ -811,33 +843,29 @@ class _InterventoriaHallazgoPanelState
     }
   }
 
+  /// Personal activo, reciba o no tareas: de ahí sale quién aprueba.
+  Future<List<InterventoriaUsuario>>? _activos;
+
+  Future<List<InterventoriaUsuario>> _cargarActivos() =>
+      _activos ??= widget.service.listarUsuariosActivos(widget.empresaId);
+
   Future<void> _elegirPersona() async {
-    final elegido = await showModalBottomSheet<InterventoriaUsuario>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => InterventoriaSelectorPersona(
-        usuarios: _usuarios,
-        centroCostoId: _h.centroCostoId,
-        centroCostoNombre: _h.centroCostoNombre,
-        areas: _areas,
-      ),
+    final elegida = await elegirAsignacionManual(
+      context,
+      service: widget.service,
+      hallazgo: _h,
+      usuarios: _usuarios,
+      areas: _areas,
+      cargarActivos: _cargarActivos,
+      cargarReglas: () => widget.service.reglasSubsanacion(widget.empresaId),
     );
-    if (elegido == null) return;
-    await _asignar(
-      InterventoriaPersona(
-        id: elegido.id,
-        nombre: elegido.nombre,
-        cargo: elegido.cargo,
-        cargoMatriz: '',
-        delCentro: elegido.cubreCentro(_h.centroCostoId),
-      ),
-      forzado: true,
-    );
+    if (elegida == null) return;
+    await _asignar(elegida.responsable, aprobador: elegida.aprobador);
   }
 
   Future<void> _asignar(
     InterventoriaPersona persona, {
-    bool forzado = false,
+    required InterventoriaPersona aprobador,
   }) async {
     setState(() => _asignando = true);
     try {
@@ -850,7 +878,8 @@ class _InterventoriaHallazgoPanelState
         hallazgo: hallazgo,
         creadorId: widget.userId,
         creadorNombre: widget.userId,
-        responsableForzado: forzado ? persona : null,
+        responsableForzado: persona,
+        aprobadorForzado: aprobador,
       );
       if (!mounted) return;
       // El panel no vive del stream, así que refleja el cambio de una vez.
@@ -858,12 +887,68 @@ class _InterventoriaHallazgoPanelState
         _h = hallazgo.copyWith(
           responsableId: persona.id,
           responsableNombre: persona.nombre,
-          cargoResponsable: forzado ? persona.cargo : persona.cargoMatriz,
+          cargoResponsable: persona.cargo,
+          aprobadorId: aprobador.id,
+          aprobadorNombre: aprobador.nombre,
+          cargoAprobador: aprobador.cargoMatriz.trim().isNotEmpty
+              ? aprobador.cargoMatriz
+              : aprobador.cargo,
         );
       });
-      _aviso('Asignado a ${persona.nombre}');
+      _aviso('Asignado a ${persona.nombre} · aprueba ${aprobador.nombre}');
     } catch (e) {
       _aviso('No se pudo asignar: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _asignando = false);
+    }
+  }
+
+  /// Cambia solo quién aprueba, sin rehacer la tarea (28 sep 2026).
+  Future<void> _cambiarAprobador() async {
+    List<InterventoriaUsuario> activos;
+    try {
+      activos = await _cargarActivos();
+    } catch (e) {
+      _activos = null;
+      _aviso('No se pudo cargar el personal: $e', error: true);
+      return;
+    }
+    if (!mounted) return;
+    var reglas = const <String, dynamic>{};
+    try {
+      reglas = await widget.service.reglasSubsanacion(widget.empresaId);
+    } catch (_) {}
+    if (!mounted) return;
+    final delMaestro = widget.service.sugerirAprobador(
+      _h,
+      activos,
+      reglas: reglas,
+    );
+    final nuevo = await elegirAprobadorHallazgo(
+      context,
+      hallazgo: _h,
+      usuarios: activos,
+      areas: _areas,
+      sugeridosIds: {if (delMaestro != null) delMaestro.id},
+    );
+    if (nuevo == null || !mounted) return;
+    setState(() => _asignando = true);
+    try {
+      final cargo = await widget.service.cambiarAprobadorHallazgo(
+        hallazgo: _h,
+        aprobador: nuevo,
+      );
+      if (!mounted) return;
+      setState(() {
+        _h = _h.copyWith(
+          aprobadorId: nuevo.id,
+          aprobadorNombre: nuevo.nombre,
+          cargoAprobador: cargo,
+        );
+      });
+      _aviso('Ahora aprueba ${nuevo.nombre}');
+    } catch (e) {
+      _aviso('No se pudo cambiar el aprobador: $e', error: true);
     } finally {
       if (mounted) setState(() => _asignando = false);
     }
@@ -1029,6 +1114,7 @@ class _EvidenciasSubsanacion extends StatelessWidget {
 /// evidencias. Es la respuesta a "¿cómo va esto?" sin salir del hallazgo.
 class _AvanceDeTarea extends StatelessWidget {
   final String tareaId;
+  final String currentUserId;
   final bool puedeAprobar;
   final String aprobadorNombre;
   final VoidCallback onAprobar;
@@ -1036,6 +1122,7 @@ class _AvanceDeTarea extends StatelessWidget {
 
   const _AvanceDeTarea({
     required this.tareaId,
+    required this.currentUserId,
     required this.puedeAprobar,
     required this.aprobadorNombre,
     required this.onAprobar,
@@ -1077,6 +1164,7 @@ class _AvanceDeTarea extends StatelessWidget {
               final pendiente =
                   estado.toLowerCase() == 'por_aprobar' ||
                   (data['solicitud_finalizacion_estado'] ?? '') == 'pendiente';
+              final esResponsable = isTaskAssignedToUser(data, [currentUserId]);
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1093,6 +1181,43 @@ class _AvanceDeTarea extends StatelessWidget {
                       ),
                     ],
                   ),
+                  if (esResponsable || puedeAprobar) ...[
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        if (esResponsable &&
+                            !pendiente &&
+                            estado.toLowerCase() != 'finalizado')
+                          FilledButton.icon(
+                            onPressed: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => CompleteTaskScreen(
+                                  taskId: tareaId,
+                                  currentUserId: currentUserId,
+                                  requestFinish: true,
+                                ),
+                              ),
+                            ),
+                            icon: const Icon(Icons.check_circle_outline),
+                            label: const Text('Solicitar finalización'),
+                          ),
+                        OutlinedButton.icon(
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => TaskActivityScreen(
+                                taskId: tareaId,
+                                currentUserId: currentUserId,
+                              ),
+                            ),
+                          ),
+                          icon: const Icon(Icons.history_rounded),
+                          label: const Text('Ver historial de actividad'),
+                        ),
+                      ],
+                    ),
+                  ],
                   if (adjuntos.isNotEmpty) ...[
                     const SizedBox(height: 10),
                     const Text(

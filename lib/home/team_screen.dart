@@ -399,10 +399,9 @@ class _TeamScreenState extends State<TeamScreen>
       if (emp.isEmpty) {
         continue;
       } else {
-        final snaps = await Future.wait([
-          base.where('empresaId', isEqualTo: emp).get(),
-          base.where('empresas', arrayContains: emp).get(),
-        ]);
+        // Solo por `empresaId`: la tarea pertenece a su empresa, y la
+        // consulta por la lista `empresas` la rechazan las reglas.
+        final snaps = [await base.where('empresaId', isEqualTo: emp).get()];
         final seen = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
         for (final s in snaps) {
           for (final d in s.docs) {

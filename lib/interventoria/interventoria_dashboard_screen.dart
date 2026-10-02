@@ -30,6 +30,7 @@ import '../widgets/internal_module_layout.dart';
 import '../widgets/memo_stream_builder.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 
+import 'interventoria_conceptos_sanitarios.dart';
 import 'interventoria_hallazgo_panel.dart';
 import 'interventoria_maestro_subsanaciones.dart';
 import 'interventoria_subsanaciones_export.dart';
@@ -328,6 +329,12 @@ class _InterventoriaDashboardScreenState
         label: 'Subsanaciones',
         icon: Icons.grid_on_rounded,
       ),
+      // Actas de concepto higiénico sanitario (28 sep 2026). Las ve todo el
+      // módulo; las sube quien escribe en él.
+      const InternalModuleTabItem(
+        label: 'Concepto sanitario',
+        icon: Icons.health_and_safety_outlined,
+      ),
       if (canMaestro)
         const InternalModuleTabItem(
           label: 'Maestro',
@@ -545,6 +552,19 @@ class _InterventoriaDashboardScreenState
                       },
                     );
                   },
+                ),
+                // Tab: Concepto sanitario — mismo índice que en `tabs`.
+                InterventoriaConceptosSanitariosTab(
+                  service: _svc,
+                  empresaId: widget.empresaId,
+                  userId: widget.userId,
+                  canEdit: canWrite || _esAdminDesarrollo,
+                  // Igual que las reglas: administración, gerencia y
+                  // Desarrollo.
+                  canDelete:
+                      _esAdminDesarrollo ||
+                      kInterventoriaRolesReasignan.contains(rol),
+                  centroFijoId: esRegistrador ? _centroFijoId : null,
                 ),
                 // Tab: Maestro — biblioteca de los 141 numerales y su regla
                 // de asignación. Dirección, gerencia y administración del
@@ -5630,6 +5650,28 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
     }
   }
 
+  /// Scroll de toda la pestaña. Antes el gráfico ocupaba lo suyo y la matriz
+  /// se metía con su propio scroll en el alto que sobraba: en un portátil
+  /// quedaba una rendija y la rueda del mouse no bajaba (28 sep 2026).
+  final ScrollController _vCtrl = ScrollController();
+
+  /// Scroll horizontal de la matriz, con una sola barra que sí se arrastra.
+  /// Llevaba dos barras encimadas —la del tema y la puesta a mano, esta sin
+  /// controlador—, y al agarrar la de abajo la tabla no se movía.
+  final ScrollController _hCtrl = ScrollController();
+
+  /// Página de columnas (actas) de la matriz: de a 20, como todo listado.
+  int _paginaColumnas = 0;
+
+  OrdenComparativo _orden = OrdenComparativo.recientes;
+
+  @override
+  void dispose() {
+    _vCtrl.dispose();
+    _hCtrl.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return MemoStreamBuilder<List<InterventoriaVisita>>(
@@ -5666,463 +5708,443 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
               .toList();
         }
 
-        // TODAS las visitas como columnas, ordenadas por fecha DESC
+        // Todas las visitas como columnas, de la más reciente a la más vieja.
         final visitasParaTabla = visitasFiltradas.toList()
           ..sort((a, b) => b.fechaVisita.compareTo(a.fechaVisita));
 
+        final comparandoEstablecimientos = widget.centroFiltro.isEmpty;
+        final chartCard = comparandoEstablecimientos
+            ? _ComparativoUltimaActaCard(
+                title: _categoriaKey.isEmpty
+                    ? 'Última acta por establecimiento'
+                    : 'Última acta por establecimiento · categoría',
+                subtitle: _buildComparativoSubtitle(visitasFiltradas.length),
+                points: ordenarComparativo(
+                  compararUltimaActaPorEstablecimiento(
+                    visitasFiltradas,
+                    categoriaKey: _categoriaKey,
+                  ),
+                  _orden,
+                ),
+                orden: _orden,
+                onOrdenChanged: (o) => setState(() => _orden = o),
+                onSelected: (centroId) =>
+                    widget.onCentroChanged?.call(centroId),
+              )
+            : _TimelineChartCard(
+                title: _categoriaKey.isEmpty
+                    ? 'Línea de tiempo del puntaje general'
+                    : 'Línea de tiempo por categoría',
+                subtitle: _buildTimelineSubtitle(
+                  centrosMap,
+                  visitasFiltradas.length,
+                ),
+                points: _buildTimelinePoints(visitasFiltradas),
+              );
+
+        final barraRecoger = Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: () =>
+                setState(() => _reporteRecogido = !_reporteRecogido),
+            icon: Icon(
+              _reporteRecogido
+                  ? Icons.unfold_more_rounded
+                  : Icons.unfold_less_rounded,
+              size: 16,
+            ),
+            label: Text(
+              _reporteRecogido ? 'Mostrar el reporte' : 'Recoger el reporte',
+              style: const TextStyle(fontSize: 12),
+            ),
+            style: TextButton.styleFrom(
+              foregroundColor: _kAccent,
+              visualDensity: VisualDensity.compact,
+            ),
+          ),
+        );
+
+        // Web y móvil comparten el recorrido: filtros, gráfico y matriz en
+        // una sola columna que baja con la página. Lo que cambia es la
+        // cabecera (apilada en el teléfono, en una fila en pantalla ancha).
         return InternalModuleViewport(
           maxWidth: 1800,
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              // ── Cabecera responsive ─────────────────────────────────────
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final esMovil = constraints.maxWidth < 600;
-                  final dropEstablecimiento = _CentroCostoFilterDropdown(
-                    service: widget.service,
-                    empresaId: widget.empresaId,
-                    fallbackCentros: centrosMap,
-                    value: widget.centroFiltro,
-                    onChanged: widget.onCentroChanged,
-                  );
-                  final dropCategoria = DropdownButtonFormField<String>(
-                    initialValue: _categoriaKey,
-                    decoration: const InputDecoration(
-                      labelText: 'Categoría del gráfico',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    items: [
-                      const DropdownMenuItem(
-                        value: '',
-                        child: Text('Total general'),
-                      ),
-                      // Todas las actas, no solo la regular: las de
-                      // Infraestructura y Estación de Policía existían en el
-                      // histórico y desaparecían del análisis.
-                      ...opcionesCategoriaAnalisis().map(
-                        (o) => DropdownMenuItem(
-                          value: o.valor,
-                          child: Text(o.etiqueta),
-                        ),
-                      ),
-                    ],
-                    onChanged: (v) => setState(() => _categoriaKey = v ?? ''),
-                  );
-                  final btnExportar = OutlinedButton.icon(
-                    onPressed: visitas.isEmpty
-                        ? null
-                        : () => _exportarExcel(ctx, visitasFiltradas),
-                    icon: const Icon(Icons.download_rounded, size: 16),
-                    label: Text(esMovil ? 'Excel' : 'Exportar Excel'),
-                  );
-                  final fmtFecha = DateFormat('dd/MM/yy');
-                  final btnDesde = OutlinedButton.icon(
-                    onPressed: () => _seleccionarFecha(true),
-                    icon: const Icon(Icons.event_rounded, size: 16),
-                    label: Text(
-                      widget.fechaDesde == null
-                          ? 'Desde'
-                          : fmtFecha.format(widget.fechaDesde!),
-                    ),
-                  );
-                  final btnHasta = OutlinedButton.icon(
-                    onPressed: () => _seleccionarFecha(false),
-                    icon: const Icon(Icons.event_rounded, size: 16),
-                    label: Text(
-                      widget.fechaHasta == null
-                          ? 'Hasta'
-                          : fmtFecha.format(widget.fechaHasta!),
-                    ),
-                  );
-                  final btnLimpiarFechas =
-                      (widget.fechaDesde != null || widget.fechaHasta != null)
-                      ? IconButton(
-                          tooltip: 'Quitar filtro de fechas',
-                          icon: const Icon(
-                            Icons.filter_alt_off_rounded,
-                            size: 18,
-                          ),
-                          onPressed: () {
-                            widget.onFechaDesdeChanged?.call(null);
-                            widget.onFechaHastaChanged?.call(null);
-                          },
-                        )
-                      : const SizedBox.shrink();
-
-                  if (esMovil) {
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Análisis de puntajes',
-                          style: TextStyle(
-                            fontFamily: _kFont,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 16,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        dropEstablecimiento,
-                        const SizedBox(height: 8),
-                        dropCategoria,
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [btnDesde, btnHasta, btnLimpiarFechas],
-                        ),
-                        const SizedBox(height: 8),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: btnExportar,
-                        ),
-                      ],
-                    );
-                  }
-
-                  // Web / tablet
-                  return Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      const Text(
-                        'Análisis de puntajes por establecimiento',
-                        style: TextStyle(
-                          fontFamily: _kFont,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 18,
-                        ),
-                      ),
-                      SizedBox(width: 220, child: dropEstablecimiento),
-                      SizedBox(width: 240, child: dropCategoria),
-                      btnDesde,
-                      btnHasta,
-                      btnLimpiarFechas,
-                      btnExportar,
-                    ],
-                  );
-                },
-              ),
-              const SizedBox(height: 14),
-              // ── DataTable + Chart — responsive ──────────────────────────
-              Expanded(
-                child: LayoutBuilder(
-                  builder: (context, lc) {
-                    final esMovil = lc.maxWidth < 900;
-
-                    final comparandoEstablecimientos =
-                        widget.centroFiltro.isEmpty;
-                    final chartCard = comparandoEstablecimientos
-                        ? _ComparativoUltimaActaCard(
-                            title: _categoriaKey.isEmpty
-                                ? 'Última acta por establecimiento'
-                                : 'Última acta por establecimiento · categoría',
-                            subtitle: _buildComparativoSubtitle(
-                              visitasFiltradas.length,
-                            ),
-                            points: compararUltimaActaPorEstablecimiento(
-                              visitasFiltradas,
-                              categoriaKey: _categoriaKey,
-                            ),
-                            onSelected: (centroId) =>
-                                widget.onCentroChanged?.call(centroId),
-                          )
-                        : _TimelineChartCard(
-                            title: _categoriaKey.isEmpty
-                                ? 'Línea de tiempo del puntaje general'
-                                : 'Línea de tiempo por categoría',
-                            subtitle: _buildTimelineSubtitle(
-                              centrosMap,
-                              visitasFiltradas.length,
-                            ),
-                            points: _buildTimelinePoints(visitasFiltradas),
-                          );
-
-                    final fmt = DateFormat('dd/MM/yy');
-                    final matrizCard = visitasParaTabla.isEmpty
-                        ? const Center(child: Text('Sin visitas registradas'))
-                        : Card(
-                            child: BarraHorizontal(
-                              child: SingleChildScrollView(
-                                scrollDirection: Axis.horizontal,
-                                child: SingleChildScrollView(
-                                  child: PagedDataTable(
-                                    etiqueta: 'hallazgos',
-                                    tabla: DataTable(
-                                      headingRowColor: WidgetStateProperty.all(
-                                        const Color(0xFFF1F5F9),
-                                      ),
-                                      columnSpacing: 16,
-                                      columns: [
-                                        const DataColumn(
-                                          label: Text(
-                                            'SECCIÓN',
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.w900,
-                                              fontSize: 11,
-                                            ),
-                                          ),
-                                        ),
-                                        // Una columna por VISITA (histórico completo)
-                                        ...visitasParaTabla.map((v) {
-                                          final pdfAdj = v.adjuntos
-                                              .where(
-                                                (a) =>
-                                                    a.contentType.contains(
-                                                      'pdf',
-                                                    ) ||
-                                                    a.nombre
-                                                        .toLowerCase()
-                                                        .endsWith('.pdf'),
-                                              )
-                                              .toList();
-                                          return DataColumn(
-                                            label: SizedBox(
-                                              width: 100,
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Text(
-                                                    // Con subcentro: dos
-                                                    // columnas "Combita" no
-                                                    // dicen cuál es Alta.
-                                                    v
-                                                            .centroCostoNombre
-                                                            .isNotEmpty
-                                                        ? nombreComparativo(v)
-                                                        : v.centroCostoCodigo,
-                                                    style: const TextStyle(
-                                                      fontWeight:
-                                                          FontWeight.w900,
-                                                      fontSize: 11,
-                                                    ),
-                                                    maxLines: 1,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                  ),
-                                                  Text(
-                                                    fmt.format(
-                                                      v.fechaVisita.toDate(),
-                                                    ),
-                                                    style: const TextStyle(
-                                                      fontSize: 10,
-                                                      color: Color(0xFF64748B),
-                                                    ),
-                                                  ),
-                                                  // Icono PDF si la visita tiene adjuntos PDF
-                                                  if (pdfAdj.isNotEmpty)
-                                                    InkWell(
-                                                      onTap: () =>
-                                                          _abrirPdfVisita(
-                                                            ctx,
-                                                            pdfAdj.first.url,
-                                                            v.centroCostoNombre,
-                                                            fmt.format(
-                                                              v.fechaVisita
-                                                                  .toDate(),
-                                                            ),
-                                                            fechaVisita: v
-                                                                .fechaVisita
-                                                                .toDate(),
-                                                          ),
-                                                      child: Row(
-                                                        mainAxisSize:
-                                                            MainAxisSize.min,
-                                                        children: [
-                                                          Icon(
-                                                            Icons
-                                                                .picture_as_pdf_rounded,
-                                                            size: 12,
-                                                            color: Colors
-                                                                .red
-                                                                .shade500,
-                                                          ),
-                                                          const SizedBox(
-                                                            width: 2,
-                                                          ),
-                                                          Text(
-                                                            'Ver PDF',
-                                                            style: TextStyle(
-                                                              fontSize: 9,
-                                                              color: Colors
-                                                                  .red
-                                                                  .shade500,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .w600,
-                                                            ),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                    ),
-                                                ],
-                                              ),
-                                            ),
-                                          );
-                                        }),
-                                      ],
-                                      rows: [
-                                        ...kInterventoriaCategorias.map((cat) {
-                                          return DataRow(
-                                            cells: [
-                                              DataCell(
-                                                SizedBox(
-                                                  width: 200,
-                                                  child: Text(
-                                                    cat.label,
-                                                    style: const TextStyle(
-                                                      fontSize: 12,
-                                                      fontWeight:
-                                                          FontWeight.w600,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                              ...visitasParaTabla.map((v) {
-                                                final item = v.items[cat.key];
-                                                return DataCell(
-                                                  _CeldaPuntaje(
-                                                    item: item,
-                                                    onTap:
-                                                        item != null &&
-                                                            !item.noEvaluado
-                                                        ? () =>
-                                                              _mostrarDetalleCelda(
-                                                                ctx,
-                                                                cat.label,
-                                                                v,
-                                                                cat.key,
-                                                              )
-                                                        : null,
-                                                  ),
-                                                );
-                                              }),
-                                            ],
-                                          );
-                                        }),
-                                        // Fila de total
-                                        DataRow(
-                                          color: WidgetStateProperty.all(
-                                            const Color(0xFFF8FAFC),
-                                          ),
-                                          cells: [
-                                            const DataCell(
-                                              Text(
-                                                'Total condiciones del servicio',
-                                                style: TextStyle(
-                                                  fontWeight: FontWeight.w900,
-                                                  fontSize: 12,
-                                                ),
-                                              ),
-                                            ),
-                                            ...visitasParaTabla.map((v) {
-                                              final pct = v.porcentajeGeneral;
-                                              final color = _percentColor(pct);
-                                              return DataCell(
-                                                Container(
-                                                  padding:
-                                                      const EdgeInsets.symmetric(
-                                                        horizontal: 6,
-                                                        vertical: 3,
-                                                      ),
-                                                  decoration: BoxDecoration(
-                                                    color: color.withValues(
-                                                      alpha: 0.15,
-                                                    ),
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          4,
-                                                        ),
-                                                  ),
-                                                  child: Text(
-                                                    '${pct.toStringAsFixed(1)}%',
-                                                    style: TextStyle(
-                                                      fontWeight:
-                                                          FontWeight.w900,
-                                                      fontSize: 12,
-                                                      color: color,
-                                                    ),
-                                                  ),
-                                                ),
-                                              );
-                                            }),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          );
-
-                    final barraRecoger = Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton.icon(
-                        onPressed: () => setState(
-                          () => _reporteRecogido = !_reporteRecogido,
-                        ),
-                        icon: Icon(
-                          _reporteRecogido
-                              ? Icons.unfold_more_rounded
-                              : Icons.unfold_less_rounded,
-                          size: 16,
-                        ),
-                        label: Text(
-                          _reporteRecogido
-                              ? 'Mostrar el reporte'
-                              : 'Recoger el reporte',
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                        style: TextButton.styleFrom(
-                          foregroundColor: _kAccent,
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      ),
-                    );
-
-                    if (esMovil) {
-                      // Móvil: scroll continuo — chart + tabla fluyen juntos
-                      return SingleChildScrollView(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            barraRecoger,
-                            if (!_reporteRecogido) ...[
-                              chartCard,
-                              const SizedBox(height: 14),
-                            ],
-                            matrizCard,
-                            const SizedBox(height: 16),
-                          ],
-                        ),
-                      );
-                    }
-
-                    // Web / tablet: chart arriba, tabla abajo con Expanded
-                    return Column(
-                      children: [
-                        barraRecoger,
-                        if (!_reporteRecogido) ...[
-                          chartCard,
-                          const SizedBox(height: 14),
-                        ],
-                        Expanded(child: matrizCard),
-                      ],
-                    );
-                  },
-                ),
-              ),
-            ],
+          padding: EdgeInsets.zero,
+          child: SingleChildScrollView(
+            controller: _vCtrl,
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _cabeceraAnalisis(ctx, visitas, visitasFiltradas, centrosMap),
+                const SizedBox(height: 14),
+                barraRecoger,
+                if (!_reporteRecogido) ...[
+                  chartCard,
+                  const SizedBox(height: 14),
+                ],
+                _matrizAnalisis(ctx, visitasParaTabla),
+                const SizedBox(height: 16),
+              ],
+            ),
           ),
         );
       },
+    );
+  }
+
+  Widget _cabeceraAnalisis(
+    BuildContext ctx,
+    List<InterventoriaVisita> visitas,
+    List<InterventoriaVisita> visitasFiltradas,
+    Map<String, String> centrosMap,
+  ) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final esMovil = constraints.maxWidth < 600;
+        final dropEstablecimiento = _CentroCostoFilterDropdown(
+          service: widget.service,
+          empresaId: widget.empresaId,
+          fallbackCentros: centrosMap,
+          value: widget.centroFiltro,
+          onChanged: widget.onCentroChanged,
+        );
+        final dropCategoria = DropdownButtonFormField<String>(
+          initialValue: _categoriaKey,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            labelText: 'Categoría del gráfico',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          items: [
+            const DropdownMenuItem(value: '', child: Text('Total general')),
+            // Todas las actas, no solo la regular: las de Infraestructura y
+            // Estación de Policía existían en el histórico y desaparecían
+            // del análisis.
+            ...opcionesCategoriaAnalisis().map(
+              (o) => DropdownMenuItem(
+                value: o.valor,
+                child: Text(o.etiqueta, overflow: TextOverflow.ellipsis),
+              ),
+            ),
+          ],
+          onChanged: (v) => setState(() => _categoriaKey = v ?? ''),
+        );
+        final btnExportar = OutlinedButton.icon(
+          onPressed: visitas.isEmpty
+              ? null
+              : () => _exportarExcel(ctx, visitasFiltradas),
+          icon: const Icon(Icons.download_rounded, size: 16),
+          label: Text(esMovil ? 'Excel' : 'Exportar Excel'),
+        );
+        final fmtFecha = DateFormat('dd/MM/yy');
+        final btnDesde = OutlinedButton.icon(
+          onPressed: () => _seleccionarFecha(true),
+          icon: const Icon(Icons.event_rounded, size: 16),
+          label: Text(
+            widget.fechaDesde == null
+                ? 'Desde'
+                : fmtFecha.format(widget.fechaDesde!),
+          ),
+        );
+        final btnHasta = OutlinedButton.icon(
+          onPressed: () => _seleccionarFecha(false),
+          icon: const Icon(Icons.event_rounded, size: 16),
+          label: Text(
+            widget.fechaHasta == null
+                ? 'Hasta'
+                : fmtFecha.format(widget.fechaHasta!),
+          ),
+        );
+        final btnLimpiarFechas =
+            (widget.fechaDesde != null || widget.fechaHasta != null)
+            ? IconButton(
+                tooltip: 'Quitar filtro de fechas',
+                icon: const Icon(Icons.filter_alt_off_rounded, size: 18),
+                onPressed: () {
+                  widget.onFechaDesdeChanged?.call(null);
+                  widget.onFechaHastaChanged?.call(null);
+                },
+              )
+            : const SizedBox.shrink();
+
+        if (esMovil) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Análisis de puntajes',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(height: 10),
+              dropEstablecimiento,
+              const SizedBox(height: 8),
+              dropCategoria,
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [btnDesde, btnHasta, btnLimpiarFechas],
+              ),
+              const SizedBox(height: 8),
+              Align(alignment: Alignment.centerRight, child: btnExportar),
+            ],
+          );
+        }
+
+        return Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            const Text(
+              'Análisis de puntajes por establecimiento',
+              style: TextStyle(
+                fontFamily: _kFont,
+                fontWeight: FontWeight.w900,
+                fontSize: 18,
+              ),
+            ),
+            SizedBox(width: 220, child: dropEstablecimiento),
+            SizedBox(width: 240, child: dropCategoria),
+            btnDesde,
+            btnHasta,
+            btnLimpiarFechas,
+            btnExportar,
+          ],
+        );
+      },
+    );
+  }
+
+  /// Matriz sección × acta. Las filas salen de los tipos de acta presentes
+  /// (ver `filasMatrizAnalisis`) y las columnas van de a 20 actas.
+  Widget _matrizAnalisis(BuildContext ctx, List<InterventoriaVisita> visitas) {
+    if (visitas.isEmpty) {
+      return const Card(
+        child: Padding(
+          padding: EdgeInsets.all(32),
+          child: Center(child: Text('Sin visitas registradas')),
+        ),
+      );
+    }
+    final totalPaginas = pageCountOf(visitas.length);
+    final pagina = _paginaColumnas.clamp(0, totalPaginas - 1);
+    final columnas = pageOf(visitas, pagina);
+    final filas = filasMatrizAnalisis(columnas);
+    final fmt = DateFormat('dd/MM/yy');
+
+    DataColumn columnaActa(InterventoriaVisita v) {
+      final pdfAdj = v.adjuntos
+          .where(
+            (a) =>
+                a.contentType.contains('pdf') ||
+                a.nombre.toLowerCase().endsWith('.pdf'),
+          )
+          .toList();
+      return DataColumn(
+        label: SizedBox(
+          width: 100,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                // Con subcentro: dos columnas "Combita" no dicen cuál es Alta.
+                v.centroCostoNombre.isNotEmpty
+                    ? nombreComparativo(v)
+                    : v.centroCostoCodigo,
+                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 11),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              Text(
+                fmt.format(v.fechaVisita.toDate()),
+                style: const TextStyle(fontSize: 10, color: Color(0xFF64748B)),
+              ),
+              if (pdfAdj.isNotEmpty)
+                InkWell(
+                  onTap: () => _abrirPdfVisita(
+                    ctx,
+                    pdfAdj.first.url,
+                    v.centroCostoNombre,
+                    fmt.format(v.fechaVisita.toDate()),
+                    fechaVisita: v.fechaVisita.toDate(),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.picture_as_pdf_rounded,
+                        size: 12,
+                        color: Colors.red.shade500,
+                      ),
+                      const SizedBox(width: 2),
+                      Text(
+                        'Ver PDF',
+                        style: TextStyle(
+                          fontSize: 9,
+                          color: Colors.red.shade500,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    DataRow filaMatriz(FilaMatrizAnalisis fila) {
+      if (fila.esTitulo) {
+        return DataRow(
+          color: WidgetStateProperty.all(const Color(0xFFF0FDFA)),
+          cells: [
+            DataCell(
+              Text(
+                'Acta ${etiquetaTipoActa(fila.familia)}'.toUpperCase(),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 11,
+                  color: _kAccent,
+                  letterSpacing: .4,
+                ),
+              ),
+            ),
+            for (final _ in columnas) const DataCell(SizedBox.shrink()),
+          ],
+        );
+      }
+      final cat = fila.categoria!;
+      return DataRow(
+        cells: [
+          DataCell(
+            SizedBox(
+              width: 200,
+              child: Text(
+                cat.label,
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+          for (final v in columnas)
+            if (!fila.aplicaA(v))
+              // Otra acta: esta sección no existe en ella. No es "NE", que
+              // quiere decir que existía y no se evaluó.
+              const DataCell(
+                Text('—', style: TextStyle(color: Color(0xFFCBD5E1))),
+              )
+            else
+              DataCell(
+                _CeldaPuntaje(
+                  item: v.items[cat.key],
+                  onTap:
+                      v.items[cat.key] != null && !v.items[cat.key]!.noEvaluado
+                      ? () => _mostrarDetalleCelda(ctx, cat.label, v, cat.key)
+                      : null,
+                ),
+              ),
+        ],
+      );
+    }
+
+    final filaTotal = DataRow(
+      color: WidgetStateProperty.all(const Color(0xFFF8FAFC)),
+      cells: [
+        const DataCell(
+          Text(
+            'Total condiciones del servicio',
+            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+          ),
+        ),
+        for (final v in columnas)
+          DataCell(
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+              decoration: BoxDecoration(
+                color: _percentColor(v.porcentajeGeneral).withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                '${v.porcentajeGeneral.toStringAsFixed(1)}%',
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 12,
+                  color: _percentColor(v.porcentajeGeneral),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+
+    final tabla = DataTable(
+      headingRowColor: WidgetStateProperty.all(const Color(0xFFF1F5F9)),
+      columnSpacing: 16,
+      columns: [
+        const DataColumn(
+          label: Text(
+            'SECCIÓN',
+            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11),
+          ),
+        ),
+        ...columnas.map(columnaActa),
+      ],
+      rows: [...filas.map(filaMatriz), filaTotal],
+    );
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+            child: Text(
+              'Puntaje por sección · ${visitas.length} acta'
+              '${visitas.length == 1 ? '' : 's'}, la más reciente primero',
+              style: const TextStyle(
+                fontFamily: _kFont,
+                fontWeight: FontWeight.w900,
+                fontSize: 14,
+              ),
+            ),
+          ),
+          // Una sola barra, siempre visible y con controlador propio: se
+          // arrastra con el mouse para recorrer las actas.
+          BarraHorizontal(
+            controller: _hCtrl,
+            thumbVisibility: true,
+            child: SingleChildScrollView(
+              controller: _hCtrl,
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.only(bottom: 14),
+              child: tabla,
+            ),
+          ),
+          if (totalPaginas > 1)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: PagerBar(
+                total: visitas.length,
+                page: pagina,
+                etiqueta: 'actas',
+                onPageChanged: (p) {
+                  setState(() => _paginaColumnas = p);
+                  if (_hCtrl.hasClients) _hCtrl.jumpTo(0);
+                },
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -6502,18 +6524,50 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
   }
 }
 
-class _ComparativoUltimaActaCard extends StatelessWidget {
+class _ComparativoUltimaActaCard extends StatefulWidget {
   final String title;
   final String subtitle;
   final List<InterventoriaComparativoActa> points;
+  final OrdenComparativo orden;
+  final ValueChanged<OrdenComparativo>? onOrdenChanged;
   final ValueChanged<String>? onSelected;
 
   const _ComparativoUltimaActaCard({
     required this.title,
     required this.subtitle,
     required this.points,
+    this.orden = OrdenComparativo.recientes,
+    this.onOrdenChanged,
     this.onSelected,
   });
+
+  @override
+  State<_ComparativoUltimaActaCard> createState() =>
+      _ComparativoUltimaActaCardState();
+}
+
+class _ComparativoUltimaActaCardState
+    extends State<_ComparativoUltimaActaCard> {
+  /// Controlador propio: la barra horizontal del gráfico tiene que poder
+  /// arrastrarse cuando hay más establecimientos de los que caben.
+  final ScrollController _hCtrl = ScrollController();
+
+  String get subtitle => widget.subtitle;
+  List<InterventoriaComparativoActa> get points => widget.points;
+  ValueChanged<String>? get onSelected => widget.onSelected;
+
+  @override
+  void didUpdateWidget(covariant _ComparativoUltimaActaCard old) {
+    super.didUpdateWidget(old);
+    // Al cambiar el orden se vuelve al inicio: ahí están las primeras barras.
+    if (old.orden != widget.orden && _hCtrl.hasClients) _hCtrl.jumpTo(0);
+  }
+
+  @override
+  void dispose() {
+    _hCtrl.dispose();
+    super.dispose();
+  }
 
   /// Detalle de la barra tocada, en una ventana flotante.
   ///
@@ -6668,6 +6722,34 @@ class _ComparativoUltimaActaCard extends StatelessWidget {
     );
   }
 
+  Widget _selectorOrden() {
+    const etiquetas = {
+      OrdenComparativo.recientes: 'Más recientes',
+      OrdenComparativo.menorPuntaje: 'Menor puntaje',
+      OrdenComparativo.nombre: 'Nombre',
+    };
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        const Text(
+          'Ordenar:',
+          style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+        ),
+        for (final entry in etiquetas.entries)
+          ChoiceChip(
+            label: Text(entry.value, style: const TextStyle(fontSize: 11)),
+            visualDensity: VisualDensity.compact,
+            selected: widget.orden == entry.key,
+            onSelected: widget.onOrdenChanged == null
+                ? null
+                : (_) => widget.onOrdenChanged!(entry.key),
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -6678,7 +6760,7 @@ class _ComparativoUltimaActaCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              title,
+              widget.title,
               style: const TextStyle(
                 fontFamily: _kFont,
                 fontWeight: FontWeight.w900,
@@ -6690,6 +6772,8 @@ class _ComparativoUltimaActaCard extends StatelessWidget {
               subtitle,
               style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
             ),
+            const SizedBox(height: 8),
+            _selectorOrden(),
             const SizedBox(height: 6),
             const Text(
               'Toca una barra para ver su detalle.',
@@ -6708,9 +6792,16 @@ class _ComparativoUltimaActaCard extends StatelessWidget {
                   final chartWidth = requiredWidth > constraints.maxWidth
                       ? requiredWidth
                       : constraints.maxWidth;
-                  return SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: SizedBox(
+                  final desborda = requiredWidth > constraints.maxWidth;
+                  // Una sola barra, la de abajo, con controlador propio.
+                  final grafico = BarraHorizontal(
+                    controller: _hCtrl,
+                    thumbVisibility: desborda,
+                    child: SingleChildScrollView(
+                      controller: _hCtrl,
+                      scrollDirection: Axis.horizontal,
+                      padding: EdgeInsets.only(bottom: desborda ? 12 : 0),
+                      child: SizedBox(
                       width: chartWidth,
                       height: 270,
                       child: MouseRegion(
@@ -6745,6 +6836,22 @@ class _ComparativoUltimaActaCard extends StatelessWidget {
                         ),
                       ),
                     ),
+                    ),
+                  );
+                  if (!desborda) return grafico;
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      grafico,
+                      Text(
+                        '${points.length} establecimientos · desliza o '
+                        'arrastra la barra para ver el resto',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                    ],
                   );
                 },
               ),
@@ -11247,9 +11354,17 @@ class _PorRevisarTab extends StatelessWidget {
                   separatorBuilder: (_, _) => const SizedBox(height: 8),
                   itemBuilder: (context, i) {
                     final acta = actas[i];
-                    final fecha = DateFormat(
-                      'dd/MM/yyyy',
-                    ).format(acta.fechaVisita.toDate());
+                    final fmt = DateFormat('dd/MM/yyyy');
+                    final cargue = acta.fechaRegistro.toDate();
+                    final dias = diasDesdeCargue(cargue, DateTime.now());
+                    // Pedido del 28 sep 2026: "Fecha de acta 10/09/2026 -
+                    // Fecha cargue 10/09/2026 (18 días)". Los días dicen
+                    // cuánto lleva el acta esperando revisión.
+                    final fechas =
+                        'Fecha de acta ${fmt.format(acta.fechaVisita.toDate())}'
+                        '  ·  Fecha cargue ${fmt.format(cargue)} '
+                        '($dias día${dias == 1 ? '' : 's'})';
+                    final tipo = (acta.tipoActa ?? '').trim();
                     final pct = acta.porcentajeGeneral;
                     return Card(
                       child: ListTile(
@@ -11271,9 +11386,12 @@ class _PorRevisarTab extends StatelessWidget {
                           style: const TextStyle(fontWeight: FontWeight.w700),
                         ),
                         subtitle: Text(
-                          '$fecha${acta.tipoActa != null ? ' · ${acta.tipoActa}' : ''}',
+                          tipo.isEmpty
+                              ? fechas
+                              : '$fechas\n${etiquetaTipoActa(tipo)}',
                           style: const TextStyle(fontSize: 12),
                         ),
+                        isThreeLine: tipo.isNotEmpty,
                         trailing: FilledButton.icon(
                           style: FilledButton.styleFrom(
                             backgroundColor: _kAccent,

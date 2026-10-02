@@ -26,6 +26,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.interventoriaEliminarActa = exports.interventoriaResolverEliminacion = exports.interventoriaSolicitarEliminacion = void 0;
 exports.requestAction = requestAction;
 exports.canApproveInterventoriaDeletion = canApproveInterventoriaDeletion;
+exports.requireActor = requireActor;
 exports.deletedActaResponsibleId = deletedActaResponsibleId;
 exports.userIsActiveInEmpresa = userIsActiveInEmpresa;
 exports.receivesInterventoriaRequestNotice = receivesInterventoriaRequestNotice;

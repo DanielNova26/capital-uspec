@@ -68,7 +68,7 @@ function belongsToCompany(
   return clean(data.empresaId || data.empresa) === empresaId;
 }
 
-async function requireActor(
+export async function requireActor(
   raw: unknown,
   context: functions.https.CallableContext
 ): Promise<{id: string; name: string; empresaId: string; role: string}> {

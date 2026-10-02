@@ -550,6 +550,18 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                                     fontSize: 14,
                                   ),
                                 ),
+                                if ((data['comment'] ??
+                                        data['comentario'] ??
+                                        '')
+                                    .toString()
+                                    .trim()
+                                    .isNotEmpty) ...[
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Comentario: ${(data['comment'] ?? data['comentario']).toString().trim()}',
+                                    style: const TextStyle(fontSize: 13),
+                                  ),
+                                ],
                                 const SizedBox(height: 6),
                                 Text(
                                   _fmtDate(data['createdAt']),
@@ -1019,6 +1031,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
     final ref = FirebaseFirestore.instance.collection('TBL_TAREAS').doc(doc.id);
+    final approvalRef = ref.collection('finalizacion').doc();
     final now = Timestamp.now();
     try {
       await FirebaseFirestore.instance.runTransaction((trx) async {
@@ -1043,6 +1056,14 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
           'updatedAt': now,
           'lastEventType': 'aprobada',
           'lastEventAt': now,
+        });
+        trx.set(approvalRef, {
+          'type': 'aprobacion_finalizacion',
+          'message': 'Finalización aprobada',
+          'createdAt': now,
+          'createdBy': widget.userId,
+          'createdByName': widget.userId,
+          'attachments': const [],
         });
         if ((data['origen'] ?? '').toString() == kFacTaskOrigin) {
           final obsId = (data['facObservacionId'] ?? '').toString().trim();
@@ -1188,6 +1209,8 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
         }
         trx.set(novedadRef, {
           'type': 'devolucion',
+          // Quién devolvió, para que el historial muestre su nombre.
+          'by': widget.userId,
           'reason': motivoCtrl.text.trim(),
           'newDueDate': Timestamp.fromDate(nuevaFecha!),
           'createdAt': now,
@@ -1273,7 +1296,12 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
           trx.update(ref, {
             'asignado_uid': latestNewUid,
             if (latestNewName.isNotEmpty) 'asignado_nombre': latestNewName,
-            if (latestNewArea.isNotEmpty) 'areaId': latestNewArea,
+            'areaId': latestNewArea,
+            'participantes_uid': FieldValue.arrayUnion([
+              if ((latest['asignado_uid'] ?? '').toString().trim().isNotEmpty)
+                (latest['asignado_uid'] ?? '').toString().trim(),
+              latestNewUid,
+            ]),
             if (latestNewCargoId.isNotEmpty)
               'asignado_cargo_id': latestNewCargoId,
             if (latestNewCargoName.isNotEmpty)
@@ -1630,12 +1658,22 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                   ),
                   const SizedBox(height: 12, width: double.infinity),
                   if (hasPendingFinish) ...[
+                    if (data['solicitud_finalizacion_at'] is Timestamp) ...[
+                      Text(
+                        'El responsable terminó el ${_fmtDate(data['solicitud_finalizacion_at'])}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 10, width: double.infinity),
+                    ],
                     _ActionTile(
                       icon: Icons.attach_file_rounded,
                       color: Colors.indigo,
-                      title: 'Ver evidencias enviadas',
+                      title: 'Ver comentario y evidencias',
                       subtitle:
-                          'Revisa los adjuntos antes de aprobar o devolver.',
+                          'Revisa lo informado antes de aprobar o devolver.',
                       onTap: () async {
                         await _showCollectionDialog(
                           title: 'Evidencias de finalización',

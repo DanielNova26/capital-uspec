@@ -74,10 +74,15 @@ String? _firstStrDeep(dynamic src, List<String> keys) {
   return null;
 }
 
+/// [porListaEmpresas] suma lo que solo trae la lista `empresas` (registros
+/// sin `empresaId`). En TBL_TAREAS va apagado: la tarea pertenece a su
+/// `empresaId` y las reglas rechazan esa consulta, lo que tumbaba también la
+/// de la empresa al ir juntas en el mismo `Future.wait`.
 Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _fetchEmpresaScoped({
   required Query<Map<String, dynamic>> base,
   required String? empresaId,
   int? limit,
+  bool porListaEmpresas = true,
 }) async {
   final scoped = (empresaId ?? '').trim();
   if (scoped.isEmpty) {
@@ -89,10 +94,11 @@ Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _fetchEmpresaScoped({
             ? base.where('empresaId', isEqualTo: scoped)
             : base.where('empresaId', isEqualTo: scoped).limit(limit))
         .get(),
-    (limit == null
-            ? base.where('empresas', arrayContains: scoped)
-            : base.where('empresas', arrayContains: scoped).limit(limit))
-        .get(),
+    if (porListaEmpresas)
+      (limit == null
+              ? base.where('empresas', arrayContains: scoped)
+              : base.where('empresas', arrayContains: scoped).limit(limit))
+          .get(),
   ];
 
   final snaps = await Future.wait(futures);
@@ -449,7 +455,12 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
     // GERENTE: trae todo (se ordena en cliente)
     if (_soyGerente) {
       final q = FirebaseFirestore.instance.collection('TBL_TAREAS');
-      return _fetchEmpresaScoped(base: q, empresaId: _empresaId, limit: 1000);
+      return _fetchEmpresaScoped(
+        base: q,
+        empresaId: _empresaId,
+        limit: 1000,
+        porListaEmpresas: false,
+      );
     }
 
     // DIRECTOR: por área (raíz + adjuntos.areaId + meta.areaId), deduplicando
@@ -462,6 +473,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
                   .where('areaId', isEqualTo: _miAreaId),
               empresaId: _empresaId,
               limit: 500,
+              porListaEmpresas: false,
             ),
             _fetchEmpresaScoped(
               base: FirebaseFirestore.instance
@@ -469,6 +481,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
                   .where('adjuntos.areaId', isEqualTo: _miAreaId),
               empresaId: _empresaId,
               limit: 500,
+              porListaEmpresas: false,
             ),
             _fetchEmpresaScoped(
               base: FirebaseFirestore.instance
@@ -476,6 +489,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
                   .where('meta.areaId', isEqualTo: _miAreaId),
               empresaId: _empresaId,
               limit: 500,
+              porListaEmpresas: false,
             ),
           ];
       final snaps = await Future.wait(futures);
@@ -503,6 +517,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
             .where('asignado_uid', whereIn: chunk),
         empresaId: _empresaId,
         limit: 500,
+        porListaEmpresas: false,
       );
       out.addAll(tasks);
     }

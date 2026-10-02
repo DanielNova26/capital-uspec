@@ -966,6 +966,45 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Concepto higiénico sanitario (28 sep 2026): el acta de la autoridad de
+    // salud con establecimiento, fecha, puntaje y concepto. La ve la empresa;
+    // la registran y corrigen los roles con escritura del módulo
+    // (`kInterventoriaRolesEscritura`) y la borran administración, gerencia y
+    // Desarrollo. Espejo de `validarConceptoSanitario` en el modelo.
+    function registraConceptoSanitario(empresaId) {
+      return isDeveloperFor(empresaId) || isDeveloperIn(empresaId)
+        || (belongsToCompany(empresaId)
+          && rolEnTabla('TBL_INTERVENTORIA_ROLES', empresaId) in [
+            'admin_interventoria', 'registrador_interventoria',
+            'revisor_interventoria', 'gerente_interventoria',
+            'directivo_interventoria']);
+    }
+
+    function conceptoSanitarioValido(d) {
+      return d.get('centroCostoId', '') is string
+        && d.centroCostoId.size() > 0
+        && d.get('fecha', null) is timestamp
+        && d.get('puntaje', -1) is number
+        && d.puntaje >= 0 && d.puntaje <= 100
+        && d.get('concepto', '') in ['FAVORABLE',
+          'FAVORABLE_CON_REQUERIMIENTOS', 'DESFAVORABLE'];
+    }
+
+    match /TBL_INTERVENTORIA_CONCEPTOS_SANITARIOS/{docId} {
+      allow get: if resource == null || belongsToCompany(resource.data.empresaId);
+      allow list: if belongsToCompany(resource.data.empresaId);
+      allow create: if registraConceptoSanitario(request.resource.data.empresaId)
+        && conceptoSanitarioValido(request.resource.data);
+      allow update: if resource.data.empresaId == request.resource.data.empresaId
+        && registraConceptoSanitario(resource.data.empresaId)
+        && conceptoSanitarioValido(request.resource.data);
+      allow delete: if isDeveloperFor(resource.data.empresaId)
+        || isDeveloperIn(resource.data.empresaId)
+        || (belongsToCompany(resource.data.empresaId)
+          && rolEnTabla('TBL_INTERVENTORIA_ROLES', resource.data.empresaId)
+            in ['admin_interventoria', 'gerente_interventoria']);
+    }
+
     // El módulo de visitas comparte empresa, pero cada profesional solo puede
     // responder sus propias visitas. Las asignaciones y formatos pertenecen
     // al jefe; el rol no se puede autoasignar usando el fallback general.
@@ -1921,6 +1960,447 @@ service cloud.firestore {
       allow delete: if administraRutas(resource.data.empresaId);
     }
 
+    // ── Tareas: empresa, acceso efectivo y acciones del flujo ─────────────
+    // Las subcolecciones son una bitácora: solo se agregan eventos, nunca se
+    // modifican ni se borran desde el cliente. El documento raíz conserva la
+    // empresa y los participantes; un cambio de responsable valida el destino.
+    function tieneAppDeListaEn(empresaId, apps) {
+      let u = currentUser();
+      let detalle = u.get('empresasDetalle', {});
+      let bloque = detalle is map ? detalle.get(empresaId, {}) : {};
+      let propias = bloque is map ? bloque.get('apps', null) : null;
+      let raiz = u.get('apps', []);
+      return u.get('appsPorEmpresa', false) == true
+        ? (propias is list ? propias.hasAny(apps)
+          : (raizEsDeEmpresa(u, empresaId) && raiz is list && raiz.hasAny(apps)))
+        : ((raiz is list && raiz.hasAny(apps))
+          || (propias is list && propias.hasAny(apps)));
+    }
+
+    function tieneAppTareasEn(empresaId) {
+      return tieneAppDeListaEn(empresaId, ['tareasdashboard', 'tareas']);
+    }
+
+    function tieneAppOrigenTareaEn(empresaId, modulo) {
+      return (modulo == 'interventoria'
+          && tieneAppDeListaEn(empresaId, ['interventoriadashboard', 'interventoria']))
+        || (modulo == 'compras' && tieneAppComprasEn(empresaId))
+        || (modulo == 'facturacion'
+          && tieneAppDeListaEn(empresaId, ['facturaciondashboard', 'facturacion']))
+        || (modulo in ['visita', 'visitas']
+          && tieneAppDeListaEn(empresaId, ['visitasdashboard', 'visitas']))
+        || (modulo in ['correo', 'gestion_documental']
+          && tieneAppCorreoEn(empresaId));
+    }
+
+    function puedeVerEquipoTareasEn(empresaId) {
+      let u = currentUser();
+      let detalle = u.get('empresasDetalle', {});
+      let bloque = detalle is map ? detalle.get(empresaId, {}) : {};
+      let propio = bloque is map ? bloque.get('puedeVerEquipo', null) : null;
+      let raiz = raizEsDeEmpresa(u, empresaId)
+        ? u.get('puedeVerEquipo', null) : null;
+      let cargo = bloque is map ? bloque.get('cargo', '') : '';
+      return propio is bool ? propio
+        : (raiz is bool ? raiz
+          : (esGerenciaPorFicha(empresaId)
+            || (cargo is string && cargo.lower().matches('.*(director|jefe|coordinador|supervisor|gerente|gerencia).*'))));
+    }
+
+    function usuarioActivoParaTarea(empresaId, uid) {
+      let path = /databases/$(database)/documents/TBL_USUARIOS/$(uid);
+      let u = exists(path) ? get(path).data : {};
+      let empresas = u.get('empresas', []);
+      let detalle = u.get('empresasDetalle', {});
+      return uid is string && uid.size() > 0 && exists(path)
+        && ((empresas is list && empresaId in empresas)
+          || (detalle is map && empresaId in detalle)
+          || u.get('empresaId', '') == empresaId
+          || u.get('empresa', '') == empresaId)
+        && habilitadaEn(u, empresaId);
+    }
+
+    function esResponsableTarea(data) {
+      return data.get('asignado_uid', data.get('assignedTo', ''))
+        == request.auth.token.userDocId;
+    }
+
+    function esAprobadorTarea(data) {
+      let uid = request.auth.token.userDocId;
+      return data.get('aprobador_uid', data.get('approverId', '')) == uid
+        || data.get('jefe_uid', data.get('bossId', '')) == uid
+        || data.get('creador_id', data.get('creatorId', '')) == uid;
+    }
+
+    function esParticipanteTarea(data) {
+      let uid = request.auth.token.userDocId;
+      // Sin `is list`: con esa guarda Firestore no puede demostrar la
+      // consulta `participantes_uid array-contains` ("Antes asignadas").
+      return esResponsableTarea(data) || esAprobadorTarea(data)
+        || data.get('reasignada_desde_uid', '') == uid
+        || uid in data.get('participantes_uid', []);
+    }
+
+    // Presupuesto (2 oct 2026): el tope es 1000 expresiones por petición y
+    // `belongsToCompany` + la app cuestan cerca de 300. Cada regla de tareas
+    // mira primero lo barato (quién es, qué evento, qué campos cambian) y la
+    // empresa una sola vez, al final. Antes se evaluaba varias veces y toda
+    // petición rechazada, y la reasignación, terminaban en "maximum of 1000".
+    //
+    // Desarrollo lee sin filtro de empresa: sus herramientas de Admin (cambio
+    // de cédula, borrar usuario) buscan las tareas de una persona en todas.
+    function puedeLeerTarea(data) {
+      let empresaId = data.get('empresaId', '');
+      let modulo = data.get('sourceModule', '');
+      return (belongsToCompany(empresaId)
+          && ((tieneAppTareasEn(empresaId)
+              && (esParticipanteTarea(data) || puedeVerEquipoTareasEn(empresaId)))
+            || (modulo == 'interventoria'
+              && tieneAppOrigenTareaEn(empresaId, modulo))
+            || (esParticipanteTarea(data)
+              && tieneAppOrigenTareaEn(empresaId, modulo))
+            || tieneAppAdminEn(empresaId)
+            || isDeveloperIn(empresaId)
+            || (tieneAppDeListaEn(empresaId, ['gerenciadashboard', 'gerencia'])
+              && esGerenciaPorFicha(empresaId))))
+        || isDeveloper();
+    }
+
+    // Tareas o Admin en una sola consulta de apps (lista fija: armarla con
+    // `concat` cuesta tanto como otra consulta). En una tarea de otro módulo
+    // se mira primero la app de ese módulo: quien opera una tarea de
+    // Interventoría casi nunca tiene la app de Tareas.
+    function puedeOperarTarea(data) {
+      let empresaId = data.get('empresaId', '');
+      let modulo = data.get('sourceModule', '');
+      return belongsToCompany(empresaId)
+        && ((modulo != 'tareas' && tieneAppOrigenTareaEn(empresaId, modulo))
+          || tieneAppDeListaEn(empresaId,
+            ['tareasdashboard', 'tareas', 'admindashboard', 'admin'])
+          || isDeveloper() || isDeveloperIn(empresaId));
+    }
+
+    // `cambios` = claves que cambia la escritura. Se calcula una vez en
+    // `tareaActualizacionValida` y pasa a cada rama.
+    function tareaBaseConservada(antes, d, cambios) {
+      return antes.get('empresaId', '') == d.get('empresaId', '')
+        && !cambios.hasAny([
+          'empresaId', 'empresas', 'creador_id', 'creatorId',
+          'sourceModule', 'source',
+          'sourceType', 'origen', 'hallazgoId', 'sourceEntityId'
+        ]);
+    }
+
+    function tareaNuevaValida() {
+      let d = request.resource.data;
+      let empresaId = d.get('empresaId', '');
+      let modulo = d.get('sourceModule', '');
+      return d.get('titulo', '') is string && d.titulo.size() > 0
+        && d.get('estado', '') in ['pendiente', 'en_progreso']
+        && d.get('status', d.estado) == d.estado
+        && d.get('creador_id', '') is string
+        && d.creador_id.size() > 0
+        && belongsToCompany(empresaId)
+        && ((d.creador_id == request.auth.token.userDocId
+            && tieneAppTareasEn(empresaId))
+          || tieneAppOrigenTareaEn(empresaId, modulo)
+          || tieneAppAdminEn(empresaId)
+          || isDeveloper() || isDeveloperIn(empresaId))
+        && usuarioActivoParaTarea(empresaId, d.get('asignado_uid', ''));
+    }
+
+    // Quien la tenía queda en `participantes_uid` para seguir viendo su
+    // historial; nadie sale de la lista.
+    function tareaConservaParticipantes(antes, d) {
+      let anterior = antes.get('asignado_uid', '');
+      let nuevo = d.get('asignado_uid', '');
+      return anterior != nuevo
+        && d.get('participantes_uid', []) is list
+        && d.participantes_uid.hasAll(antes.get('participantes_uid', []))
+        && anterior in d.participantes_uid
+        && nuevo in d.participantes_uid;
+    }
+
+    // Además, el destino debe estar activo en la empresa de la tarea.
+    function tareaCambioResponsable(antes, d) {
+      return tareaConservaParticipantes(antes, d)
+        && usuarioActivoParaTarea(antes.get('empresaId', ''),
+          d.get('asignado_uid', ''));
+    }
+
+    // Lo que registra el responsable sin cambiar de responsable.
+    function tareaCambioOperativo(antes, d, evento, cambios) {
+      let actual = antes.get('estado', antes.get('status', ''));
+      return evento in ['task_avance', 'task_novedad',
+          'solicitud_finalizacion', 'solicitud_reasignacion']
+        && esResponsableTarea(antes)
+        && !(actual in ['finalizado', 'por_aprobar'])
+        && d.get('asignado_uid', '') == antes.get('asignado_uid', '')
+        && (
+          (evento == 'task_avance'
+            && d.get('estado', actual) in [actual, 'en_progreso']
+            && cambios.hasOnly(['estado', 'status', 'fecha_limite', 'dueDate',
+              'updatedAt', 'fecha_actualizacion', 'actualizada_en',
+              'lastEventType', 'lastEventAt', 'lastEventText']))
+          || (evento == 'task_novedad'
+            && d.get('estado', actual) in [actual, 'en_progreso']
+            && cambios.hasOnly(['estado', 'status', 'updatedAt',
+              'fecha_actualizacion', 'actualizada_en', 'lastEventType',
+              'lastEventAt', 'lastEventText']))
+          || (evento == 'solicitud_finalizacion'
+            && antes.get('solicitud_finalizacion_estado', '') != 'pendiente'
+            && d.get('estado', '') == 'por_aprobar'
+            && d.get('solicitud_finalizacion_estado', '') == 'pendiente'
+            && d.get('solicitud_finalizacion_by_uid', '')
+              == request.auth.token.userDocId
+            && cambios.hasOnly(['estado', 'status',
+              'solicitud_finalizacion_estado', 'solicitud_finalizacion_at',
+              'solicitud_finalizacion_by_uid',
+              'solicitud_finalizacion_by_nombre', 'lastEventType',
+              'lastEventAt', 'lastEventText', 'fecha_actualizacion',
+              'updatedAt', 'actualizada_en', 'adjuntos', 'evidencias']))
+          // Hacia cualquier área de la empresa: el destino se valida activo
+          // en la empresa de la tarea, no en el área del responsable.
+          || (evento == 'solicitud_reasignacion'
+            && antes.get('solicitud_reasignacion_estado', '') != 'pendiente'
+            && d.get('solicitud_reasignacion_estado', '') == 'pendiente'
+            && d.get('solicitud_reasignacion_by_uid', '')
+              == request.auth.token.userDocId
+            && d.get('solicitud_reasignacion_to_uid', '')
+              != antes.get('asignado_uid', '')
+            && cambios.hasOnly(['solicitud_reasignacion_estado',
+              'solicitud_reasignacion_at', 'solicitud_reasignacion_by_uid',
+              'solicitud_reasignacion_by_nombre',
+              'solicitud_reasignacion_to_uid',
+              'solicitud_reasignacion_to_nombre',
+              'solicitud_reasignacion_areaId',
+              'solicitud_reasignacion_areaNombre',
+              'solicitud_reasignacion_cargoId',
+              'solicitud_reasignacion_cargoNombre', 'updatedAt',
+              'lastEventType', 'lastEventAt', 'lastEventText'])
+            && usuarioActivoParaTarea(antes.get('empresaId', ''),
+              d.get('solicitud_reasignacion_to_uid', '')))
+        );
+    }
+
+    // Interventoría (y las tareas que lo permiten) reasigna sin aprobación:
+    // el responsable la entrega a otra persona activa de la empresa, de
+    // cualquier área. Estaba dentro de la rama que exige el mismo
+    // responsable, así que nunca podía pasar.
+    function tareaReasignacionDirecta(antes, d, evento, cambios) {
+      let actual = antes.get('estado', antes.get('status', ''));
+      return evento == 'reasignacion_directa'
+        && (antes.get('sourceModule', '') == 'interventoria'
+          || antes.get('origen', '') == 'interventoria')
+        && esResponsableTarea(antes)
+        && !(actual in ['finalizado', 'por_aprobar'])
+        && antes.get('solicitud_finalizacion_estado', '') != 'pendiente'
+        && d.get('estado', '') == 'en_progreso'
+        && d.get('reasignada_por_uid', '') == request.auth.token.userDocId
+        && d.get('reasignada_desde_uid', '') == antes.get('asignado_uid', '')
+        && cambios.hasOnly(['asignado_uid', 'asignado_nombre',
+          'asignado_cargo_nombre', 'areaId', 'estado', 'status',
+          'reasignado', 'reasignada_en', 'reasignada_desde_uid',
+          'reasignada_desde_nombre', 'reasignada_por_uid',
+          'participantes_uid', 'reasignacion_pendiente',
+          'solicitud_reasignacion_estado', 'solicitud_reasignacion_at',
+          'solicitud_reasignacion_by_uid',
+          'solicitud_reasignacion_by_nombre',
+          'solicitud_reasignacion_to_uid',
+          'solicitud_reasignacion_to_nombre',
+          'solicitud_reasignacion_areaId',
+          'solicitud_reasignacion_areaNombre',
+          'solicitud_reasignacion_cargoId',
+          'solicitud_reasignacion_cargoNombre', 'updatedAt',
+          'fecha_actualizacion', 'actualizada_en', 'lastEventType',
+          'lastEventAt', 'lastEventText'])
+        && tareaCambioResponsable(antes, d);
+    }
+
+    function tareaCambioAprobador(antes, d, evento, cambios) {
+      return evento in ['aprobada', 'task_devuelta', 'reasignacion_aprobada',
+          'reasignacion_rechazada', 'task_avance_gestionado']
+        && esAprobadorTarea(antes)
+        && (
+          (evento == 'aprobada'
+            && antes.get('solicitud_finalizacion_estado', '') == 'pendiente'
+            && d.get('estado', '') == 'finalizado'
+            && d.get('solicitud_finalizacion_estado', '') == 'aprobado'
+            && d.get('asignado_uid', '') == antes.get('asignado_uid', '')
+            && cambios.hasOnly(['estado', 'status', 'approved',
+              'approvedAt', 'solicitud_finalizacion_estado',
+              'updatedAt', 'lastEventType', 'lastEventAt', 'lastEventText']))
+          || (evento == 'task_devuelta'
+            && antes.get('solicitud_finalizacion_estado', '') == 'pendiente'
+            && d.get('estado', '') == 'devuelta'
+            && d.get('asignado_uid', '') == antes.get('asignado_uid', '')
+            && cambios.hasOnly(['estado', 'status', 'fecha_limite',
+              'approved', 'approvedAt', 'solicitud_finalizacion_estado',
+              'solicitud_finalizacion_at', 'solicitud_finalizacion_by_uid',
+              'solicitud_finalizacion_by_nombre', 'updatedAt',
+              'lastEventType', 'lastEventAt', 'lastEventText']))
+          || (evento == 'reasignacion_aprobada'
+            && antes.get('solicitud_reasignacion_estado', '') == 'pendiente'
+            && d.get('solicitud_reasignacion_estado', '') == 'aprobada'
+            && d.get('asignado_uid', '')
+              == antes.get('solicitud_reasignacion_to_uid', '')
+            && d.get('estado', '') == 'en_progreso'
+            && cambios.hasOnly(['asignado_uid', 'asignado_nombre',
+              'asignado_cargo_id', 'asignado_cargo_nombre', 'areaId',
+              'estado', 'status', 'reasignado',
+              'solicitud_reasignacion_estado', 'reasignacion_resuelta_at',
+              'participantes_uid', 'lastEventType', 'lastEventAt',
+              'updatedAt', 'lastEventText'])
+            // El destino ya se validó activo al pedir la reasignación y la
+            // aprobación solo puede llevar a ese destino: no se vuelve a leer.
+            && tareaConservaParticipantes(antes, d))
+          || (evento == 'reasignacion_rechazada'
+            && antes.get('solicitud_reasignacion_estado', '') == 'pendiente'
+            && d.get('solicitud_reasignacion_estado', '') == 'rechazada'
+            && d.get('asignado_uid', '') == antes.get('asignado_uid', '')
+            && cambios.hasOnly(['solicitud_reasignacion_estado',
+              'reasignacion_resuelta_at', 'lastEventType',
+              'lastEventAt', 'updatedAt', 'lastEventText']))
+          || (evento == 'task_avance_gestionado'
+            && d.get('asignado_uid', '') == antes.get('asignado_uid', '')
+            && cambios.hasOnly(['fecha_limite', 'updatedAt',
+              'lastEventType', 'lastEventAt', 'lastEventText']))
+        );
+    }
+
+    // Interventoría cierra sus tareas desde el hallazgo. La aprobación de la
+    // subsanación no exige una solicitud pendiente en la tarea: el
+    // responsable puede haberla registrado en el hallazgo. El cambio de
+    // aprobador va por servidor (`interventoriaCambiarAprobador`).
+    function tareaCambioModulo(antes, d, cambios) {
+      return antes.get('sourceModule', '') == 'interventoria'
+        && (
+          (antes.get('sourceType', '') == 'devolucion_acta'
+            && esResponsableTarea(antes)
+            && d.get('estado', '') == 'finalizado'
+            && cambios.hasOnly(['estado', 'status',
+              'solicitud_finalizacion_estado', 'updatedAt']))
+          || (d.get('solicitud_finalizacion_resuelto_por', '')
+              == request.auth.token.userDocId
+            && esAprobadorTarea(antes)
+            && d.get('estado', '') in ['finalizado', 'devuelta']
+            && d.get('solicitud_finalizacion_estado', '')
+              == (d.estado == 'finalizado' ? 'aprobado' : 'rechazado')
+            && cambios.hasOnly(['estado', 'status',
+              'solicitud_finalizacion_estado',
+              'solicitud_finalizacion_resuelto_por', 'updatedAt']))
+        )
+        && tieneAppOrigenTareaEn(antes.get('empresaId', ''), 'interventoria');
+    }
+
+    function tareaVisto(antes, cambios) {
+      return cambios.hasOnly(['visto'])
+        && (esParticipanteTarea(antes)
+          || puedeVerEquipoTareasEn(antes.get('empresaId', '')));
+    }
+
+    // Administración y Desarrollo, fuera del flujo: cierre administrativo por
+    // módulo, herramientas de Admin (cambio de cédula) y, en Interventoría,
+    // pasar al creador automático las tareas que asignó la matriz. Nunca
+    // cambian la empresa. Va al final: solo lo paga quien no pasó arriba.
+    function tareaMantenimiento(antes, d, evento, cambios) {
+      let empresaId = antes.get('empresaId', '');
+      return d.get('empresaId', '') == empresaId
+        && belongsToCompany(empresaId)
+        && (isDeveloper() || isDeveloperIn(empresaId)
+          || (evento == 'admin_module_closeout' && tieneAppAdminEn(empresaId))
+          || (antes.get('sourceModule', '') == 'interventoria'
+            && d.get('creador_id', '') == 'interventoria_automatica'
+            && cambios.hasOnly(['creador_id', 'creatorId', 'creador_nombre',
+              'creatorName', 'ejecutadoPorId', 'ejecutadoPorNombre'])
+            && rolEnTabla('TBL_INTERVENTORIA_ROLES', empresaId)
+              in ['admin_interventoria', 'gerente_interventoria']));
+    }
+
+    function tareaActualizacionValida() {
+      let antes = resource.data;
+      let d = request.resource.data;
+      let evento = d.get('lastEventType', '');
+      let cambios = d.diff(antes).affectedKeys();
+      return (tareaBaseConservada(antes, d, cambios)
+          && (tareaCambioOperativo(antes, d, evento, cambios)
+            || tareaReasignacionDirecta(antes, d, evento, cambios)
+            || tareaCambioAprobador(antes, d, evento, cambios)
+            || tareaCambioModulo(antes, d, cambios)
+            || tareaVisto(antes, cambios))
+          && puedeOperarTarea(antes))
+        || tareaMantenimiento(antes, d, evento, cambios);
+    }
+
+    function puedeLeerEventoTarea(taskId) {
+      let path = /databases/$(database)/documents/TBL_TAREAS/$(taskId);
+      return exists(path) && puedeLeerTarea(get(path).data);
+    }
+
+    // Bitácora: el comentario de cierre es obligatorio (2 oct 2026, "completar
+    // tareas con comentario") y queda en el historial junto con novedades y
+    // avances. `posterior` es la tarea al terminar el lote: el evento de
+    // finalización solo existe si la tarea cambió de estado en la misma
+    // escritura.
+    function puedeCrearEventoTarea(taskId, tipo) {
+      let path = /databases/$(database)/documents/TBL_TAREAS/$(taskId);
+      let tarea = exists(path) ? get(path).data : {};
+      let evento = request.resource.data;
+      let uid = request.auth.token.userDocId;
+      return exists(path)
+        && ((tipo == 'avances'
+            && evento.get('by', '') == uid
+            && evento.get('message', '') is string
+            && evento.message.size() > 0
+            && esResponsableTarea(tarea))
+          || (tipo == 'novedades'
+            && ((evento.get('by', '') == uid && esResponsableTarea(tarea))
+              || (evento.get('type', '') in ['devolucion', 'respuesta_avance']
+                && esAprobadorTarea(tarea))))
+          || (tipo == 'finalizacion'
+            && evento.get('createdBy', '') == uid
+            && ((evento.get('type', '') in ['solicitud_finalizacion', 'finalizacion']
+                && evento.get('comment', '') is string
+                && evento.comment.trim().size() > 0
+                && esResponsableTarea(tarea)
+                // El cambio de estado ocurre en la misma escritura: no se
+                // agrega una finalización a una tarea ya cerrada o en espera.
+                && (evento.type == 'solicitud_finalizacion'
+                  ? (tarea.get('solicitud_finalizacion_estado', '') != 'pendiente'
+                    && getAfter(path).data.get('solicitud_finalizacion_estado', '') == 'pendiente')
+                  : (tarea.get('estado', '') != 'finalizado'
+                    && getAfter(path).data.get('estado', '') == 'finalizado')))
+              || (evento.get('type', '') == 'aprobacion_finalizacion'
+                && esAprobadorTarea(tarea)
+                && tarea.get('solicitud_finalizacion_estado', '') == 'pendiente'
+                && getAfter(path).data.get('estado', '') == 'finalizado'
+                && getAfter(path).data.get('solicitud_finalizacion_estado', '') == 'aprobado'))))
+        && puedeOperarTarea(tarea);
+    }
+
+    match /TBL_TAREAS/{taskId} {
+      allow get: if isSignedIn() && (resource == null || puedeLeerTarea(resource.data));
+      allow list: if puedeLeerTarea(resource.data);
+      allow create: if tareaNuevaValida();
+      allow update: if tareaActualizacionValida();
+      allow delete: if belongsToCompany(resource.data.get('empresaId', ''))
+        && (tieneAppAdminEn(resource.data.empresaId)
+          || isDeveloper() || isDeveloperIn(resource.data.empresaId)
+          || (resource.data.get('sourceModule', '') == 'interventoria'
+            && resource.data.get('estado', '') != 'finalizado'
+            && tieneAppOrigenTareaEn(resource.data.empresaId, 'interventoria')
+            && hasInterventoriaRole(resource.data.empresaId,
+              ['admin_interventoria', 'gerente_interventoria'])));
+
+      match /{tipo}/{eventoId} {
+        allow read: if tipo in ['avances', 'novedades', 'finalizacion']
+          && puedeLeerEventoTarea(taskId);
+        allow create: if tipo in ['avances', 'novedades', 'finalizacion']
+          && puedeCrearEventoTarea(taskId, tipo);
+        allow update, delete: if false;
+      }
+    }
+
     // Todo lo que no tiene regla propia. Las colecciones con regla propia se
     // excluyen aquí: si no, esta regla las volvería a abrir (Firestore deja
     // pasar si CUALQUIER regla que coincide lo permite). Una lista con `in`
@@ -1929,6 +2409,7 @@ service cloud.firestore {
       allow read, write: if isSignedIn()
         && !esColeccionCompras(collection)
         && !(collection in [
+          'TBL_TAREAS',
           'TBL_COMPRAS_ROLES','TBL_COMPRAS_CONFIG',
           'TBL_WHATSAPP_CONFIG',
           'TBL_WHATSAPP_AUDITORIA','TBL_WHATSAPP_META_ESTADOS',
@@ -1941,6 +2422,7 @@ service cloud.firestore {
           'TBL_INTERVENTORIA_ROLES',
           'TBL_INTERVENTORIA_CONFIG',
           'TBL_INTERVENTORIA_SOLICITUDES_ELIMINACION',
+          'TBL_INTERVENTORIA_CONCEPTOS_SANITARIOS',
           'TBL_VISITAS',
           'TBL_VISITAS_FORMATOS',
           'TBL_VISITAS_ROLES',

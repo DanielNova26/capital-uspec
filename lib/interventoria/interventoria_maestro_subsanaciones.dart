@@ -76,7 +76,7 @@ class _InterventoriaMaestroSubsanacionesState
     return out;
   }
 
-  void _cambiarTipoActa(String tipo) {
+  void _cambiarTipoActa(String tipo, {bool conservarBusqueda = false}) {
     if (tipo == _tipoActa) return;
     setState(() {
       _tipoActa = tipo;
@@ -84,8 +84,69 @@ class _InterventoriaMaestroSubsanacionesState
       // existía allí dejarían la tabla vacía sin explicar por qué.
       _seccion = 0;
       _responsable = '';
-      _buscarCtrl.clear();
+      if (!conservarBusqueda) _buscarCtrl.clear();
     });
+  }
+
+  /// Si lo que se busca es un numeral que esta acta no tiene pero otra sí,
+  /// lo dice y lleva a esa acta.
+  ///
+  /// 28 sep 2026: "el numeral 3.1 no aparece en el listado". El acta regular
+  /// salta del 3 al 3.2 (así es el papel); el 3.1 que llegaba a Subsanaciones
+  /// era de un acta de Estación de policía, cuyas reglas están en su propio
+  /// maestro.
+  Widget? _avisoNumeralEnOtraActa() {
+    final consulta = _buscarCtrl.text.trim();
+    if (!RegExp(r'^\d{1,2}\.\d{1,2}$').hasMatch(consulta)) return null;
+    if (_base.any((fila) => fila.numeral == consulta)) return null;
+    final otras = [
+      for (final tipo in kActasConMaestro)
+        if (tipo != _tipoActa &&
+            _basePorTipo
+                .putIfAbsent(
+                  tipo,
+                  () => construirMaestroSubsanaciones(tipoActa: tipo),
+                )
+                .any((fila) => fila.numeral == consulta))
+          tipo,
+    ];
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFDE68A)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            otras.isEmpty
+                ? 'El acta ${etiquetaTipoActa(_tipoActa).toLowerCase()} no '
+                      'tiene numeral $consulta, y ninguna otra acta lo tiene.'
+                : 'El acta ${etiquetaTipoActa(_tipoActa).toLowerCase()} no '
+                      'tiene numeral $consulta. Está en:',
+            style: const TextStyle(fontSize: 13, color: Color(0xFF92400E)),
+          ),
+          if (otras.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                for (final tipo in otras)
+                  ActionChip(
+                    avatar: const Icon(Icons.arrow_forward_rounded, size: 16),
+                    label: Text(etiquetaTipoActa(tipo)),
+                    onPressed: () =>
+                        _cambiarTipoActa(tipo, conservarBusqueda: true),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   @override
@@ -212,6 +273,7 @@ class _InterventoriaMaestroSubsanacionesState
               ),
             );
           }
+          final avisoNumeral = _avisoNumeralEnOtraActa();
           final contenido = <Widget>[
             ...cabecera,
             _SelectorTipoActa(
@@ -249,6 +311,10 @@ class _InterventoriaMaestroSubsanacionesState
               filtrado: _hayFiltros,
             ),
             const SizedBox(height: 10),
+            if (avisoNumeral != null) ...[
+              avisoNumeral,
+              const SizedBox(height: 10),
+            ],
           ];
 
           if (esMovil) {
@@ -638,6 +704,9 @@ class _SelectorTipoActa extends StatelessWidget {
         SizedBox(
           width: movil ? anchoDisponible : 320,
           child: DropdownButtonFormField<String>(
+            // Con llave: el aviso de "este numeral está en otra acta" cambia
+            // el acta desde fuera y `initialValue` solo se lee una vez.
+            key: ValueKey(tipoActa),
             initialValue: tipoActa,
             isExpanded: true,
             decoration: const InputDecoration(

@@ -2224,3 +2224,253 @@ List<InterventoriaDetalleSeccion> detalleSeccionesDeVisita(
       return item.valor!.clamp(0, 100).toDouble();
     }()),
 ];
+
+/// Fila de la matriz de Análisis: una sección de un tipo de acta, o el título
+/// que separa un tipo de acta del siguiente.
+class FilaMatrizAnalisis {
+  /// Familia de reglas del acta (`REGULAR`, `ESTACION_POLICIA`…).
+  final String familia;
+  final InterventoriaCategoria? categoria;
+
+  const FilaMatrizAnalisis.titulo(this.familia) : categoria = null;
+
+  const FilaMatrizAnalisis.seccion(
+    this.familia,
+    InterventoriaCategoria this.categoria,
+  );
+
+  bool get esTitulo => categoria == null;
+
+  /// ¿Esta fila tiene puntaje en esa acta? Las secciones de las actas propias
+  /// se llaman todas `seccion1`, `seccion2`…: sin mirar el tipo, el 1 de
+  /// policía se pintaría en la fila del 1 de alcaldía.
+  bool aplicaA(InterventoriaVisita visita) =>
+      !esTitulo && familiaReglasActa(visita.tipoActa) == familia;
+}
+
+/// Filas de la matriz de Análisis para las actas que se están mirando.
+///
+/// Antes la matriz recorría solo las categorías del acta regular: las actas
+/// de policía, alcaldía o infraestructura entraban como columnas con "NE" en
+/// todas las filas y sus secciones no aparecían nunca (28 sep 2026). Ahora
+/// cada tipo de acta presente aporta sus secciones, en el orden del papel; con
+/// más de un tipo, un título separa cada grupo.
+List<FilaMatrizAnalisis> filasMatrizAnalisis(
+  Iterable<InterventoriaVisita> visitas,
+) {
+  final familias = {for (final v in visitas) familiaReglasActa(v.tipoActa)};
+  final presentes = [
+    kActaRegular,
+    ...kActasConMaestro.where((tipo) => tipo != kActaRegular),
+  ].where(familias.contains).toList();
+  final conTitulo = presentes.length > 1;
+  return [
+    for (final familia in presentes) ...[
+      if (conTitulo) FilaMatrizAnalisis.titulo(familia),
+      for (final cat in categoriasOrdenadasDeActa(familia))
+        FilaMatrizAnalisis.seccion(familia, cat),
+    ],
+  ];
+}
+
+/// Orden de las barras del comparativo por establecimiento.
+enum OrdenComparativo { recientes, nombre, menorPuntaje }
+
+/// Ordena el comparativo. Por defecto van primero las actas más recientes:
+/// en orden alfabético, con treinta establecimientos, las últimas actas
+/// quedaban fuera de la pantalla y parecía que el gráfico no las traía
+/// (28 sep 2026).
+List<InterventoriaComparativoActa> ordenarComparativo(
+  List<InterventoriaComparativoActa> puntos,
+  OrdenComparativo orden,
+) {
+  int porNombre(InterventoriaComparativoActa a, InterventoriaComparativoActa b) =>
+      a.centroCostoNombre.toLowerCase().compareTo(
+        b.centroCostoNombre.toLowerCase(),
+      );
+  final lista = [...puntos];
+  switch (orden) {
+    case OrdenComparativo.recientes:
+      lista.sort((a, b) {
+        final porFecha = b.fecha.compareTo(a.fecha);
+        return porFecha != 0 ? porFecha : porNombre(a, b);
+      });
+    case OrdenComparativo.nombre:
+      lista.sort(porNombre);
+    case OrdenComparativo.menorPuntaje:
+      // "Sin dato" al final: no es el peor puntaje, es que no hay puntaje.
+      lista.sort((a, b) {
+        final va = a.valor;
+        final vb = b.valor;
+        if (va == null && vb == null) return porNombre(a, b);
+        if (va == null) return 1;
+        if (vb == null) return -1;
+        final porValor = va.compareTo(vb);
+        return porValor != 0 ? porValor : porNombre(a, b);
+      });
+  }
+  return lista;
+}
+
+/// Días calendario entre la carga del acta y hoy, para "Por revisar".
+///
+/// Son días corridos a propósito: dicen cuánto lleva el acta esperando, no
+/// un plazo hábil. El ejemplo de la reunión (cargada el 10/09, vista el
+/// 28/09) dice "18 días".
+int diasDesdeCargue(DateTime cargue, DateTime hoy) {
+  // En UTC para que un cambio de horario no se coma un día.
+  final desde = DateTime.utc(cargue.year, cargue.month, cargue.day);
+  final hasta = DateTime.utc(hoy.year, hoy.month, hoy.day);
+  final dias = hasta.difference(desde).inDays;
+  return dias < 0 ? 0 : dias;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Concepto higiénico sanitario
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Colección de las actas de concepto higiénico sanitario (28 sep 2026).
+const String kColeccionConceptosSanitarios =
+    'TBL_INTERVENTORIA_CONCEPTOS_SANITARIOS';
+
+/// Conceptos que emite la autoridad sanitaria. Se guardan estos valores; la
+/// etiqueta es la que se muestra. Las reglas de Firestore validan la misma
+/// lista (`conceptoSanitarioValido`).
+const String kConceptoFavorable = 'FAVORABLE';
+const String kConceptoFavorableRequerimientos = 'FAVORABLE_CON_REQUERIMIENTOS';
+const String kConceptoDesfavorable = 'DESFAVORABLE';
+
+const List<String> kConceptosSanitarios = [
+  kConceptoFavorable,
+  kConceptoFavorableRequerimientos,
+  kConceptoDesfavorable,
+];
+
+String etiquetaConceptoSanitario(String concepto) => switch (concepto) {
+  kConceptoFavorable => 'Favorable',
+  kConceptoFavorableRequerimientos => 'Favorable con requerimientos',
+  kConceptoDesfavorable => 'Desfavorable',
+  _ => concepto.trim().isEmpty ? 'Sin concepto' : concepto,
+};
+
+/// Acta de concepto higiénico sanitario de un establecimiento.
+///
+/// Es aparte del acta de interventoría: la emite la secretaría de salud y la
+/// sección solo guarda establecimiento, fecha, puntaje y concepto (pedido del
+/// 28 sep 2026), más el archivo del acta si se tiene.
+class InterventoriaConceptoSanitario {
+  final String id;
+  final String empresaId;
+  final String centroCostoId;
+  final String centroCostoNombre;
+  final DateTime fecha;
+  final double puntaje;
+  final String concepto;
+  final InterventoriaAdjunto? acta;
+  final String registradoPor;
+  final String registradoPorNombre;
+  final Timestamp? createdAt;
+
+  const InterventoriaConceptoSanitario({
+    this.id = '',
+    required this.empresaId,
+    required this.centroCostoId,
+    required this.centroCostoNombre,
+    required this.fecha,
+    required this.puntaje,
+    required this.concepto,
+    this.acta,
+    this.registradoPor = '',
+    this.registradoPorNombre = '',
+    this.createdAt,
+  });
+
+  factory InterventoriaConceptoSanitario.fromMap(
+    String id,
+    Map<String, dynamic> data,
+  ) {
+    final acta = data['acta'];
+    final puntaje = data['puntaje'];
+    return InterventoriaConceptoSanitario(
+      id: id,
+      empresaId: (data['empresaId'] ?? '').toString(),
+      centroCostoId: (data['centroCostoId'] ?? '').toString(),
+      centroCostoNombre: (data['centroCostoNombre'] ?? '').toString(),
+      fecha: (data['fecha'] as Timestamp?)?.toDate() ?? DateTime(2000),
+      puntaje: puntaje is num ? puntaje.toDouble() : 0,
+      concepto: (data['concepto'] ?? '').toString(),
+      acta: acta is Map && (acta['url'] ?? '').toString().isNotEmpty
+          ? InterventoriaAdjunto.fromMap(acta.cast<String, dynamic>())
+          : null,
+      registradoPor: (data['registradoPor'] ?? '').toString(),
+      registradoPorNombre: (data['registradoPorNombre'] ?? '').toString(),
+      createdAt: data['createdAt'] as Timestamp?,
+    );
+  }
+
+  /// Lo que se escribe. Sin `createdAt`: lo pone el servicio al crear.
+  Map<String, dynamic> toMap() => {
+    'empresaId': empresaId,
+    'centroCostoId': centroCostoId,
+    'centroCostoNombre': centroCostoNombre,
+    'fecha': Timestamp.fromDate(DateTime(fecha.year, fecha.month, fecha.day)),
+    'puntaje': puntaje,
+    'concepto': concepto,
+    'acta': acta?.toMap(),
+    'registradoPor': registradoPor,
+    'registradoPorNombre': registradoPorNombre,
+  };
+
+  InterventoriaConceptoSanitario copyWith({
+    String? id,
+    InterventoriaAdjunto? acta,
+  }) => InterventoriaConceptoSanitario(
+    id: id ?? this.id,
+    empresaId: empresaId,
+    centroCostoId: centroCostoId,
+    centroCostoNombre: centroCostoNombre,
+    fecha: fecha,
+    puntaje: puntaje,
+    concepto: concepto,
+    acta: acta ?? this.acta,
+    registradoPor: registradoPor,
+    registradoPorNombre: registradoPorNombre,
+    createdAt: createdAt,
+  );
+}
+
+/// Qué le falta a un concepto sanitario para guardarse, o null si está bien.
+String? validarConceptoSanitario({
+  required String centroCostoId,
+  required DateTime? fecha,
+  required double? puntaje,
+  required String concepto,
+  required DateTime hoy,
+}) {
+  if (centroCostoId.trim().isEmpty) return 'Elige el establecimiento.';
+  if (fecha == null) return 'Indica la fecha del acta.';
+  final dia = DateTime(fecha.year, fecha.month, fecha.day);
+  if (dia.isAfter(DateTime(hoy.year, hoy.month, hoy.day))) {
+    return 'La fecha del acta no puede ser futura.';
+  }
+  if (puntaje == null || puntaje.isNaN) return 'Escribe el puntaje.';
+  if (puntaje < 0 || puntaje > 100) {
+    return 'El puntaje va de 0 a 100.';
+  }
+  if (!kConceptosSanitarios.contains(concepto)) return 'Elige el concepto.';
+  return null;
+}
+
+/// Último concepto de cada establecimiento: el que rige hoy.
+Map<String, InterventoriaConceptoSanitario> conceptoVigentePorEstablecimiento(
+  Iterable<InterventoriaConceptoSanitario> conceptos,
+) {
+  final out = <String, InterventoriaConceptoSanitario>{};
+  for (final c in conceptos) {
+    final actual = out[c.centroCostoId];
+    if (actual == null || c.fecha.isAfter(actual.fecha)) {
+      out[c.centroCostoId] = c;
+    }
+  }
+  return out;
+}

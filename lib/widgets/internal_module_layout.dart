@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_scroll_behavior.dart' show usaBarraHorizontal;
 import '../theme/app_typography.dart';
 import '../home/home_screen.dart';
+import 'empresa_activa_chip.dart';
 
 class InternalModuleLayout extends StatelessWidget {
   final String title;
@@ -65,18 +66,27 @@ class InternalModuleLayout extends StatelessWidget {
               fontSize: 16,
             ),
           ),
-          if (subtitle != null)
-            Text(
-              subtitle!,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontFamily: kArial,
-                fontSize: 11,
-                fontWeight: FontWeight.w400,
-                color: Colors.white.withValues(alpha: 0.8),
-              ),
-            ),
+          // En el teléfono no cabe a la derecha junto a las acciones: la
+          // empresa ocupa la segunda línea, donde iba la descripción del
+          // módulo, que es lo menos útil de las dos.
+          EmpresaActivaChip(
+            empresaId: empresaId,
+            accentColor: accentColor,
+            compacto: true,
+            sinNombre: subtitle == null
+                ? null
+                : Text(
+                    subtitle!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w400,
+                      color: Colors.white.withValues(alpha: 0.8),
+                    ),
+                  ),
+          ),
         ],
       ),
       backgroundColor: accentColor,
@@ -181,6 +191,9 @@ class InternalModuleLayout extends StatelessWidget {
                   Padding(padding: const EdgeInsets.only(left: 12), child: a),
             ),
           ],
+          // Empresa activa, siempre arriba a la derecha (28 sep 2026).
+          const SizedBox(width: 16),
+          EmpresaActivaChip(empresaId: empresaId, accentColor: accentColor),
         ],
       ),
     );

@@ -33,12 +33,14 @@ class CompleteTaskScreen extends StatefulWidget {
   final String currentUserId;
   final bool requestFinish;
   final String? requestFinishByName;
+  final String? initialComment;
   const CompleteTaskScreen({
     Key? key,
     required this.taskId,
     required this.currentUserId,
     this.requestFinish = false,
     this.requestFinishByName,
+    this.initialComment,
   }) : super(key: key);
 
   @override
@@ -50,6 +52,8 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
   bool _busy = false;
   String? _error;
   String? _taskTitle;
+  late final TextEditingController _commentCtrl;
+  static const int _maxCommentLength = 3000;
 
   // Data
   Map<String, dynamic>? _task; // documento de la tarea
@@ -64,8 +68,15 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
   @override
   void initState() {
     super.initState();
+    _commentCtrl = TextEditingController(text: widget.initialComment ?? '');
     _loadTask();
     _ensureLocation();
+  }
+
+  @override
+  void dispose() {
+    _commentCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _loadTask() async {
@@ -400,6 +411,8 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
   // ---------- Submit ----------
 
   bool get _canSend {
+    final comment = _commentCtrl.text.trim();
+    if (comment.isEmpty || comment.length > _maxCommentLength) return false;
     if (!widget.requestFinish) return _picked.isNotEmpty;
     if (_requiresAttachment) return _picked.isNotEmpty;
     return true;
@@ -407,6 +420,7 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
 
   Future<void> _submit() async {
     if (!_canSend) return;
+    final comment = _commentCtrl.text.trim();
 
     setState(() {
       _busy = true;
@@ -432,6 +446,16 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
           'Solo el responsable actual puede completar esta tarea.',
         );
       }
+      if (const ['finalizado', 'por_aprobar'].contains(
+            (currentTaskData['estado'] ?? currentTaskData['status'] ?? '')
+                .toString(),
+          ) ||
+          (currentTaskData['solicitud_finalizacion_estado'] ?? '').toString() ==
+              'pendiente') {
+        throw StateError(
+          'La tarea ya se finalizó o está pendiente de aprobación.',
+        );
+      }
 
       // 1) Subir adjuntos
       final now = DateTime.now();
@@ -442,6 +466,7 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
 
       final List<Map<String, dynamic>> nuevosAdjuntos = [];
       final List<String> nuevasEvidenciasUrls = [];
+      final finalizacionRef = tareaRef.collection('finalizacion').doc();
 
       for (final f in _picked) {
         final originalName = f.name;
@@ -492,6 +517,16 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
             'La tarea fue reasignada. Solo el responsable actual puede completarla.',
           );
         }
+        if (const [
+              'finalizado',
+              'por_aprobar',
+            ].contains((data['estado'] ?? data['status'] ?? '').toString()) ||
+            (data['solicitud_finalizacion_estado'] ?? '').toString() ==
+                'pendiente') {
+          throw StateError(
+            'La tarea ya se finalizó o está pendiente de aprobación.',
+          );
+        }
         final currentAdj = (data['adjuntos'] as List<dynamic>? ?? [])
             .map((e) => Map<String, dynamic>.from(e as Map))
             .toList();
@@ -519,9 +554,20 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
             'evidencias': [...currentEvid, ...nuevasEvidenciasUrls],
             'actualizada_en': now,
           });
+          trx.set(finalizacionRef, {
+            'type': 'solicitud_finalizacion',
+            'message': 'Solicitud de finalización enviada por $byName',
+            'comment': comment,
+            'attachments': nuevosAdjuntos,
+            'createdAt': now,
+            'createdBy': widget.currentUserId,
+            'createdByName': byName,
+          });
           return;
         }
 
+        final byName = (data['asignado_nombre'] ?? widget.currentUserId)
+            .toString();
         trx.update(tareaRef, {
           'estado': 'finalizado',
           'status': 'finalizado',
@@ -534,28 +580,16 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
           'lastEventText':
               'Tarea finalizada por ${data['asignado_nombre'] ?? ''}',
         });
-      });
-
-      if (widget.requestFinish || nuevosAdjuntos.isNotEmpty) {
-        final currentTask = _task ?? const <String, dynamic>{};
-        final byName =
-            (widget.requestFinishByName ??
-                    currentTask['asignado_nombre'] ??
-                    widget.currentUserId)
-                .toString();
-        await tareaRef.collection('finalizacion').add({
-          'type': widget.requestFinish
-              ? 'solicitud_finalizacion'
-              : 'finalizacion',
-          'message': widget.requestFinish
-              ? 'Solicitud de finalización enviada por $byName'
-              : 'Tarea finalizada por $byName',
+        trx.set(finalizacionRef, {
+          'type': 'finalizacion',
+          'message': 'Tarea finalizada por $byName',
+          'comment': comment,
           'attachments': nuevosAdjuntos,
-          'createdAt': FieldValue.serverTimestamp(),
+          'createdAt': now,
           'createdBy': widget.currentUserId,
           'createdByName': byName,
         });
-      }
+      });
 
       // onTaskUpdated genera la notificación in-app y el push para creador/jefe.
       if (mounted) {
@@ -634,210 +668,248 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
         ],
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            // Header “tarjeta”
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Colors.black12,
-                      blurRadius: 10,
-                      offset: Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Icon(
-                        Icons.assignment_turned_in_outlined,
-                        size: 28,
-                        color: Colors.black87,
+        child: SingleChildScrollView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 720),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header “tarjeta”
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Colors.black12,
+                            blurRadius: 10,
+                            offset: Offset(0, 4),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              _taskTitle ?? '—',
-                              style: const TextStyle(
-                                fontFamily: kArial,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 18,
-                              ),
+                            const Icon(
+                              Icons.assignment_turned_in_outlined,
+                              size: 28,
+                              color: Colors.black87,
                             ),
-                            const SizedBox(height: 6),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 6,
-                              children: [
-                                _chip(
-                                  estado.isEmpty ? 'en_progreso' : estado,
-                                  color: estado == 'finalizado'
-                                      ? Colors.green.shade600
-                                      : (estado == 'por_aprobar'
-                                            ? Colors.orange.shade700
-                                            : Colors.blueGrey.shade700),
-                                ),
-                                _chip(
-                                  'Vence: ${_fmtDueDate(due)}',
-                                  color: Colors.blue.shade600,
-                                ),
-                              ],
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _taskTitle ?? '—',
+                                    style: const TextStyle(
+                                      fontFamily: kArial,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 18,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 6,
+                                    children: [
+                                      _chip(
+                                        estado.isEmpty ? 'en_progreso' : estado,
+                                        color: estado == 'finalizado'
+                                            ? Colors.green.shade600
+                                            : (estado == 'por_aprobar'
+                                                  ? Colors.orange.shade700
+                                                  : Colors.blueGrey.shade700),
+                                      ),
+                                      _chip(
+                                        'Vence: ${_fmtDueDate(due)}',
+                                        color: Colors.blue.shade600,
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                         ),
                       ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-
-            // Botones acciones
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _ActionButton(
-                      icon: Icons.attach_file,
-                      label: 'Adjuntar\narchivos',
-                      onTap: _busy ? null : _pickFiles,
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _ActionButton(
-                      icon: Icons.camera_alt,
-                      label: 'Tomar foto',
-                      onTap: _busy ? null : _takePhoto,
+
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                    child: TextField(
+                      controller: _commentCtrl,
+                      enabled: !_busy,
+                      textCapitalization: TextCapitalization.sentences,
+                      minLines: 3,
+                      maxLines: 6,
+                      maxLength: _maxCommentLength,
+                      decoration: InputDecoration(
+                        labelText: 'Comentario de finalización *',
+                        hintText: '¿Qué se hizo para completar la tarea?',
+                        helperText:
+                            'Obligatorio. Quedará en el historial de la tarea.',
+                        helperMaxLines: 2,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
+
+                  // Botones acciones
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _ActionButton(
+                            icon: Icons.attach_file,
+                            label: 'Adjuntar\narchivos',
+                            onTap: _busy ? null : _pickFiles,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _ActionButton(
+                            icon: Icons.camera_alt,
+                            label: 'Tomar foto',
+                            onTap: _busy ? null : _takePhoto,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Listado de archivos seleccionados
+                  if (_picked.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 16),
+                      child: Text(
+                        widget.requestFinish && !_requiresAttachment
+                            ? 'Esta tarea no requiere adjuntos. Puedes enviarla a aprobación sin evidencia.'
+                            : 'Agrega una foto o adjuntos como evidencia.',
+                        style: const TextStyle(
+                          fontFamily: kArial,
+                          color: Colors.black54,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    )
+                  else
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: _picked.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 8),
+                        itemBuilder: (_, i) {
+                          final f = _picked[i];
+                          final isImg =
+                              (f.name.toLowerCase().endsWith('.png') ||
+                              f.name.toLowerCase().endsWith('.jpg') ||
+                              f.name.toLowerCase().endsWith('.jpeg'));
+                          return Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.grey.shade300),
+                            ),
+                            child: ListTile(
+                              leading: Icon(
+                                isImg
+                                    ? Icons.image
+                                    : Icons.insert_drive_file_outlined,
+                                color: Colors.black87,
+                              ),
+                              title: Text(
+                                f.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              subtitle: Text(
+                                '${(f.size / 1024).toStringAsFixed(1)} KB',
+                              ),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.close),
+                                onPressed: _busy
+                                    ? null
+                                    : () => setState(() {
+                                        _picked.removeAt(i);
+                                        if (i < _photos.length &&
+                                            _photos[i].name == f.name) {
+                                          _photos.removeAt(i);
+                                        }
+                                      }),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+
+                  // Error
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+                      child: Text(
+                        _error!,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                    ),
+
+                  // CTA
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _busy || !_canSend ? null : _submit,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: kMarronOscuro,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(24),
+                          ),
+                          elevation: 4,
+                        ),
+                        child: _busy
+                            ? const SizedBox(
+                                height: 22,
+                                width: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Text(
+                                widget.requestFinish
+                                    ? (_requiresAttachment
+                                          ? 'Enviar evidencias y solicitar finalización'
+                                          : 'Solicitar finalización')
+                                    : 'Enviar evidencias',
+                                style: const TextStyle(fontFamily: kArial),
+                              ),
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
-
-            // Listado de archivos seleccionados
-            if (_picked.isEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 16),
-                child: Text(
-                  widget.requestFinish && !_requiresAttachment
-                      ? 'Esta tarea no requiere adjuntos. Puedes enviarla a aprobación sin evidencia.'
-                      : 'Agrega una foto o adjuntos como evidencia.',
-                  style: const TextStyle(
-                    fontFamily: kArial,
-                    color: Colors.black54,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              )
-            else
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                  child: ListView.separated(
-                    itemCount: _picked.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 8),
-                    itemBuilder: (_, i) {
-                      final f = _picked[i];
-                      final isImg =
-                          (f.name.toLowerCase().endsWith('.png') ||
-                          f.name.toLowerCase().endsWith('.jpg') ||
-                          f.name.toLowerCase().endsWith('.jpeg'));
-                      return Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.grey.shade300),
-                        ),
-                        child: ListTile(
-                          leading: Icon(
-                            isImg
-                                ? Icons.image
-                                : Icons.insert_drive_file_outlined,
-                            color: Colors.black87,
-                          ),
-                          title: Text(
-                            f.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          subtitle: Text(
-                            '${(f.size / 1024).toStringAsFixed(1)} KB',
-                          ),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.close),
-                            onPressed: _busy
-                                ? null
-                                : () => setState(() {
-                                    _picked.removeAt(i);
-                                    if (i < _photos.length &&
-                                        _photos[i].name == f.name) {
-                                      _photos.removeAt(i);
-                                    }
-                                  }),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-
-            // Error
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
-                child: Text(_error!, style: const TextStyle(color: Colors.red)),
-              ),
-
-            // CTA
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _busy || !_canSend ? null : _submit,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: kMarronOscuro,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                    elevation: 4,
-                  ),
-                  child: _busy
-                      ? const SizedBox(
-                          height: 22,
-                          width: 22,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : Text(
-                          widget.requestFinish
-                              ? (_requiresAttachment
-                                    ? 'Enviar evidencias y solicitar finalización'
-                                    : 'Solicitar finalización')
-                              : 'Enviar evidencias',
-                          style: const TextStyle(fontFamily: kArial),
-                        ),
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );

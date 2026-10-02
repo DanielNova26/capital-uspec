@@ -139,6 +139,10 @@ class InterventoriaUsuario {
   /// Grupos de Interventoría, normalizados (`G1`, `G9`...).
   final Set<String> grupos;
 
+  /// Jefe inmediato en ESTA empresa (cédula). Es el aprobador que se propone
+  /// cuando el maestro no define uno para el numeral.
+  final String jefeId;
+
   const InterventoriaUsuario({
     required this.id,
     required this.nombre,
@@ -149,6 +153,7 @@ class InterventoriaUsuario {
     this.centrosOperacionIds = const {},
     this.centrosTrabajoIds = const {},
     this.grupos = const {},
+    this.jefeId = '',
   });
 
   InterventoriaUsuario copyWith({
@@ -166,6 +171,7 @@ class InterventoriaUsuario {
     centrosOperacionIds: centrosOperacionIds ?? this.centrosOperacionIds,
     centrosTrabajoIds: centrosTrabajoIds ?? this.centrosTrabajoIds,
     grupos: grupos ?? this.grupos,
+    jefeId: jefeId,
   );
 
   /// El centro de costos es la adscripción administrativa. La cobertura de
@@ -345,6 +351,105 @@ List<InterventoriaPersona> priorizarResponsablesEnSede(
     fueraDelCentro ??= personas;
   }
   return fueraDelCentro ?? const [];
+}
+
+/// De dónde salió el aprobador de una asignación.
+enum OrigenAprobador { elegido, maestro, actual, jefeInmediato, ninguno }
+
+/// Aprobador de una asignación, con la razón por la que se propone.
+class AprobadorPropuesto {
+  final InterventoriaPersona? persona;
+  final OrigenAprobador origen;
+
+  const AprobadorPropuesto(this.persona, this.origen);
+
+  static const ninguno = AprobadorPropuesto(null, OrigenAprobador.ninguno);
+}
+
+/// Quién aprueba la subsanación de un hallazgo.
+///
+/// Antes solo contaba la regla del maestro: todo numeral sin aprobador en la
+/// regla (las actas de policía, el 90.2, los numerales que no se identifican)
+/// terminaba en "La regla no tiene un aprobador activo", aunque el responsable
+/// se hubiera elegido a mano (reunión 28 sep 2026). Ahora, en orden:
+///
+/// 1. la persona elegida en pantalla;
+/// 2. la que resuelve la regla del numeral — o, con [preferirActual], el
+///    aprobador que el hallazgo ya tenía, que pudo haberse cambiado a mano;
+/// 3. la otra de las dos;
+/// 4. el jefe inmediato de quien responde, que es como aprueban las tareas
+///    creadas desde Crear tarea.
+///
+/// Si no hay ninguno devuelve [AprobadorPropuesto.ninguno]: una tarea sin
+/// aprobador no la puede cerrar nadie, así que la asignación debe detenerse.
+AprobadorPropuesto resolverAprobadorAsignacion({
+  InterventoriaPersona? elegido,
+  InterventoriaPersona? delMaestro,
+  InterventoriaHallazgo? hallazgo,
+  String responsableId = '',
+  List<InterventoriaUsuario> usuarios = const [],
+  bool preferirActual = false,
+}) {
+  if (elegido != null && elegido.id.trim().isNotEmpty) {
+    return AprobadorPropuesto(elegido, OrigenAprobador.elegido);
+  }
+  final maestro = delMaestro != null && delMaestro.id.trim().isNotEmpty
+      ? AprobadorPropuesto(delMaestro, OrigenAprobador.maestro)
+      : null;
+  final idActual = hallazgo?.aprobadorId.trim() ?? '';
+  final actual = idActual.isEmpty
+      ? null
+      : AprobadorPropuesto(
+          InterventoriaPersona(
+            id: idActual,
+            nombre: hallazgo!.aprobadorNombre.trim().isEmpty
+                ? idActual
+                : hallazgo.aprobadorNombre.trim(),
+            cargo: hallazgo.cargoAprobador,
+            cargoMatriz: hallazgo.cargoAprobador,
+            delCentro: false,
+          ),
+          OrigenAprobador.actual,
+        );
+  final primero = preferirActual ? (actual ?? maestro) : (maestro ?? actual);
+  if (primero != null) return primero;
+
+  final responsable = responsableId.trim();
+  if (responsable.isEmpty) return AprobadorPropuesto.ninguno;
+  final jefeId =
+      usuarios.where((u) => u.id == responsable).firstOrNull?.jefeId.trim() ??
+      '';
+  if (jefeId.isEmpty || jefeId == responsable) {
+    return AprobadorPropuesto.ninguno;
+  }
+  final jefe = usuarios.where((u) => u.id == jefeId).firstOrNull;
+  if (jefe == null) return AprobadorPropuesto.ninguno;
+  return AprobadorPropuesto(
+    InterventoriaPersona(
+      id: jefe.id,
+      nombre: jefe.nombre,
+      cargo: jefe.cargo,
+      cargoMatriz: '',
+      delCentro: false,
+    ),
+    OrigenAprobador.jefeInmediato,
+  );
+}
+
+/// Cargo que queda escrito como "aprueba" en el hallazgo y en la tarea.
+///
+/// Si salió de la regla, el cargo tal como lo nombra el maestro; si se eligió
+/// a mano o es el jefe inmediato, el cargo real de esa persona.
+String cargoDelAprobador(AprobadorPropuesto propuesto, {String cargoRegla = ''}) {
+  final persona = propuesto.persona;
+  if (persona == null) return '';
+  if (propuesto.origen == OrigenAprobador.maestro &&
+      cargoRegla.trim().isNotEmpty) {
+    return cargoRegla.trim();
+  }
+  return persona.cargoMatriz.trim().isNotEmpty
+      ? persona.cargoMatriz.trim()
+      : persona.cargo.trim();
 }
 
 /// Jerarquía de cargos para elegir quién responde por un área.
@@ -2777,6 +2882,16 @@ class InterventoriaService {
       if (areaId.isEmpty) {
         areaId = perfilCargo?.areaId ?? '';
       }
+      // Mismas claves que lee Crear tarea (OrgContextResolver).
+      final jefeId =
+          (scoped?['jefeId'] ??
+                  scoped?['jefe_id'] ??
+                  scoped?['jefe_uid'] ??
+                  raiz['jefeId'] ??
+                  raiz['jefe_uid'] ??
+                  '')
+              .toString()
+              .trim();
       rows.add(
         InterventoriaUsuario(
           id: doc.id,
@@ -2788,6 +2903,7 @@ class InterventoriaService {
           centrosOperacionIds: operacion,
           centrosTrabajoIds: trabajo,
           grupos: grupos,
+          jefeId: jefeId == doc.id ? '' : jefeId,
         ),
       );
     }
@@ -2921,6 +3037,179 @@ class InterventoriaService {
     hallazgo.centroCostoId,
     usuarios,
   );
+
+  /// Cargos que APRUEBAN el numeral de un hallazgo. Mismo criterio que
+  /// [cargosResponsablesDe]: manda la regla guardada y las actas con catálogo
+  /// propio no tienen matriz incluida.
+  List<String> cargosAprobadoresDe(
+    InterventoriaHallazgo hallazgo,
+    Map<String, dynamic> reglas,
+  ) {
+    final numeral = hallazgo.numeralParaMatriz;
+    if (numeral.isEmpty) return const [];
+    final tipo = hallazgo.tipoActa ?? kActaRegular;
+    final regla = reglaGuardada(reglas, tipo, numeral);
+    if (regla != null) {
+      return cargosDeRegla(regla['aprobadores'], regla['aprobador']);
+    }
+    if (tieneCatalogoPropio(tipo)) return const [];
+    return cargosDeRegla(null, responsabilidadDeNumeral(numeral)?.aprobador);
+  }
+
+  /// Aprobador que la regla resuelve, contra el personal ya cargado. Igual
+  /// que en [resolverAsignacionPorNumeral], se resuelve contra todo el
+  /// personal activo, reciba o no tareas.
+  InterventoriaPersona? sugerirAprobador(
+    InterventoriaHallazgo hallazgo,
+    List<InterventoriaUsuario> usuariosActivos, {
+    Map<String, dynamic> reglas = const {},
+  }) => resolverPrimerCargoQueResuelva(
+    cargosAprobadoresDe(hallazgo, reglas),
+    hallazgo.centroCostoId,
+    usuariosActivos,
+  );
+
+  /// Reglas del maestro leídas una vez, para quien no escucha el stream.
+  Future<Map<String, dynamic>> reglasSubsanacion(String empresaId) =>
+      _leerReglasSubsanacion(empresaId);
+
+  /// Cambia quién aprueba la subsanación sin rehacer la tarea.
+  ///
+  /// Pedido el 28 sep 2026: al reasignar solo se podía mover al responsable.
+  /// La tarea conserva su avance y su fecha límite. Va por servidor
+  /// (`interventoriaCambiarAprobador`): toca `jefe_uid`/`aprobador_uid` de la
+  /// tarea, que las reglas de `TBL_TAREAS` no dejan mover desde el cliente,
+  /// y allí se valida el rol de quien lo pide y que la persona elegida esté
+  /// activa en la empresa. Devuelve el cargo con que quedó registrado.
+  Future<String> cambiarAprobadorHallazgo({
+    required InterventoriaHallazgo hallazgo,
+    required InterventoriaPersona aprobador,
+  }) async {
+    final hallazgoId = hallazgo.id.trim();
+    if (hallazgoId.isEmpty) {
+      throw StateError(
+        'Asigna primero un responsable para elegir quién aprueba.',
+      );
+    }
+    final nuevoId = aprobador.id.trim();
+    if (nuevoId.isEmpty) throw StateError('Elige a la persona que aprueba.');
+    if (nuevoId == hallazgo.aprobadorId.trim()) return hallazgo.cargoAprobador;
+    try {
+      final res = await _functions
+          .httpsCallable('interventoriaCambiarAprobador')
+          .call({
+            'empresaId': hallazgo.empresaId,
+            'hallazgoId': hallazgoId,
+            'aprobadorId': nuevoId,
+          });
+      final data = res.data;
+      return data is Map ? (data['cargo'] ?? aprobador.cargo).toString() : '';
+    } on FirebaseFunctionsException catch (e) {
+      throw StateError(e.message ?? e.code);
+    }
+  }
+
+  // ── Concepto higiénico sanitario ─────────────────────────────────────────
+
+  /// Actas de concepto sanitario de la empresa, la más reciente primero.
+  /// [centroId] fija la consulta a un establecimiento (el registrador).
+  Stream<List<InterventoriaConceptoSanitario>> streamConceptosSanitarios(
+    String empresaId, {
+    String? centroId,
+  }) {
+    var q = _db
+        .collection(kColeccionConceptosSanitarios)
+        .where('empresaId', isEqualTo: empresaId);
+    if (centroId != null && centroId.isNotEmpty) {
+      q = q.where('centroCostoId', isEqualTo: centroId);
+    }
+    // Se ordena en memoria: con el filtro por centro, ordenar en Firestore
+    // pediría un índice compuesto más para una lista corta.
+    return q.snapshots().map((snap) {
+      final list = snap.docs
+          .map((d) => InterventoriaConceptoSanitario.fromMap(d.id, d.data()))
+          .toList();
+      list.sort((a, b) => b.fecha.compareTo(a.fecha));
+      return list;
+    });
+  }
+
+  /// Crea o actualiza un concepto sanitario. Si trae [archivo], lo sube
+  /// primero y lo deja como el acta del registro. Devuelve el id.
+  Future<String> guardarConceptoSanitario(
+    InterventoriaConceptoSanitario concepto, {
+    Uint8List? archivo,
+    String archivoNombre = '',
+    String archivoTipo = '',
+  }) async {
+    final error = validarConceptoSanitario(
+      centroCostoId: concepto.centroCostoId,
+      fecha: concepto.fecha,
+      puntaje: concepto.puntaje,
+      concepto: concepto.concepto,
+      hoy: DateTime.now(),
+    );
+    if (error != null) throw StateError(error);
+    final col = _db.collection(kColeccionConceptosSanitarios);
+    final ref = concepto.id.isEmpty ? col.doc() : col.doc(concepto.id);
+    var guardar = concepto.copyWith(id: ref.id);
+    if (archivo != null && archivo.isNotEmpty) {
+      final nombre = archivoNombre.trim().isEmpty
+          ? 'concepto_sanitario.pdf'
+          : archivoNombre.trim();
+      final path =
+          'interventoria/${concepto.empresaId}/conceptos_sanitarios/${ref.id}/'
+          '${DateTime.now().millisecondsSinceEpoch}_'
+          '${nombre.replaceAll(RegExp(r'[^\w.\-]'), '_')}';
+      final storageRef = _storage.ref(path);
+      // Copia propia de los bytes: en web el selector entrega una vista
+      // sobre un ArrayBuffer que Storage puede leer después de un await.
+      await storageRef.putData(
+        Uint8List.fromList(archivo),
+        SettableMetadata(
+          contentType: archivoTipo.isEmpty
+              ? 'application/octet-stream'
+              : archivoTipo,
+        ),
+      );
+      guardar = guardar.copyWith(
+        acta: InterventoriaAdjunto(
+          url: await storageRef.getDownloadURL(),
+          nombre: nombre,
+          path: path,
+          contentType: archivoTipo,
+          origen: 'concepto_sanitario',
+          fechaSubida: Timestamp.now(),
+        ),
+      );
+    }
+    await ref.set({
+      ...guardar.toMap(),
+      if (concepto.id.isEmpty) 'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    return ref.id;
+  }
+
+  /// Borra un concepto sanitario y su archivo. Las reglas solo lo permiten a
+  /// administración, gerencia y Desarrollo.
+  Future<void> eliminarConceptoSanitario(
+    InterventoriaConceptoSanitario concepto,
+  ) async {
+    if (concepto.id.isEmpty) return;
+    await _db
+        .collection(kColeccionConceptosSanitarios)
+        .doc(concepto.id)
+        .delete();
+    final path = concepto.acta?.path.trim() ?? '';
+    if (path.isNotEmpty) {
+      try {
+        await _storage.ref(path).delete();
+      } catch (_) {
+        // El registro ya no existe; un archivo huérfano no bloquea.
+      }
+    }
+  }
 
   /// Configuración editable de la biblioteca para una empresa. Las claves
   /// ausentes conservan la matriz incluida en la aplicación.
@@ -3422,12 +3711,16 @@ class InterventoriaService {
   /// para los hallazgos cuyo numeral no se puede identificar.
   /// [exigirResponsableEnCentro] protege la asignación masiva: se vuelve a
   /// resolver con datos actuales y se rechaza cualquier resultado de otra sede.
+  ///
+  /// [aprobadorForzado] = quién aprueba, elegido en pantalla. Manda sobre la
+  /// regla (ver [resolverAprobadorAsignacion]).
   Future<String?> crearTareaYNotificarHallazgo({
     required InterventoriaHallazgo hallazgo,
     required String creadorId,
     String creadorNombre = '',
     bool preferirAreaManual = false,
     InterventoriaPersona? responsableForzado,
+    InterventoriaPersona? aprobadorForzado,
     bool exigirResponsableEnCentro = false,
     bool notificarCreacion = true,
     void Function(InterventoriaTareaCreada creada)? alCrear,
@@ -3440,6 +3733,7 @@ class InterventoriaService {
       creadorNombre: creadorNombre,
       preferirAreaManual: preferirAreaManual,
       responsableForzado: responsableForzado,
+      aprobadorForzado: aprobadorForzado,
       exigirResponsableEnCentro: exigirResponsableEnCentro,
       notificarCreacion: notificarCreacion,
       alCrear: alCrear,
@@ -3452,6 +3746,7 @@ class InterventoriaService {
     required String creadorNombre,
     required bool preferirAreaManual,
     required InterventoriaPersona? responsableForzado,
+    required InterventoriaPersona? aprobadorForzado,
     required bool exigirResponsableEnCentro,
     required bool notificarCreacion,
     required void Function(InterventoriaTareaCreada creada)? alCrear,
@@ -3516,16 +3811,50 @@ class InterventoriaService {
       );
     }
 
-    // El aprobador de la matriz es el jefe de la tarea: recibe notificación
-    // cuando el responsable termina y es quien aprueba la subsanación.
-    final aprobador = asignacion?.aprobador;
-    if (aprobador == null || aprobador.id.trim().isEmpty) {
+    // El aprobador es el jefe de la tarea: recibe notificación cuando el
+    // responsable termina y es quien aprueba la subsanación. El personal solo
+    // se lee si hace falta llegar hasta el jefe inmediato.
+    var propuesto = resolverAprobadorAsignacion(
+      elegido: aprobadorForzado,
+      delMaestro: asignacion?.aprobador,
+      hallazgo: hallazgo,
+    );
+    // El jefe inmediato solo cubre las asignaciones hechas a mano. La
+    // asignación automática (completar el acta, "Asignar por el maestro")
+    // sigue exigiendo el aprobador de la regla: si la regla no resuelve, el
+    // hallazgo queda en "Sin asignar" para que alguien decida.
+    final manual = responsableForzado != null || preferirAreaManual;
+    if (propuesto.persona == null && manual) {
+      propuesto = resolverAprobadorAsignacion(
+        hallazgo: hallazgo,
+        responsableId: destinatarioId,
+        usuarios: await _usuariosDeEmpresa(
+          hallazgo.empresaId,
+          soloAsignables: false,
+        ),
+      );
+    }
+    final aprobador = propuesto.persona;
+    if (aprobador == null) {
+      final numeral = hallazgo.numeralParaMatriz;
+      final paraNumeral = numeral.isEmpty ? '' : ' para $numeral';
       throw StateError(
-        'La regla no tiene un aprobador activo. Corríjala en la biblioteca.',
+        manual
+            ? 'Falta quién aprueba: el maestro no define aprobador$paraNumeral'
+                  ' y '
+                  '${destinatarioNombre.isEmpty ? 'el responsable' : destinatarioNombre}'
+                  ' no tiene jefe inmediato registrado. Elige quién aprueba '
+                  'al asignar.'
+            : 'El maestro no resuelve quién aprueba$paraNumeral: asígnalo a '
+                  'mano en Subsanaciones.',
       );
     }
     final jefeId = aprobador.id;
     final jefeNombre = aprobador.nombre;
+    final cargoAprobador = cargoDelAprobador(
+      propuesto,
+      cargoRegla: asignacion?.cargoAprobador ?? '',
+    );
 
     final fechaLimite =
         asignacion?.fechaLimite ??
@@ -3551,10 +3880,13 @@ class InterventoriaService {
     if (hallazgo.dptoEncargado.isNotEmpty) {
       sb.writeln('Departamento: ${hallazgo.dptoEncargado}');
     }
-    if (asignacion != null) {
+    if (asignacion != null && asignacion.cargoResponsable.trim().isNotEmpty) {
       sb.writeln('Responsable según acta: ${asignacion.cargoResponsable}');
-      sb.writeln('Aprueba la subsanación: ${asignacion.cargoAprobador}');
     }
+    sb.writeln(
+      'Aprueba la subsanación: $jefeNombre'
+      '${cargoAprobador.isEmpty ? '' : ' · $cargoAprobador'}',
+    );
     sb.writeln(
       'Fecha: ${DateFormat('dd/MM/yyyy').format(hallazgo.fechaHallazgo.toDate())}',
     );
@@ -3662,7 +3994,7 @@ class InterventoriaService {
         'areaNombre': hallazgo.dptoEncargado,
         'numeralActa': hallazgo.numeralParaMatriz,
         'cargoResponsable': asignacion?.cargoResponsable ?? '',
-        'cargoAprobador': asignacion?.cargoAprobador ?? '',
+        'cargoAprobador': cargoAprobador,
         'asignacionAutomatica': asignacionAutomatica,
         // Quién dio clic (o completó el acta), para la trazabilidad.
         'ejecutadoPorId': creadorId,
@@ -3703,7 +4035,7 @@ class InterventoriaService {
                 responsableForzado?.cargo ?? asignacion?.cargoResponsable ?? '',
             'aprobadorId': aprobador.id,
             'aprobadorNombre': aprobador.nombre,
-            'cargoAprobador': asignacion?.cargoAprobador ?? '',
+            'cargoAprobador': cargoAprobador,
             'fechaLimite': Timestamp.fromDate(fechaLimite),
           });
     }

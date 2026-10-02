@@ -148,7 +148,9 @@ test.before(async () => {
         empresaId: "EMP_A", apiKeyGoogle: "clave-secreta", apiKeyTomtom: "otra",
       }),
       setDoc(doc(db, "TBL_RUTAS_MOV_HORARIOS/h1"), {empresaId: "EMP_A", hora: 7}),
-      setDoc(doc(db, "TBL_TAREAS/t1"), {empresaId: "EMP_A", titulo: "Tarea"}),
+      // TBL_TAREAS ya tiene regla propia (2 oct 2026): el ejemplo de la regla
+      // general es una colección sin regla.
+      setDoc(doc(db, "TBL_SIN_REGLA_PROPIA/t1"), {empresaId: "EMP_A", titulo: "Libre"}),
     ]);
   });
 });
@@ -484,7 +486,7 @@ test("un conductor inhabilitado no sube evidencias ni ve las rutas", async () =>
 });
 
 test("la regla general sigue abierta para lo demás y cerrada para lo excluido", async () => {
-  await assertSucceeds(getDoc(doc(auth("th"), "TBL_TAREAS/t1")));
+  await assertSucceeds(getDoc(doc(auth("th"), "TBL_SIN_REGLA_PROPIA/t1")));
   await assertFails(getDoc(doc(auth("th"), "TBL_WHATSAPP_CONFIG/x")));
   await assertFails(getDoc(doc(auth("th"), "TBL_GD_CONTADORES/x")));
 });

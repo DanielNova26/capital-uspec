@@ -5,9 +5,14 @@ import 'package:intl/intl.dart';
 
 import '../core/area_directory.dart';
 import '../widgets/paged_list.dart';
+import '../widgets/user_avatar.dart';
+import 'interventoria_actas_catalogo.dart';
 import 'interventoria_models.dart';
 import 'interventoria_service.dart';
 import 'interventoria_avisos_asignacion.dart';
+
+String _mayuscula(String texto) =>
+    texto.isEmpty ? texto : texto[0].toUpperCase() + texto.substring(1);
 
 /// Solo ofrece áreas existentes en el catálogo de la empresa activa. Los
 /// nombres legados sí se pueden resolver, pero nunca un id de otra empresa.
@@ -84,6 +89,23 @@ class _InterventoriaTableroAsignacionState
   final Set<String> _asignando = {};
   bool _asignandoMasivo = false;
 
+  /// Personal activo, reciba o no tareas: contra él se elige quién aprueba.
+  /// Se pide la primera vez que hace falta, no al abrir el tablero.
+  Future<List<InterventoriaUsuario>>? _activos;
+
+  Future<List<InterventoriaUsuario>> _cargarActivos() =>
+      _activos ??= _leerActivos(widget.empresaId);
+
+  Future<List<InterventoriaUsuario>> _leerActivos(String empresaId) async {
+    try {
+      return await widget.service.listarUsuariosActivos(empresaId);
+    } catch (_) {
+      // Un fallo no se queda guardado: el siguiente intento vuelve a leer.
+      if (widget.empresaId == empresaId) _activos = null;
+      rethrow;
+    }
+  }
+
   /// areaId → nombre legible. Solo sirve para etiquetar el filtro por área
   /// del selector: los usuarios ya traen su `areaId`, pero no su nombre.
   Map<String, String> _areas = const {};
@@ -107,6 +129,7 @@ class _InterventoriaTableroAsignacionState
       _reglas = const {};
       _reglasListas = false;
       _errorReglas = false;
+      _activos = null;
       _cargarUsuarios();
       _escucharReglas();
     }
@@ -457,6 +480,19 @@ class _InterventoriaTableroAsignacionState
                   ),
                 ],
               ),
+              // El 3.1 de un acta de policía no es el 3.1 del acta regular:
+              // sin decir de qué acta es, se buscaba en el maestro equivocado.
+              if (tieneCatalogoPropio(h.tipoActa)) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Acta de ${etiquetaTipoActa(h.tipoActa).toLowerCase()}',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: _accent,
+                  ),
+                ),
+              ],
               const SizedBox(height: 8),
               Text(
                 h.descripcion,
@@ -517,7 +553,8 @@ class _InterventoriaTableroAsignacionState
         : h.cargoResponsable.trim().isEmpty
         ? h.responsableNombre
         : '${h.responsableNombre} · ${h.cargoResponsable}';
-    return Row(
+    final aprueba = h.aprobadorNombre.trim();
+    final fila = Row(
       children: [
         Icon(
           porArea ? Icons.corporate_fare_outlined : Icons.person_outline,
@@ -553,6 +590,30 @@ class _InterventoriaTableroAsignacionState
             ),
           ),
         ],
+      ],
+    );
+    if (aprueba.isEmpty) return fila;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        fila,
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            const Icon(Icons.verified_user_outlined, size: 14, color: _muted),
+            const SizedBox(width: 5),
+            Expanded(
+              child: Text(
+                h.cargoAprobador.trim().isEmpty
+                    ? 'Aprueba: $aprueba'
+                    : 'Aprueba: $aprueba · ${h.cargoAprobador}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12, color: _muted),
+              ),
+            ),
+          ],
+        ),
       ],
     );
   }
@@ -653,8 +714,8 @@ class _InterventoriaTableroAsignacionState
             sinNumeral
                 ? 'No se pudo identificar el numeral: elige tú el responsable'
                 : cargos.isEmpty
-                ? 'El maestro no define responsable para '
-                      '${h.numeralParaMatriz}: elige tú'
+                ? '${_mayuscula(nombreMaestroDeActa(h.tipoActa))} no define '
+                      'responsable para ${h.numeralParaMatriz}: elige tú'
                 : 'No hay personal asignable en esta empresa para '
                       '${h.numeralParaMatriz} (${cargos.join(' o ')}): elige tú',
             maxLines: 3,
@@ -691,6 +752,16 @@ class _InterventoriaTableroAsignacionState
             style: const TextStyle(fontSize: 12),
           ),
         ),
+        if (asignado && h.id.trim().isNotEmpty)
+          TextButton.icon(
+            onPressed: () => _cambiarAprobador(h),
+            style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+            icon: const Icon(Icons.verified_user_outlined, size: 16),
+            label: const Text(
+              'Cambiar aprobador',
+              style: TextStyle(fontSize: 12),
+            ),
+          ),
         TextButton.icon(
           onPressed: () => widget.onAbrirSeguimiento(h),
           style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
@@ -708,29 +779,72 @@ class _InterventoriaTableroAsignacionState
     final fueraDeSede =
         sugeridos.isNotEmpty &&
         sugeridos.every((persona) => !persona.delCentro);
-    final elegido = await showModalBottomSheet<InterventoriaUsuario>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => InterventoriaSelectorPersona(
-        usuarios: _usuarios,
-        centroCostoId: h.centroCostoId,
-        centroCostoNombre: h.centroCostoNombre,
-        areas: _areas,
-        sugeridosIds: {for (final persona in sugeridos) persona.id},
-        mostrarTodaEmpresaInicialmente: fueraDeSede,
-      ),
+    final elegida = await elegirAsignacionManual(
+      context,
+      service: widget.service,
+      hallazgo: h,
+      usuarios: _usuarios,
+      areas: _areas,
+      cargarActivos: _cargarActivos,
+      cargarReglas: () async => _reglasListas
+          ? _reglas
+          : await widget.service.reglasSubsanacion(widget.empresaId),
+      sugeridosIds: {for (final persona in sugeridos) persona.id},
+      mostrarTodaEmpresaInicialmente: fueraDeSede,
     );
-    if (elegido == null) return;
+    if (elegida == null) return;
     await _asignar(
       h,
-      InterventoriaPersona(
-        id: elegido.id,
-        nombre: elegido.nombre,
-        cargo: elegido.cargo,
-        cargoMatriz: '',
-        delCentro: elegido.cubreCentro(h.centroCostoId),
-      ),
+      elegida.responsable,
+      aprobador: elegida.aprobador,
       forzado: true,
+    );
+  }
+
+  /// Cambia solo quién aprueba: la tarea sigue con su responsable, su avance
+  /// y su fecha límite (pedido del 28 sep 2026).
+  Future<void> _cambiarAprobador(InterventoriaHallazgo h) async {
+    final clave = _claveOcupado(h);
+    if (_asignando.contains(clave)) return;
+    List<InterventoriaUsuario> activos;
+    try {
+      activos = await _cargarActivos();
+    } catch (e) {
+      _avisar('No se pudo cargar el personal: $e', error: true);
+      return;
+    }
+    if (!mounted) return;
+    final delMaestro = widget.service.sugerirAprobador(
+      h,
+      activos,
+      reglas: _reglas,
+    );
+    final nuevo = await elegirAprobadorHallazgo(
+      context,
+      hallazgo: h,
+      usuarios: activos,
+      areas: _areas,
+      sugeridosIds: {if (delMaestro != null) delMaestro.id},
+    );
+    if (nuevo == null || !mounted) return;
+    setState(() => _asignando.add(clave));
+    try {
+      await widget.service.cambiarAprobadorHallazgo(
+        hallazgo: h,
+        aprobador: nuevo,
+      );
+      _avisar('Ahora aprueba ${nuevo.nombre}');
+    } catch (e) {
+      _avisar('No se pudo cambiar el aprobador: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _asignando.remove(clave));
+    }
+  }
+
+  void _avisar(String texto, {bool error = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(backgroundColor: error ? _danger : _ok, content: Text(texto)),
     );
   }
 
@@ -846,6 +960,7 @@ class _InterventoriaTableroAsignacionState
     InterventoriaHallazgo h,
     InterventoriaPersona persona, {
     bool forzado = false,
+    InterventoriaPersona? aprobador,
   }) async {
     final clave = _claveOcupado(h);
     if (_asignando.contains(clave)) return;
@@ -865,13 +980,16 @@ class _InterventoriaTableroAsignacionState
         creadorId: widget.userId,
         creadorNombre: widget.userId,
         responsableForzado: forzado ? persona : null,
+        aprobadorForzado: aprobador,
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: _ok,
             content: Text(
-              'Asignado a ${persona.nombre} · tarea creada con fecha límite',
+              aprobador == null
+                  ? 'Asignado a ${persona.nombre} · tarea creada con fecha límite'
+                  : 'Asignado a ${persona.nombre} · aprueba ${aprobador.nombre}',
             ),
           ),
         );
@@ -914,6 +1032,10 @@ class InterventoriaSelectorPersona extends StatefulWidget {
   final Set<String> sugeridosIds;
   final bool mostrarTodaEmpresaInicialmente;
 
+  /// El mismo buscador sirve para elegir quién responde y quién aprueba.
+  final String titulo;
+  final String etiquetaSugerido;
+
   const InterventoriaSelectorPersona({
     super.key,
     required this.usuarios,
@@ -922,6 +1044,8 @@ class InterventoriaSelectorPersona extends StatefulWidget {
     this.areas = const {},
     this.sugeridosIds = const {},
     this.mostrarTodaEmpresaInicialmente = false,
+    this.titulo = 'Elegir responsable',
+    this.etiquetaSugerido = 'Coincide con maestro',
   });
 
   @override
@@ -1041,9 +1165,12 @@ class InterventoriaSelectorPersonaState
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Elegir responsable',
-                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                  Text(
+                    widget.titulo,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                    ),
                   ),
                   const SizedBox(height: 10),
                   TextField(
@@ -1164,13 +1291,9 @@ class InterventoriaSelectorPersonaState
                         final sugerido = widget.sugeridosIds.contains(u.id);
                         return ListTile(
                           onTap: () => Navigator.pop(context, u),
-                          leading: CircleAvatar(
-                            backgroundColor: const Color(0xFFE2E8F0),
-                            child: const Icon(
-                              Icons.person_outline,
-                              size: 18,
-                              color: Color(0xFF64748B),
-                            ),
+                          leading: UserAvatar(
+                            userId: u.id,
+                            nameHint: u.nombre,
                           ),
                           title: Text(u.nombre),
                           subtitle: Text(
@@ -1179,8 +1302,8 @@ class InterventoriaSelectorPersonaState
                           trailing: sugerido
                               ? Text(
                                   delCentro
-                                      ? 'Coincide con maestro'
-                                      : 'Sugerido · otra sede',
+                                      ? widget.etiquetaSugerido
+                                      : '${widget.etiquetaSugerido} · otra sede',
                                   style: const TextStyle(
                                     fontSize: 11,
                                     color: Color(0xFF0F766E),
@@ -1202,6 +1325,314 @@ class InterventoriaSelectorPersonaState
           ],
         ),
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Asignación manual: quién responde y quién aprueba
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Resultado de una asignación hecha a mano.
+typedef AsignacionManual = ({
+  InterventoriaPersona responsable,
+  InterventoriaPersona aprobador,
+});
+
+InterventoriaPersona _personaDe(InterventoriaUsuario u, String centroCostoId) =>
+    InterventoriaPersona(
+      id: u.id,
+      nombre: u.nombre,
+      cargo: u.cargo,
+      cargoMatriz: '',
+      delCentro: u.cubreCentro(centroCostoId),
+    );
+
+/// Asignación a mano en dos pasos: elegir quién responde y confirmar quién
+/// aprueba.
+///
+/// El segundo paso existe porque el aprobador salía únicamente de la regla
+/// del maestro: en los numerales sin regla (actas de policía, 90.2, numerales
+/// sin identificar) elegir al responsable terminaba en "La regla no tiene un
+/// aprobador activo" y no había forma de asignar (28 sep 2026). Se propone el
+/// de la regla, el que ya tenía el hallazgo o el jefe inmediato de quien
+/// responde, y se puede cambiar.
+///
+/// Compartido por el tablero y el panel del hallazgo: Web y móvil eligen igual.
+Future<AsignacionManual?> elegirAsignacionManual(
+  BuildContext context, {
+  required InterventoriaService service,
+  required InterventoriaHallazgo hallazgo,
+  required List<InterventoriaUsuario> usuarios,
+  required Map<String, String> areas,
+  required Future<List<InterventoriaUsuario>> Function() cargarActivos,
+  required Future<Map<String, dynamic>> Function() cargarReglas,
+  Set<String> sugeridosIds = const {},
+  bool mostrarTodaEmpresaInicialmente = false,
+}) async {
+  final elegido = await showModalBottomSheet<InterventoriaUsuario>(
+    context: context,
+    isScrollControlled: true,
+    builder: (_) => InterventoriaSelectorPersona(
+      usuarios: usuarios,
+      centroCostoId: hallazgo.centroCostoId,
+      centroCostoNombre: hallazgo.centroCostoNombre,
+      areas: areas,
+      sugeridosIds: sugeridosIds,
+      mostrarTodaEmpresaInicialmente: mostrarTodaEmpresaInicialmente,
+    ),
+  );
+  if (elegido == null || !context.mounted) return null;
+  final responsable = _personaDe(elegido, hallazgo.centroCostoId);
+
+  // Sin personal activo o sin reglas todavía se puede asignar: el aprobador
+  // se elige a mano en la confirmación.
+  var activos = const <InterventoriaUsuario>[];
+  var reglas = const <String, dynamic>{};
+  try {
+    activos = await cargarActivos();
+  } catch (_) {}
+  try {
+    reglas = await cargarReglas();
+  } catch (_) {}
+  if (!context.mounted) return null;
+  final personal = activos.isEmpty ? usuarios : activos;
+  final propuesto = resolverAprobadorAsignacion(
+    delMaestro: service.sugerirAprobador(hallazgo, personal, reglas: reglas),
+    hallazgo: hallazgo,
+    responsableId: responsable.id,
+    usuarios: personal,
+    // Al reasignar se conserva el aprobador que ya tenía: pudo haberse
+    // cambiado a mano y la regla no lo sabe.
+    preferirActual: true,
+  );
+  final aprobador = await showDialog<InterventoriaPersona>(
+    context: context,
+    builder: (_) => _ConfirmarAsignacionDialog(
+      hallazgo: hallazgo,
+      responsable: responsable,
+      propuesto: propuesto,
+      personal: personal,
+      areas: areas,
+    ),
+  );
+  if (aprobador == null) return null;
+  return (responsable: responsable, aprobador: aprobador);
+}
+
+/// Elige solo a quién aprueba. Arranca en "Toda la empresa": quien aprueba
+/// suele ser un cargo corporativo, no alguien del establecimiento.
+Future<InterventoriaPersona?> elegirAprobadorHallazgo(
+  BuildContext context, {
+  required InterventoriaHallazgo hallazgo,
+  required List<InterventoriaUsuario> usuarios,
+  required Map<String, String> areas,
+  Set<String> sugeridosIds = const {},
+}) async {
+  final elegido = await showModalBottomSheet<InterventoriaUsuario>(
+    context: context,
+    isScrollControlled: true,
+    builder: (_) => InterventoriaSelectorPersona(
+      titulo: 'Elegir quién aprueba',
+      etiquetaSugerido: 'Aprobador del maestro',
+      usuarios: usuarios,
+      centroCostoId: hallazgo.centroCostoId,
+      centroCostoNombre: hallazgo.centroCostoNombre,
+      areas: areas,
+      sugeridosIds: sugeridosIds,
+      mostrarTodaEmpresaInicialmente: true,
+    ),
+  );
+  if (elegido == null) return null;
+  return _personaDe(elegido, hallazgo.centroCostoId);
+}
+
+class _ConfirmarAsignacionDialog extends StatefulWidget {
+  final InterventoriaHallazgo hallazgo;
+  final InterventoriaPersona responsable;
+  final AprobadorPropuesto propuesto;
+  final List<InterventoriaUsuario> personal;
+  final Map<String, String> areas;
+
+  const _ConfirmarAsignacionDialog({
+    required this.hallazgo,
+    required this.responsable,
+    required this.propuesto,
+    required this.personal,
+    required this.areas,
+  });
+
+  @override
+  State<_ConfirmarAsignacionDialog> createState() =>
+      _ConfirmarAsignacionDialogState();
+}
+
+class _ConfirmarAsignacionDialogState
+    extends State<_ConfirmarAsignacionDialog> {
+  static const _muted = Color(0xFF64748B);
+  static const _accent = Color(0xFF0F766E);
+  static const _warn = Color(0xFFB45309);
+
+  late AprobadorPropuesto _aprobador = widget.propuesto;
+
+  String get _origen => switch (_aprobador.origen) {
+    OrigenAprobador.maestro => 'Según ${nombreMaestroDeActa(widget.hallazgo.tipoActa)}',
+    OrigenAprobador.actual => 'Aprobador actual del hallazgo',
+    OrigenAprobador.jefeInmediato =>
+      'Jefe inmediato de ${widget.responsable.nombre}',
+    OrigenAprobador.elegido => 'Elegido a mano',
+    OrigenAprobador.ninguno => '',
+  };
+
+  Future<void> _cambiar() async {
+    final sugeridos = <String>{
+      if (widget.propuesto.persona != null) widget.propuesto.persona!.id,
+    };
+    final nuevo = await elegirAprobadorHallazgo(
+      context,
+      hallazgo: widget.hallazgo,
+      usuarios: widget.personal,
+      areas: widget.areas,
+      sugeridosIds: sugeridos,
+    );
+    if (nuevo == null || !mounted) return;
+    setState(() {
+      _aprobador = AprobadorPropuesto(nuevo, OrigenAprobador.elegido);
+    });
+  }
+
+  Widget _fila({
+    required IconData icono,
+    required String etiqueta,
+    required InterventoriaPersona persona,
+    String detalle = '',
+  }) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      UserAvatar(userId: persona.id, nameHint: persona.nombre, radius: 16),
+      const SizedBox(width: 10),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icono, size: 13, color: _muted),
+                const SizedBox(width: 4),
+                Text(
+                  etiqueta,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: _muted,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 2),
+            Text(
+              persona.cargo.trim().isEmpty
+                  ? persona.nombre
+                  : '${persona.nombre} · ${persona.cargo}',
+              style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
+            ),
+            if (detalle.isNotEmpty)
+              Text(detalle, style: const TextStyle(fontSize: 11, color: _accent)),
+          ],
+        ),
+      ),
+    ],
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final h = widget.hallazgo;
+    final aprobador = _aprobador.persona;
+    final numeral = h.numeralParaMatriz;
+    return AlertDialog(
+      title: const Text('Confirmar asignación'),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${numeral.isEmpty ? 'Hallazgo' : 'Numeral $numeral'}'
+                ' · ${h.centroCostoNombre}',
+                style: const TextStyle(fontSize: 12, color: _muted),
+              ),
+              const SizedBox(height: 14),
+              _fila(
+                icono: Icons.assignment_ind_outlined,
+                etiqueta: 'RESPONDE',
+                persona: widget.responsable,
+              ),
+              const SizedBox(height: 14),
+              if (aprobador != null)
+                _fila(
+                  icono: Icons.verified_user_outlined,
+                  etiqueta: 'APRUEBA',
+                  persona: aprobador,
+                  detalle: _origen,
+                )
+              else
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFFBEB),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: _warn.withValues(alpha: .3)),
+                  ),
+                  child: Text(
+                    '${_mayuscula(nombreMaestroDeActa(h.tipoActa))} no define '
+                    'quién aprueba${numeral.isEmpty ? ' este hallazgo' : ' el $numeral'}'
+                    ' y ${widget.responsable.nombre} no tiene jefe inmediato '
+                    'registrado. Elige a la persona que aprueba.',
+                    style: const TextStyle(fontSize: 12.5, color: _warn),
+                  ),
+                ),
+              if (aprobador != null && aprobador.id == widget.responsable.id)
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    'La misma persona responde y aprueba.',
+                    style: TextStyle(fontSize: 11.5, color: _warn),
+                  ),
+                ),
+              const SizedBox(height: 6),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: _cambiar,
+                  icon: const Icon(Icons.manage_accounts_outlined, size: 18),
+                  label: Text(
+                    aprobador == null
+                        ? 'Elegir quién aprueba'
+                        : 'Cambiar quién aprueba',
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton.icon(
+          onPressed: aprobador == null
+              ? null
+              : () => Navigator.pop(context, aprobador),
+          style: FilledButton.styleFrom(backgroundColor: _accent),
+          icon: const Icon(Icons.check_rounded, size: 18),
+          label: const Text('Asignar'),
+        ),
+      ],
     );
   }
 }

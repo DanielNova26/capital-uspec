@@ -6,6 +6,192 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Tareas: completar con comentario, "¿novedad o finalización?", historial y reasignación a otras áreas — 2 oct 2026 (Codex → Claude)
+
+Pedido del usuario (además del documento `TAREAS - SEPTIEMBRE 29.docx`, que
+queda como contexto): (1) completar tareas con comentario, también desde
+Interventoría; (2) la gente confunde novedad con cumplimiento: preguntar al
+enviar una novedad si en realidad es una finalización; (3) guardar y mostrar
+el historial de lo que cada quien puso como novedad y como finalización;
+(4) reasignar también hacia otras áreas, eligiendo área y persona.
+Codex dejó la interfaz casi lista y se quedó sin cupo revisando las reglas;
+Claude completó, corrigió y validó.
+
+- **Completar con comentario.** `CompleteTaskScreen` pide "Comentario de
+  finalización" (obligatorio, hasta 3000) y lo guarda en
+  `TBL_TAREAS/{id}/finalizacion` (`comment`) en la misma transacción que deja
+  la tarea por aprobar. Se quitó el "envío rápido" sin formulario de
+  Mis tareas. En Interventoría, el panel del hallazgo tiene "Solicitar
+  finalización" para el responsable y "Ver historial de actividad".
+- **¿Novedad o finalización?** Al enviar una novedad sale el diálogo; "Ir a
+  finalización" abre el formulario de cierre con el texto ya escrito (los
+  adjuntos de la novedad no se trasladan y el diálogo lo advierte).
+- **Historial.** `TaskActivityScreen` (desde Mis tareas y el panel del
+  hallazgo) muestra novedades, avances y finalizaciones con su comentario; en
+  Tareas que asigné el aprobador ve "Comentario y evidencias" y la fecha en
+  que el responsable terminó antes de aprobar; la devolución del aprobador ahora guarda quién devolvió (`by`)
+  y el historial muestra su motivo. Nueva pestaña "Antes asignadas" en el
+  historial: tareas por `participantes_uid` que ya no son de la persona.
+  Aprobar la finalización deja un registro `aprobacion_finalizacion`.
+- **Reasignación a otras áreas.** El diálogo arranca en "Todas las áreas" y
+  filtra por área, centro de trabajo, cargo y búsqueda; la persona elegida
+  define el destino. El área de cada persona sale de su cargo cuando la ficha
+  no trae `areaId` (puente por `TBL_CARGOS`, igual que Interventoría): antes
+  casi nadie aparecía al filtrar otra área. Avatar y nombre en la lista. Las
+  tareas de Interventoría se reasignan directo; las demás siguen como
+  solicitud que aprueba el jefe. No se ofrece reasignar con la finalización
+  en espera. Quien entrega la tarea queda en `participantes_uid` y sigue
+  viendo su historial.
+- **Reglas de `TBL_TAREAS` (de Codex, sin desplegar) corregidas.** Tal como
+  estaban: (a) la reasignación directa nunca pasaba (vivía dentro de la rama
+  que exige el mismo responsable); (b) casi toda petición rechazada, y varias
+  válidas, agotaban el tope de 1000 expresiones (`belongsToCompany` + apps
+  cuesta ~300 y se evaluaba varias veces); (c) la consulta "Antes asignadas"
+  no se podía demostrar (`participantes_uid is list` impide probar
+  `array-contains`); (d) un responsable podía agregar una "finalización" a
+  una tarea ya cerrada; (e) la aprobación de la subsanación en Interventoría
+  exigía una solicitud pendiente en la tarea y tumbaba la transacción del
+  hallazgo; (f) las herramientas de Desarrollo (cambio de cédula, borrar
+  usuario) consultan por persona sin empresa y se caían. Reescritas: lo
+  barato primero (evento, actor, campos que cambian) y empresa/app una sola
+  vez al final; `diff()` una vez por petición; Desarrollo lee sin filtro de
+  empresa y mantiene las tareas (nunca cambia la empresa); el cambio de
+  aprobador de Interventoría queda solo por servidor
+  (`interventoriaCambiarAprobador`); pasar al creador automático las tareas
+  de la matriz queda para administración/gerencia de Interventoría.
+- **Consultas ajustadas a las reglas.** El Home consultaba `TBL_TAREAS` sin
+  empresa (ahora filtra por la empresa activa, que ya filtraba en el
+  cliente). "Mi equipo" y la vista de equipo sumaban una consulta por la
+  lista `empresas` que las reglas rechazan, y al ir en el mismo
+  `Future.wait` tumbaban la pantalla: ahora solo por `empresaId`.
+- **Pruebas:** `functions/test/tareas_rules.rules.js` 12/12 en emulador
+  (lectura por empresa y vínculo, creación, finalización con comentario en
+  lote, reasignación directa y por solicitud hacia otra área, novedad/avance,
+  devolución, subsanación de Interventoría, cierre administrativo,
+  mantenimiento de Desarrollo y una prueba de margen que repite los flujos
+  permitidos más caros con 150 expresiones de relleno). Costos medidos
+  (de 1000): reasignación directa ~780, solicitar reasignación ~720, aprobarla ~595, solicitar finalización ~500 (igual con 11 o 70 campos en la tarea: el tamaño no influye). Una petición rechazada puede terminar en "maximum of 1000" porque al fallar se evalúa también la regla general; sigue siendo un rechazo. `flutter test` de Tareas (navegación, permisos,
+  contrato, calendario, equipo, origen) 39/39. `dart analyze` de los archivos
+  tocados sin errores (las advertencias de `home_screen.dart` son
+  anteriores). Las demás suites de reglas siguen pasando (Rutas 11, empresa
+  5, inhabilitados 9, Interventoría 11 + 5, Gerencia 2, roles 10);
+  `rutas.rules.js` usaba `TBL_TAREAS` como ejemplo de la regla general y
+  ahora usa una colección sin regla propia.
+- **Versión 2.6.13 (27)** para comprobar la publicación.
+- **Pendiente:**
+  - Desplegar juntos `firestore.rules` y `firestore.indexes.json` (índice
+    `participantes_uid` + `empresaId`), y publicar Web/Android/iOS **en el
+    mismo paso**: una app vieja todavía consulta el Home sin empresa y
+    recibiría permission-denied. Las reglas comparten archivo con el trabajo
+    de Interventoría del mismo día (concepto sanitario), también sin
+    desplegar.
+  - Tareas reasignadas antes de este cambio no tienen `participantes_uid`:
+    no salen en "Antes asignadas" (sí se leen por `reasignada_desde_uid`).
+    Si se quiere el histórico, preparar una incorporación revisable por
+    empresa.
+  - `crearTareaYNotificarHallazgo` borra la tarea anterior al reasignar en
+    Interventoría; las reglas solo dejan borrar a Admin, Desarrollo y a
+    administración/gerencia de Interventoría. Con otros roles el `try` deja
+    viva la tarea vieja (lo anotó también la sesión de Interventoría).
+  - Mis tareas y Tareas que asigné consultan sin empresa si no hay empresa
+    activa y la persona tiene varias; con las reglas eso falla en vez de
+    mezclar empresas. En la práctica siempre hay empresa activa tras el
+    login.
+  - `CompleteTaskScreen` conserva la rama `requestFinish: false` (finalizar
+    sin aprobación), que las reglas no permiten; hoy nadie la usa.
+  - Sin verificación visual en Web (390/768/1024/1366, texto ampliado),
+    Android ni iOS: el ingreso pasa por Functions de producción.
+
+## Interventoría: revisión del 28 sep 2026 (aprobador a mano, Análisis, concepto sanitario, jefe inmediato, empresa en el encabezado) — 2 oct 2026 (Claude)
+
+Documento `INTERVENTORIA - SEPTIEMBRE 28.docx` y reporte del usuario sobre
+Análisis en una pantalla de 16".
+
+- **Error al asignar ("La regla no tiene un aprobador activo").** El aprobador
+  salía solo de la regla del maestro; en los numerales sin regla (actas de
+  policía como el 3.1 de Bordo, el 90.2, los que no se identifican) elegir a
+  Miguel, Alejandro o Geisson fallaba siempre. Ahora la asignación a mano
+  tiene dos pasos (`elegirAsignacionManual`, compartido por tablero y panel):
+  quién responde y una confirmación de quién aprueba, que propone la regla, el
+  aprobador actual o el jefe inmediato de quien responde
+  (`resolverAprobadorAsignacion`) y deja cambiarlo. Si no hay ninguno, hay que
+  elegirlo. El jefe inmediato solo entra en asignaciones a mano: la
+  automática (completar acta, "Asignar por el maestro") sigue exigiendo el
+  aprobador de la regla y, si no resuelve, deja el hallazgo en "Sin asignar".
+  `InterventoriaUsuario.jefeId` se lee por empresa con las claves de
+  `OrgContextResolver`.
+- **Cambiar el aprobador al reasignar.** Botón "Cambiar aprobador" en el
+  tablero y en el panel. Va por servidor (`interventoriaCambiarAprobador`,
+  `functions/src/interventoria_aprobador.ts`): las reglas de `TBL_TAREAS` que
+  se están cerrando en paralelo no dejan mover `jefe_uid`/`aprobador_uid` desde
+  el cliente. Valida rol (administración, gerencia o Desarrollo), empresa y que
+  la persona esté activa; actualiza hallazgo y tarea (los seis nombres del
+  aprobador) sin rehacerla y avisa al nuevo aprobador (en silencio salvo que
+  ya esté por aprobar).
+- **"El 3.1 no aparece en el maestro".** El acta regular salta del 3 al 3.2
+  (así es el papel); el 3.1 era de un acta de Estación de policía. La tarjeta
+  y el panel dicen de qué acta es el hallazgo, el aviso dice "el maestro de
+  Estación de policía no define…", y al buscar un numeral que el acta elegida
+  no tiene, el maestro indica en qué acta está y lleva a ella.
+- **Por revisar:** "Fecha de acta 10/09/2026 · Fecha cargue 10/09/2026
+  (18 días)" (`diasDesdeCargue`, días corridos desde `fechaRegistro`) y el
+  tipo de acta con su nombre legible.
+- **Análisis.** (1) Toda la pestaña baja con la página: antes el gráfico era
+  fijo y la matriz vivía con su propio scroll en el alto sobrante, y en el
+  portátil la rueda no bajaba. (2) La barra horizontal no se dejaba arrastrar:
+  había dos encimadas y la de `BarraHorizontal`, sin controlador, buscaba el
+  PrimaryScrollController ("no ScrollPosition attached", reproducido en
+  prueba). `BarraHorizontal` ahora deja una sola barra en toda la app: sin
+  controlador no dibuja nada (vale la del tema) y con controlador apaga la del
+  tema. Arregla también las tablas del Maestro, Revisión y Subsanaciones.
+  (3) La matriz tenía fijas las filas del acta regular: las actas de policía,
+  alcaldía e infraestructura salían con "NE" en todo. Ahora cada tipo de acta
+  presente aporta sus secciones con un título (`filasMatrizAnalisis`); "—"
+  marca la sección que no existe en esa acta. Columnas de a 20 actas
+  (`PagerBar`). (4) El gráfico inicial ordenaba por nombre y las actas
+  recientes quedaban fuera de la pantalla: ahora arranca por "Más recientes",
+  con "Menor puntaje" y "Nombre", y su barra horizontal se arrastra.
+- **Concepto sanitario (sección nueva).** Pestaña "Concepto sanitario":
+  establecimiento, fecha, puntaje, concepto (Favorable / Favorable con
+  requerimientos / Desfavorable) y el archivo del acta, opcional. Colección
+  `TBL_INTERVENTORIA_CONCEPTOS_SANITARIOS` con regla propia (lee la empresa,
+  registran los roles con escritura, borran administración, gerencia y
+  Desarrollo; valida puntaje y concepto) y fuera de la regla general. Web
+  tabla, móvil tarjetas; marca el concepto vigente de cada sede. Registros
+  operativos, no un maestro: no va a `kModulosMaestros`.
+- **Integridad: cambio de jefe inmediato.** Disparador
+  `tareasReemplazarJefeInmediato` (`functions/src/jefe_inmediato_sync.ts`)
+  sobre `TBL_USUARIOS`: si a alguien le cambian el jefe en una empresa, sus
+  tareas activas de esa empresa que estaban con el jefe anterior pasan al
+  nuevo (`jefe_uid`, y el aprobador si era el mismo jefe) y el nuevo recibe un
+  aviso con cuántas. No toca las de Interventoría (su aprobador sale del
+  maestro), ni las cerradas, ni un aprobador elegido a propósito.
+- **Empresa en el encabezado.** `EmpresaActivaChip` en `InternalModuleLayout`
+  (los 26 módulos que lo usan): arriba a la derecha en Web; en el teléfono,
+  segunda línea del AppBar. El nombre se lee una vez por empresa.
+- **Pruebas:** `test/interventoria/interventoria_mejoras_28sep_test.dart`
+  (15), `analisis_barra_horizontal_test.dart` (4), `app_scroll_behavior_test`
+  actualizado; `flutter test test/interventoria test/app_scroll_behavior_test.dart`
+  236/236. Functions: `jefe_inmediato_sync.test.js` e
+  `interventoria_aprobador.test.js` (25/25 con las de Interventoría). Reglas en
+  emulador: `interventoria_conceptos.rules.js` 5/5 y
+  `interventoria_visitas.rules.js` 11/11.
+- **Pendiente:** desplegar Functions (`interventoriaCambiarAprobador` y
+  `tareasReemplazarJefeInmediato`; sin la primera, "Cambiar aprobador"
+  responde not-found), `firestore.rules` y publicar Web/móvil. Sin
+  verificación visual en Web (390/768/1024/1366, texto ampliado), Android ni
+  iOS: el ingreso pasa por Functions de producción. No pude leer las actas de
+  producción para confirmar por qué el gráfico "no traía las últimas" más
+  allá del orden y la barra; si persiste, revisar actas con `fechaVisita`
+  mal digitada. Queda por aclarar con el usuario qué es "la sección 12": no
+  hay acta con 12 secciones (la regular tiene Concepto sanitario + 1 a 11).
+- **Coordinación con Codex:** las reglas nuevas de `TBL_TAREAS`
+  (`tareaBaseConservada`) prohíben mover `jefe_uid`/`aprobador_uid` desde el
+  cliente: por eso el cambio de aprobador y el reemplazo de jefe van por
+  servidor. `crearTareaYNotificarHallazgo` sigue borrando la tarea anterior al
+  reasignar; con esas reglas solo Admin puede borrar, y el `try` deja la tarea
+  vieja viva: conviene moverlo también a servidor o permitir ese borrado.
+
 ## Visitas: ubicación dentro de Iniciar, reasignación obligatoria, ubicaciones fuera del profesional y dictado del plan de acción — 1 oct 2026 (Claude)
 
 Pedido del usuario: "que el dónde estoy quede combinado al hacer inicio,
@@ -39,11 +225,14 @@ plan de acción permita por micrófono y que salga algo de hable ahora".
 - Pruebas: `functions/test/visitas_reasignacion.rules.js` (6) y todas las
   de Visitas en emulador (43/43); `flutter test test/visitas` 146/146 con el
   grupo nuevo de reasignación.
-- **Pendiente:** desplegar `firestore.rules` (sin eso el bloqueo de
-  reasignación y el de listar ubicaciones solo están en la app) y publicar
-  web/móvil. `resolverRegistroVisita` quedó sin uso en la app (solo sus
-  pruebas). Sin verificación visual en Web, Android ni iOS; el dictado y el
-  GPS hay que probarlos en el teléfono.
+- **Desplegado** (commit `9919295`): web publicada (to-do-gestion.com con el
+  bundle nuevo) y `firestore.rules` liberadas. La API de reglas de Google
+  respondía 503 de forma intermitente, también con las reglas anteriores
+  (2 de 5 en seco); entró al noveno reintento, sin cambiar las reglas.
+- **Pendiente:** publicar Android e iOS (la app vieja que toque "¿Dónde
+  estoy?" ahora recibe permission-denied). `resolverRegistroVisita` quedó
+  sin uso en la app (solo sus pruebas). Sin verificación visual en Web,
+  Android ni iOS; el dictado y el GPS hay que probarlos en el teléfono.
 
 ## Admin: error ilegible al cambiar el rol de Interventoría y Visitas: el jefe veía a su equipo "Sin rol" — 1 oct 2026 (Claude)
 

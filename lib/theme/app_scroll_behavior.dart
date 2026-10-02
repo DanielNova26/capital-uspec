@@ -45,8 +45,18 @@ bool usaBarraHorizontal(BuildContext context) {
 }
 
 /// Envoltorio para los scroll horizontales que ya traían `Scrollbar` a mano.
-/// En escritorio se comporta igual que antes; en móvil desaparece y deja que
-/// `AppScrollBehavior` decida (que allí es: ninguna barra).
+/// En móvil desaparece y deja que `AppScrollBehavior` decida (que allí es:
+/// ninguna barra).
+///
+/// En escritorio deja UNA sola barra (28 sep 2026). Antes sumaba la suya a la
+/// que `AppScrollBehavior` ya pone en todo scroll horizontal, y quedaban dos
+/// encimadas. Sin [controller], la de aquí buscaba el PrimaryScrollController,
+/// no encontraba posición ("The Scrollbar's ScrollController has no
+/// ScrollPosition attached") y al arrastrarla la tabla no se movía: fue la
+/// queja de Análisis de Interventoría. Ahora:
+/// - sin [controller], no dibuja nada: vale la barra del tema, que sí está
+///   atada al scroll;
+/// - con [controller], dibuja la suya y apaga la del tema debajo.
 class BarraHorizontal extends StatelessWidget {
   final ScrollController? controller;
   final bool thumbVisibility;
@@ -62,11 +72,16 @@ class BarraHorizontal extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!usaBarraHorizontal(context)) return child;
+    final propio = controller;
+    if (propio == null) return child;
     return Scrollbar(
-      controller: controller,
+      controller: propio,
       thumbVisibility: thumbVisibility,
       interactive: true,
-      child: child,
+      child: ScrollConfiguration(
+        behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+        child: child,
+      ),
     );
   }
 }

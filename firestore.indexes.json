@@ -141,6 +141,20 @@
       ]
     },
     {
+      "collectionGroup": "TBL_TAREAS",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "participantes_uid",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "empresaId",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "TBL_NOTIFICATION_DELIVERY_QUEUE",
       "queryScope": "COLLECTION",
       "fields": [

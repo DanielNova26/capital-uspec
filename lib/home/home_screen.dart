@@ -1122,18 +1122,25 @@ class _HomeScreenState extends State<HomeScreen> {
             // Antes la segunda consulta era `creador_id`: a quien completaba un
             // acta de Interventoría le salían como "por recibir" todos los
             // hallazgos, que en realidad recibe el aprobador de la matriz.
+            // 2 oct 2026: la consulta lleva la empresa activa. Las reglas de
+            // TBL_TAREAS no dejan listar sin ella, y el filtro de abajo ya
+            // descartaba lo de otras empresas.
+            final empresaTareas = scopeEmpresa.trim();
+            final consultarTareas = showTareas && empresaTareas.isNotEmpty;
             return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: showTareas
+              stream: consultarTareas
                   ? FirebaseFirestore.instance
                         .collection('TBL_TAREAS')
+                        .where('empresaId', isEqualTo: empresaTareas)
                         .where('asignado_uid', isEqualTo: cedula)
                         .snapshots()
                   : _sinTareasAsignadas,
               builder: (context, assignedSnap) {
                 return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: showTareas
+                  stream: consultarTareas
                       ? FirebaseFirestore.instance
                             .collection('TBL_TAREAS')
+                            .where('empresaId', isEqualTo: empresaTareas)
                             .where(
                               Filter.or(
                                 Filter('aprobador_uid', isEqualTo: cedula),
