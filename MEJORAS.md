@@ -84,11 +84,21 @@ Claude completó, corrigió y validó.
   Store colombiana aún muestra iOS `2.5.0 (12)` (11 sep 2026), por lo que
   iOS 2.6.13 no está publicada allí. La ficha pública de Play para
   `com.todogestion.app` devuelve 404; no se puede comprobar el canal de
-  pruebas de Play sin entrar a Play Console. El AAB local es del 23 sep;
-  al intentar generar el nuevo en este entorno, Gradle falla antes de
-  compilar con `Unable to establish loopback connection` en
-  `UnixDomainSockets.connect0`. Ejecutarlo desde una terminal independiente
-  o un entorno CI/Mac y confirmar que el AAB sea `2.6.13+27`.
+  pruebas de Play sin entrar a Play Console. Se generó el AAB Android
+  `build/app/outputs/bundle/release/app-release.aab` (2.6.13, código 27,
+  `com.todogestion.app`, firma verificada; SHA256
+  `2CEF04036210FDCDCD679A4B249DFE9C41E005A61B6BA968F8D181F2AE06A7EC`).
+  En este entorno, Gradle primero falló con `Unable to establish loopback
+  connection`; se resolvió solo para el proceso con
+  `JAVA_TOOL_OPTIONS=-Djdk.net.unixdomain.tmpdir=.../__no_existe_socket__`
+  para que Java usara TCP local. Flutter luego falló al verificar los símbolos
+  porque el SDK de Android vive en una ruta con espacios; un junction ignorado
+  en `build/AndroidSdk` y `ANDROID_HOME` apuntando allí permitieron terminar
+  `flutter build appbundle --release --no-pub` con salida 0. No se cambió la
+  configuración versionada del proyecto. En producción,
+  `TBL_CONFIG/APP_VERSION` aún tiene `minBuildAndroid=6`, `minBuildIos=6`,
+  `latestBuildAndroid=12` y `latestBuildIos=12` (las URL de tienda existen):
+  los builds anteriores a 27 todavía no reciben el aviso obligatorio.
   El índice `participantes_uid` + `empresaId` aún no aparece en el proyecto.
   La prueba remota de `firestore.rules` recibió HTTP 503 `UNAVAILABLE` de
   `firebaserules.googleapis.com/v1/projects/integra360-94704:test`, sin
