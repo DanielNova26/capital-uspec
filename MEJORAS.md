@@ -94,8 +94,9 @@ traerlos, comparar contra esta entrada.
   revisa y luego numera las existentes en orden de creación dentro de esa
   reserva. Un número asignado no cambia. Reglas: el contador es solo de
   servidor y la app no puede crear ni cambiar `numero`.
-- **Versión 2.6.14 (28):** la 2.6.13 (27) generada en el PC anterior no lleva
-  nada de esto.
+- **Versión 2.6.15 (29)**, subida a pedido del usuario para comprobar la
+  publicación (la 2.6.14 (28) no se publicó). La 2.6.13 (27) generada en el
+  PC anterior no lleva nada de esto.
 - **Pruebas:** `flutter analyze` sin errores y con las mismas advertencias
   que antes (213 → 211 avisos). Nuevas: estado visible, módulo de origen,
   número y días (`test/core/task_estado_visible_test.dart`), áreas y cargos
@@ -111,11 +112,14 @@ traerlos, comparar contra esta entrada.
   marcadas "[pendiente TH]"; `tareas_rules.rules.js` 13/13 con una nueva (la
   app no crea ni cambia `numero` y no lee ni escribe el contador).
 - **Pendiente:**
-  - Desplegar `firestore.rules` (siguen pendientes las del 2 oct: 503 al
-    compilar), las Functions `tareasAsignarNumero` y
-    `tareasNumerarHistoricas`, y correr la numeración por empresa desde Admin
-    (primero "Revisar"). Sin desplegar, la app funciona y simplemente no
-    muestra número.
+  - Publicar en este orden: reglas e índices (siguen pendientes los del 2
+    oct: 503 al compilar), Functions (incluye `tareasAsignarNumero` y
+    `tareasNumerarHistoricas`) y Web (`flutter build web --release` y
+    `firebase deploy --only hosting`). Comprobar que
+    `https://to-do-gestion.com/version.json` diga 2.6.15 / 29 y el menú
+    lateral también. Luego, por empresa, Admin › Usuarios › Migraciones de
+    usuarios › "Número interno de tareas": Revisar y Numerar. Sin las
+    Functions, la app funciona y simplemente no muestra número.
   - Sin verificación visual en Web (390/768/1024/1366, texto ampliado),
     Android ni iOS: el ingreso pasa por Functions de producción. Revisar en
     especial la grilla de 3 columnas, el panel centrado en un portátil de
