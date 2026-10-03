@@ -3,8 +3,6 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:todo/state/empresa_scope.dart';
-import 'package:todo/utils/task_status.dart';
-import 'package:todo/utils/user_company.dart';
 import 'package:todo/widgets/empty_state_widget.dart';
 import 'package:todo/widgets/skeleton_loader.dart';
 import 'package:todo/widgets/task_filters_panel.dart';
@@ -16,7 +14,12 @@ import '../facturacion/facturacion_models.dart';
 import '../gestion_documental/correspondencia/gd_correspondencia_screen.dart';
 import '../services/task_service.dart';
 import '../core/area_directory.dart';
+import '../core/task_estado_visible.dart';
 import '../core/task_origen.dart';
+import '../core/task_personas_empresa.dart';
+import '../core/user_directory.dart';
+import '../widgets/task_card_grid.dart';
+import 'task_correspondencia_preview.dart';
 
 const String _kFont = 'Arial';
 
@@ -41,15 +44,30 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
   String _statusFilter = 'todas';
   String _areaFilter = 'todas';
   String _cargoFilter = 'todas';
+  String _responsableFilter = 'todos';
+
+  /// "Tareas que asigné" arranca en lo que la persona asignó a mano (3 oct
+  /// 2026: "a mi usuario le salen las tareas que asignó el sistema; tiene que
+  /// haber un filtro principal que muestre las que asignó el usuario"). Lo
+  /// que nació en un módulo (Correspondencia, Calidad de Compras, Visitas…)
+  /// se ve eligiendo el origen. "Por aprobar" muestra todo lo que espera la
+  /// aprobación de la persona, venga de donde venga.
+  late String _moduloFilter = widget.approvalMode ? 'todos' : 'tareas';
+  int _page = 0;
   bool _didAutoOpen = false;
   bool _showAllTasks = false;
 
   EmpresaState? _empresaState;
   String? _selectedEmpresaId;
-  Map<String, String> _areaNames = const {};
   AreaCatalogo _catalogoAreas = const AreaCatalogo.vacio();
-  Map<String, String> _cargoNames = const {};
-  Map<String, Map<String, String>> _userMeta = const {};
+  PersonasEmpresa _personas = const PersonasEmpresa.vacio();
+
+  // La consulta se crea una vez por empresa: armarla en cada `build` hacía
+  // que el buscador perdiera el foco al escribir (3 oct 2026).
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _tareasStream;
+  String? _tareasStreamKey;
+
+  static const String _kSinArea = '__sin_area__';
 
   @override
   void initState() {
@@ -80,77 +98,14 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
   Future<void> _loadOrgCatalogs() async {
     final empresaId = _selectedEmpresaId?.trim() ?? '';
     if (empresaId.isEmpty) return;
-    try {
-      final areasSnap = await FirebaseFirestore.instance
-          .collection('TBL_AREAS')
-          .where('empresaId', isEqualTo: empresaId)
-          .get();
-      final cargosSnap = await FirebaseFirestore.instance
-          .collection('TBL_CARGOS')
-          .where('empresaId', isEqualTo: empresaId)
-          .get();
-      // Quien tiene esta empresa como secundaria no la lleva en `empresaId`
-      // raíz: sin la consulta por `empresas` su cargo y área no aparecían.
-      final usuarios = <String, Map<String, dynamic>>{};
-      for (final snap in await Future.wait([
-        FirebaseFirestore.instance
-            .collection('TBL_USUARIOS')
-            .where('empresaId', isEqualTo: empresaId)
-            .get(),
-        FirebaseFirestore.instance
-            .collection('TBL_USUARIOS')
-            .where('empresas', arrayContains: empresaId)
-            .get(),
-      ])) {
-        for (final d in snap.docs) {
-          usuarios[d.id] = d.data();
-        }
-      }
-
-      if (!mounted) return;
-      setState(() {
-        // Una entrada por área real y sin ids crudos en pantalla.
-        _catalogoAreas = AreaCatalogo.desde(
-          areasSnap.docs.map(
-            (d) => (
-              id: d.id,
-              nombre: (d.data()['nombre'] ?? d.data()['area'])?.toString(),
-            ),
-          ),
-          empresaId: empresaId,
-        );
-        _areaNames = {
-          for (final opcion in _catalogoAreas.opciones)
-            opcion.id: opcion.nombre,
-        };
-        _cargoNames = {
-          for (final d in cargosSnap.docs)
-            d.id: (d.data()['nombre'] ?? d.data()['descripcion'] ?? d.id)
-                .toString(),
-        };
-        // El puesto de cada persona EN esta empresa, no el de su principal.
-        _userMeta = {
-          for (final e in usuarios.entries)
-            e.key: () {
-              final u = mergeCompanyScopedData(e.value, empresaId);
-              String t(List<String> keys) {
-                for (final k in keys) {
-                  final v = (u[k] ?? '').toString().trim();
-                  if (v.isNotEmpty) return v;
-                }
-                return '';
-              }
-
-              return {
-                'area': t(const ['area', 'areaNombre']),
-                'cargo': t(const ['cargo', 'cargoNombre']),
-                'areaId': t(const ['areaId']),
-                'cargoId': t(const ['cargoId']),
-              };
-            }(),
-        };
-      });
-    } catch (_) {}
+    // El puesto y el área de cada persona EN esta empresa, no los de su
+    // empresa principal; quien la tiene como secundaria también cuenta.
+    final personas = await PersonasEmpresa.cargar(empresaId);
+    if (!mounted || _selectedEmpresaId?.trim() != empresaId) return;
+    setState(() {
+      _personas = personas;
+      _catalogoAreas = personas.areas;
+    });
   }
 
   @override
@@ -161,6 +116,10 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> _stream() {
+    final empId = _selectedEmpresaId;
+    final key = '${widget.userId}|${widget.approvalMode}|${empId ?? ''}';
+    final actual = _tareasStream;
+    if (actual != null && _tareasStreamKey == key) return actual;
     Query<Map<String, dynamic>> q = FirebaseFirestore.instance.collection(
       'TBL_TAREAS',
     );
@@ -173,11 +132,11 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
             ),
           )
         : q.where('creador_id', isEqualTo: widget.userId);
-    final empId = _selectedEmpresaId;
     if (empId != null && empId.isNotEmpty) {
       q = q.where('empresaId', isEqualTo: empId);
     }
-    return q.snapshots();
+    _tareasStreamKey = key;
+    return _tareasStream = q.snapshots();
   }
 
   DateTime? _toDate(dynamic value) {
@@ -215,61 +174,102 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     return da.compareTo(db);
   }
 
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _applyFilters(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  String _responsableDe(Map<String, dynamic> m) =>
+      (m['asignado_uid'] ?? m['assignedTo'] ?? '').toString().trim();
+
+  /// Área del responsable: la de la tarea si está en el catálogo, si no la
+  /// de la persona en esta empresa.
+  String _areaTareaDe(Map<String, dynamic> m) {
+    final taskArea = (m['areaId'] ?? '').toString().trim();
+    if (taskArea.isNotEmpty) {
+      for (final o in _catalogoAreas.opciones) {
+        if (o.contiene(taskArea)) return o.id;
+      }
+    }
+    final persona = _personas.areaDe(_responsableDe(m));
+    if (persona.isNotEmpty) return persona;
+    return taskArea.isEmpty ? _kSinArea : taskArea;
+  }
+
+  String _areaNombre(String clave) =>
+      clave == _kSinArea ? 'Sin área' : _catalogoAreas.nombreDe(clave);
+
+  String _nombreResponsable(Map<String, dynamic> m) {
+    final nombre = (m['asignado_nombre'] ?? m['assignedToName'] ?? '')
+        .toString()
+        .trim();
+    if (nombre.isNotEmpty) return nombre;
+    final id = _responsableDe(m);
+    return UserDirectory.instance.peek(id)?.displayName ??
+        _personas.persona(id)?.nombre ??
+        id;
+  }
+
+  /// Estados abiertos: los que todavía esperan trabajo del responsable
+  /// ("RETRASADA, EN PROGRESO, PENDIENTE" en el pedido del 3 oct 2026).
+  static const Set<TaskEstadoVisible> _abiertos = {
+    TaskEstadoVisible.pendiente,
+    TaskEstadoVisible.reasignada,
+    TaskEstadoVisible.retrasada,
+  };
+
+  /// Tareas activas del origen elegido; base de opciones y contadores.
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _delModulo(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> activas,
+  ) {
+    if (_moduloFilter == 'todos') return activas;
+    return activas
+        .where((d) => taskModuloOrigen(d.data()) == _moduloFilter)
+        .toList();
+  }
+
+  /// Búsqueda, área, cargo y responsable; el estado se aplica después para
+  /// poder contar cuántas hay en cada uno.
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filtrarSinEstado(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> delModulo,
   ) {
     final q = _searchCtrl.text.trim().toLowerCase();
-    final result = docs.where((d) {
+    return delModulo.where((d) {
       final m = d.data();
-      final status = resolveTaskStatus(m);
-      if (status == 'finalizado') return false;
-      final title = (m['titulo'] ?? m['title'] ?? '').toString().toLowerCase();
-      final description = (m['descripcion'] ?? m['description'] ?? '')
-          .toString()
-          .toLowerCase();
-      final responsable = (m['asignado_nombre'] ?? '').toString().toLowerCase();
-      final responsableId = (m['asignado_uid'] ?? '').toString().toLowerCase();
-      final areaId = (m['areaId'] ?? '').toString().trim();
-      final areaName = _catalogoAreas.nombreDe(areaId).toLowerCase();
-      final uid = (m['asignado_uid'] ?? '').toString().trim();
-      final userAreaName = (_userMeta[uid]?['area'] ?? '').toLowerCase();
-      final cargoId = (_userMeta[uid]?['cargoId'] ?? '').toString().trim();
-      final cargoName = (_cargoNames[cargoId] ?? _userMeta[uid]?['cargo'] ?? '')
-          .toLowerCase();
-      if (q.isNotEmpty &&
-          !title.contains(q) &&
-          !description.contains(q) &&
-          !responsable.contains(q) &&
-          !responsableId.contains(q) &&
-          !areaName.contains(q) &&
-          !userAreaName.contains(q) &&
-          !cargoName.contains(q)) {
+      final uid = _responsableDe(m);
+      final area = _areaTareaDe(m);
+      if (_areaFilter != 'todas' && area != _areaFilter) return false;
+      if (!widget.approvalMode &&
+          _cargoFilter != 'todas' &&
+          _personas.cargoClaveDe(uid) != _cargoFilter) {
         return false;
       }
-      if (_statusFilter == 'en_progreso') {
-        // "Activas" = en progreso + vencidas (ambas requieren acción)
-        if (status != 'en_progreso' && status != 'retrasada') return false;
-      } else if (_statusFilter != 'todas' && status != _statusFilter) {
+      if (widget.approvalMode &&
+          _responsableFilter != 'todos' &&
+          uid != _responsableFilter) {
         return false;
       }
-      // Filtro por área (areaId en el doc de tarea)
-      if (_areaFilter != 'todas') {
-        final taskAreaId = (m['areaId'] ?? '').toString().trim();
-        // También revisar el área del responsable si el doc no trae areaId
-        final userAreaId = _userMeta[uid]?['areaId'] ?? '';
-        final enArea =
-            _catalogoAreas.coincide(filtro: _areaFilter, valor: taskAreaId) ||
-            _catalogoAreas.coincide(filtro: _areaFilter, valor: userAreaId);
-        if (!enArea) return false;
-      }
-      // Filtro por cargo del responsable
-      if (_cargoFilter != 'todas') {
-        final userCargoId = _userMeta[uid]?['cargoId'] ?? '';
-        if (userCargoId != _cargoFilter) return false;
-      }
-      return true;
+      if (q.isEmpty) return true;
+      final numero = taskNumero(m);
+      final haystack = [
+        (m['titulo'] ?? m['title'] ?? '').toString(),
+        (m['descripcion'] ?? m['description'] ?? '').toString(),
+        _nombreResponsable(m),
+        uid,
+        _areaNombre(area),
+        _personas.cargoNombreDe(uid),
+        if (numero != null) '$numero',
+        taskNumeroTexto(m),
+        taskModuloOrigenNombre(taskModuloOrigen(m)),
+        taskEstadoVisible(m).nombre,
+      ].join(' ').toLowerCase();
+      return haystack.contains(q);
     }).toList();
+  }
 
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _applyFilters(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> sinEstado,
+  ) {
+    final result = _statusFilter == 'todas'
+        ? [...sinEstado]
+        : sinEstado
+              .where((d) => taskEstadoVisible(d.data()).clave == _statusFilter)
+              .toList();
     result.sort(_compareByDueDate);
     return result;
   }
@@ -412,12 +412,9 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     required List<Map<String, String>> attachments,
   }) async {
     if (!mounted) return;
-    await showModalBottomSheet(
+    await showTaskPanel<void>(
       context: context,
-      constraints: taskPanelConstraints(context),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      maxWidth: 760,
       builder: (sheetContext) => SafeArea(
         child: SizedBox(
           height: taskPanelHeight(
@@ -428,14 +425,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
           child: Column(
             children: [
               const SizedBox(height: 12),
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
+              const TaskPanelHandle(),
               TaskPanelHeader(
                 title: title,
                 onBack: () => Navigator.of(sheetContext).pop(),
@@ -483,27 +473,16 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
   }) async {
     final docs = await _loadCollectionDocs(taskId, collection);
     if (!mounted) return;
-    await showModalBottomSheet(
+    await showTaskPanel<void>(
       context: context,
-      isScrollControlled: true,
-      constraints: taskPanelConstraints(context, desktopMaxWidth: 1000),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      maxWidth: 1000,
       builder: (sheetContext) => SafeArea(
         child: SizedBox(
           height: taskPanelHeight(context, desktopMaxHeight: 620),
           child: Column(
             children: [
               const SizedBox(height: 12),
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
+              const TaskPanelHandle(),
               TaskPanelHeader(
                 title: title,
                 onBack: () => Navigator.of(sheetContext).pop(),
@@ -663,13 +642,9 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
   Future<void> _showAvancesDialog(String taskId) async {
     final docs = await _loadCollectionDocs(taskId, 'avances');
     if (!mounted) return;
-    await showModalBottomSheet(
+    await showTaskPanel<void>(
       context: context,
-      isScrollControlled: true,
-      constraints: taskPanelConstraints(context, desktopMaxWidth: 1000),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      maxWidth: 1000,
       builder: (sheetContext) => SafeArea(
         child: SizedBox(
           height: taskPanelHeight(
@@ -680,14 +655,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
           child: Column(
             children: [
               const SizedBox(height: 12),
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
+              const TaskPanelHandle(),
               TaskPanelHeader(
                 title: 'Avances de la tarea',
                 onBack: () => Navigator.of(sheetContext).pop(),
@@ -855,7 +823,9 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     );
   }
 
-  Future<void> _showAllAttachmentsDialog(
+  /// Adjuntos de la tarea por origen: iniciales, novedades, avances y
+  /// finalización. Lo usan "Ver adjuntos" y el conteo que inhabilita el botón.
+  Future<Map<String, List<Map<String, String>>>> _agruparAdjuntos(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
     final grouped = <String, List<Map<String, String>>>{
@@ -914,16 +884,47 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     }
 
     grouped.removeWhere((_, value) => value.isEmpty);
+    return grouped;
+  }
+
+  /// Cuántas novedades, avances y adjuntos tiene la tarea. Con cero, el
+  /// botón de consulta sale inhabilitado (3 oct 2026: "si no hay
+  /// novedades/avances/adjuntos, mostrar los botones inhabilitados").
+  Future<({int novedades, int avances, int adjuntos})> _contarActividad(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    Future<int> contar(String coll) async {
+      try {
+        return (await _loadCollectionDocs(doc.id, coll)).length;
+      } catch (_) {
+        return 0;
+      }
+    }
+
+    final resultados = await Future.wait([
+      contar('novedades'),
+      contar('avances'),
+      _agruparAdjuntos(doc)
+          .then((g) => g.values.fold<int>(0, (n, l) => n + l.length))
+          .catchError((_) => 0),
+    ]);
+    return (
+      novedades: resultados[0],
+      avances: resultados[1],
+      adjuntos: resultados[2],
+    );
+  }
+
+  Future<void> _showAllAttachmentsDialog(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final grouped = await _agruparAdjuntos(doc);
     final tabs = grouped.keys.toList();
 
     if (!mounted) return;
-    await showModalBottomSheet(
+    await showTaskPanel<void>(
       context: context,
-      isScrollControlled: true,
-      constraints: taskPanelConstraints(context, desktopMaxWidth: 1080),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      maxWidth: 1080,
       builder: (sheetContext) => SafeArea(
         child: SizedBox(
           height: taskPanelHeight(
@@ -935,14 +936,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
               ? Column(
                   children: [
                     const SizedBox(height: 12),
-                    Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade300,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
+                    const TaskPanelHandle(),
                     TaskPanelHeader(
                       title: 'Adjuntos y evidencias',
                       onBack: () => Navigator.of(sheetContext).pop(),
@@ -965,14 +959,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                   child: Column(
                     children: [
                       const SizedBox(height: 12),
-                      Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade300,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
+                      const TaskPanelHandle(),
                       TaskPanelHeader(
                         title: 'Adjuntos y evidencias',
                         onBack: () => Navigator.of(sheetContext).pop(),
@@ -1406,29 +1393,16 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
   }
 
   void _showActions(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
-    final task = doc.data();
-    final source = task['source'] is Map
-        ? Map<String, dynamic>.from(task['source'] as Map)
-        : const <String, dynamic>{};
-    final correspondenceId =
-        (task['correspondenciaId'] ?? source['entityId'] ?? '')
-            .toString()
-            .trim();
-    final sourceType = (task['sourceType'] ?? source['type'] ?? '').toString();
-    if (correspondenceId.isNotEmpty && sourceType == 'correspondencia_correo') {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => GdCorrespondenciaScreen(
-            userId: widget.userId,
-            empresaId: (task['empresaId'] ?? '').toString(),
-            initialExpedienteId: correspondenceId,
-          ),
-        ),
-      );
-      return;
-    }
     final data = doc.data();
-    final status = resolveTaskStatus(data);
+    // Una tarea de Gestión de Correspondencia abre el mismo panel de
+    // cualquier tarea, con la vista previa de la respuesta y un botón al
+    // expediente (3 oct 2026). Antes saltaba directo al módulo y quien debía
+    // aprobarla no encontraba el botón Aprobar.
+    final correspondenceId = taskExpedienteCorrespondencia(data);
+    final estadoVisible = taskEstadoVisible(data);
+    final numeroTexto = taskNumeroTexto(data);
+    final moduloNombre = taskModuloOrigenNombre(taskModuloOrigen(data));
+    final actividad = _contarActividad(doc);
     final hasPendingFinish =
         (data['solicitud_finalizacion_estado'] ?? '')
             .toString()
@@ -1462,8 +1436,11 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     final rawReassignCargoId = (data['solicitud_reasignacion_cargoId'] ?? '')
         .toString()
         .trim();
-    final userAreaName = (_userMeta[reassignToUid]?['area'] ?? '').trim();
-    final userCargoName = (_userMeta[reassignToUid]?['cargo'] ?? '').trim();
+    final areaDestino = _personas.areaDe(reassignToUid);
+    final userAreaName = areaDestino.isEmpty
+        ? ''
+        : _catalogoAreas.nombreDe(areaDestino);
+    final userCargoName = _personas.cargoNombreDe(reassignToUid).trim();
     final reassignTarget = reassignToName.isNotEmpty
         ? reassignToName
         : (reassignToUid.isNotEmpty
@@ -1473,26 +1450,23 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
         ? userAreaName
         : (rawReassignAreaName.isNotEmpty
               ? rawReassignAreaName
-              : (_areaNames[rawReassignAreaId] ??
-                    (rawReassignAreaId.contains('_')
-                        ? rawReassignAreaId.split('_').last
-                        : rawReassignAreaId)));
+              : (rawReassignAreaId.isEmpty
+                    ? ''
+                    : _catalogoAreas.nombreDe(rawReassignAreaId)));
     final resolvedCargoName = userCargoName.isNotEmpty
         ? userCargoName
         : (rawReassignCargoName.isNotEmpty
               ? rawReassignCargoName
-              : (_cargoNames[rawReassignCargoId] ??
+              : (_personas.cargos[rawReassignCargoId] ??
                     (rawReassignCargoId.contains('_')
                         ? rawReassignCargoId.split('_').last
                         : rawReassignCargoId)));
 
-    showModalBottomSheet(
+    // Centrado en pantallas amplias, hoja inferior en el teléfono (3 oct
+    // 2026, "centrar cuadro de diálogo").
+    showTaskPanel<void>(
       context: context,
-      isScrollControlled: true,
-      constraints: taskPanelConstraints(context, desktopMaxWidth: 980),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      maxWidth: 860,
       // El panel crece con las acciones pendientes (finalización, novedades,
       // reasignación) y en un celular se salía de la pantalla sin forma de
       // llegar a "Aprobar": va dentro de un scroll acotado al alto visible.
@@ -1505,26 +1479,22 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Wrap(
               children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24, width: double.infinity),
+                const TaskPanelHandle(),
+                const SizedBox(height: 20, width: double.infinity),
                 Row(
                   children: [
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'GESTIÓN OPERATIVA',
-                            style: TextStyle(
+                          Text(
+                            [
+                              'GESTIÓN OPERATIVA',
+                              if (numeroTexto.isNotEmpty)
+                                numeroTexto.toUpperCase(),
+                              moduloNombre.toUpperCase(),
+                            ].join(' · '),
+                            style: const TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 10,
                               color: Colors.blueGrey,
@@ -1554,7 +1524,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                         ],
                       ),
                     ),
-                    _StatusBadge(status: status),
+                    TaskEstadoPill(estado: estadoVisible),
                     const SizedBox(width: 8),
                     IconButton(
                       tooltip: 'Cerrar',
@@ -1641,6 +1611,10 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                       ],
                     ),
                   ),
+                ],
+                if (correspondenceId.isNotEmpty) ...[
+                  const SizedBox(height: 16, width: double.infinity),
+                  TaskCorrespondenciaPreview(expedienteId: correspondenceId),
                 ],
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 20),
@@ -1827,35 +1801,92 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                   ),
                 ),
                 const SizedBox(height: 12, width: double.infinity),
-                _ActionTile(
-                  icon: Icons.markunread_mailbox_rounded,
-                  color: Colors.blue,
-                  title: 'Ver novedades',
-                  subtitle: 'Revisa comunicaciones y devoluciones registradas.',
-                  onTap: () async {
-                    await _showCollectionDialog(
-                      title: 'Novedades de la tarea',
-                      taskId: doc.id,
-                      collection: 'novedades',
+                if (correspondenceId.isNotEmpty)
+                  _ActionTile(
+                    icon: Icons.mark_email_unread_rounded,
+                    color: const Color(0xFF1D4ED8),
+                    title: 'Ver en Gestión de Correspondencia',
+                    subtitle: 'Abre el expediente completo en su módulo.',
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => GdCorrespondenciaScreen(
+                            userId: widget.userId,
+                            empresaId: (data['empresaId'] ?? '').toString(),
+                            initialExpedienteId: correspondenceId,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                // Sin registros el botón queda inhabilitado: antes se abría
+                // un panel vacío.
+                FutureBuilder<({int novedades, int avances, int adjuntos})>(
+                  future: actividad,
+                  builder: (context, snap) {
+                    final conteo = snap.data;
+                    final cargando =
+                        snap.connectionState != ConnectionState.done;
+                    String detalle(int? n, String con, String sin) {
+                      if (cargando) return 'Consultando…';
+                      return (n ?? 0) > 0 ? '$con (${n!})' : sin;
+                    }
+
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _ActionTile(
+                          icon: Icons.markunread_mailbox_rounded,
+                          color: Colors.blue,
+                          title: 'Ver novedades',
+                          subtitle: detalle(
+                            conteo?.novedades,
+                            'Comunicaciones y devoluciones registradas',
+                            'Sin novedades registradas.',
+                          ),
+                          onTap: (conteo?.novedades ?? 0) == 0
+                              ? null
+                              : () async {
+                                  await _showCollectionDialog(
+                                    title: 'Novedades de la tarea',
+                                    taskId: doc.id,
+                                    collection: 'novedades',
+                                  );
+                                },
+                        ),
+                        _ActionTile(
+                          icon: Icons.trending_up_rounded,
+                          color: Colors.teal,
+                          title: 'Ver avances',
+                          subtitle: detalle(
+                            conteo?.avances,
+                            'Avances reportados por el responsable',
+                            'Sin avances registrados.',
+                          ),
+                          onTap: (conteo?.avances ?? 0) == 0
+                              ? null
+                              : () async {
+                                  await _showAvancesDialog(doc.id);
+                                },
+                        ),
+                        _ActionTile(
+                          icon: Icons.attach_file_rounded,
+                          color: Colors.blueGrey,
+                          title: 'Ver adjuntos',
+                          subtitle: detalle(
+                            conteo?.adjuntos,
+                            'Archivos y evidencias cargados',
+                            'Sin adjuntos.',
+                          ),
+                          onTap: (conteo?.adjuntos ?? 0) == 0
+                              ? null
+                              : () async {
+                                  await _showAllAttachmentsDialog(doc);
+                                },
+                        ),
+                      ],
                     );
-                  },
-                ),
-                _ActionTile(
-                  icon: Icons.trending_up_rounded,
-                  color: Colors.teal,
-                  title: 'Ver avances',
-                  subtitle: 'Consulta avances reportados por el responsable.',
-                  onTap: () async {
-                    await _showAvancesDialog(doc.id);
-                  },
-                ),
-                _ActionTile(
-                  icon: Icons.attach_file_rounded,
-                  color: Colors.blueGrey,
-                  title: 'Ver adjuntos',
-                  subtitle: 'Abre archivos y evidencias cargadas en la tarea.',
-                  onTap: () async {
-                    await _showAllAttachmentsDialog(doc);
                   },
                 ),
                 const SizedBox(height: 12, width: double.infinity),
@@ -1872,7 +1903,8 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _stream(),
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
+        // Solo la primera carga muestra el esqueleto (ver `_stream`).
+        if (!snap.hasData) {
           return const Scaffold(body: SkeletonList(items: 5));
         }
 
@@ -1901,9 +1933,16 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
         }
 
         final focusMode = widget.highlightTaskId != null && !_showAllTasks;
+        final activas = allDocs
+            .where(
+              (d) => taskEstadoVisible(d.data()) != TaskEstadoVisible.terminada,
+            )
+            .toList();
+        final delModulo = _delModulo(activas);
+        final sinEstado = _filtrarSinEstado(delModulo);
         final tasks = focusMode
             ? allDocs.where((d) => d.id == widget.highlightTaskId).toList()
-            : _applyFilters(allDocs);
+            : _applyFilters(sinEstado);
         return TaskResponsiveLayout(
           title: widget.approvalMode
               ? 'Tareas por aprobar'
@@ -1914,94 +1953,84 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                     ? 'Solicitudes de cierre bajo tu aprobación'
                     : 'Seguimiento de las tareas que asignaste'),
           header: focusMode ? _buildHighlightHeader() : null,
-          filters: _buildFiltersPanel(),
+          filters: _buildFiltersPanel(activas, delModulo, sinEstado),
           content: tasks.isEmpty
               ? EmptyStateWidget(
                   icon: Icons.assignment_outlined,
                   title: 'Sin tareas activas',
                   message: widget.approvalMode
                       ? 'No tienes solicitudes de cierre pendientes en esta empresa.'
-                      : 'No tienes tareas pendientes asignadas por ti en esta empresa.',
+                      : (_moduloFilter == 'tareas'
+                            ? 'No tienes tareas pendientes asignadas por ti. '
+                                  'Las que nacieron en un módulo se ven '
+                                  'eligiendo su origen.'
+                            : 'No tienes tareas pendientes asignadas por ti en esta empresa.'),
                   actionLabel: 'Limpiar filtros',
                   onAction: _clearAllFilters,
                 )
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 20,
-                  ),
-                  itemCount: tasks.length,
-                  itemBuilder: (_, i) {
-                    final m = tasks[i].data();
-                    final uid = (m['asignado_uid'] ?? '').toString().trim();
-                    final areaId =
-                        (m['areaId'] ?? _userMeta[uid]?['areaId'] ?? '')
-                            .toString()
-                            .trim();
-                    final areaName = areaId.isEmpty
-                        ? ''
-                        : _catalogoAreas.nombreDe(areaId);
-                    // El filtro necesita el id canónico: la tarea puede traer
-                    // otra de las variantes con que quedó guardada el área.
-                    final areaFiltrable = _catalogoAreas.opciones
-                        .where((o) => o.contiene(areaId))
-                        .map((o) => o.id)
-                        .firstOrNull;
-                    final responsable = (m['asignado_nombre'] ?? '')
-                        .toString()
-                        .trim();
-                    final cargoId = (_userMeta[uid]?['cargoId'] ?? '')
-                        .toString()
-                        .trim();
-                    final cargoName =
-                        _cargoNames[cargoId] ?? _userMeta[uid]?['cargo'] ?? '';
-
-                    return Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 1180),
-                        child: TaskModernCard(
-                          data: m,
-                          onTap: () => _showActions(tasks[i]),
-                          badge: (_hasPending(m) ? 1 : 0),
-                          hasNewActivity: _hasNewActivity(m),
-                          chips: [
-                            if (responsable.isNotEmpty)
-                              TaskCardChip(
-                                label: responsable,
-                                icon: Icons.person_rounded,
-                                onTap: () => setState(
-                                  () => _searchCtrl.text = responsable,
-                                ),
-                              ),
-                            if (areaName.isNotEmpty)
-                              TaskCardChip(
-                                label: areaName,
-                                icon: Icons.apartment_rounded,
-                                onTap: areaFiltrable == null
-                                    ? null
-                                    : () => setState(
-                                        () => _areaFilter = areaFiltrable,
-                                      ),
-                              ),
-                            if (cargoName.isNotEmpty)
-                              TaskCardChip(
-                                label: cargoName,
-                                icon: Icons.badge_rounded,
-                                onTap:
-                                    (cargoId.isNotEmpty &&
-                                        _cargoNames.containsKey(cargoId))
-                                    ? () =>
-                                          setState(() => _cargoFilter = cargoId)
-                                    : null,
-                              ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
+              : TaskCardGrid<QueryDocumentSnapshot<Map<String, dynamic>>>(
+                  items: tasks,
+                  page: _page,
+                  onPageChanged: (p) => setState(() => _page = p),
+                  itemBuilder: (context, doc, compact) =>
+                      _tarjeta(doc, compact: compact),
                 ),
         );
       },
+    );
+  }
+
+  Widget _tarjeta(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc, {
+    required bool compact,
+  }) {
+    final m = doc.data();
+    final uid = _responsableDe(m);
+    final area = _areaTareaDe(m);
+    final areaName = area == _kSinArea ? '' : _areaNombre(area);
+    final cargoClave = _personas.cargoClaveDe(uid);
+    final cargoName = _personas.cargoNombreDe(uid);
+    final terminoEl = taskEstadoVisible(m) == TaskEstadoVisible.porAprobar
+        ? taskFechaTerminacionResponsable(m)
+        : null;
+    return TaskModernCard(
+      data: m,
+      compact: compact,
+      onTap: () => _showActions(doc),
+      badge: (_hasPending(m) ? 1 : 0),
+      hasNewActivity: _hasNewActivity(m),
+      // El responsable va en el pie de la tarjeta; no se repite como chip
+      // (3 oct 2026, "mostrar el nombre del responsable solo una vez").
+      chips: [
+        if (terminoEl != null)
+          TaskCardChip(
+            label:
+                'Terminada el ${DateFormat('dd/MM/yyyy HH:mm').format(terminoEl)}',
+            icon: Icons.task_alt_rounded,
+          ),
+        if (areaName.isNotEmpty)
+          TaskCardChip(
+            label: areaName,
+            icon: Icons.apartment_rounded,
+            onTap: area == _kSinArea
+                ? null
+                : () => setState(() {
+                    _areaFilter = area;
+                    _page = 0;
+                  }),
+          ),
+        if (cargoName.isNotEmpty && !widget.approvalMode)
+          TaskCardChip(
+            label: cargoName,
+            icon: Icons.badge_rounded,
+            onTap: cargoClave.isEmpty
+                ? null
+                : () => setState(() {
+                    _cargoFilter = cargoClave;
+                    _page = 0;
+                  }),
+          ),
+      ],
     );
   }
 
@@ -2050,94 +2079,189 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
 
   void _clearAllFilters() => setState(() {
     _searchCtrl.clear();
-    _statusFilter = 'todas';
+    _statusFilter = widget.approvalMode ? 'por_aprobar' : 'todas';
     _areaFilter = 'todas';
     _cargoFilter = 'todas';
+    _responsableFilter = 'todos';
+    _moduloFilter = widget.approvalMode ? 'todos' : 'tareas';
+    _page = 0;
   });
 
   bool get _hasActiveFilters =>
       _searchCtrl.text.isNotEmpty ||
-      _statusFilter != 'todas' ||
+      _statusFilter != (widget.approvalMode ? 'por_aprobar' : 'todas') ||
       _areaFilter != 'todas' ||
-      _cargoFilter != 'todas';
+      _cargoFilter != 'todas' ||
+      _responsableFilter != 'todos' ||
+      _moduloFilter != (widget.approvalMode ? 'todos' : 'tareas');
 
-  Widget _buildFiltersPanel() {
+  /// Las opciones salen de las tareas de la persona, no del catálogo
+  /// completo: en "Por aprobar" solo áreas y responsables con algo pendiente
+  /// de su aprobación, y en "Tareas que asigné" solo los cargos con tareas
+  /// abiertas (pendiente, reasignada o retrasada).
+  Widget _buildFiltersPanel(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> activas,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> delModulo,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> sinEstado,
+  ) {
+    final conteo = <String, int>{};
+    for (final d in sinEstado) {
+      final clave = taskEstadoVisible(d.data()).clave;
+      conteo[clave] = (conteo[clave] ?? 0) + 1;
+    }
+
+    final baseOpciones = widget.approvalMode
+        ? delModulo
+              .where(
+                (d) =>
+                    taskEstadoVisible(d.data()) == TaskEstadoVisible.porAprobar,
+              )
+              .toList()
+        : delModulo;
+    final areas = <String, String>{};
+    final cargos = <String, String>{};
+    final responsables = <String, String>{};
+    for (final d in baseOpciones) {
+      final m = d.data();
+      final area = _areaTareaDe(m);
+      areas.putIfAbsent(area, () => _areaNombre(area));
+      final uid = _responsableDe(m);
+      if (widget.approvalMode) {
+        if (uid.isNotEmpty) {
+          responsables.putIfAbsent(uid, () => _nombreResponsable(m));
+        }
+      } else if (_abiertos.contains(taskEstadoVisible(m))) {
+        final clave = _personas.cargoClaveDe(uid);
+        final nombre = _personas.cargoNombreDe(uid);
+        if (clave.isNotEmpty && nombre.isNotEmpty) {
+          cargos.putIfAbsent(clave, () => nombre);
+        }
+      }
+    }
+    final modulos = <String, String>{};
+    for (final d in activas) {
+      final modulo = taskModuloOrigen(d.data());
+      modulos.putIfAbsent(
+        modulo,
+        () => !widget.approvalMode && modulo == 'tareas'
+            ? 'Asignadas por mí (manual)'
+            : taskModuloOrigenNombre(modulo),
+      );
+    }
+    if (!widget.approvalMode) {
+      modulos.putIfAbsent('tareas', () => 'Asignadas por mí (manual)');
+    }
+
+    int porNombre(MapEntry<String, String> a, MapEntry<String, String> b) =>
+        a.value.toLowerCase().compareTo(b.value.toLowerCase());
+    List<DropdownMenuItem<String>> opciones(
+      Map<String, String> mapa,
+      String todasValor,
+      String todasTexto,
+    ) => [
+      DropdownMenuItem(value: todasValor, child: Text(todasTexto)),
+      for (final e in mapa.entries.toList()..sort(porNombre))
+        DropdownMenuItem(
+          value: e.key,
+          child: Text(e.value, overflow: TextOverflow.ellipsis),
+        ),
+    ];
+
+    // El origen manual va primero: es el filtro principal de la pantalla.
+    final modulosOrdenados = modulos.entries.toList()
+      ..sort((a, b) {
+        if (a.key == 'tareas') return -1;
+        if (b.key == 'tareas') return 1;
+        return porNombre(a, b);
+      });
+
     return TaskFiltersPanel(
       searchController: _searchCtrl,
-      onSearchChanged: (_) => setState(() {}),
-      searchHint: 'Buscar por título o responsable...',
-      quickFilters: const [
-        TaskQuickFilter(label: 'Todos', value: 'todas'),
-        TaskQuickFilter(label: 'Activas', value: 'en_progreso'),
-        TaskQuickFilter(label: 'Por aprobar', value: 'por_aprobar'),
-        TaskQuickFilter(label: 'Retrasadas', value: 'retrasada'),
+      onSearchChanged: (_) => setState(() => _page = 0),
+      searchHint: 'Buscar por título, número o responsable...',
+      quickFilters: [
+        TaskQuickFilter(
+          label: 'Todos',
+          value: 'todas',
+          count: sinEstado.length,
+        ),
+        for (final estado in const [
+          TaskEstadoVisible.pendiente,
+          TaskEstadoVisible.reasignada,
+          TaskEstadoVisible.porAprobar,
+          TaskEstadoVisible.retrasada,
+        ])
+          TaskQuickFilter(
+            label: estado.nombre,
+            value: estado.clave,
+            count: conteo[estado.clave] ?? 0,
+            color: estado.color,
+          ),
       ],
       selectedQuickFilter: _statusFilter,
-      onQuickFilterChanged: (value) => setState(() => _statusFilter = value),
+      onQuickFilterChanged: (value) => setState(() {
+        _statusFilter = value;
+        _page = 0;
+      }),
       dropdowns: [
+        TaskFilterDropdownData(
+          label: widget.approvalMode ? 'Origen' : 'Asignadas desde',
+          value: _moduloFilter,
+          items: [
+            DropdownMenuItem(
+              value: 'todos',
+              child: Text(
+                widget.approvalMode
+                    ? 'Todos los módulos'
+                    : 'Todos los orígenes',
+              ),
+            ),
+            for (final e in modulosOrdenados)
+              DropdownMenuItem(
+                value: e.key,
+                child: Text(e.value, overflow: TextOverflow.ellipsis),
+              ),
+          ],
+          onChanged: (v) => setState(() {
+            _moduloFilter = v ?? 'todos';
+            _areaFilter = 'todas';
+            _cargoFilter = 'todas';
+            _responsableFilter = 'todos';
+            _page = 0;
+          }),
+        ),
         TaskFilterDropdownData(
           label: 'Área',
           value: _areaFilter,
-          items: [
-            const DropdownMenuItem(
-              value: 'todas',
-              child: Text('Todas las áreas'),
-            ),
-            ..._areaNames.entries.map(
-              (e) => DropdownMenuItem(
-                value: e.key,
-                child: Text(e.value, overflow: TextOverflow.ellipsis),
-              ),
-            ),
-          ],
-          onChanged: (v) => setState(() => _areaFilter = v ?? 'todas'),
+          items: opciones(areas, 'todas', 'Todas las áreas'),
+          onChanged: (v) => setState(() {
+            _areaFilter = v ?? 'todas';
+            _page = 0;
+          }),
         ),
-        TaskFilterDropdownData(
-          label: 'Responsable / cargo',
-          value: _cargoFilter,
-          items: [
-            const DropdownMenuItem(
-              value: 'todas',
-              child: Text('Todos los cargos'),
-            ),
-            ..._cargoNames.entries.map(
-              (e) => DropdownMenuItem(
-                value: e.key,
-                child: Text(e.value, overflow: TextOverflow.ellipsis),
-              ),
-            ),
-          ],
-          onChanged: (v) => setState(() => _cargoFilter = v ?? 'todas'),
-        ),
+        if (widget.approvalMode)
+          TaskFilterDropdownData(
+            label: 'Responsable',
+            value: _responsableFilter,
+            items: opciones(responsables, 'todos', 'Todos los responsables'),
+            onChanged: (v) => setState(() {
+              _responsableFilter = v ?? 'todos';
+              _page = 0;
+            }),
+          )
+        else
+          TaskFilterDropdownData(
+            label: 'Cargo del responsable',
+            value: _cargoFilter,
+            items: opciones(cargos, 'todas', 'Todos los cargos'),
+            onChanged: (v) => setState(() {
+              _cargoFilter = v ?? 'todas';
+              _page = 0;
+            }),
+          ),
       ],
       onClearFilters: _clearAllFilters,
       hasActiveFilters: _hasActiveFilters,
-    );
-  }
-}
-
-class _StatusBadge extends StatelessWidget {
-  final String status;
-  const _StatusBadge({required this.status});
-  @override
-  Widget build(BuildContext context) {
-    final color = taskStatusColor(status);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Text(
-        status.toUpperCase(),
-        style: TextStyle(
-          color: color,
-          fontWeight: FontWeight.w900,
-          fontSize: 10,
-          letterSpacing: 0.5,
-        ),
-      ),
     );
   }
 }

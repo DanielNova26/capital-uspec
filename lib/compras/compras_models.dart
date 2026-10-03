@@ -188,6 +188,14 @@ const String kRolConsultas = 'consultas';
 /// Acceso total: ve y puede eliminar recepciones, marcas, fichas técnicas y documentos.
 const String kRolAdmin = 'admin';
 
+/// Cargo que atiende las correcciones y requerimientos que deja la revisión
+/// documental de Calidad (3 oct 2026). Acepta "Analista de Compras",
+/// "ANALISTA COMPRAS", "Analista de compras y suministros"...
+bool esCargoAnalistaCompras(String cargo) {
+  final clave = _comprasRoleKey(cargo);
+  return clave.contains('analista') && clave.contains('compra');
+}
+
 String _comprasRoleKey(String value) {
   return value
       .trim()

@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:todo/core/task_contract.dart';
+import 'package:todo/core/task_estado_visible.dart';
 import 'package:todo/utils/task_status.dart';
 import 'package:todo/widgets/user_avatar.dart';
 
@@ -14,6 +14,12 @@ class TaskCardChip {
   const TaskCardChip({required this.label, required this.icon, this.onTap});
 }
 
+/// A quién muestra el pie de la tarjeta.
+///
+/// En "Mis tareas" el responsable es uno mismo: ahí se muestra quién la
+/// asignó (3 oct 2026, "Mostrar quién asignó la tarea").
+enum TaskCardPersona { responsable, asignador }
+
 class TaskModernCard extends StatefulWidget {
   final Map<String, dynamic> data;
   final VoidCallback onTap;
@@ -21,6 +27,10 @@ class TaskModernCard extends StatefulWidget {
   final bool isHistorical;
   final bool hasNewActivity;
   final List<TaskCardChip> chips;
+
+  /// Versión reducida para la grilla de varias columnas.
+  final bool compact;
+  final TaskCardPersona persona;
 
   const TaskModernCard({
     super.key,
@@ -30,6 +40,8 @@ class TaskModernCard extends StatefulWidget {
     this.isHistorical = false,
     this.hasNewActivity = false,
     this.chips = const [],
+    this.compact = false,
+    this.persona = TaskCardPersona.responsable,
   });
 
   @override
@@ -49,103 +61,78 @@ class _TaskModernCardState extends State<TaskModernCard> {
     return def;
   }
 
-  DateTime? _toDate(dynamic v) {
-    if (v == null) return null;
-    if (v is DateTime) return v;
-    if (v is int) return DateTime.fromMillisecondsSinceEpoch(v);
-    if (v is String) return DateTime.tryParse(v);
-    // Firestore Timestamp
-    try {
-      return (v as dynamic).toDate() as DateTime;
-    } catch (_) {}
-    return null;
-  }
-
-  String _moduleId(Map<String, dynamic> data) {
-    final source = data['source'];
-    final sourceModule = source is Map ? source['moduleId'] : null;
-    return TaskContract.normalizeModuleId(
-      sourceModule ??
-          data['sourceModule'] ??
-          data['destinoModulo'] ??
-          data['module'] ??
-          data['origen'],
-    );
-  }
-
-  String _moduleLabel(String moduleId) {
-    const labels = {
-      'tareas': 'Tareas',
-      'compras': 'Compras',
-      'interventoria': 'Interventoría',
-      'facturacion': 'Facturación',
-      'correo': 'Correo',
-      'gestion_documental': 'Gestión de Correspondencia',
-      'talento_humano': 'Talento humano',
-      'mantenimiento': 'Mantenimiento',
-      'vehiculos': 'Vehículos',
-    };
-    return labels[moduleId] ?? moduleId.replaceAll('_', ' ');
-  }
-
   @override
   Widget build(BuildContext context) {
-    final title = _str(widget.data, ['titulo', 'title'], def: '(Sin título)');
-    final desc = _str(widget.data, ['descripcion', 'description']);
-    final status = resolveTaskStatus(widget.data);
-    final moduleId = _moduleId(widget.data);
+    final data = widget.data;
+    final compact = widget.compact;
+    final title = _str(data, ['titulo', 'title'], def: '(Sin título)');
+    final desc = _str(data, ['descripcion', 'description']);
+    final estado = taskEstadoVisible(data);
+    final devuelta =
+        estado == TaskEstadoVisible.pendiente && taskFueDevuelta(data);
+    final modulo = taskModuloOrigenNombre(taskModuloOrigen(data));
+    final numero = taskNumeroTexto(data);
 
-    // Responsable a mostrar: asignado si existe; si no, el creador.
-    final asignadoId = _str(widget.data, ['asignado_uid', 'assignedTo']);
-    final asignadoName = _str(widget.data, [
-      'asignado_nombre',
-      'assignedToName',
-    ]);
-    final hasAsignado = asignadoId.isNotEmpty || asignadoName.isNotEmpty;
-    final personId = hasAsignado
-        ? asignadoId
-        : _str(widget.data, ['creador_id', 'creatorId', 'createdBy']);
-    final personName = hasAsignado
-        ? asignadoName
-        : _str(widget.data, ['creador_nombre', 'creatorName']);
-    final personCargo = hasAsignado
-        ? _str(widget.data, [
-            'asignado_cargo_nombre',
-            'assignedToRole',
-            'cargoNombre',
-            'cargo',
-          ])
-        : _str(widget.data, ['creador_cargo_nombre', 'creatorRole']);
-    final due = _toDate(widget.data['fecha_limite'] ?? widget.data['dueDate']);
+    // Pie: el responsable, o quien asignó (en Mis tareas).
+    final String personId;
+    final String personName;
+    final String personPrefix;
+    var personCargo = '';
+    if (widget.persona == TaskCardPersona.asignador) {
+      final asignador = taskAsignador(data);
+      personId = asignador.id;
+      personName = asignador.nombre;
+      personPrefix = 'Asignó: ';
+    } else {
+      final asignadoId = _str(data, ['asignado_uid', 'assignedTo']);
+      final asignadoName = _str(data, ['asignado_nombre', 'assignedToName']);
+      final hasAsignado = asignadoId.isNotEmpty || asignadoName.isNotEmpty;
+      personId = hasAsignado
+          ? asignadoId
+          : _str(data, ['creador_id', 'creatorId', 'createdBy']);
+      personName = hasAsignado
+          ? asignadoName
+          : _str(data, ['creador_nombre', 'creatorName']);
+      personPrefix = '';
+      personCargo = hasAsignado
+          ? _str(data, [
+              'asignado_cargo_nombre',
+              'assignedToRole',
+              'cargoNombre',
+              'cargo',
+            ])
+          : _str(data, ['creador_cargo_nombre', 'creatorRole']);
+    }
+
+    final due = taskToDate(data['fecha_limite'] ?? data['dueDate']);
     final isOverdue =
-        due != null &&
-        due.isBefore(DateTime.now()) &&
-        status != 'finalizado' &&
-        !widget.isHistorical;
+        estado == TaskEstadoVisible.retrasada && !widget.isHistorical;
 
     final scheme = Theme.of(context).colorScheme;
     final bool isWeb = kIsWeb;
 
-    // Premium Color Palette
     final Color baseColor = widget.isHistorical
         ? scheme.surfaceContainerHighest.withValues(alpha: 0.3)
         : (widget.hasNewActivity ? const Color(0xFFFEFCE8) : scheme.surface);
 
-    final Color accentColor = isOverdue
-        ? Colors.red
-        : (widget.hasNewActivity ? const Color(0xFFF59E0B) : scheme.primary);
+    final Color accentColor = widget.hasNewActivity && !isOverdue
+        ? const Color(0xFFF59E0B)
+        : estado.color;
+
+    final double pad = compact ? 12 : 20;
+    final double radius = compact ? 14 : 20;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        margin: const EdgeInsets.only(bottom: 12),
-        transform: isWeb && _isHovered
-            ? (Matrix4.identity()..translate(4, 0, 0))
+        margin: EdgeInsets.only(bottom: compact ? 0 : 12),
+        transform: isWeb && _isHovered && !compact
+            ? Matrix4.translationValues(4, 0, 0)
             : Matrix4.identity(),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(radius),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: _isHovered ? 0.08 : 0.04),
@@ -158,7 +145,7 @@ class _TaskModernCardState extends State<TaskModernCard> {
           elevation: 0,
           margin: EdgeInsets.zero,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(radius),
             side: BorderSide(
               color: isOverdue
                   ? Colors.red.withValues(alpha: 0.4)
@@ -175,50 +162,63 @@ class _TaskModernCardState extends State<TaskModernCard> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               InkWell(
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(radius),
                 onTap: widget.onTap,
                 child: Opacity(
                   opacity: widget.isHistorical ? 0.85 : 1.0,
                   child: Padding(
-                    padding: const EdgeInsets.all(20),
+                    padding: EdgeInsets.all(pad),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Indicator Bar
                             Container(
                               width: 4,
-                              height: 40,
+                              height: compact ? 32 : 40,
                               decoration: BoxDecoration(
                                 color: accentColor,
                                 borderRadius: BorderRadius.circular(2),
                               ),
                             ),
-                            const SizedBox(width: 12),
+                            SizedBox(width: compact ? 10 : 12),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  _ModulePill(label: _moduleLabel(moduleId)),
-                                  const SizedBox(height: 7),
+                                  Wrap(
+                                    spacing: 6,
+                                    runSpacing: 4,
+                                    crossAxisAlignment:
+                                        WrapCrossAlignment.center,
+                                    children: [
+                                      if (numero.isNotEmpty)
+                                        _NumeroPill(texto: numero),
+                                      _ModulePill(label: modulo),
+                                    ],
+                                  ),
+                                  SizedBox(height: compact ? 5 : 7),
                                   Text(
                                     title,
+                                    maxLines: compact ? 2 : null,
+                                    overflow: compact
+                                        ? TextOverflow.ellipsis
+                                        : null,
                                     style: TextStyle(
                                       fontFamily: kArial,
                                       fontWeight: widget.isHistorical
                                           ? FontWeight.w600
                                           : FontWeight.w900,
-                                      fontSize: 17,
-                                      letterSpacing: -0.4,
+                                      fontSize: compact ? 14 : 17,
+                                      letterSpacing: compact ? -0.2 : -0.4,
                                       color: widget.isHistorical
                                           ? scheme.onSurfaceVariant
                                           : scheme.onSurface,
                                     ),
                                   ),
                                   if (desc.isNotEmpty) ...[
-                                    const SizedBox(height: 6),
+                                    SizedBox(height: compact ? 4 : 6),
                                     Text(
                                       desc,
                                       maxLines: 2,
@@ -226,8 +226,8 @@ class _TaskModernCardState extends State<TaskModernCard> {
                                       style: TextStyle(
                                         color: scheme.onSurfaceVariant
                                             .withValues(alpha: 0.7),
-                                        fontSize: 14,
-                                        height: 1.4,
+                                        fontSize: compact ? 12 : 14,
+                                        height: compact ? 1.3 : 1.4,
                                         fontFamily: kArial,
                                       ),
                                     ),
@@ -239,15 +239,28 @@ class _TaskModernCardState extends State<TaskModernCard> {
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
-                                _StatusPill(
-                                  status: status,
-                                  isHistorical: widget.isHistorical,
+                                TaskEstadoPill(
+                                  estado: estado,
+                                  compact: compact,
                                 ),
+                                if (devuelta) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Devuelta',
+                                    style: TextStyle(
+                                      fontFamily: kArial,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.deepOrange.shade700,
+                                    ),
+                                  ),
+                                ],
                                 if ((widget.badge > 0 ||
                                         widget.hasNewActivity) &&
                                     !widget.isHistorical) ...[
                                   const SizedBox(height: 8),
                                   Row(
+                                    mainAxisSize: MainAxisSize.min,
                                     children: [
                                       if (widget.hasNewActivity) _ActivityTag(),
                                       if (widget.badge > 0) ...[
@@ -261,20 +274,22 @@ class _TaskModernCardState extends State<TaskModernCard> {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 20),
+                        SizedBox(height: compact ? 10 : 20),
                         Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
+                          padding: EdgeInsets.symmetric(
+                            horizontal: compact ? 8 : 12,
+                            vertical: compact ? 6 : 8,
                           ),
                           decoration: BoxDecoration(
-                            color: scheme.surfaceContainerHighest.withValues(alpha: 0.2),
+                            color: scheme.surfaceContainerHighest.withValues(
+                              alpha: 0.2,
+                            ),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Row(
                             children: [
                               _IconLabel(
-                                icon: widget.isHistorical
+                                icon: estado == TaskEstadoVisible.terminada
                                     ? Icons.check_circle_rounded
                                     : (isOverdue
                                           ? Icons.error_outline_rounded
@@ -284,25 +299,40 @@ class _TaskModernCardState extends State<TaskModernCard> {
                                     : (due == null
                                           ? 'Sin fecha'
                                           : DateFormat(
-                                              'dd MMM, yyyy',
+                                              compact
+                                                  ? 'dd MMM yy'
+                                                  : 'dd MMM, yyyy',
                                             ).format(due)),
                                 color: isOverdue
                                     ? Colors.red.shade700
                                     : scheme.onSurfaceVariant,
+                                compact: compact,
                               ),
                               if (personId.isNotEmpty ||
                                   personName.isNotEmpty) ...[
-                                const SizedBox(width: 12),
+                                const SizedBox(width: 10),
                                 Expanded(
                                   child: Row(
                                     mainAxisAlignment: MainAxisAlignment.end,
                                     children: [
-                                      UserAvatar(
-                                        userId: personId,
-                                        nameHint: personName,
-                                        radius: 10,
-                                      ),
-                                      const SizedBox(width: 6),
+                                      if (personId.isNotEmpty) ...[
+                                        UserAvatar(
+                                          userId: personId,
+                                          nameHint: personName,
+                                          radius: 10,
+                                        ),
+                                        const SizedBox(width: 6),
+                                      ] else
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            right: 6,
+                                          ),
+                                          child: Icon(
+                                            Icons.smart_toy_outlined,
+                                            size: 16,
+                                            color: scheme.onSurfaceVariant,
+                                          ),
+                                        ),
                                       Flexible(
                                         child: Column(
                                           crossAxisAlignment:
@@ -311,14 +341,16 @@ class _TaskModernCardState extends State<TaskModernCard> {
                                             UserNameText(
                                               personId,
                                               fallbackName: personName,
+                                              prefix: personPrefix,
                                               style: TextStyle(
-                                                fontSize: 12,
+                                                fontSize: compact ? 11 : 12,
                                                 fontWeight: FontWeight.w600,
                                                 fontFamily: kArial,
                                                 color: scheme.onSurfaceVariant,
                                               ),
                                             ),
-                                            if (personCargo.isNotEmpty)
+                                            if (personCargo.isNotEmpty &&
+                                                !compact)
                                               Text(
                                                 personCargo,
                                                 maxLines: 1,
@@ -338,11 +370,13 @@ class _TaskModernCardState extends State<TaskModernCard> {
                                 ),
                               ] else
                                 const Spacer(),
-                              const SizedBox(width: 8),
+                              const SizedBox(width: 6),
                               Icon(
                                 Icons.arrow_forward_ios_rounded,
-                                size: 14,
-                                color: scheme.onSurfaceVariant.withValues(alpha: 0.4),
+                                size: compact ? 12 : 14,
+                                color: scheme.onSurfaceVariant.withValues(
+                                  alpha: 0.4,
+                                ),
                               ),
                             ],
                           ),
@@ -355,7 +389,12 @@ class _TaskModernCardState extends State<TaskModernCard> {
               // Chips FUERA del InkWell para no disparar el onTap del card
               if (widget.chips.isNotEmpty && !widget.isHistorical)
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                  padding: EdgeInsets.fromLTRB(
+                    compact ? 10 : 16,
+                    0,
+                    compact ? 10 : 16,
+                    compact ? 10 : 14,
+                  ),
                   child: Wrap(
                     spacing: 6,
                     runSpacing: 6,
@@ -366,6 +405,65 @@ class _TaskModernCardState extends State<TaskModernCard> {
                 ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Etiqueta del estado con su fondo de color, la misma en toda la app de
+/// Tareas: gris, violeta, amarillo, rojo o verde.
+class TaskEstadoPill extends StatelessWidget {
+  final TaskEstadoVisible estado;
+  final bool compact;
+  const TaskEstadoPill({super.key, required this.estado, this.compact = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 8 : 12,
+        vertical: compact ? 4 : 6,
+      ),
+      decoration: BoxDecoration(
+        color: estado.fondo,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: estado.color.withValues(alpha: 0.35)),
+      ),
+      child: Text(
+        estado.etiqueta,
+        style: TextStyle(
+          color: estado.texto,
+          fontSize: compact ? 9 : 10,
+          fontWeight: FontWeight.w900,
+          fontFamily: kArial,
+          letterSpacing: 0.6,
+        ),
+      ),
+    );
+  }
+}
+
+class _NumeroPill extends StatelessWidget {
+  final String texto;
+  const _NumeroPill({required this.texto});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: scheme.onSurface.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        texto,
+        style: TextStyle(
+          fontFamily: kArial,
+          fontSize: 10,
+          fontWeight: FontWeight.w900,
+          color: scheme.onSurface.withValues(alpha: 0.75),
         ),
       ),
     );
@@ -394,35 +492,6 @@ class _ModulePill extends StatelessWidget {
           fontWeight: FontWeight.w800,
           letterSpacing: 0.55,
           fontFamily: kArial,
-        ),
-      ),
-    );
-  }
-}
-
-class _StatusPill extends StatelessWidget {
-  final String status;
-  final bool isHistorical;
-  const _StatusPill({required this.status, this.isHistorical = false});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = isHistorical ? Colors.blueGrey : taskStatusColor(status);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
-      ),
-      child: Text(
-        status.toUpperCase(),
-        style: TextStyle(
-          color: color,
-          fontSize: 10,
-          fontWeight: FontWeight.w900,
-          fontFamily: kArial,
-          letterSpacing: 0.8,
         ),
       ),
     );
@@ -521,13 +590,17 @@ class _CardChipWidget extends StatelessWidget {
               color: tappable ? scheme.primary : scheme.onSurfaceVariant,
             ),
             const SizedBox(width: 5),
-            Text(
-              chip.label,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                fontFamily: kArial,
-                color: tappable ? scheme.primary : scheme.onSurfaceVariant,
+            Flexible(
+              child: Text(
+                chip.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  fontFamily: kArial,
+                  color: tappable ? scheme.primary : scheme.onSurfaceVariant,
+                ),
               ),
             ),
             if (tappable) ...[
@@ -549,11 +622,13 @@ class _IconLabel extends StatelessWidget {
   final IconData icon;
   final String label;
   final Color color;
+  final bool compact;
 
   const _IconLabel({
     required this.icon,
     required this.label,
     required this.color,
+    this.compact = false,
   });
 
   @override
@@ -561,13 +636,13 @@ class _IconLabel extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 16, color: color),
-        const SizedBox(width: 8),
+        Icon(icon, size: compact ? 14 : 16, color: color),
+        SizedBox(width: compact ? 5 : 8),
         Text(
           label,
           style: TextStyle(
             color: color,
-            fontSize: 13,
+            fontSize: compact ? 11.5 : 13,
             fontWeight: FontWeight.w700,
             fontFamily: kArial,
           ),

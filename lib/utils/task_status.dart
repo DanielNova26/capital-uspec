@@ -11,12 +11,19 @@ DateTime? taskToDate(dynamic value) {
   return null;
 }
 
+/// Días de calendario que faltan hasta la fecha límite: 0 si vence hoy, -1
+/// si venció ayer.
+///
+/// Antes se restaba hoy 00:00 de la fecha límite a las 23:59:59 y `inDays`
+/// trunca hacia cero: una tarea que venció ayer daba 0 y no salía RETRASADA
+/// hasta el día siguiente (el servidor usa `Math.floor` y sí la marcaba).
 int? taskDaysLeft(DateTime? due) {
   if (due == null) return null;
   final now = DateTime.now();
-  final today = DateTime(now.year, now.month, now.day);
-  final end = DateTime(due.year, due.month, due.day, 23, 59, 59);
-  return end.difference(today).inDays;
+  // En UTC para que un cambio de horario no reste una hora a un día.
+  final today = DateTime.utc(now.year, now.month, now.day);
+  final dueDay = DateTime.utc(due.year, due.month, due.day);
+  return dueDay.difference(today).inDays;
 }
 
 bool _isTrue(dynamic value) => value == true;

@@ -148,6 +148,19 @@ void main() {
   });
 
   group('canViewTaskTeam', () {
+    test('el cargo Gerencia ve las tareas de su equipo', () {
+      expect(canViewTaskTeam({'cargo': 'Gerencia'}), isTrue);
+      expect(
+        canViewTaskTeam({
+          'empresaId': 'A',
+          'empresasDetalle': {
+            'A': {'cargo': 'GERENCIA'},
+          },
+        }, empresaId: 'A'),
+        isTrue,
+      );
+    });
+
     test('reconoce responsables por cargo', () {
       expect(
         canViewTaskTeam({

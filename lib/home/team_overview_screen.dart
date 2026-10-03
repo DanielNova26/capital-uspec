@@ -1,196 +1,98 @@
 // lib/home/team_overview_screen.dart
+//
+// "Tareas de mi equipo" (3 oct 2026, documento "TAREAS - SEPTIEMBRE 29"):
+//  - tablero por responsable con lo que cada quien tiene abierto,
+//  - filtro por responsable (solo tareas no terminadas),
+//  - matriz: N.º tarea, responsable, descripción, asignada por, fecha de
+//    asignación, estado y días,
+//  - Excel y PDF de lo que se ve, como en Interventoría,
+//  - detalle al seleccionar una tarea.
+//
+// Alcance (sin cambios): Gerencia ve la empresa; Dirección, su área; jefes y
+// coordinadores, a las personas a su cargo.
 
-import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:intl/intl.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import 'package:todo/core/team_company_scope.dart';
 import 'package:todo/state/empresa_scope.dart';
-import 'package:todo/utils/task_status.dart';
 import 'package:todo/utils/user_company.dart';
+import 'package:todo/widgets/task_filters_panel.dart';
+import 'package:todo/widgets/task_modern_card.dart' show TaskEstadoPill;
 import 'package:todo/widgets/task_responsive_layout.dart' hide kArial;
-import 'package:todo/widgets/task_summary_header.dart' hide kArial;
 import 'package:todo/widgets/user_avatar.dart';
+
 import '../core/area_directory.dart';
+import '../core/task_estado_visible.dart';
+import '../core/task_personas_empresa.dart';
+import '../core/user_directory.dart';
+import '../utils/excel_download.dart';
+import '../widgets/paged_list.dart';
+import 'task_correspondencia_preview.dart';
+import 'task_history_screen.dart' show TaskActivityScreen;
+import 'team_tasks_export.dart';
 
-/// ====== Paleta unificada (tema teal) ======
-const Color kTeal = Color(0xFF0F766E); // AppBar, acentos
-const Color kSurface = Color(0xFFF1F5F9); // Fondo de pantallas
-const Color kCard = Color(0xFFE0F2F1); // Tarjetas y contenedores
 const String kArial = 'Arial';
+const Color kTeal = Color(0xFF0F766E);
 
-/// ------------------------- Utils -------------------------
+typedef _Doc = QueryDocumentSnapshot<Map<String, dynamic>>;
 
-DateTime? _toDate(dynamic v) {
-  if (v == null) return null;
-  if (v is Timestamp) return v.toDate();
-  if (v is int) return DateTime.fromMillisecondsSinceEpoch(v);
-  if (v is num) return DateTime.fromMillisecondsSinceEpoch(v.toInt());
-  if (v is String) return DateTime.tryParse(v);
-  return null;
-}
+/// Estados que se consultan: todo lo que no está terminado. Igualdades con
+/// `empresaId`, que Firestore resuelve sin índice compuesto.
+const List<String> _kEstadosAbiertos = [
+  'pendiente',
+  'en_progreso',
+  'por_aprobar',
+  'devuelta',
+  'reasignado',
+  'retrasada',
+  'pendiente_aprobacion',
+];
 
-String _fmtDate(DateTime? d) =>
-    d == null ? '—' : DateFormat('dd/MM/yyyy').format(d);
-String _fmtDateTime(DateTime? d) =>
-    d == null ? '—' : DateFormat('dd/MM/yyyy HH:mm').format(d);
-
-Color _statusColor(String s) => taskStatusColor(s);
-
-/// Primer valor no vacío como String desde un Map
-String? _firstStr(Map<String, dynamic> m, List<String> keys) {
-  for (final k in keys) {
-    final v = m[k];
-    if (v == null) continue;
-    final s = v.toString().trim();
-    if (s.isNotEmpty) return s;
-  }
-  return null;
-}
-
-/// Busca claves en estructuras dinámicas (Map o List) sin forzar cast
-String? _firstStrDeep(dynamic src, List<String> keys) {
-  if (src == null) return null;
-
-  if (src is Map) {
-    for (final k in keys) {
-      final v = src[k];
-      if (v == null) continue;
-      final s = v.toString().trim();
-      if (s.isNotEmpty) return s;
-    }
-    for (final v in src.values) {
-      if (v is Map || v is List) {
-        final r = _firstStrDeep(v, keys);
-        if (r != null && r.isNotEmpty) return r;
-      }
-    }
-  } else if (src is List) {
-    for (final item in src) {
-      final r = _firstStrDeep(item, keys);
-      if (r != null && r.isNotEmpty) return r;
-    }
-  }
-  return null;
-}
-
-/// [porListaEmpresas] suma lo que solo trae la lista `empresas` (registros
-/// sin `empresaId`). En TBL_TAREAS va apagado: la tarea pertenece a su
-/// `empresaId` y las reglas rechazan esa consulta, lo que tumbaba también la
-/// de la empresa al ir juntas en el mismo `Future.wait`.
-Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _fetchEmpresaScoped({
-  required Query<Map<String, dynamic>> base,
-  required String? empresaId,
-  int? limit,
-  bool porListaEmpresas = true,
-}) async {
-  final scoped = (empresaId ?? '').trim();
-  if (scoped.isEmpty) {
-    return <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-  }
-
-  final futures = <Future<QuerySnapshot<Map<String, dynamic>>>>[
-    (limit == null
-            ? base.where('empresaId', isEqualTo: scoped)
-            : base.where('empresaId', isEqualTo: scoped).limit(limit))
-        .get(),
-    if (porListaEmpresas)
-      (limit == null
-              ? base.where('empresas', arrayContains: scoped)
-              : base.where('empresas', arrayContains: scoped).limit(limit))
-          .get(),
-  ];
-
-  final snaps = await Future.wait(futures);
-  final merged = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
-  for (final snap in snaps) {
-    for (final doc in snap.docs) {
-      merged[doc.id] = doc;
-    }
-  }
-  return merged.values.toList();
-}
-
-bool _isGerente(String? cargo) {
-  final s0 = (cargo ?? '').trim().toLowerCase();
-  if (s0.isEmpty) return false;
-  final s = s0
-      .replaceAll('á', 'a')
-      .replaceAll('é', 'e')
-      .replaceAll('í', 'i')
-      .replaceAll('ó', 'o')
-      .replaceAll('ú', 'u');
-  // acepta “gerente”, “gerencia”, “gerente general”, etc.
+bool _esGerente(String? cargo) {
+  final s = areaClave(cargo ?? '');
   return s.contains('gerent') || s.contains('gerencia');
 }
 
-bool _isDirector(String? cargo) {
-  final s = (cargo ?? '').toLowerCase();
-  return s.contains('director');
-}
+bool _esDirector(String? cargo) => areaClave(cargo ?? '').contains('director');
 
-/// ------------------------- Screen -------------------------
-
-/// Pantalla “Ver equipo de trabajo”
 class TeamOverviewScreen extends StatefulWidget {
   final String currentUserId;
 
-  const TeamOverviewScreen({Key? key, required this.currentUserId})
-    : super(key: key);
+  const TeamOverviewScreen({super.key, required this.currentUserId});
 
   @override
   State<TeamOverviewScreen> createState() => _TeamOverviewScreenState();
 }
 
 class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
-  // Filtros
   final _searchCtl = TextEditingController();
-  final _filtroUsuarioCtl = ValueNotifier<String>(
-    'todos',
-  ); // para director/jefe
+  String _estadoSel = 'todas';
   String _areaSel = 'todas';
-  String _estadoSel = 'todos';
-  String _cargoSel = 'todos';
-  String _centroSel = 'todos';
-  String? _empresaId;
-  DateTime? _from;
-  DateTime? _to;
+  String _responsableSel = 'todos';
+  String _moduloSel = 'todos';
+  int _page = 0;
+  bool _exportando = false;
+
   EmpresaState? _empresaState;
   String? _selectedEmpresaId;
+  String? _empresaId;
+  String _empresaNombre = '';
 
-  // Catálogos
-  final Map<String, String> _areas = {'todas': 'Todas las áreas'};
-  AreaCatalogo _catalogoAreas = const AreaCatalogo.vacio();
-  final Map<String, String> _estados = const {
-    'todos': 'Todos',
-    'en_progreso': 'En progreso',
-    'por_aprobar': 'Por aprobar',
-    'finalizado': 'Finalizado',
-    'retrasada': 'Retrasada',
-  };
-  final Map<String, String> _cargos = {'todos': 'Todos los cargos'};
-  final Map<String, String> _centros = {'todos': 'Todos los centros'};
-
-  // Estructura / permisos
   bool _soyGerente = false;
   bool _soyDirector = false;
   String? _miAreaId;
-  String? _miCargo;
-  String? _miCentro;
+  final Set<String> _subordinados = {};
+  PersonasEmpresa _personas = const PersonasEmpresa.vacio();
 
-  // Subordinados (id -> nombre)
-  final Map<String, String> _subordinados = {'todos': 'Todos a cargo'};
+  /// Se consulta una vez por empresa (y al actualizar): antes la consulta se
+  /// repetía con cada letra del buscador.
+  Future<List<_Doc>>? _tareasFuture;
 
-  // ---- Carga inicial
-  @override
-  void initState() {
-    super.initState();
-    _filtroUsuarioCtl.addListener(() {
-      if (mounted) {
-        setState(() {});
-      }
-    });
-  }
+  static const String _kSinArea = '__sin_area__';
 
   @override
   void didChangeDependencies() {
@@ -201,438 +103,432 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
       _empresaState = scope..addListener(_onEmpresaChanged);
     }
     final selected = scope.selectedEmpresaId?.trim();
-    if (_selectedEmpresaId != selected) {
+    if (_selectedEmpresaId != selected || _tareasFuture == null) {
       _selectedEmpresaId = selected;
-      _bootstrap();
+      _tareasFuture = _bootstrap();
     }
   }
 
   @override
   void dispose() {
-    _filtroUsuarioCtl.dispose();
+    _searchCtl.dispose();
     _empresaState?.removeListener(_onEmpresaChanged);
     super.dispose();
   }
 
-  bool _hasActiveFilters() {
-    return _searchCtl.text.trim().isNotEmpty ||
-        _areaSel != 'todas' ||
-        _estadoSel != 'todos' ||
-        _cargoSel != 'todos' ||
-        _centroSel != 'todos' ||
-        _filtroUsuarioCtl.value != 'todos' ||
-        _from != null ||
-        _to != null;
-  }
-
-  void _clearFilters() {
-    _searchCtl.clear();
-    _filtroUsuarioCtl.value = 'todos';
+  void _onEmpresaChanged() {
+    final selected = _empresaState?.selectedEmpresaId?.trim();
+    if (_selectedEmpresaId == selected) return;
     setState(() {
-      _areaSel = 'todas';
-      _estadoSel = 'todos';
-      _cargoSel = 'todos';
-      _centroSel = 'todos';
-      _from = null;
-      _to = null;
+      _selectedEmpresaId = selected;
+      _limpiarFiltros(notificar: false);
+      _tareasFuture = _bootstrap();
     });
   }
 
-  void _onEmpresaChanged() {
-    final selected = _empresaState?.selectedEmpresaId?.trim();
-    if (_selectedEmpresaId != selected) {
-      _selectedEmpresaId = selected;
-      _bootstrap();
-    }
-  }
+  void _actualizar() => setState(() => _tareasFuture = _fetchTasks());
 
-  Future<void> _bootstrap() async {
-    _subordinados
-      ..clear()
-      ..['todos'] = 'Todos a cargo';
-    _filtroUsuarioCtl.value = 'todos';
+  // ── Carga ────────────────────────────────────────────────────────────────
+
+  Future<List<_Doc>> _bootstrap() async {
+    _subordinados.clear();
     _soyGerente = false;
     _soyDirector = false;
     _miAreaId = null;
-    _miCargo = null;
-    _miCentro = null;
-    await _loadEmpresa();
-    await Future.wait([
-      _loadMiEstructura(),
-      _loadAreas(),
-      _loadCargos(),
-      _loadCentros(),
-    ]);
-    // si no es gerente, arma el árbol de subordinados
-    if (!_soyGerente) {
-      await _loadSubordinadosRecursivo(widget.currentUserId);
-    }
-    if (mounted) setState(() {});
-  }
-
-  Future<void> _loadEmpresa() async {
     try {
       final u = await FirebaseFirestore.instance
           .collection('TBL_USUARIOS')
           .doc(widget.currentUserId)
           .get();
       final data = u.data() ?? {};
-      final resolvedEmpresaId = resolveValidEmpresaId(
+      _empresaId = resolveValidEmpresaId(
         data: data,
         selectedEmpresaId: _selectedEmpresaId,
         preferredEmpresaId: _empresaId,
       );
-      _empresaId = resolvedEmpresaId;
-    } catch (_) {}
+      final empresa = (_empresaId ?? '').trim();
+      if (empresa.isEmpty) return const [];
+      final resultados = await Future.wait([
+        PersonasEmpresa.cargar(empresa),
+        _cargarNombreEmpresa(empresa),
+        _cargarMiEstructura(data, empresa),
+      ]);
+      _personas = resultados[0] as PersonasEmpresa;
+      _empresaNombre = resultados[1] as String;
+      if (!_soyGerente) await _cargarSubordinados(empresa);
+    } catch (e) {
+      debugPrint('[TeamOverview] bootstrap: $e');
+    }
+    return _fetchTasks();
   }
 
-  // ---------- Estructura + Fallback a TBL_USUARIOS ----------
-  Future<void> _loadMiEstructura() async {
+  Future<String> _cargarNombreEmpresa(String empresa) async {
     try {
-      // 1) ESTRUCTURA
+      final doc = await FirebaseFirestore.instance
+          .collection('TBL_EMPRESAS')
+          .doc(empresa)
+          .get();
+      return (doc.data()?['nombre'] ?? '').toString().trim();
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// Gerencia, Dirección o jefe, en la empresa activa. Primero la estructura
+  /// organizacional; si no lo dice, la ficha de la persona.
+  Future<void> _cargarMiEstructura(
+    Map<String, dynamic> usuario,
+    String empresa,
+  ) async {
+    try {
       final estr = await FirebaseFirestore.instance
           .collection('TBL_ESTRUCTURA_ORGANIZACIONAL')
           .doc(widget.currentUserId)
           .get();
-      final rawMe = estr.data() ?? <String, dynamic>{};
       final me =
-          TeamCompanyScope.scopedPerson(rawMe, _empresaId) ??
+          TeamCompanyScope.scopedPerson(estr.data() ?? {}, empresa) ??
           <String, dynamic>{};
-
       _miAreaId = (me['areaId'] ?? me['area'] ?? '').toString();
-      _miCargo = (me['cargo'] ?? me['rol'] ?? me['role'] ?? me['puesto'] ?? '')
-          .toString();
-      _miCentro = (me['centroId'] ?? me['centro'] ?? '').toString();
-      final nivel = (me['nivel'] ?? '').toString().toLowerCase();
-      final canAll1 = me['esGerente'] == true || me['isManager'] == true;
-      final canAll2 =
+      final cargo =
+          (me['cargo'] ?? me['rol'] ?? me['role'] ?? me['puesto'] ?? '')
+              .toString();
+      final nivel = areaClave((me['nivel'] ?? '').toString());
+      _soyGerente =
+          me['esGerente'] == true ||
+          me['isManager'] == true ||
           me['verTodo'] == true ||
           me['permiso_ver_todo'] == true ||
-          me['viewAll'] == true;
-
-      _soyGerente =
-          canAll1 ||
-          canAll2 ||
-          _isGerente(_miCargo) ||
+          me['viewAll'] == true ||
+          _esGerente(cargo) ||
           nivel.contains('gerenc');
-      _soyDirector = !_soyGerente && _isDirector(_miCargo);
+      _soyDirector = !_soyGerente && _esDirector(cargo);
+      if (_soyGerente || _soyDirector) return;
 
-      // 2) FALLBACK a USUARIOS si aún no quedó claro
-      if (!_soyGerente && !_soyDirector) {
-        final u = await FirebaseFirestore.instance
-            .collection('TBL_USUARIOS')
-            .doc(widget.currentUserId)
-            .get();
-        final mu =
-            TeamCompanyScope.scopedPerson(
-              u.data() ?? <String, dynamic>{},
-              _empresaId ?? _selectedEmpresaId,
-            ) ??
-            <String, dynamic>{};
-        final cargoU = _firstStr(mu, const ['cargo', 'rol', 'role']) ?? '';
-        final cargoIdU = (mu['cargoId'] ?? '').toString().toLowerCase();
-        final areaU = _firstStr(mu, const ['areaId', 'area']) ?? '';
-        final centroU = _firstStr(mu, const ['centroId', 'centro']) ?? '';
-        if ((_miAreaId ?? '').isEmpty) _miAreaId = areaU;
-        if ((_miCentro ?? '').isEmpty) _miCentro = centroU;
-        if ((_miCargo ?? '').isEmpty) _miCargo = cargoU;
-
-        final isGerenteById = cargoIdU.contains('gerente');
-        _soyGerente = _isGerente(cargoU) || isGerenteById;
-        _soyDirector = !_soyGerente && _isDirector(cargoU);
+      final mu =
+          TeamCompanyScope.scopedPerson(usuario, empresa) ??
+          <String, dynamic>{};
+      String primero(List<String> keys) {
+        for (final k in keys) {
+          final v = (mu[k] ?? '').toString().trim();
+          if (v.isNotEmpty) return v;
+        }
+        return '';
       }
+
+      final cargoU = primero(const ['cargo', 'rol', 'role']);
+      if ((_miAreaId ?? '').isEmpty) _miAreaId = primero(const ['areaId']);
+      _soyGerente =
+          _esGerente(cargoU) ||
+          (mu['cargoId'] ?? '').toString().toLowerCase().contains('gerente');
+      _soyDirector = !_soyGerente && _esDirector(cargoU);
     } catch (e) {
-      debugPrint('[TeamOverview] _loadMiEstructura error: $e');
+      debugPrint('[TeamOverview] estructura: $e');
     }
   }
 
-  Future<void> _loadAreas() async {
+  /// Personas a cargo, recorriendo toda la jerarquía (`jefe_directo`,
+  /// `jefeId`, `jefe_uid`); el filtro solo lista personal vigente.
+  Future<void> _cargarSubordinados(String empresa) async {
     try {
-      _areas
-        ..clear()
-        ..['todas'] = 'Todas las áreas';
-      var q = FirebaseFirestore.instance.collection('TBL_AREAS').limit(1000);
-      if ((_empresaId ?? '').isNotEmpty) {
-        q = q.where('empresaId', isEqualTo: _empresaId);
-      }
-      final qs = await q.get();
-      // Una entrada por área real y sin ids crudos en pantalla.
-      final catalogo = AreaCatalogo.desde(
-        qs.docs.map((d) {
-          final m = d.data();
-          return (
-            id: (m['areaId'] ?? d.id).toString(),
-            nombre: m['nombre']?.toString(),
-          );
-        }),
-        empresaId: _empresaId,
-      );
-      _catalogoAreas = catalogo;
-      for (final opcion in catalogo.opciones) {
-        _areas[opcion.id] = opcion.nombre;
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _loadCargos() async {
-    try {
-      _cargos
-        ..clear()
-        ..['todos'] = 'Todos los cargos';
-      var q = FirebaseFirestore.instance.collection('TBL_CARGOS').limit(1000);
-      if ((_empresaId ?? '').isNotEmpty) {
-        q = q.where('empresaId', isEqualTo: _empresaId);
-      }
-      final qs = await q.get();
-      for (final d in qs.docs) {
-        final m = d.data();
-        final id = (m['cargoId'] ?? d.id).toString();
-        final nombre = (m['nombre'] ?? id).toString();
-        _cargos[id] = nombre;
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _loadCentros() async {
-    try {
-      _centros
-        ..clear()
-        ..['todos'] = 'Todos los centros';
-      var q = FirebaseFirestore.instance
-          .collection('TBL_CENTROS_COSTO')
-          .limit(1000);
-      if ((_empresaId ?? '').isNotEmpty) {
-        q = q.where('empresaId', isEqualTo: _empresaId);
-      }
-      final qs = await q.get();
-      for (final d in qs.docs) {
-        final m = d.data();
-        final id = (m['centroId'] ?? d.id).toString();
-        final nombre = (m['nombre'] ?? id).toString();
-        _centros[id] = nombre;
-      }
-    } catch (_) {}
-  }
-
-  /// Carga recursiva de subordinados: acepta `jefe_directo`, `jefeId` y `jefe_uid`
-  Future<void> _loadSubordinadosRecursivo(String uid) async {
-    final company = (_empresaId ?? '').trim();
-    if (company.isEmpty) return;
-
-    final docs = await _fetchEmpresaScoped(
-      base: FirebaseFirestore.instance.collection(
-        'TBL_ESTRUCTURA_ORGANIZACIONAL',
-      ),
-      empresaId: company,
-      limit: 1500,
-    );
-    final people = <String, Map<String, dynamic>>{
-      for (final doc in docs) doc.id: doc.data(),
-    };
-    final subordinateIds = TeamCompanyScope.subordinateIds(
-      people: people.entries,
-      managerId: uid,
-      empresaId: company,
-    );
-    for (final id in subordinateIds) {
-      final raw = people[id] ?? <String, dynamic>{};
-      final scoped = TeamCompanyScope.scopedPerson(raw, company);
-      if (scoped == null) continue;
-      // La jerarquía se recorre completa (para no cortar la rama de un jefe
-      // retirado), pero el filtro "a cargo" solo lista personal vigente.
-      if (!isPersonaActivaEnEmpresa(raw, company)) continue;
-      _subordinados[id] = (scoped['nombre'] ?? scoped['nombres'] ?? id)
-          .toString();
-    }
-  }
-
-  /// ---------------------------- Data (tareas) ----------------------------
-
-  /// Retorna la lista base según permisos
-  /// Gerente: todas; Director: por área (raíz y anidados); Jefe: por subordinados
-  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-  _fetchTasks() async {
-    // GERENTE: trae todo (se ordena en cliente)
-    if (_soyGerente) {
-      final q = FirebaseFirestore.instance.collection('TBL_TAREAS');
-      return _fetchEmpresaScoped(
-        base: q,
-        empresaId: _empresaId,
-        limit: 1000,
-        porListaEmpresas: false,
-      );
-    }
-
-    // DIRECTOR: por área (raíz + adjuntos.areaId + meta.areaId), deduplicando
-    if (_soyDirector && (_miAreaId ?? '').isNotEmpty) {
-      final futures =
-          <Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>>[
-            _fetchEmpresaScoped(
-              base: FirebaseFirestore.instance
-                  .collection('TBL_TAREAS')
-                  .where('areaId', isEqualTo: _miAreaId),
-              empresaId: _empresaId,
-              limit: 500,
-              porListaEmpresas: false,
-            ),
-            _fetchEmpresaScoped(
-              base: FirebaseFirestore.instance
-                  .collection('TBL_TAREAS')
-                  .where('adjuntos.areaId', isEqualTo: _miAreaId),
-              empresaId: _empresaId,
-              limit: 500,
-              porListaEmpresas: false,
-            ),
-            _fetchEmpresaScoped(
-              base: FirebaseFirestore.instance
-                  .collection('TBL_TAREAS')
-                  .where('meta.areaId', isEqualTo: _miAreaId),
-              empresaId: _empresaId,
-              limit: 500,
-              porListaEmpresas: false,
-            ),
-          ];
-      final snaps = await Future.wait(futures);
-      final map = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
-      for (final batch in snaps) {
-        for (final d in batch) {
-          map[d.id] = d;
+      final docs = <String, Map<String, dynamic>>{};
+      for (final snap in await Future.wait([
+        FirebaseFirestore.instance
+            .collection('TBL_ESTRUCTURA_ORGANIZACIONAL')
+            .where('empresaId', isEqualTo: empresa)
+            .limit(1500)
+            .get(),
+        FirebaseFirestore.instance
+            .collection('TBL_ESTRUCTURA_ORGANIZACIONAL')
+            .where('empresas', arrayContains: empresa)
+            .limit(1500)
+            .get(),
+      ])) {
+        for (final d in snap.docs) {
+          docs[d.id] = d.data();
         }
       }
-      return map.values.toList();
-    }
-
-    // JEFE / COORDINADOR: por subordinados (chunks de 10)
-    final ids = _subordinados.keys.where((k) => k != 'todos').toList();
-    if (ids.isEmpty) {
-      return <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-    }
-
-    final out = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-    for (var i = 0; i < ids.length; i += 10) {
-      final chunk = ids.sublist(i, i + 10 > ids.length ? ids.length : i + 10);
-      final tasks = await _fetchEmpresaScoped(
-        base: FirebaseFirestore.instance
-            .collection('TBL_TAREAS')
-            .where('asignado_uid', whereIn: chunk),
-        empresaId: _empresaId,
-        limit: 500,
-        porListaEmpresas: false,
+      final ids = TeamCompanyScope.subordinateIds(
+        people: docs.entries,
+        managerId: widget.currentUserId,
+        empresaId: empresa,
       );
-      out.addAll(tasks);
+      for (final id in ids) {
+        final raw = docs[id] ?? <String, dynamic>{};
+        if (TeamCompanyScope.scopedPerson(raw, empresa) == null) continue;
+        if (!isPersonaActivaEnEmpresa(raw, empresa)) continue;
+        _subordinados.add(id);
+      }
+    } catch (e) {
+      debugPrint('[TeamOverview] subordinados: $e');
     }
-    return out;
   }
 
-  /// ---------------------------- Filtros cliente ----------------------------
+  Future<List<_Doc>> _fetchTasks() async {
+    final empresa = (_empresaId ?? '').trim();
+    if (empresa.isEmpty) return const [];
+    final db = FirebaseFirestore.instance.collection('TBL_TAREAS');
+    final consultas = <Query<Map<String, dynamic>>>[];
 
-  bool _pasaFiltrosCliente(Map<String, dynamic> m) {
-    final q = _searchCtl.text.trim().toLowerCase();
-
-    final titulo = ((m['titulo'] ?? m['title'] ?? '') as String).toLowerCase();
-    final estado = resolveTaskStatus(m);
-    final due = _toDate(m['fecha_limite']);
-
-    // 1) Búsqueda
-    if (q.isNotEmpty && !titulo.contains(q)) return false;
-
-    // 2) Estado
-    if (_estadoSel != 'todos' && estado != _estadoSel) return false;
-
-    // 3) Rango de fechas
-    if (_from != null &&
-        (due == null ||
-            due.isBefore(DateTime(_from!.year, _from!.month, _from!.day)))) {
-      return false;
-    }
-    if (_to != null &&
-        (due == null ||
-            due.isAfter(
-              DateTime(_to!.year, _to!.month, _to!.day, 23, 59, 59),
-            ))) {
-      return false;
-    }
-
-    // 4) Filtros jerárquicos
     if (_soyGerente) {
-      // Lee en raíz y de forma laxa en estructuras anidadas
-      final areaId =
-          _firstStr(m, ['areaId', 'area', 'areaID']) ??
-          _firstStrDeep(m['adjuntos'], ['areaId', 'area', 'areaID']) ??
-          _firstStrDeep(m['meta'], ['areaId', 'area', 'areaID']) ??
-          _firstStrDeep(m, ['areaId', 'area', 'areaID']);
-
-      final cargoId =
-          _firstStr(m, ['cargoId', 'cargo', 'cargoID']) ??
-          _firstStrDeep(m['adjuntos'], ['cargoId', 'cargo', 'cargoID']) ??
-          _firstStrDeep(m['meta'], ['cargoId', 'cargo', 'cargoID']) ??
-          _firstStrDeep(m, ['cargoId', 'cargo', 'cargoID']);
-
-      final centroId =
-          _firstStr(m, ['centroId', 'centroid', 'centro', 'centroId']) ??
-          _firstStrDeep(m['adjuntos'], ['centroId', 'centroid', 'centro']) ??
-          _firstStrDeep(m['meta'], ['centroId', 'centroid', 'centro']) ??
-          _firstStrDeep(m, ['centroId', 'centroid', 'centro']);
-
-      if (_areaSel != 'todas' &&
-          (areaId ?? '').isNotEmpty &&
-          !_catalogoAreas.coincide(filtro: _areaSel, valor: areaId)) {
-        return false;
+      // Toda la empresa, solo lo abierto: con el límite anterior (1000 de
+      // cualquier estado) las tareas terminadas desplazaban a las abiertas.
+      for (final estado in _kEstadosAbiertos) {
+        consultas.add(
+          db
+              .where('empresaId', isEqualTo: empresa)
+              .where('estado', isEqualTo: estado),
+        );
       }
-      if (_cargoSel != 'todos' &&
-          (cargoId ?? '').isNotEmpty &&
-          cargoId != _cargoSel) {
-        return false;
-      }
-      if (_centroSel != 'todos' &&
-          (centroId ?? '').isNotEmpty &&
-          centroId != _centroSel) {
-        return false;
-      }
+    } else if (_soyDirector && (_miAreaId ?? '').isNotEmpty) {
+      consultas.add(
+        db
+            .where('areaId', isEqualTo: _miAreaId)
+            .where('empresaId', isEqualTo: empresa)
+            .limit(800),
+      );
     } else {
-      // Director/Jefe: filtro de colaborador específico
-      final filtroUid = _filtroUsuarioCtl.value;
-      if (filtroUid != 'todos') {
-        final assigned = (m['asignado_uid'] ?? '').toString();
-        if (assigned != filtroUid) return false;
+      final ids = _subordinados.toList();
+      for (var i = 0; i < ids.length; i += 10) {
+        final chunk = ids.sublist(i, i + 10 > ids.length ? ids.length : i + 10);
+        consultas.add(
+          db
+              .where('asignado_uid', whereIn: chunk)
+              .where('empresaId', isEqualTo: empresa)
+              .limit(800),
+        );
       }
     }
+    if (consultas.isEmpty) return const [];
 
-    return true;
+    final porId = <String, _Doc>{};
+    final resultados = await Future.wait(
+      consultas.map((q) async {
+        try {
+          return (await q.get()).docs;
+        } catch (e) {
+          debugPrint('[TeamOverview] consulta: $e');
+          return <_Doc>[];
+        }
+      }),
+    );
+    for (final docs in resultados) {
+      for (final d in docs) {
+        porId[d.id] = d;
+      }
+    }
+    final ids = <String>{for (final d in porId.values) _responsableDe(d.data())}
+      ..remove('');
+    // Nombres y fotos de una vez para la matriz y la exportación.
+    await UserDirectory.instance.warm(ids);
+    return porId.values.toList();
   }
 
-  /// ---------------------------- UI ----------------------------
+  // ── Datos de cada tarea ──────────────────────────────────────────────────
 
-  Future<void> _pickDateRange() async {
-    final now = DateTime.now();
-    final DateTimeRange? range = await showDateRangePicker(
-      context: context,
-      firstDate: now.subtract(const Duration(days: 365 * 2)),
-      lastDate: now.add(const Duration(days: 365)),
-      initialDateRange: _from == null || _to == null
-          ? null
-          : DateTimeRange(start: _from!, end: _to!),
+  String _responsableDe(Map<String, dynamic> m) =>
+      (m['asignado_uid'] ?? m['assignedTo'] ?? '').toString().trim();
+
+  String _nombrePersona(String id, {String sugerido = ''}) {
+    final s = sugerido.trim();
+    if (s.isNotEmpty && s != id) return s;
+    final cache = UserDirectory.instance.peek(id);
+    if (cache != null && cache.hasNombre) return cache.nombre;
+    final persona = _personas.persona(id)?.nombre ?? '';
+    if (persona.isNotEmpty) return persona;
+    return id.isEmpty ? 'Sin responsable' : id;
+  }
+
+  String _nombreResponsable(Map<String, dynamic> m) => _nombrePersona(
+    _responsableDe(m),
+    sugerido: (m['asignado_nombre'] ?? m['assignedToName'] ?? '').toString(),
+  );
+
+  String _nombreAsignador(Map<String, dynamic> m) {
+    final a = taskAsignador(m);
+    if (a.id.isEmpty) return a.nombre.isEmpty ? '—' : a.nombre;
+    return _nombrePersona(a.id, sugerido: a.nombre);
+  }
+
+  String _areaDe(Map<String, dynamic> m) {
+    final taskArea = (m['areaId'] ?? '').toString().trim();
+    if (taskArea.isNotEmpty) {
+      for (final o in _personas.areas.opciones) {
+        if (o.contiene(taskArea)) return o.id;
+      }
+    }
+    final persona = _personas.areaDe(_responsableDe(m));
+    if (persona.isNotEmpty) return persona;
+    return taskArea.isEmpty ? _kSinArea : taskArea;
+  }
+
+  String _areaNombre(String clave) =>
+      clave == _kSinArea ? 'Sin área' : _personas.areas.nombreDe(clave);
+
+  TareaEquipoFila _fila(_Doc d) {
+    final m = d.data();
+    final numero = taskNumero(m);
+    return TareaEquipoFila(
+      numero: numero == null ? '' : '$numero',
+      responsable: _nombreResponsable(m),
+      titulo: (m['titulo'] ?? m['title'] ?? '(Sin título)').toString(),
+      descripcion: (m['descripcion'] ?? m['description'] ?? '').toString(),
+      asignadaPor: _nombreAsignador(m),
+      fechaAsignacion: taskFechaAsignacion(m),
+      fechaLimite: _aFecha(m['fecha_limite'] ?? m['dueDate']),
+      estado: taskEstadoVisible(m).nombre,
+      dias: taskDiasAbierta(m),
+      modulo: taskModuloOrigenNombre(taskModuloOrigen(m)),
+      area: _areaNombre(_areaDe(m)),
     );
-    if (range != null) {
-      setState(() {
-        _from = range.start;
-        _to = range.end;
-      });
+  }
+
+  // ── Filtros ──────────────────────────────────────────────────────────────
+
+  List<_Doc> _abiertas(List<_Doc> docs) => docs.where((d) {
+    final m = d.data();
+    return TeamCompanyScope.taskBelongsToCompany(m, _empresaId) &&
+        taskEstadoVisible(m) != TaskEstadoVisible.terminada;
+  }).toList();
+
+  /// Búsqueda, área y origen: base del tablero por responsable.
+  List<_Doc> _base(List<_Doc> abiertas) {
+    final q = _searchCtl.text.trim().toLowerCase();
+    return abiertas.where((d) {
+      final m = d.data();
+      if (_areaSel != 'todas' && _areaDe(m) != _areaSel) return false;
+      if (_moduloSel != 'todos' && taskModuloOrigen(m) != _moduloSel) {
+        return false;
+      }
+      if (q.isEmpty) return true;
+      final numero = taskNumero(m);
+      return [
+        (m['titulo'] ?? m['title'] ?? '').toString(),
+        (m['descripcion'] ?? m['description'] ?? '').toString(),
+        _nombreResponsable(m),
+        _nombreAsignador(m),
+        if (numero != null) '$numero',
+        taskNumeroTexto(m),
+      ].join(' ').toLowerCase().contains(q);
+    }).toList();
+  }
+
+  List<_Doc> _delResponsable(List<_Doc> base) => _responsableSel == 'todos'
+      ? base
+      : base.where((d) => _responsableDe(d.data()) == _responsableSel).toList();
+
+  List<_Doc> _conEstado(List<_Doc> sinEstado) {
+    final lista = _estadoSel == 'todas'
+        ? [...sinEstado]
+        : sinEstado
+              .where((d) => taskEstadoVisible(d.data()).clave == _estadoSel)
+              .toList();
+    // Por responsable y, dentro, la más antigua primero.
+    lista.sort((a, b) {
+      final c = _nombreResponsable(
+        a.data(),
+      ).toLowerCase().compareTo(_nombreResponsable(b.data()).toLowerCase());
+      if (c != 0) return c;
+      return (taskDiasAbierta(b.data()) ?? 0).compareTo(
+        taskDiasAbierta(a.data()) ?? 0,
+      );
+    });
+    return lista;
+  }
+
+  bool get _hayFiltros =>
+      _searchCtl.text.trim().isNotEmpty ||
+      _estadoSel != 'todas' ||
+      _areaSel != 'todas' ||
+      _responsableSel != 'todos' ||
+      _moduloSel != 'todos';
+
+  void _limpiarFiltros({bool notificar = true}) {
+    void aplicar() {
+      _searchCtl.clear();
+      _estadoSel = 'todas';
+      _areaSel = 'todas';
+      _responsableSel = 'todos';
+      _moduloSel = 'todos';
+      _page = 0;
+    }
+
+    notificar ? setState(aplicar) : aplicar();
+  }
+
+  String _descripcionFiltro() {
+    final partes = <String>[];
+    if (_estadoSel != 'todas') {
+      partes.add(taskEstadoVisiblePorClave(_estadoSel)?.nombre ?? _estadoSel);
+    } else {
+      partes.add('Tareas abiertas');
+    }
+    if (_responsableSel != 'todos') {
+      partes.add('Responsable: ${_nombrePersona(_responsableSel)}');
+    }
+    if (_areaSel != 'todas') partes.add('Área: ${_areaNombre(_areaSel)}');
+    if (_moduloSel != 'todos') {
+      partes.add('Origen: ${taskModuloOrigenNombre(_moduloSel)}');
+    }
+    final q = _searchCtl.text.trim();
+    if (q.isNotEmpty) partes.add('Búsqueda: "$q"');
+    return partes.join(' · ');
+  }
+
+  // ── Exportación ──────────────────────────────────────────────────────────
+
+  Future<void> _exportarExcel(List<_Doc> visibles) async {
+    if (visibles.isEmpty || _exportando) return;
+    setState(() => _exportando = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final bytes = generarExcelTareasEquipo(visibles.map(_fila).toList());
+      await descargarExcelCompras(
+        nombreArchivo: nombreArchivoTareasEquipo(),
+        bytes: bytes,
+      );
+      messenger.showSnackBar(
+        SnackBar(content: Text('${visibles.length} tareas exportadas.')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('No se pudo exportar el Excel: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _exportando = false);
     }
   }
 
-  InputDecoration get _pillInput => const InputDecoration(
-    isDense: true,
-    border: OutlineInputBorder(
-      borderSide: BorderSide(color: Colors.black26),
-      borderRadius: BorderRadius.all(Radius.circular(10)),
-    ),
-    enabledBorder: OutlineInputBorder(
-      borderSide: BorderSide(color: Colors.black26),
-      borderRadius: BorderRadius.all(Radius.circular(10)),
-    ),
-    contentPadding: EdgeInsets.symmetric(vertical: 8, horizontal: 10),
-  );
+  Future<void> _exportarPdf(List<_Doc> visibles) async {
+    if (visibles.isEmpty || _exportando) return;
+    setState(() => _exportando = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      pw.ThemeData? tema;
+      try {
+        // Arial trae tildes, eñes y signos; sin ella se usa Helvetica.
+        final arial = pw.Font.ttf(await rootBundle.load('assets/arial.ttf'));
+        tema = pw.ThemeData.withFont(base: arial, bold: arial);
+      } catch (_) {}
+      final bytes = await generarPdfTareasEquipo(
+        visibles.map(_fila).toList(),
+        empresa: _empresaNombre.isEmpty ? (_empresaId ?? '') : _empresaNombre,
+        filtro: _descripcionFiltro(),
+        tema: tema,
+      );
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: '${nombreArchivoTareasEquipo()}.pdf',
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('No se pudo generar el PDF: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _exportando = false);
+    }
+  }
+
+  // ── UI ───────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -642,655 +538,799 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
               ? 'Dirección y responsables del área'
               : 'Personas a tu cargo');
 
-    return FutureBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
-      future: _fetchTasks(),
+    return FutureBuilder<List<_Doc>>(
+      future: _tareasFuture,
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
+        if (snap.connectionState != ConnectionState.done && !snap.hasData) {
           return const TaskResponsiveLayout(
             title: 'Tareas de mi equipo',
             subtitle: 'Cargando responsables y actividades',
             content: Center(child: CircularProgressIndicator()),
           );
         }
-        final baseDocs =
-            (snap.data ?? <QueryDocumentSnapshot<Map<String, dynamic>>>[]);
-
-        // Orden por updatedAt/createdAt
-        int tsOf(Map<String, dynamic> m) {
-          final t =
-              (m['updatedAt'] as Timestamp?) ??
-              (m['fecha_actualizacion'] as Timestamp?) ??
-              (m['createdAt'] as Timestamp?) ??
-              (m['fecha_creacion'] as Timestamp?);
-          return t?.toDate().millisecondsSinceEpoch ?? 0;
-        }
-
-        final ordered =
-            baseDocs
-                .where(
-                  (doc) => TeamCompanyScope.taskBelongsToCompany(
-                    doc.data(),
-                    _empresaId,
-                  ),
-                )
-                .toList()
-              ..sort((a, b) => tsOf(b.data()).compareTo(tsOf(a.data())));
-
-        // Filtro cliente
-        final filtered = ordered
-            .where((d) => _pasaFiltrosCliente(d.data()))
-            .toList();
+        final abiertas = _abiertas(snap.data ?? const []);
+        final base = _base(abiertas);
+        final sinEstado = _delResponsable(base);
+        final visibles = _conEstado(sinEstado);
 
         return TaskResponsiveLayout(
           title: 'Tareas de mi equipo',
-          subtitle:
-              '$scopeLabel · empresa ${_empresaId ?? 'no definida'} · agrupadas por responsable',
-          header: _buildSummary(ordered),
-          filters: _filtersBar(),
-          content: filtered.isEmpty
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 520),
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(28),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.groups_2_outlined,
-                              size: 36,
-                              color: Color(0xFF64748B),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              _hasActiveFilters()
-                                  ? 'No hay tareas para los filtros seleccionados.'
-                                  : 'No hay tareas del equipo para mostrar.',
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                fontFamily: kArial,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                )
-              : _buildGroupedTasks(filtered),
-        );
-      },
-    );
-  }
-
-  Widget _buildSummary(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
-    final now = DateTime.now();
-    final responsibleIds = <String>{};
-    var active = 0;
-    var overdue = 0;
-    var pendingApproval = 0;
-
-    for (final doc in docs) {
-      final data = doc.data();
-      final assigned = (data['asignado_uid'] ?? data['assignedTo'] ?? '')
-          .toString()
-          .trim();
-      if (assigned.isNotEmpty) responsibleIds.add(assigned);
-
-      final status = resolveTaskStatus(data);
-      final due = _toDate(data['fecha_limite']);
-      final isFinished = status == 'finalizado' || status == 'cerrado';
-      if (!isFinished) active++;
-      if (status == 'por_aprobar') pendingApproval++;
-      if (!isFinished &&
-          (status == 'retrasada' ||
-              (due != null &&
-                  due.isBefore(DateTime(now.year, now.month, now.day))))) {
-        overdue++;
-      }
-    }
-
-    return Column(
-      children: [
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-          color: const Color(0xFFF8FAFC),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 1180),
-              child: Text(
-                '${responsibleIds.length} integrante${responsibleIds.length == 1 ? '' : 's'} con actividad · empresa activa: ${_empresaId ?? 'sin seleccionar'}',
-                style: const TextStyle(
-                  fontFamily: kArial,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF475569),
-                ),
-              ),
+          subtitle: '$scopeLabel · tareas abiertas por responsable',
+          actions: [
+            IconButton(
+              tooltip: 'Actualizar',
+              onPressed: _actualizar,
+              icon: const Icon(Icons.refresh_rounded),
             ),
-          ),
-        ),
-        TaskSummaryHeader(
-          total: docs.length,
-          inProgress: active,
-          overdue: overdue,
-          pendingApproval: pendingApproval,
-          activeFilter: _estadoSel == 'todos' ? 'todas' : _estadoSel,
-          onTapTotal: () => setState(() => _estadoSel = 'todos'),
-          onTapInProgress: () => setState(() => _estadoSel = 'en_progreso'),
-          onTapOverdue: () => setState(() => _estadoSel = 'retrasada'),
-          onTapPendingApproval: () =>
-              setState(() => _estadoSel = 'por_aprobar'),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildGroupedTasks(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) {
-    final grouped =
-        <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
-    for (final doc in docs) {
-      final data = doc.data();
-      final id = (data['asignado_uid'] ?? data['assignedTo'] ?? '')
-          .toString()
-          .trim();
-      final name = (data['asignado_nombre'] ?? data['assignedToName'] ?? '')
-          .toString()
-          .trim();
-      final key = id.isNotEmpty
-          ? 'id:$id'
-          : (name.isNotEmpty ? 'name:${name.toLowerCase()}' : 'unassigned');
-      grouped.putIfAbsent(key, () => []).add(doc);
-    }
-
-    final entries = grouped.entries.toList()
-      ..sort((a, b) {
-        String label(
-          MapEntry<String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-          entry,
-        ) {
-          final data = entry.value.first.data();
-          return (data['asignado_nombre'] ??
-                  data['assignedToName'] ??
-                  'Sin responsable')
-              .toString()
-              .toLowerCase();
-        }
-
-        return label(a).compareTo(label(b));
-      });
-
-    final isWide = MediaQuery.of(context).size.width >= 900;
-    return ListView.builder(
-      padding: EdgeInsets.fromLTRB(isWide ? 24 : 12, 8, isWide ? 24 : 12, 24),
-      itemCount: entries.length,
-      itemBuilder: (context, index) {
-        final tasks = entries[index].value;
-        final first = tasks.first.data();
-        final userId = (first['asignado_uid'] ?? first['assignedTo'] ?? '')
-            .toString()
-            .trim();
-        final fallbackName =
-            (first['asignado_nombre'] ?? first['assignedToName'] ?? '')
-                .toString()
-                .trim();
-
-        return Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1180),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: double.infinity,
-                  margin: const EdgeInsets.only(top: 10, bottom: 8),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
+          ],
+          filters: _filtros(abiertas, base, sinEstado, visibles),
+          content: abiertas.isEmpty
+              ? _vacio('No hay tareas abiertas del equipo en esta empresa.')
+              : ListView(
+                  padding: EdgeInsets.fromLTRB(
+                    _esAncho(context) ? 20 : 12,
+                    8,
+                    _esAncho(context) ? 20 : 12,
+                    24,
                   ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: Row(
-                    children: [
-                      UserAvatar(
-                        userId: userId,
-                        nameHint: fallbackName,
-                        radius: 16,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: userId.isEmpty && fallbackName.isEmpty
-                            ? const Text(
-                                'Sin responsable',
-                                style: TextStyle(
-                                  fontFamily: kArial,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              )
-                            : UserNameText(
-                                userId,
-                                fallbackName: fallbackName,
-                                style: const TextStyle(
-                                  fontFamily: kArial,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                      ),
-                      Text(
-                        '${tasks.length} ${tasks.length == 1 ? 'tarea' : 'tareas'}',
-                        style: const TextStyle(
-                          fontFamily: kArial,
-                          color: Color(0xFF64748B),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                ...tasks.map((task) => _TaskTile(doc: task)),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _filtersBar() {
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 1180),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
-          child: Column(
-            children: [
-              // Búsqueda
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _searchCtl,
-                      onChanged: (_) => setState(() {}),
-                      decoration: _pillInput.copyWith(
-                        prefixIcon: const Icon(Icons.search),
-                        hintText: 'Buscar por título…',
-                        contentPadding: const EdgeInsets.symmetric(
-                          vertical: 10,
-                          horizontal: 12,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-
-              // Fila 2: Gerente -> Área + Estado | Otros -> Colaborador + Estado
-              Row(
-                children: [
-                  Expanded(
-                    child: _soyGerente
-                        ? DropdownButtonFormField<String>(
-                            isDense: true,
-                            isExpanded: true,
-                            initialValue: _areaSel,
-                            decoration: _pillInput.copyWith(labelText: 'Área'),
-                            items: _areas.entries
-                                .map(
-                                  (e) => DropdownMenuItem(
-                                    value: e.key,
-                                    child: Text(e.value),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (v) =>
-                                setState(() => _areaSel = v ?? 'todas'),
-                          )
-                        : ValueListenableBuilder<String>(
-                            valueListenable: _filtroUsuarioCtl,
-                            builder: (context, val, _) {
-                              return DropdownButtonFormField<String>(
-                                isDense: true,
-                                isExpanded: true,
-                                initialValue: val,
-                                decoration: _pillInput.copyWith(
-                                  labelText: 'Colaborador',
-                                ),
-                                items: _subordinados.entries
-                                    .map(
-                                      (e) => DropdownMenuItem(
-                                        value: e.key,
-                                        child: Text(e.value),
-                                      ),
-                                    )
-                                    .toList(),
-                                onChanged: (v) =>
-                                    _filtroUsuarioCtl.value = v ?? 'todos',
-                              );
-                            },
-                          ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      isDense: true,
-                      isExpanded: true,
-                      initialValue: _estadoSel,
-                      decoration: _pillInput.copyWith(labelText: 'Estado'),
-                      items: _estados.entries
-                          .map(
-                            (e) => DropdownMenuItem(
-                              value: e.key,
-                              child: Text(e.value),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (v) =>
-                          setState(() => _estadoSel = v ?? 'todos'),
-                    ),
-                  ),
-                ],
-              ),
-
-              // Fila 3: Gerente -> Cargo + Centro
-              if (_soyGerente) ...[
-                const SizedBox(height: 6),
-                Row(
                   children: [
-                    Expanded(
-                      child: DropdownButtonFormField<String>(
-                        isDense: true,
-                        isExpanded: true,
-                        initialValue: _cargoSel,
-                        decoration: _pillInput.copyWith(labelText: 'Cargo'),
-                        items: _cargos.entries
-                            .map(
-                              (e) => DropdownMenuItem(
-                                value: e.key,
-                                child: Text(e.value),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (v) =>
-                            setState(() => _cargoSel = v ?? 'todos'),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: DropdownButtonFormField<String>(
-                        isDense: true,
-                        isExpanded: true,
-                        initialValue: _centroSel,
-                        decoration: _pillInput.copyWith(
-                          labelText: 'Centro de costos',
-                        ),
-                        items: _centros.entries
-                            .map(
-                              (e) => DropdownMenuItem(
-                                value: e.key,
-                                child: Text(e.value),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (v) =>
-                            setState(() => _centroSel = v ?? 'todos'),
-                      ),
-                    ),
+                    _centrado(_tablero(base)),
+                    const SizedBox(height: 16),
+                    _centrado(_matriz(visibles)),
                   ],
                 ),
-              ],
+        );
+      },
+    );
+  }
 
-              const SizedBox(height: 6),
+  bool _esAncho(BuildContext context) =>
+      MediaQuery.sizeOf(context).width >= 900;
 
-              // Fila 4: rango de fechas
-              Row(
-                children: [
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.calendar_month, size: 18),
-                    onPressed: _pickDateRange,
-                    label: Text(
-                      _from == null && _to == null
-                          ? 'Rango de fechas'
-                          : '${_from == null ? '—' : DateFormat('dd/MM').format(_from!)}  →  ${_to == null ? '—' : DateFormat('dd/MM').format(_to!)}',
+  Widget _centrado(Widget child) => Center(
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 1180),
+      child: child,
+    ),
+  );
+
+  Widget _vacio(String texto) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Text(
+        texto,
+        textAlign: TextAlign.center,
+        style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w600),
+      ),
+    ),
+  );
+
+  Widget _filtros(
+    List<_Doc> abiertas,
+    List<_Doc> base,
+    List<_Doc> sinEstado,
+    List<_Doc> visibles,
+  ) {
+    final conteo = <String, int>{};
+    for (final d in sinEstado) {
+      final clave = taskEstadoVisible(d.data()).clave;
+      conteo[clave] = (conteo[clave] ?? 0) + 1;
+    }
+    final areas = <String, String>{};
+    final modulos = <String, String>{};
+    for (final d in abiertas) {
+      final m = d.data();
+      final area = _areaDe(m);
+      areas.putIfAbsent(area, () => _areaNombre(area));
+      final modulo = taskModuloOrigen(m);
+      modulos.putIfAbsent(modulo, () => taskModuloOrigenNombre(modulo));
+    }
+    // Responsables con tareas abiertas (3 oct 2026: "filtro de tareas por
+    // responsable, solo las que no están terminadas").
+    final responsables = <String, String>{};
+    for (final d in base) {
+      final id = _responsableDe(d.data());
+      if (id.isNotEmpty) {
+        responsables.putIfAbsent(id, () => _nombreResponsable(d.data()));
+      }
+    }
+    int porNombre(MapEntry<String, String> a, MapEntry<String, String> b) =>
+        a.value.toLowerCase().compareTo(b.value.toLowerCase());
+    List<DropdownMenuItem<String>> opciones(
+      Map<String, String> mapa,
+      String todos,
+      String texto,
+    ) => [
+      DropdownMenuItem(value: todos, child: Text(texto)),
+      for (final e in mapa.entries.toList()..sort(porNombre))
+        DropdownMenuItem(
+          value: e.key,
+          child: Text(e.value, overflow: TextOverflow.ellipsis),
+        ),
+    ];
+
+    return TaskFiltersPanel(
+      searchController: _searchCtl,
+      onSearchChanged: (_) => setState(() => _page = 0),
+      searchHint: 'Buscar por número, tarea, responsable o quién asignó...',
+      quickFilters: [
+        TaskQuickFilter(
+          label: 'Abiertas',
+          value: 'todas',
+          count: sinEstado.length,
+        ),
+        for (final e in const [
+          TaskEstadoVisible.pendiente,
+          TaskEstadoVisible.reasignada,
+          TaskEstadoVisible.porAprobar,
+          TaskEstadoVisible.retrasada,
+        ])
+          TaskQuickFilter(
+            label: e.nombre,
+            value: e.clave,
+            count: conteo[e.clave] ?? 0,
+            color: e.color,
+          ),
+      ],
+      selectedQuickFilter: _estadoSel,
+      onQuickFilterChanged: (v) => setState(() {
+        _estadoSel = v;
+        _page = 0;
+      }),
+      dropdowns: [
+        TaskFilterDropdownData(
+          label: 'Responsable',
+          value: _responsableSel,
+          items: opciones(responsables, 'todos', 'Todos los responsables'),
+          onChanged: (v) => setState(() {
+            _responsableSel = v ?? 'todos';
+            _page = 0;
+          }),
+        ),
+        TaskFilterDropdownData(
+          label: 'Área',
+          value: _areaSel,
+          items: opciones(areas, 'todas', 'Todas las áreas'),
+          onChanged: (v) => setState(() {
+            _areaSel = v ?? 'todas';
+            _page = 0;
+          }),
+        ),
+        TaskFilterDropdownData(
+          label: 'Origen',
+          value: _moduloSel,
+          items: opciones(modulos, 'todos', 'Todos los módulos'),
+          onChanged: (v) => setState(() {
+            _moduloSel = v ?? 'todos';
+            _page = 0;
+          }),
+        ),
+      ],
+      trailingFilters: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            OutlinedButton.icon(
+              onPressed: visibles.isEmpty || _exportando
+                  ? null
+                  : () => _exportarExcel(visibles),
+              icon: const Icon(Icons.table_view_rounded, size: 18),
+              label: Text('Excel (${visibles.length})'),
+            ),
+            OutlinedButton.icon(
+              onPressed: visibles.isEmpty || _exportando
+                  ? null
+                  : () => _exportarPdf(visibles),
+              icon: const Icon(Icons.picture_as_pdf_rounded, size: 18),
+              label: Text('PDF (${visibles.length})'),
+            ),
+          ],
+        ),
+      ],
+      onClearFilters: _limpiarFiltros,
+      hasActiveFilters: _hayFiltros,
+    );
+  }
+
+  // ── Tablero por responsable ──────────────────────────────────────────────
+
+  Widget _tablero(List<_Doc> base) {
+    final porResponsable = <String, Map<TaskEstadoVisible, int>>{};
+    final maxDias = <String, int>{};
+    final nombres = <String, String>{};
+    for (final d in base) {
+      final m = d.data();
+      final id = _responsableDe(m);
+      nombres.putIfAbsent(id, () => _nombreResponsable(m));
+      final estados = porResponsable.putIfAbsent(id, () => {});
+      final e = taskEstadoVisible(m);
+      estados[e] = (estados[e] ?? 0) + 1;
+      final dias = taskDiasAbierta(m) ?? 0;
+      if (dias > (maxDias[id] ?? -1)) maxDias[id] = dias;
+    }
+    final ids = porResponsable.keys.toList()
+      ..sort((a, b) {
+        // Primero quien más retrasadas tiene, luego por total.
+        final ra = porResponsable[a]![TaskEstadoVisible.retrasada] ?? 0;
+        final rb = porResponsable[b]![TaskEstadoVisible.retrasada] ?? 0;
+        if (ra != rb) return rb.compareTo(ra);
+        final ta = porResponsable[a]!.values.fold<int>(0, (s, n) => s + n);
+        final tb = porResponsable[b]!.values.fold<int>(0, (s, n) => s + n);
+        if (ta != tb) return tb.compareTo(ta);
+        return nombres[a]!.toLowerCase().compareTo(nombres[b]!.toLowerCase());
+      });
+
+    const estados = [
+      TaskEstadoVisible.pendiente,
+      TaskEstadoVisible.reasignada,
+      TaskEstadoVisible.porAprobar,
+      TaskEstadoVisible.retrasada,
+    ];
+
+    return _Seccion(
+      titulo: 'Tablero por responsable',
+      detalle:
+          '${ids.length} responsable${ids.length == 1 ? '' : 's'} con tareas abiertas · toca uno para filtrar',
+      child: ids.isEmpty
+          ? const Padding(
+              padding: EdgeInsets.all(12),
+              child: Text('Sin tareas con los filtros seleccionados.'),
+            )
+          : PagedListSection<String>(
+              items: ids,
+              etiqueta: 'responsables',
+              itemBuilder: (context, id, _) {
+                final conteo = porResponsable[id]!;
+                final total = conteo.values.fold<int>(0, (s, n) => s + n);
+                final seleccionado = _responsableSel == id;
+                return Material(
+                  color: seleccionado
+                      ? kTeal.withValues(alpha: 0.08)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(10),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () => setState(() {
+                      _responsableSel = seleccionado ? 'todos' : id;
+                      _page = 0;
+                    }),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
+                      child: Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 10,
+                        runSpacing: 6,
+                        children: [
+                          SizedBox(
+                            width: 260,
+                            child: Row(
+                              children: [
+                                UserAvatar(
+                                  userId: id,
+                                  nameHint: nombres[id],
+                                  radius: 14,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      UserNameText(
+                                        id,
+                                        fallbackName: nombres[id],
+                                        style: const TextStyle(
+                                          fontFamily: kArial,
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                      if (_personas
+                                          .cargoNombreDe(id)
+                                          .isNotEmpty)
+                                        Text(
+                                          _personas.cargoNombreDe(id),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontFamily: kArial,
+                                            fontSize: 11,
+                                            color: Colors.black54,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          for (final e in estados)
+                            _Contador(
+                              etiqueta: e.nombre,
+                              valor: conteo[e] ?? 0,
+                              fondo: e.fondo,
+                              texto: e.texto,
+                            ),
+                          _Contador(
+                            etiqueta: 'Total',
+                            valor: total,
+                            fondo: const Color(0xFFE0F2F1),
+                            texto: kTeal,
+                          ),
+                          Text(
+                            'Más antigua: ${maxDias[id] ?? 0} días',
+                            style: const TextStyle(
+                              fontFamily: kArial,
+                              fontSize: 11,
+                              color: Colors.black54,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  if (_from != null || _to != null)
-                    TextButton.icon(
-                      icon: const Icon(Icons.clear, size: 18),
-                      onPressed: () => setState(() {
-                        _from = null;
-                        _to = null;
-                      }),
-                      label: const Text('Quitar rango'),
+                );
+              },
+            ),
+    );
+  }
+
+  // ── Matriz ───────────────────────────────────────────────────────────────
+
+  Widget _matriz(List<_Doc> visibles) {
+    final ancho = _esAncho(context);
+    final paginas = pageCountOf(visibles.length);
+    final actual = _page.clamp(0, paginas - 1);
+    final pagina = pageOf(visibles, actual);
+    return _Seccion(
+      titulo: 'Matriz de tareas',
+      detalle: visibles.isEmpty
+          ? 'Sin tareas para los filtros seleccionados.'
+          : '${visibles.length} tarea${visibles.length == 1 ? '' : 's'} · toca una para ver el detalle',
+      child: visibles.isEmpty
+          ? const SizedBox.shrink()
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (ancho) _tabla(pagina) else ..._tarjetas(pagina),
+                if (visibles.length > kPageSize)
+                  PagerBar(
+                    total: visibles.length,
+                    page: actual,
+                    onPageChanged: (p) => setState(() => _page = p),
+                    etiqueta: 'tareas',
+                  ),
+              ],
+            ),
+    );
+  }
+
+  Widget _tabla(List<_Doc> pagina) {
+    const encabezado = TextStyle(
+      fontFamily: kArial,
+      fontWeight: FontWeight.w900,
+      fontSize: 12,
+    );
+    const celda = TextStyle(fontFamily: kArial, fontSize: 12.5);
+    final fecha = DateFormat('dd/MM/yyyy');
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
+        showCheckboxColumn: false,
+        headingRowHeight: 40,
+        dataRowMinHeight: 48,
+        dataRowMaxHeight: 64,
+        columnSpacing: 18,
+        columns: const [
+          DataColumn(label: Text('N.º tarea', style: encabezado)),
+          DataColumn(label: Text('Responsable', style: encabezado)),
+          DataColumn(label: Text('Descripción', style: encabezado)),
+          DataColumn(label: Text('Asignada por', style: encabezado)),
+          DataColumn(label: Text('Fecha asignación', style: encabezado)),
+          DataColumn(label: Text('Estado', style: encabezado)),
+          DataColumn(label: Text('Días', style: encabezado), numeric: true),
+        ],
+        rows: [
+          for (final d in pagina)
+            () {
+              final m = d.data();
+              final numero = taskNumero(m);
+              final asignador = taskAsignador(m);
+              final asignacion = taskFechaAsignacion(m);
+              return DataRow(
+                onSelectChanged: (_) => _abrirDetalle(d),
+                cells: [
+                  DataCell(
+                    Text(numero == null ? '—' : '$numero', style: celda),
+                  ),
+                  DataCell(
+                    SizedBox(
+                      width: 190,
+                      child: Row(
+                        children: [
+                          UserAvatar(
+                            userId: _responsableDe(m),
+                            nameHint: _nombreResponsable(m),
+                            radius: 11,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: UserNameText(
+                              _responsableDe(m),
+                              fallbackName: _nombreResponsable(m),
+                              style: celda,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  const Spacer(),
-                  if (_hasActiveFilters())
-                    TextButton.icon(
-                      icon: const Icon(Icons.visibility_rounded, size: 18),
-                      onPressed: _clearFilters,
-                      label: const Text('Ver todos'),
+                  ),
+                  DataCell(
+                    SizedBox(
+                      width: 320,
+                      child: Text(
+                        (m['titulo'] ?? m['title'] ?? '(Sin título)')
+                            .toString(),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: celda,
+                      ),
                     ),
+                  ),
+                  DataCell(
+                    SizedBox(
+                      width: 170,
+                      child: UserNameText(
+                        asignador.id,
+                        fallbackName: _nombreAsignador(m),
+                        style: celda,
+                      ),
+                    ),
+                  ),
+                  DataCell(
+                    Text(
+                      asignacion == null ? '—' : fecha.format(asignacion),
+                      style: celda,
+                    ),
+                  ),
+                  DataCell(
+                    TaskEstadoPill(estado: taskEstadoVisible(m), compact: true),
+                  ),
+                  DataCell(Text('${taskDiasAbierta(m) ?? '—'}', style: celda)),
                 ],
-              ),
-            ],
-          ),
-        ),
+              );
+            }(),
+        ],
       ),
     );
   }
-}
 
-/// ------------------------- Item de tarea -------------------------
-
-class _TaskTile extends StatelessWidget {
-  final QueryDocumentSnapshot<Map<String, dynamic>> doc;
-  const _TaskTile({required this.doc});
-
-  Future<void> _markTaskSeen() async {
-    try {
-      await FirebaseFirestore.instance.collection('TBL_TAREAS').doc(doc.id).set(
-        {'visto': true},
-        SetOptions(merge: true),
-      );
-    } catch (_) {}
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final m = doc.data();
-    final titulo = (m['titulo'] ?? m['title'] ?? '(Sin título)').toString();
-    final estado = resolveTaskStatus(m);
-    final vence = _fmtDate(_toDate(m['fecha_limite']));
-    final asignado = (m['asignado_nombre'] ?? m['assignedToName'] ?? '')
-        .toString();
-    final asignadoId = (m['asignado_uid'] ?? m['assignedTo'] ?? '').toString();
-    final asignadoPor = _firstStr(m, ['creador_nombre', 'creatorName']) ?? '';
-    final asignadoPorId =
-        _firstStr(m, ['creador_id', 'creatorId', 'creador_uid']) ?? '';
-    final cargo =
-        _firstStr(m, [
-          'asignado_cargo_nombre',
-          'assignedToRole',
-          'cargoNombre',
-          'cargo',
-        ]) ??
-        '';
-    final prioridad = (m['prioridad'] ?? '').toString().toUpperCase();
-    final updated = _fmtDateTime(_toDate(m['updatedAt'] ?? m['createdAt']));
-
-    return Card(
-      elevation: 1,
-      color: kCard,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: ListTile(
-        dense: true,
-        visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
-        leading: CircleAvatar(
-          backgroundColor: _statusColor(estado),
-          radius: 16,
-          child: const Icon(
-            Icons.assignment_outlined,
-            color: Colors.white,
-            size: 18,
-          ),
-        ),
-        title: Text(
-          titulo,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            fontFamily: kArial,
-            fontWeight: FontWeight.w700,
-            fontSize: 14,
-          ),
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Chip(
-                labelPadding: const EdgeInsets.symmetric(horizontal: 6),
-                visualDensity: const VisualDensity(
-                  horizontal: -3,
-                  vertical: -3,
-                ),
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                label: Text(
-                  estado.isEmpty ? 'sin_estado' : estado,
-                  style: const TextStyle(color: Colors.white, fontSize: 11),
-                ),
-                backgroundColor: _statusColor(estado),
-              ),
-              _pill('Vence: $vence'),
-              if (asignado.isNotEmpty || asignadoId.isNotEmpty)
-                _pillUser('Asignado: ', asignadoId, asignado),
-              if (asignadoPor.isNotEmpty || asignadoPorId.isNotEmpty)
-                _pillUser('Asignado por: ', asignadoPorId, asignadoPor),
-              if (cargo.isNotEmpty) _pill('Cargo: $cargo'),
-              if (prioridad == 'ALTA') _pill('Prioridad: $prioridad'),
-              _pill('Act.: $updated'),
-            ],
-          ),
-        ),
-        onTap: () {
-          _markTaskSeen();
-          showModalBottomSheet(
-            context: context,
-            isScrollControlled: true,
-            constraints: taskPanelConstraints(context, desktopMaxWidth: 960),
-            shape: const RoundedRectangleBorder(
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+  /// En el teléfono la matriz se lee como tarjetas: una tabla de siete
+  /// columnas obliga a desplazarse de lado para lo esencial.
+  List<Widget> _tarjetas(List<_Doc> pagina) {
+    final fecha = DateFormat('dd/MM/yyyy');
+    return [
+      for (final d in pagina)
+        () {
+          final m = d.data();
+          final asignacion = taskFechaAsignacion(m);
+          final numero = taskNumeroTexto(m);
+          return Card(
+            elevation: 0,
+            margin: const EdgeInsets.only(bottom: 8),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: const BorderSide(color: Color(0xFFE2E8F0)),
             ),
-            builder: (sheetContext) => SafeArea(
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => _abrirDetalle(d),
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
+                padding: const EdgeInsets.all(12),
                 child: Column(
-                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    TaskPanelHeader(
-                      eyebrow: 'DETALLE DE LA TAREA',
-                      title: titulo,
+                    Row(
+                      children: [
+                        if (numero.isNotEmpty)
+                          Text(
+                            numero,
+                            style: const TextStyle(
+                              fontFamily: kArial,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 11,
+                            ),
+                          ),
+                        const Spacer(),
+                        TaskEstadoPill(
+                          estado: taskEstadoVisible(m),
+                          compact: true,
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 8),
-                    _kv('Estado', estado.isEmpty ? '—' : estado),
-                    _kv('Vence', vence),
-                    _kvUser('Asignado', asignadoId, asignado),
-                    if (cargo.isNotEmpty) _kv('Cargo', cargo),
-                    _kvUser('Asignado por', asignadoPorId, asignadoPor),
-                    if (prioridad.isNotEmpty) _kv('Prioridad', prioridad),
-                    _kv('Actualizado', updated),
+                    const SizedBox(height: 6),
+                    Text(
+                      (m['titulo'] ?? m['title'] ?? '(Sin título)').toString(),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    UserNameText(
+                      _responsableDe(m),
+                      fallbackName: _nombreResponsable(m),
+                      prefix: 'Responsable: ',
+                      style: const TextStyle(fontFamily: kArial, fontSize: 12),
+                    ),
+                    UserNameText(
+                      taskAsignador(m).id,
+                      fallbackName: _nombreAsignador(m),
+                      prefix: 'Asignó: ',
+                      style: const TextStyle(fontFamily: kArial, fontSize: 12),
+                    ),
+                    Text(
+                      'Asignada el ${asignacion == null ? '—' : fecha.format(asignacion)} · ${taskDiasAbierta(m) ?? '—'} días',
+                      style: const TextStyle(
+                        fontFamily: kArial,
+                        fontSize: 12,
+                        color: Colors.black54,
+                      ),
+                    ),
                   ],
                 ),
               ),
             ),
           );
-        },
+        }(),
+    ];
+  }
+
+  // ── Detalle ──────────────────────────────────────────────────────────────
+
+  Future<void> _marcarVista(_Doc d) async {
+    try {
+      await d.reference.set({'visto': true}, SetOptions(merge: true));
+    } catch (_) {}
+  }
+
+  void _abrirDetalle(_Doc d) {
+    _marcarVista(d);
+    final m = d.data();
+    final fecha = DateFormat('dd/MM/yyyy');
+    final fechaHora = DateFormat('dd/MM/yyyy HH:mm');
+    final asignacion = taskFechaAsignacion(m);
+    final limite = _aFecha(m['fecha_limite'] ?? m['dueDate']);
+    final termino = taskFechaTerminacionResponsable(m);
+    final expediente = taskExpedienteCorrespondencia(m);
+    final descripcion = (m['descripcion'] ?? m['description'] ?? '')
+        .toString()
+        .trim();
+    final ultimoEvento = (m['lastEventText'] ?? '').toString().trim();
+    final asignador = taskAsignador(m);
+    final numero = taskNumeroTexto(m);
+    showTaskPanel<void>(
+      context: context,
+      maxWidth: 820,
+      builder: (panelContext) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const TaskPanelHandle(),
+              TaskPanelHeader(
+                eyebrow: [
+                  'DETALLE DE LA TAREA',
+                  if (numero.isNotEmpty) numero.toUpperCase(),
+                  taskModuloOrigenNombre(taskModuloOrigen(m)).toUpperCase(),
+                ].join(' · '),
+                title: (m['titulo'] ?? m['title'] ?? '(Sin título)').toString(),
+                trailing: TaskEstadoPill(estado: taskEstadoVisible(m)),
+              ),
+              if (descripcion.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+                  child: Text(
+                    descripcion,
+                    style: const TextStyle(fontSize: 13, height: 1.35),
+                  ),
+                ),
+              _kvPersona(
+                'Responsable',
+                _responsableDe(m),
+                _nombreResponsable(m),
+              ),
+              _kvPersona('Asignada por', asignador.id, _nombreAsignador(m)),
+              _kv('Área', _areaNombre(_areaDe(m))),
+              _kv(
+                'Asignada el',
+                asignacion == null ? '—' : fecha.format(asignacion),
+              ),
+              _kv('Fecha límite', limite == null ? '—' : fecha.format(limite)),
+              _kv('Días', '${taskDiasAbierta(m) ?? '—'}'),
+              if (termino != null &&
+                  taskEstadoVisible(m) == TaskEstadoVisible.porAprobar)
+                _kv('Terminada el', fechaHora.format(termino)),
+              _kv(
+                'Prioridad',
+                (m['prioridad'] ?? m['priority'] ?? '—').toString(),
+              ),
+              if (ultimoEvento.isNotEmpty)
+                _kv('Último movimiento', ultimoEvento),
+              if (expediente.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                TaskCorrespondenciaPreview(expedienteId: expediente),
+              ],
+              const SizedBox(height: 14),
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(backgroundColor: kTeal),
+                  onPressed: () {
+                    Navigator.pop(panelContext);
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => TaskActivityScreen(
+                          taskId: d.id,
+                          currentUserId: widget.currentUserId,
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.history_rounded),
+                  label: const Text('Ver historial de actividad'),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  Widget _pill(String text) => Chip(
-    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-    visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
-    labelPadding: const EdgeInsets.symmetric(horizontal: 6),
-    label: Text(text, style: const TextStyle(fontFamily: kArial, fontSize: 11)),
-    backgroundColor: Colors.white,
-    side: const BorderSide(color: Colors.black12),
-  );
-
-  /// Pill que resuelve el nombre real del usuario cuando solo hay cédula.
-  Widget _pillUser(String prefix, String userId, String fallbackName) => Chip(
-    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-    visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
-    labelPadding: const EdgeInsets.symmetric(horizontal: 6),
-    label: UserNameText(
-      userId,
-      fallbackName: fallbackName,
-      prefix: prefix,
-      style: const TextStyle(fontFamily: kArial, fontSize: 11),
-    ),
-    backgroundColor: Colors.white,
-    side: const BorderSide(color: Colors.black12),
-  );
-
-  /// Fila clave-valor que resuelve nombre de usuario por cédula.
-  Widget _kvUser(String k, String userId, String fallbackName) => Padding(
-    padding: const EdgeInsets.only(bottom: 4),
-    child: Row(
-      children: [
-        SizedBox(
-          width: 110,
-          child: Text(
-            '$k:',
-            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-          ),
-        ),
-        Expanded(
-          child: (userId.isEmpty && fallbackName.isEmpty)
-              ? const Text('—', style: TextStyle(fontSize: 13))
-              : UserNameText(
-                  userId,
-                  fallbackName: fallbackName,
-                  style: const TextStyle(fontSize: 13),
-                ),
-        ),
-      ],
-    ),
-  );
-
   Widget _kv(String k, String v) => Padding(
-    padding: const EdgeInsets.only(bottom: 4),
+    padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
     child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SizedBox(
-          width: 110,
+          width: 130,
           child: Text(
             '$k:',
-            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
           ),
         ),
         Expanded(child: Text(v, style: const TextStyle(fontSize: 13))),
       ],
     ),
   );
+
+  Widget _kvPersona(String k, String id, String nombre) => Padding(
+    padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+    child: Row(
+      children: [
+        SizedBox(
+          width: 130,
+          child: Text(
+            '$k:',
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+          ),
+        ),
+        if (id.isNotEmpty) ...[
+          UserAvatar(userId: id, nameHint: nombre, radius: 11),
+          const SizedBox(width: 6),
+        ],
+        Expanded(
+          child: UserNameText(
+            id,
+            fallbackName: nombre,
+            style: const TextStyle(fontSize: 13),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Fecha de un campo de la tarea (Timestamp, DateTime, milisegundos o texto).
+DateTime? _aFecha(dynamic value) {
+  if (value == null) return null;
+  if (value is Timestamp) return value.toDate();
+  if (value is DateTime) return value;
+  if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+  if (value is String) return DateTime.tryParse(value);
+  return null;
+}
+
+class _Seccion extends StatelessWidget {
+  final String titulo;
+  final String detalle;
+  final Widget child;
+
+  const _Seccion({
+    required this.titulo,
+    required this.detalle,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            titulo.toUpperCase(),
+            style: const TextStyle(
+              fontFamily: kArial,
+              fontWeight: FontWeight.w900,
+              fontSize: 12,
+              letterSpacing: 1,
+              color: kTeal,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            detalle,
+            style: const TextStyle(
+              fontFamily: kArial,
+              fontSize: 12,
+              color: Colors.black54,
+            ),
+          ),
+          const SizedBox(height: 10),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _Contador extends StatelessWidget {
+  final String etiqueta;
+  final int valor;
+  final Color fondo;
+  final Color texto;
+
+  const _Contador({
+    required this.etiqueta,
+    required this.valor,
+    required this.fondo,
+    required this.texto,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: valor == 0 ? const Color(0xFFF1F5F9) : fondo,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        '$etiqueta: $valor',
+        style: TextStyle(
+          fontFamily: kArial,
+          fontSize: 11.5,
+          fontWeight: FontWeight.w800,
+          color: valor == 0 ? Colors.black38 : texto,
+        ),
+      ),
+    );
+  }
 }

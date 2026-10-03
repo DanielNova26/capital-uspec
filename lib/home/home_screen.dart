@@ -49,6 +49,7 @@ import 'created_tasks_screen.dart';
 import 'notifications_screen.dart';
 import 'task_history_screen.dart' hide kArial;
 import 'create_task_screen.dart' hide kArial;
+import '../core/task_estado_visible.dart';
 import '../core/access_guard.dart';
 import '../core/app_catalog.dart';
 import '../core/apps_empresa.dart';
@@ -2461,13 +2462,30 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Text(
-                    estado.toUpperCase(),
-                    style: TextStyle(
-                      fontSize: 9,
-                      fontWeight: FontWeight.w700,
-                      color: scheme.onSurfaceVariant.withValues(alpha: 0.5),
-                    ),
+                  // Mismo estado y color que en las pantallas de Tareas
+                  // (3 oct 2026, estados uniformes).
+                  Builder(
+                    builder: (_) {
+                      final visible = taskEstadoVisible(t);
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: visible.fondo,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          visible.etiqueta,
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w900,
+                            color: visible.texto,
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),

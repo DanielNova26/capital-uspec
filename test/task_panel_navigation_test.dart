@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:todo/widgets/task_responsive_layout.dart';
 
 void main() {
+  mainPanelCentrado();
+
   testWidgets('los paneles de tareas siempre ofrecen cierre visible', (
     tester,
   ) async {
@@ -88,5 +90,66 @@ void main() {
     expect(find.text('Novedades de la tarea'), findsNothing);
     expect(find.text('Acciones de tarea'), findsOneWidget);
     expect(find.text('Ver novedades'), findsOneWidget);
+  });
+}
+
+void _panelEn(WidgetTester tester, Size size) {
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+}
+
+Widget _appConPanel() => MaterialApp(
+  home: Builder(
+    builder: (context) => Scaffold(
+      body: Center(
+        child: FilledButton(
+          onPressed: () => showTaskPanel<void>(
+            context: context,
+            builder: (_) => const SafeArea(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TaskPanelHandle(),
+                  TaskPanelHeader(title: 'Acciones de tarea'),
+                ],
+              ),
+            ),
+          ),
+          child: const Text('Abrir panel'),
+        ),
+      ),
+    ),
+  ),
+);
+
+// 3 oct 2026: "centrar la ventana de acciones". En pantallas amplias el panel
+// es un diálogo centrado; en el teléfono sigue siendo la hoja inferior.
+void mainPanelCentrado() {
+  testWidgets('en Web amplia el panel sale centrado', (tester) async {
+    _panelEn(tester, const Size(1366, 900));
+    await tester.pumpWidget(_appConPanel());
+    await tester.tap(find.text('Abrir panel'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(Dialog), findsOneWidget);
+    expect(find.byType(BottomSheet), findsNothing);
+    final centro = tester.getCenter(find.text('Acciones de tarea'));
+    expect((centro.dy - 450).abs(), lessThan(200));
+
+    await tester.tap(find.byTooltip('Cerrar panel'));
+    await tester.pumpAndSettle();
+    expect(find.text('Acciones de tarea'), findsNothing);
+  });
+
+  testWidgets('en el teléfono el panel es una hoja inferior', (tester) async {
+    _panelEn(tester, const Size(390, 844));
+    await tester.pumpWidget(_appConPanel());
+    await tester.tap(find.text('Abrir panel'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(BottomSheet), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
   });
 }

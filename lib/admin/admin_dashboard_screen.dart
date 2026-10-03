@@ -1,3 +1,4 @@
+import 'task_numeracion_card.dart';
 import 'purchase_module_role.dart';
 import 'purchase_module_roles_repository.dart';
 import 'purchase_module_roles_panel.dart';
@@ -11452,6 +11453,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
+        // Número interno de las tareas que ya existían (3 oct 2026).
+        TaskNumeracionCard(
+          key: ValueKey('numeracion-${_empresaId ?? ''}'),
+          empresaId: _empresaId ?? '',
+        ),
+        const SizedBox(height: 12),
         Card(
           color: kAdminCard,
           child: Padding(

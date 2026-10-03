@@ -23,6 +23,7 @@ import '../core/hierarchy_order.dart';
 import '../core/task_assignment_options.dart';
 import '../core/task_contract.dart';
 import '../core/area_directory.dart';
+import '../widgets/dictado_dialog.dart';
 
 /// ===================== CONFIG =====================
 /// Tu API KEY (debes tener habilitado Static Maps y billing activo)
@@ -1973,13 +1974,21 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                     key: _formKey,
                     child: Column(
                       children: [
+                        // Dictado en título y descripción (3 oct 2026,
+                        // "Crear tarea: permitir dictado").
                         TextFormField(
                           controller: _titleCtl,
-                          decoration: const InputDecoration(
+                          textCapitalization: TextCapitalization.sentences,
+                          decoration: InputDecoration(
                             labelText: 'Título',
                             hintText: 'Ej. Entregar informe de stock',
-                            border: OutlineInputBorder(),
-                            prefixIcon: Icon(Icons.title),
+                            border: const OutlineInputBorder(),
+                            prefixIcon: const Icon(Icons.title),
+                            suffixIcon: DictadoSuffixButton(
+                              controller: _titleCtl,
+                              titulo: 'Dictar título',
+                              onDictado: () => setState(() {}),
+                            ),
                           ),
                           validator: (v) => (v == null || v.trim().isEmpty)
                               ? 'Ingresa un título'
@@ -1989,11 +1998,17 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                         TextFormField(
                           controller: _descCtl,
                           maxLines: 4,
-                          decoration: const InputDecoration(
+                          textCapitalization: TextCapitalization.sentences,
+                          decoration: InputDecoration(
                             labelText: 'Descripción',
                             hintText: 'Detalles, criterios de aceptación, etc.',
-                            border: OutlineInputBorder(),
-                            prefixIcon: Icon(Icons.subject),
+                            border: const OutlineInputBorder(),
+                            prefixIcon: const Icon(Icons.subject),
+                            suffixIcon: DictadoSuffixButton(
+                              controller: _descCtl,
+                              titulo: 'Dictar descripción',
+                              onDictado: () => setState(() {}),
+                            ),
                           ),
                           validator: (v) => (v == null || v.trim().isEmpty)
                               ? 'Ingresa una descripción'

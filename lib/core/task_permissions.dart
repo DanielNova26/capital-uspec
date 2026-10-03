@@ -185,9 +185,12 @@ bool canViewTaskTeam(
   bool looksLikeTeamLead(dynamic value) {
     final text = _taskPermissionKey((value ?? '').toString());
     if (text.isEmpty) return false;
+    // "Gerencia" no contiene "gerent": Oscar (cargo Gerencia) no veía
+    // "Tareas de mi equipo" en el menú (3 oct 2026).
     return text.contains('desarrollador') ||
         text.contains('admin') ||
         text.contains('gerent') ||
+        text.contains('gerencia') ||
         text.contains('director') ||
         text.contains('subgerent') ||
         text.contains('coordinador') ||

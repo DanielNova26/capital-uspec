@@ -129,6 +129,9 @@ export {interventoriaCambiarAprobador} from "./interventoria_aprobador";
 // Tareas — al cambiar el jefe inmediato de alguien, sus tareas activas pasan
 // al jefe nuevo y a él se le avisa.
 export {tareasReemplazarJefeInmediato} from "./jefe_inmediato_sync";
+// Tareas — número interno consecutivo por empresa e incorporación de las
+// tareas que ya existían (Admin › Migraciones).
+export {tareasAsignarNumero, tareasNumerarHistoricas} from "./tareas_numero";
 export {visitasEliminarFormato, visitasEliminarPrueba} from "./visitas_cleanup";
 export {visitasBuscarLugar} from "./visitas_lugares";
 export {

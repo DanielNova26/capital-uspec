@@ -17,7 +17,11 @@ import 'compras_access_service.dart';
 import '../admin/purchase_module_roles_repository.dart';
 import '../admin/task_module_role.dart' show canManageModuleRoles;
 import '../core/transaccion_legible.dart';
-import '../utils/user_company.dart' show personaHabilitadaEn, raizEsDeEmpresa;
+import '../utils/user_company.dart'
+    show
+        esPersonaAsignable,
+        resolveScopedStringWithFallbacks,
+        userBelongsToEmpresa;
 import 'compras_recepcion_logic.dart';
 import 'compras_req_engine.dart';
 import 'compras_validation.dart';
@@ -1160,11 +1164,16 @@ class ComprasService {
     final producto = productos[productoIdx];
     final actual = producto.documentos[docKey];
     if (actual == null || !actual.tieneDoc) return;
+    final responsable = await _responsableRevisionDocumental(
+      empresaId: recepcion.empresaId,
+      preferido: actual.subidoPor ?? recepcion.creadoPor,
+    );
     productos[productoIdx] = producto.copyWith(
       documentos: {
         ...producto.documentos,
         docKey: _conRequerimiento(
           actual,
+          responsableId: responsable.id,
           nota: nota,
           requiereAdjunto: requiereAdjunto,
           fechaLimite: fechaLimite,
@@ -1190,7 +1199,9 @@ class ComprasService {
     );
     await _notificarYTareaRequerimiento(
       empresaId: recepcion.empresaId,
-      responsableId: actual.subidoPor ?? recepcion.creadoPor,
+      responsableId: responsable.id,
+      responsableNombre: responsable.nombre,
+      subidoPor: actual.subidoPor ?? recepcion.creadoPor,
       revisadoPor: revisadoPor,
       entidadId: recepcion.id,
       tipo: 'recepcion',
@@ -1614,12 +1625,17 @@ class ComprasService {
     final marca = MarcaDoc.fromMap(snap.id, snap.data()!);
     final actual = marca.documentosAsociados[docKey];
     if (actual == null || !actual.tieneDoc) return;
+    final responsable = await _responsableRevisionDocumental(
+      empresaId: marca.empresaId,
+      preferido: actual.subidoPor ?? '',
+    );
     await actualizarDocumentosAsociadosMarca(
       marcaId: marcaId,
       documentos: {
         ...marca.documentosAsociados,
         docKey: _conRequerimiento(
           actual,
+          responsableId: responsable.id,
           nota: nota,
           requiereAdjunto: requiereAdjunto,
           fechaLimite: fechaLimite,
@@ -1629,7 +1645,9 @@ class ComprasService {
     );
     await _notificarYTareaRequerimiento(
       empresaId: marca.empresaId,
-      responsableId: actual.subidoPor ?? '',
+      responsableId: responsable.id,
+      responsableNombre: responsable.nombre,
+      subidoPor: actual.subidoPor ?? '',
       revisadoPor: revisadoPor,
       entidadId: marcaId,
       tipo: 'marca',
@@ -2471,6 +2489,7 @@ class ComprasService {
     required bool requiereAdjunto,
     required DateTime fechaLimite,
     required String revisadoPor,
+    String? responsableId,
   }) {
     final clean = nota.trim();
     if (clean.isEmpty) {
@@ -2484,7 +2503,7 @@ class ComprasService {
       requerimientoNota: clean,
       requerimientoRequiereAdjunto: requiereAdjunto,
       requerimientoEstado: 'abierto',
-      requerimientoResponsableId: actual.subidoPor ?? '',
+      requerimientoResponsableId: responsableId ?? actual.subidoPor ?? '',
       requerimientoFechaLimite: Timestamp.fromDate(fechaLimite),
       requerimientoCreadoAt: Timestamp.now(),
       requerimientoCreadoPor: revisadoPor,
@@ -2494,9 +2513,110 @@ class ComprasService {
     );
   }
 
+  /// Quién atiende lo que deja la revisión de documentos de Calidad: un
+  /// rechazo o una aprobación con requerimientos (3 oct 2026: "las tareas que
+  /// se generen por revisión de documentos deben quedarle asignadas a
+  /// ANALISTA DE COMPRAS"). Antes iban a quien subió el documento, que muchas
+  /// veces es Gerencia o Bodega.
+  ///
+  /// Orden: (1) personas activas de la empresa con cargo de Analista de
+  /// Compras —si quien subió el documento es una de ellas, se queda con él—;
+  /// (2) si nadie tiene ese cargo, el rol Compras del módulo, con la misma
+  /// preferencia; (3) quien subió el documento, como antes.
+  Future<({String id, String nombre})> _responsableRevisionDocumental({
+    required String empresaId,
+    required String preferido,
+  }) async {
+    final subidor = preferido.trim();
+    final empresa = empresaId.trim();
+    if (empresa.isEmpty) return (id: subidor, nombre: '');
+    try {
+      final usuarios = <String, Map<String, dynamic>>{};
+      for (final snap in await Future.wait([
+        _db
+            .collection('TBL_USUARIOS')
+            .where('empresaId', isEqualTo: empresa)
+            .get(),
+        _db
+            .collection('TBL_USUARIOS')
+            .where('empresas', arrayContains: empresa)
+            .get(),
+      ])) {
+        for (final d in snap.docs) {
+          usuarios[d.id] = d.data();
+        }
+      }
+      final cargos = <String, String>{};
+      try {
+        final snap = await _db
+            .collection('TBL_CARGOS')
+            .where('empresaId', isEqualTo: empresa)
+            .get();
+        for (final d in snap.docs) {
+          final nombre = (d.data()['nombre'] ?? '').toString();
+          cargos[d.id] = nombre;
+          final id = (d.data()['cargoId'] ?? '').toString().trim();
+          if (id.isNotEmpty) cargos[id] = nombre;
+        }
+      } catch (_) {
+        // Sin el catálogo se usa el nombre de cargo de la ficha.
+      }
+      final analistas = <({String id, String nombre})>[];
+      usuarios.forEach((id, m) {
+        if (!userBelongsToEmpresa(m, empresa)) return;
+        if (!esPersonaAsignable(m, empresa)) return;
+        final cargoId = resolveScopedStringWithFallbacks(
+          m,
+          empresa,
+          const ['cargoId', 'cargo_id'],
+          const ['cargoId', 'cargo_id'],
+        ).trim();
+        final cargo = resolveScopedStringWithFallbacks(
+          m,
+          empresa,
+          const ['cargo', 'cargoNombre', 'cargo_nombre', 'puesto'],
+          const ['cargo', 'cargoNombre', 'cargo_nombre', 'puesto'],
+        ).trim();
+        if (!esCargoAnalistaCompras(cargo) &&
+            !esCargoAnalistaCompras(cargos[cargoId] ?? '')) {
+          return;
+        }
+        final nombre = [
+          (m['nombres'] ?? m['primerNombre'] ?? '').toString().trim(),
+          (m['apellidos'] ?? m['primerApellido'] ?? '').toString().trim(),
+        ].where((e) => e.isNotEmpty).join(' ');
+        analistas.add((id: id, nombre: nombre));
+      });
+      if (analistas.isNotEmpty) {
+        final propio = analistas.where((a) => a.id == subidor).firstOrNull;
+        if (propio != null) return propio;
+        analistas.sort(
+          (a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()),
+        );
+        return analistas.first;
+      }
+    } catch (e) {
+      debugPrint('[Compras] analista de compras no resuelto: $e');
+    }
+    try {
+      final compras = await getUsuariosPorRol(empresa, kRolCompras);
+      final ids = compras
+          .map(_destinatario)
+          .where((id) => id.isNotEmpty)
+          .toList();
+      if (ids.contains(subidor)) return (id: subidor, nombre: '');
+      if (ids.isNotEmpty) return (id: ids.first, nombre: '');
+    } catch (e) {
+      debugPrint('[Compras] rol Compras no resuelto: $e');
+    }
+    return (id: subidor, nombre: '');
+  }
+
   Future<void> _notificarYTareaRequerimiento({
     required String empresaId,
     required String responsableId,
+    String responsableNombre = '',
+    String subidoPor = '',
     required String revisadoPor,
     required String entidadId,
     required String tipo,
@@ -2511,6 +2631,33 @@ class ComprasService {
     final responsable = responsableId.trim();
     if (responsable.isEmpty) return;
     final taskKey = '$tipo:$entidadId';
+    // Quien subió el documento se entera aunque la tarea sea del Analista de
+    // Compras.
+    final subidor = subidoPor.trim();
+    if (subidor.isNotEmpty && subidor != responsable) {
+      try {
+        await _crearNotificacionGlobalCompras(
+          userId: subidor,
+          empresaId: empresaId,
+          title: 'Documento aprobado con requerimientos',
+          description:
+              'El documento "$docLabel" de $productoNombre puede utilizarse, '
+              'pero Calidad solicitó: ${nota.trim()}. Lo atiende el equipo '
+              'de Compras.',
+          type: 'compras_doc_con_requerimientos',
+          taskId: taskKey,
+          fromId: revisadoPor,
+          fromName: 'Revisión de Calidad',
+          recepcionId: taskKey,
+          productoNombre: productoNombre,
+          docKey: docKey,
+          docLabel: docLabel,
+          motivo: nota.trim(),
+        );
+      } catch (_) {
+        // Aviso informativo: no bloquea la revisión.
+      }
+    }
     await _crearNotificacionGlobalCompras(
       userId: responsable,
       empresaId: empresaId,
@@ -2536,6 +2683,9 @@ class ComprasService {
           '${requiereAdjunto ? 'Debes adjuntar el soporte solicitado; el sistema lo consolidará con el PDF original.' : 'Atiende el requerimiento y deja la evidencia correspondiente.'}',
       prioridad: 'alta',
       asignadoUid: responsable,
+      asignadoNombre: responsableNombre.trim().isEmpty
+          ? null
+          : responsableNombre.trim(),
       creadorUid: revisadoPor.trim().isEmpty ? responsable : revisadoPor.trim(),
       creadorNombre: 'Revisión de Calidad',
       empresaId: empresaId,
@@ -2637,9 +2787,14 @@ class ComprasService {
       // No bloquear el rechazo si falla el fan-out a Calidad.
     }
 
-    // 3) Tarea de corrección asignada al que subió.
+    // 3) Tarea de corrección para el Analista de Compras (3 oct 2026); si la
+    //    empresa no tiene ese cargo ni rol Compras, para quien lo subió.
     if (subidor.isNotEmpty) {
       try {
+        final responsable = await _responsableRevisionDocumental(
+          empresaId: empresaId,
+          preferido: subidor,
+        );
         await _tasks.createTaskEs(
           titulo: 'Corregir documento: $docLabel',
           descripcion:
@@ -2648,7 +2803,10 @@ class ComprasService {
               'Corrígelo y vuelve a cargarlo antes del vencimiento '
               '($diasCorreccion días).',
           prioridad: 'alta',
-          asignadoUid: subidor,
+          asignadoUid: responsable.id,
+          asignadoNombre: responsable.nombre.trim().isEmpty
+              ? null
+              : responsable.nombre.trim(),
           creadorUid: revisadoPor.trim().isEmpty ? subidor : revisadoPor.trim(),
           creadorNombre: 'Revisión de Calidad',
           empresaId: empresaId,
@@ -3213,8 +3371,13 @@ class ComprasService {
     final ficha = FichaTecnicaDoc.fromMap(snap.id, snap.data()!);
     final actual = ficha.documentoActual;
     if (actual == null || !actual.tieneDoc) return;
+    final responsable = await _responsableRevisionDocumental(
+      empresaId: ficha.empresaId,
+      preferido: actual.subidoPor ?? ficha.creadoPor,
+    );
     final actualizado = _conRequerimiento(
       actual,
+      responsableId: responsable.id,
       nota: nota,
       requiereAdjunto: requiereAdjunto,
       fechaLimite: fechaLimite,
@@ -3228,7 +3391,9 @@ class ComprasService {
     });
     await _notificarYTareaRequerimiento(
       empresaId: ficha.empresaId,
-      responsableId: actual.subidoPor ?? ficha.creadoPor,
+      responsableId: responsable.id,
+      responsableNombre: responsable.nombre,
+      subidoPor: actual.subidoPor ?? ficha.creadoPor,
       revisadoPor: revisadoPor,
       entidadId: fichaId,
       tipo: 'ficha',
@@ -3331,8 +3496,13 @@ class ComprasService {
     final proveedor = ProveedorDoc.fromMap(snap.id, snap.data()!);
     final actual = proveedor.documentos[docKey];
     if (actual == null || !actual.tieneDoc) return;
+    final responsable = await _responsableRevisionDocumental(
+      empresaId: proveedor.empresaId,
+      preferido: actual.subidoPor ?? '',
+    );
     final actualizado = _conRequerimiento(
       actual,
+      responsableId: responsable.id,
       nota: nota,
       requiereAdjunto: requiereAdjunto,
       fechaLimite: fechaLimite,
@@ -3345,7 +3515,9 @@ class ComprasService {
     );
     await _notificarYTareaRequerimiento(
       empresaId: proveedor.empresaId,
-      responsableId: actual.subidoPor ?? '',
+      responsableId: responsable.id,
+      responsableNombre: responsable.nombre,
+      subidoPor: actual.subidoPor ?? '',
       revisadoPor: revisadoPor,
       entidadId: proveedorId,
       tipo: 'proveedor',

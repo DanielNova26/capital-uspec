@@ -24,11 +24,83 @@ double taskPanelHeight(
   double desktopMaxHeight = 640,
 }) {
   final media = MediaQuery.of(context);
-  if (!(kIsWeb && media.size.width >= 900)) {
-    return media.size.height * mobileFraction;
+  if (taskPanelIsDialog(context)) {
+    final available = media.size.height * 0.8;
+    return available < desktopMaxHeight ? available : desktopMaxHeight;
   }
-  final available = media.size.height * 0.76;
-  return available < desktopMaxHeight ? available : desktopMaxHeight;
+  return media.size.height * mobileFraction;
+}
+
+/// Ancho lógico desde el cual los paneles de Tareas salen centrados.
+///
+/// 3 oct 2026 ("centrar la ventana de acciones"): en Web y en pantallas
+/// amplias la hoja pegada al borde inferior obligaba a bajar la vista y
+/// quedaba cortada en portátiles de 10". Se decide por el ancho disponible y
+/// no por `kIsWeb`: el navegador de un teléfono conserva la hoja inferior,
+/// que es lo natural con el pulgar.
+const double kTaskPanelDialogBreakpoint = 600;
+
+bool taskPanelIsDialog(BuildContext context) =>
+    MediaQuery.sizeOf(context).width >= kTaskPanelDialogBreakpoint;
+
+/// Abre un panel del módulo de Tareas: diálogo centrado en pantallas amplias,
+/// hoja inferior en el teléfono. El contenido es el mismo en ambos casos.
+///
+/// Las dos variantes se apilan en el mismo `Navigator` que la pantalla, así
+/// que `Navigator.pop(context)` cierra el panel igual en Web y en móvil.
+Future<T?> showTaskPanel<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+  double maxWidth = 820,
+}) {
+  final media = MediaQuery.of(context);
+  if (taskPanelIsDialog(context)) {
+    return showDialog<T>(
+      context: context,
+      useRootNavigator: false,
+      builder: (dialogContext) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        clipBehavior: Clip.antiAlias,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: maxWidth,
+            maxHeight: media.size.height * 0.9,
+          ),
+          child: builder(dialogContext),
+        ),
+      ),
+    );
+  }
+  return showModalBottomSheet<T>(
+    context: context,
+    isScrollControlled: true,
+    constraints: BoxConstraints(maxWidth: media.size.width),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: builder,
+  );
+}
+
+/// Asa de arrastre de la hoja inferior; en el diálogo centrado no se pinta.
+class TaskPanelHandle extends StatelessWidget {
+  const TaskPanelHandle({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    if (taskPanelIsDialog(context)) return const SizedBox(height: 4);
+    return Center(
+      child: Container(
+        width: 40,
+        height: 4,
+        decoration: BoxDecoration(
+          color: Colors.grey.shade300,
+          borderRadius: BorderRadius.circular(10),
+        ),
+      ),
+    );
+  }
 }
 
 /// Cabecera común para paneles de detalle, novedades, avances y adjuntos.

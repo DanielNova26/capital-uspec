@@ -571,3 +571,39 @@ test("los flujos permitidos más caros dejan margen bajo el tope de 1000", async
     await holgado.cleanup();
   }
 });
+
+// 3 oct 2026: número interno consecutivo por empresa. Lo asigna la Function
+// `tareasAsignarNumero`; la app no lo crea, no lo cambia y no ve el contador.
+test("el número interno y su contador son solo del servidor", async () => {
+  await env.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "TBL_TAREAS/numerada"), task({
+      titulo: "Tarea con número",
+      numero: 5,
+    }));
+    await setDoc(doc(context.firestore(), "TBL_TAREAS_CONTADORES/EMP_A"), {
+      empresaId: "EMP_A",
+      ultimo: 5,
+    });
+  });
+  await assertFails(setDoc(doc(auth("alice"), "TBL_TAREAS/con_numero"), task({
+    creador_id: "alice",
+    numero: 99,
+  })));
+  const ref = doc(auth("alice"), "TBL_TAREAS/numerada");
+  await assertFails(updateDoc(ref, {
+    numero: 1,
+    lastEventType: "task_novedad",
+    lastEventText: "Novedad",
+  }));
+  await assertSucceeds(updateDoc(ref, {
+    lastEventType: "task_novedad",
+    lastEventText: "Novedad",
+  }));
+  for (const quien of ["alice", "admin", "jefe"]) {
+    await assertFails(getDoc(doc(auth(quien), "TBL_TAREAS_CONTADORES/EMP_A")));
+    await assertFails(setDoc(doc(auth(quien), "TBL_TAREAS_CONTADORES/EMP_A"), {
+      empresaId: "EMP_A",
+      ultimo: 1,
+    }));
+  }
+});

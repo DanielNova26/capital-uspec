@@ -1682,6 +1682,12 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Consecutivo de tareas por empresa: solo `tareasAsignarNumero` y la
+    // incorporación de Admin › Migraciones (Functions) lo leen y escriben.
+    match /TBL_TAREAS_CONTADORES/{docId} {
+      allow read, write: if false;
+    }
+
     // ── Facturación (29 sep 2026) ─────────────────────────────────────────
     // Estaba en la regla general: cualquiera con sesión, de cualquier
     // empresa, leía y cambiaba obligaciones, revisiones y observaciones.
@@ -2082,12 +2088,14 @@ service cloud.firestore {
 
     // `cambios` = claves que cambia la escritura. Se calcula una vez en
     // `tareaActualizacionValida` y pasa a cada rama.
+    // `numero` es el consecutivo por empresa que asigna el servidor
+    // (`tareasAsignarNumero`, 3 oct 2026): la app no lo crea ni lo cambia.
     function tareaBaseConservada(antes, d, cambios) {
       return antes.get('empresaId', '') == d.get('empresaId', '')
         && !cambios.hasAny([
           'empresaId', 'empresas', 'creador_id', 'creatorId',
           'sourceModule', 'source',
-          'sourceType', 'origen', 'hallazgoId', 'sourceEntityId'
+          'sourceType', 'origen', 'hallazgoId', 'sourceEntityId', 'numero'
         ]);
     }
 
@@ -2096,6 +2104,7 @@ service cloud.firestore {
       let empresaId = d.get('empresaId', '');
       let modulo = d.get('sourceModule', '');
       return d.get('titulo', '') is string && d.titulo.size() > 0
+        && !d.keys().hasAny(['numero'])
         && d.get('estado', '') in ['pendiente', 'en_progreso']
         && d.get('status', d.estado) == d.estado
         && d.get('creador_id', '') is string
@@ -2410,6 +2419,7 @@ service cloud.firestore {
         && !esColeccionCompras(collection)
         && !(collection in [
           'TBL_TAREAS',
+          'TBL_TAREAS_CONTADORES',
           'TBL_COMPRAS_ROLES','TBL_COMPRAS_CONFIG',
           'TBL_WHATSAPP_CONFIG',
           'TBL_WHATSAPP_AUDITORIA','TBL_WHATSAPP_META_ESTADOS',

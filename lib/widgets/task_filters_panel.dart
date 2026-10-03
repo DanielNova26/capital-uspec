@@ -6,7 +6,19 @@ class TaskQuickFilter {
   final String label;
   final String value;
 
-  const TaskQuickFilter({required this.label, required this.value});
+  /// Cuántas tareas hay en este estado (3 oct 2026: "colocar un indicador
+  /// que diga cuántas tareas hay según el estado"). Sin dato no se pinta.
+  final int? count;
+
+  /// Color del estado, para el punto junto a la etiqueta.
+  final Color? color;
+
+  const TaskQuickFilter({
+    required this.label,
+    required this.value,
+    this.count,
+    this.color,
+  });
 }
 
 class TaskFilterDropdownData {
@@ -285,6 +297,8 @@ class _TaskFiltersPanelState extends State<TaskFiltersPanel> {
             label: filter.label,
             selected: widget.selectedQuickFilter == filter.value,
             color: scheme.primary,
+            count: filter.count,
+            dotColor: filter.color,
             onTap: () => widget.onQuickFilterChanged(filter.value),
           ),
         )
@@ -292,8 +306,17 @@ class _TaskFiltersPanelState extends State<TaskFiltersPanel> {
   }
 
   Widget _buildDropdown(TaskFilterDropdownData dropdown) {
+    // Las opciones salen de las tareas que hay en pantalla: si la elegida
+    // desaparece, el desplegable vuelve a la primera en vez de romperse. La
+    // llave lo reconstruye cuando el valor cambia desde fuera (un chip de la
+    // tarjeta que filtra por área o cargo).
+    final values = dropdown.items.map((item) => item.value).toList();
+    final value = values.contains(dropdown.value)
+        ? dropdown.value
+        : (values.isEmpty ? null : values.first);
     return DropdownButtonFormField<String>(
-      initialValue: dropdown.value,
+      key: ValueKey('${dropdown.label}|$value|${values.length}'),
+      initialValue: value,
       items: dropdown.items,
       isExpanded: true,
       decoration: InputDecoration(
@@ -337,12 +360,16 @@ class _TaskQuickFilterChip extends StatelessWidget {
   final bool selected;
   final Color color;
   final VoidCallback onTap;
+  final int? count;
+  final Color? dotColor;
 
   const _TaskQuickFilterChip({
     required this.label,
     required this.selected,
     required this.color,
     required this.onTap,
+    this.count,
+    this.dotColor,
   });
 
   @override
@@ -364,14 +391,51 @@ class _TaskQuickFilterChip extends StatelessWidget {
                 : const Color(0xFFE2E8F0),
           ),
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontFamily: kTaskFilterArial,
-            fontSize: 12,
-            fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-            color: selected ? color : const Color(0xFF475569),
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (dotColor != null) ...[
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: dotColor,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+            ],
+            Text(
+              label,
+              style: TextStyle(
+                fontFamily: kTaskFilterArial,
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                color: selected ? color : const Color(0xFF475569),
+              ),
+            ),
+            if (count != null) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? color.withValues(alpha: 0.18)
+                      : const Color(0xFFE2E8F0),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    fontFamily: kTaskFilterArial,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                    color: selected ? color : const Color(0xFF334155),
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );

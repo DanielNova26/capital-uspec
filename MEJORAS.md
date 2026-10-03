@@ -6,6 +6,127 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Tareas: documento "TAREAS - SEPTIEMBRE 29" completo — 3 oct 2026 (Claude)
+
+Pedido del usuario desde un PC nuevo: "Codex estaba trabajando algo y no hay
+ningún cambio de lo que corresponde en Tareas: no está centrado, no está el
+dictado". En `main` (`c9a9b65`) no había nada de esos puntos ni ramas con
+trabajo de Codex: si Codex dejó cambios sin subir en el PC anterior, siguen
+allá y van a chocar con estos (mismos archivos de `lib/home/`). Antes de
+traerlos, comparar contra esta entrada.
+
+- **Paneles centrados.** `showTaskPanel` (`task_responsive_layout.dart`):
+  diálogo centrado desde 600 px lógicos de ancho, hoja inferior en el
+  teléfono (por ancho, no por `kIsWeb`). Lo usan Mis tareas, Tareas que
+  asigné, Por aprobar, sus paneles de novedades/avances/adjuntos, Historial y
+  Mi equipo. Ambos se apilan en el mismo `Navigator` que la pantalla
+  (`useRootNavigator: false`), así que `Navigator.pop(context)` sigue
+  cerrando el panel.
+- **Dictado en Crear tarea** (título y descripción). El diálogo de Visitas
+  pasó a `lib/widgets/dictado_dialog.dart` (`DictadoDialog`,
+  `DictadoSuffixButton`) y Visitas usa el mismo.
+- **Buscador que "solo deja digitar un carácter".** Causa: Mis tareas y
+  Tareas que asigné armaban la consulta en cada `build`; al escribir, el
+  StreamBuilder volvía a "cargando", reemplazaba la pantalla y el campo
+  perdía el foco. Ahora la consulta se crea una vez por empresa y solo la
+  primera carga muestra el esqueleto. Mi equipo repetía la consulta con cada
+  letra (FutureBuilder en `build`): también quedó fija.
+- **Estado uniforme** (`lib/core/task_estado_visible.dart`): PENDIENTE gris,
+  REASIGNADA violeta, POR_APROBAR amarillo, RETRASADA rojo, TERMINADA verde,
+  sin importar el módulo. El `estado` guardado no cambia; `en_progreso` y la
+  devuelta se ven PENDIENTE (la devuelta con la marca "Devuelta"). Reasignada
+  = `reasignada_desde_uid`, reasignación aprobada o en trámite. Lo usan las
+  pantallas de Tareas y la etiqueta de las tareas del Home; Gerencia sigue
+  con `taskStatusColor` (su torta distingue pendiente de en progreso).
+- **Error de fechas corregido:** `taskDaysLeft` truncaba hacia cero y una
+  tarea vencida ayer no salía RETRASADA hasta el día siguiente (el servidor,
+  con `Math.floor`, sí la marcaba). Ahora cuenta días de calendario.
+- **Mis tareas:** número interno en la tarjeta; el pie muestra quién asignó
+  (la matriz de Interventoría sale como "Interventoría"); tarjeta compacta en
+  grilla de 3/2/1 columnas según el ancho (`TaskCardGrid`, 20 por página);
+  contadores por estado en los filtros; "Área que asignó" agrupa y filtra por
+  el área de QUIEN ASIGNÓ (antes era el área de la propia tarea, que es la
+  del responsable) y solo ofrece áreas de las que la persona tiene tareas;
+  filtro por módulo de origen (Manual, Interventoría, Visitas, Gestión de
+  Correspondencia, Compras…). El área de cada persona sale de
+  `PersonasEmpresa` (`lib/core/task_personas_empresa.dart`), con el puente
+  por cargo que ya usaban la reasignación y Visitas.
+- **Tareas que asigné:** filtro principal "Asignadas desde" que arranca en
+  "Asignadas por mí (manual)"; lo que nació en un módulo (Correspondencia,
+  Calidad de Compras…) se ve eligiendo el origen. Cargo del responsable solo
+  con cargos que tienen tareas pendientes, reasignadas o retrasadas. El
+  responsable aparece una sola vez (pie de la tarjeta, sin chip repetido).
+  Ver novedades/avances/adjuntos quedan inhabilitados cuando no hay nada.
+- **Correspondencia en el panel de la tarea:** ya no salta al módulo. El
+  panel muestra la vista previa de la respuesta (enviada, en borrador,
+  respondida fuera o cerrada sin respuesta, con motivo y adjuntos;
+  `task_correspondencia_preview.dart`), el botón "Ver en Gestión de
+  Correspondencia" y, en POR_APROBAR, Aprobar/Devolver como cualquier tarea
+  (el paso que `gdTerminarExpediente` deja a `_approveFinish`).
+- **Tareas por aprobar:** área y responsable solo con tareas que esperan la
+  aprobación de la persona; la tarjeta dice "Terminada el …" (fecha en que el
+  responsable pidió el cierre).
+- **Tareas de mi equipo** (reescrita): tablero por responsable (pendientes,
+  reasignadas, por aprobar, retrasadas, total y la más antigua; tocar uno
+  filtra), filtro por responsable solo con tareas no terminadas, matriz N.º /
+  responsable / descripción / asignada por / fecha de asignación / estado /
+  días (tabla en Web, tarjetas en el teléfono, 20 por página), Excel y PDF de
+  lo filtrado (`team_tasks_export.dart`; el PDF usa `assets/arial.ttf` y,
+  sin ella, Helvetica sin caracteres fuera de Latin-1) y detalle con el
+  historial de actividad. Gerencia consulta solo los estados abiertos (antes
+  1000 tareas de cualquier estado, y las terminadas desplazaban a las
+  abiertas). Se corrigió la colección de centros (`TBL_CENTROS_COSTO` no
+  existe; el filtro se retiró porque el documento no lo pide).
+- **Botón "Tareas de mi equipo":** el cargo "Gerencia" no contiene "gerent"
+  y `canViewTaskTeam` lo dejaba por fuera; por eso Oscar no lo veía.
+- **Correcciones de Compras al Analista de Compras:** el rechazo y la
+  aprobación con requerimientos de Calidad crean la tarea para la persona
+  activa con cargo de Analista de Compras (`esCargoAnalistaCompras`); si quien
+  subió el documento es analista, se queda con él; si la empresa no tiene ese
+  cargo, el rol Compras del módulo; si tampoco, quien subió (como antes).
+  `requerimientoResponsableId` sigue al mismo responsable, para que pueda
+  adjuntar el soporte. Quien subió recibe el aviso informativo.
+- **Número interno** (`functions/src/tareas_numero.ts`):
+  `tareasAsignarNumero` (onCreate, reintento activado) da un consecutivo por
+  empresa en `TBL_TAREAS_CONTADORES/{empresaId}`; la primera vez reserva
+  1..N para las tareas que ya existían. `tareasNumerarHistoricas` (Admin ›
+  Usuarios › Migraciones de usuarios, tarjeta "Número interno de tareas")
+  revisa y luego numera las existentes en orden de creación dentro de esa
+  reserva. Un número asignado no cambia. Reglas: el contador es solo de
+  servidor y la app no puede crear ni cambiar `numero`.
+- **Versión 2.6.14 (28):** la 2.6.13 (27) generada en el PC anterior no lleva
+  nada de esto.
+- **Pruebas:** `flutter analyze` sin errores y con las mismas advertencias
+  que antes (213 → 211 avisos). Nuevas: estado visible, módulo de origen,
+  número y días (`test/core/task_estado_visible_test.dart`), áreas y cargos
+  por persona (`task_personas_empresa_test.dart`), días de calendario
+  (`test/utils/task_status_test.dart`), Excel/PDF del equipo
+  (`test/home/team_tasks_export_test.dart`), panel centrado en 1366 px y hoja
+  en 390 px, grilla de 20 con grupos, contadores y desplegable sin la opción
+  elegida (`test/widgets/task_filters_grid_test.dart`), Gerencia ve su
+  equipo y cargo de Analista de Compras. Suite completa de Flutter
+  1478/1478. Functions: `npm test` 165/165 (6 nuevas de numeración) y ESLint
+  sin errores en el archivo nuevo. Reglas en emulador: todas las suites
+  `functions/test/*.rules.js` 150 aprobadas y 2 omitidas que ya estaban
+  marcadas "[pendiente TH]"; `tareas_rules.rules.js` 13/13 con una nueva (la
+  app no crea ni cambia `numero` y no lee ni escribe el contador).
+- **Pendiente:**
+  - Desplegar `firestore.rules` (siguen pendientes las del 2 oct: 503 al
+    compilar), las Functions `tareasAsignarNumero` y
+    `tareasNumerarHistoricas`, y correr la numeración por empresa desde Admin
+    (primero "Revisar"). Sin desplegar, la app funciona y simplemente no
+    muestra número.
+  - Sin verificación visual en Web (390/768/1024/1366, texto ampliado),
+    Android ni iOS: el ingreso pasa por Functions de producción. Revisar en
+    especial la grilla de 3 columnas, el panel centrado en un portátil de
+    10" y el PDF del equipo en iPhone (`Printing.sharePdf`).
+  - El estado uniforme no se llevó a Gerencia ni a las notificaciones del
+    servidor ("Estado de tarea: En progreso"); si se quiere igual allí, es
+    otro cambio.
+  - Si una empresa tiene varias personas con cargo de Analista de Compras,
+    la tarea va a la primera por nombre (o a quien subió, si es analista).
+    Si se necesita reparto, definir la regla.
+
 ## Tareas: completar con comentario, "¿novedad o finalización?", historial y reasignación a otras áreas — 2 oct 2026 (Codex → Claude)
 
 Pedido del usuario (además del documento `TAREAS - SEPTIEMBRE 29.docx`, que

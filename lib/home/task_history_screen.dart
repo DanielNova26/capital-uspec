@@ -7,6 +7,7 @@ import 'package:todo/widgets/skeleton_loader.dart';
 import 'package:todo/widgets/task_filters_panel.dart';
 import 'package:todo/widgets/task_responsive_layout.dart';
 import 'package:todo/widgets/task_modern_card.dart';
+import 'package:todo/widgets/task_card_grid.dart';
 import 'package:todo/widgets/user_avatar.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -250,6 +251,7 @@ class _HistoryTabState extends State<_HistoryTab> {
   String? _selectedEmpresaId;
   bool _streamInitialized = false;
   Stream<QuerySnapshot<Map<String, dynamic>>>? _taskStream;
+  int _page = 0;
 
   @override
   void didChangeDependencies() {
@@ -420,18 +422,16 @@ class _HistoryTabState extends State<_HistoryTab> {
                   'No encontramos tareas que coincidan con los criterios aplicados.',
             );
           }
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: filtered.length,
-            itemBuilder: (_, i) => Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1180),
-                child: TaskModernCard(
-                  data: filtered[i].data(),
-                  onTap: () => _showHistoryDetail(filtered[i]),
-                  isHistorical: filtered[i].data()['estado'] == 'finalizado',
-                ),
-              ),
+          // Misma grilla de 20 por página que Mis tareas (3 oct 2026).
+          return TaskCardGrid<QueryDocumentSnapshot<Map<String, dynamic>>>(
+            items: filtered,
+            page: _page,
+            onPageChanged: (p) => setState(() => _page = p),
+            itemBuilder: (context, doc, compact) => TaskModernCard(
+              data: doc.data(),
+              compact: compact,
+              onTap: () => _showHistoryDetail(doc),
+              isHistorical: doc.data()['estado'] == 'finalizado',
             ),
           );
         },
@@ -516,13 +516,10 @@ class _HistoryTabState extends State<_HistoryTab> {
   }
 
   void _showHistoryDetail(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
-    showModalBottomSheet(
+    // Centrado en pantallas amplias, hoja inferior en el teléfono.
+    showTaskPanel<void>(
       context: context,
-      isScrollControlled: true,
-      constraints: taskPanelConstraints(context, desktopMaxWidth: 1040),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      maxWidth: 1040,
       builder: (_) => _HistoryDetailSheet(doc: doc),
     );
   }
@@ -700,113 +697,112 @@ class _HistoryDetailSheetState extends State<_HistoryDetailSheet>
     _tabCtrl = TabController(length: 2, vsync: this);
   }
 
+  /// En el diálogo centrado no hay hoja que arrastrar: el detalle usa su
+  /// propio desplazamiento.
+  final ScrollController _scrollDialogo = ScrollController();
+
   @override
   void dispose() {
     _tabCtrl.dispose();
+    _scrollDialogo.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final m = widget.doc.data();
-    final taskId = widget.doc.id;
-
+    if (taskPanelIsDialog(context)) {
+      return SizedBox(
+        height: taskPanelHeight(context, desktopMaxHeight: 720),
+        child: _contenido(context, _scrollDialogo),
+      );
+    }
     return DraggableScrollableSheet(
       initialChildSize: 0.7,
       minChildSize: 0.4,
       maxChildSize: 0.95,
       expand: false,
-      builder: (context, scrollController) => Column(
-        children: [
-          // Handle + título + tabs
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TaskPanelHeader(
-                  eyebrow: (m['estado'] ?? '').toString() == 'finalizado'
-                      ? 'TAREA FINALIZADA'
-                      : 'ACTIVIDAD DE TAREA',
-                  title: (m['titulo'] ?? '(Sin título)').toString(),
-                ),
-                const SizedBox(height: 12),
-              ],
-            ),
-          ),
-          TabBar(
-            controller: _tabCtrl,
-            labelColor: kBrand,
-            unselectedLabelColor: Colors.grey,
-            indicatorColor: kBrand,
-            indicatorWeight: 3,
-            tabs: const [
-              Tab(
-                text: 'Detalle',
-                icon: Icon(Icons.info_outline_rounded, size: 18),
+      builder: _contenido,
+    );
+  }
+
+  Widget _contenido(BuildContext context, ScrollController scrollController) {
+    final m = widget.doc.data();
+    final taskId = widget.doc.id;
+    return Column(
+      children: [
+        // Handle + título + tabs
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const TaskPanelHandle(),
+              const SizedBox(height: 16),
+              TaskPanelHeader(
+                eyebrow: (m['estado'] ?? '').toString() == 'finalizado'
+                    ? 'TAREA FINALIZADA'
+                    : 'ACTIVIDAD DE TAREA',
+                title: (m['titulo'] ?? '(Sin título)').toString(),
               ),
-              Tab(
-                text: 'Procesos',
-                icon: Icon(Icons.timeline_rounded, size: 18),
+              const SizedBox(height: 12),
+            ],
+          ),
+        ),
+        TabBar(
+          controller: _tabCtrl,
+          labelColor: kBrand,
+          unselectedLabelColor: Colors.grey,
+          indicatorColor: kBrand,
+          indicatorWeight: 3,
+          tabs: const [
+            Tab(
+              text: 'Detalle',
+              icon: Icon(Icons.info_outline_rounded, size: 18),
+            ),
+            Tab(text: 'Procesos', icon: Icon(Icons.timeline_rounded, size: 18)),
+          ],
+        ),
+        const Divider(height: 1),
+        // Contenido de cada pestaña
+        Expanded(
+          child: TabBarView(
+            controller: _tabCtrl,
+            children: [
+              _DetalleTab(doc: widget.doc, scrollController: scrollController),
+              _ProcesosTab(
+                taskId: taskId,
+                adjuntosIniciales: (m['adjuntos'] as List<dynamic>? ?? [])
+                    .map((e) => Map<String, dynamic>.from(e as Map))
+                    .toList(),
               ),
             ],
           ),
-          const Divider(height: 1),
-          // Contenido de cada pestaña
-          Expanded(
-            child: TabBarView(
-              controller: _tabCtrl,
-              children: [
-                _DetalleTab(
-                  doc: widget.doc,
-                  scrollController: scrollController,
-                ),
-                _ProcesosTab(
-                  taskId: taskId,
-                  adjuntosIniciales: (m['adjuntos'] as List<dynamic>? ?? [])
-                      .map((e) => Map<String, dynamic>.from(e as Map))
-                      .toList(),
-                ),
-              ],
-            ),
-          ),
-          // Botón cerrar fijo abajo
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
-            child: SafeArea(
-              child: SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: kBrand,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+        ),
+        // Botón cerrar fijo abajo
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+          child: SafeArea(
+            child: SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: kBrand,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  icon: const Icon(Icons.close_rounded),
-                  label: const Text(
-                    'Cerrar detalle',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  onPressed: () => Navigator.pop(context),
                 ),
+                icon: const Icon(Icons.close_rounded),
+                label: const Text(
+                  'Cerrar detalle',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                onPressed: () => Navigator.pop(context),
               ),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

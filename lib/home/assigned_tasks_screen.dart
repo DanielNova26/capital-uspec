@@ -26,6 +26,10 @@ import 'notify_avances_screen.dart' hide kArial;
 import 'notify_novedades_screen.dart' hide kArial;
 import 'task_history_screen.dart' show TaskActivityScreen;
 import '../core/area_directory.dart';
+import '../core/task_estado_visible.dart';
+import '../core/task_personas_empresa.dart';
+import '../core/user_directory.dart';
+import '../widgets/task_card_grid.dart';
 
 const Color kMarronOscuro = Color(0xFF145DA0);
 const String kTaskArial = 'Arial';
@@ -53,12 +57,21 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   bool _groupByArea = false;
   bool _didAutoOpen = false;
   bool _showAllTasks = false;
+  String _moduloFilter = 'todos';
+  int _page = 0;
 
   // bootstrap
   Set<String> _empresaIds = {};
-  Map<String, String> _areas = const {'todas': 'Todas las áreas'};
   Map<String, dynamic> _userData = const {};
+  PersonasEmpresa _personas = const PersonasEmpresa.vacio();
   late Future<void> _bootstrapFuture;
+
+  // La consulta se crea una sola vez por empresa. Antes se armaba en cada
+  // `build`: al escribir en el buscador el StreamBuilder volvía a "cargando",
+  // la pantalla se reemplazaba y el campo perdía el foco ("solo deja digitar
+  // un carácter", 3 oct 2026).
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _tareasStream;
+  String? _tareasStreamKey;
 
   EmpresaState? _empresaState;
   String? _selectedEmpresaId;
@@ -205,26 +218,31 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     return da.compareTo(db);
   }
 
-  String _areaKeyFor(Map<String, dynamic> data) {
-    final areaId = _str(data, ['areaId']);
-    return areaId.isEmpty ? '__sin_area__' : areaId;
+  // ── Área de quien asignó (3 oct 2026) ─────────────────────────────────
+  // "Agrupar por área" agrupa por el área que ASIGNÓ la tarea, y en Mis
+  // tareas el filtro de área deja ver lo que me asignó alguien de esa área.
+  // Antes se usaba el área de la tarea, que es la del propio responsable. Una
+  // asignación del módulo (la matriz de Interventoría) se agrupa con el
+  // nombre del módulo.
+  static const String _kSinArea = '__sin_area__';
+
+  String _areaAsignadorDe(Map<String, dynamic> data) {
+    final asignador = taskAsignador(data);
+    if (asignador.id.isEmpty) return 'modulo:${taskModuloOrigen(data)}';
+    final area = _personas.areaDe(asignador.id);
+    return area.isEmpty ? _kSinArea : area;
   }
 
-  String _areaLabelFor(String areaKey) {
-    if (areaKey == '__sin_area__') return 'Sin área';
-    return _catalogoAreas.nombreDe(areaKey);
-  }
-
-  Map<String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-  _groupTasksByArea(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
-    final grouped =
-        <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
-    for (final doc in docs) {
-      final key = _areaKeyFor(doc.data());
-      grouped.putIfAbsent(key, () => []).add(doc);
+  String _areaAsignadorNombre(String clave) {
+    if (clave == _kSinArea) return 'Sin área';
+    if (clave.startsWith('modulo:')) {
+      return taskModuloOrigenNombre(clave.substring('modulo:'.length));
     }
-    return grouped;
+    return _catalogoAreas.nombreDe(clave);
   }
+
+  String _nombreArea(String areaId) =>
+      areaId.trim().isEmpty ? 'Sin área' : _catalogoAreas.nombreDe(areaId);
 
   String _currentUserName() {
     final nombre = [
@@ -408,7 +426,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     String areaNameById(String id) =>
         areaCatalogo.opciones.any((o) => o.contiene(id))
         ? areaCatalogo.nombreDe(id, empresaId: empresaId)
-        : _areaLabelFor(id);
+        : _nombreArea(id);
 
     /// Opción del catálogo a la que corresponde un id o nombre de área.
     String opcionDeArea(String valor) {
@@ -548,7 +566,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
 
     final areaTarea = opcionDeArea(taskAreaId);
     if (taskAreaId.isNotEmpty && areaTarea.isEmpty) {
-      areas.add({'id': taskAreaId, 'nombre': _areaLabelFor(taskAreaId)});
+      areas.add({'id': taskAreaId, 'nombre': _nombreArea(taskAreaId)});
       areas.sort((a, b) => a['nombre']!.compareTo(b['nombre']!));
     }
     // '' = todas las áreas.
@@ -976,26 +994,16 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       final filteredEmpresas = resolvedEmpresaId == null
           ? <String>{}
           : <String>{resolvedEmpresaId};
-      var catalogo = const AreaCatalogo.vacio();
-      if (resolvedEmpresaId != null) {
-        final snap = await FirebaseFirestore.instance
-            .collection('TBL_AREAS')
-            .where('empresaId', isEqualTo: resolvedEmpresaId)
-            .get();
-        // Una entrada por área real y sin ids crudos en pantalla.
-        catalogo = AreaCatalogo.desde(
-          snap.docs.map(
-            (d) => (id: d.id, nombre: d.data()['nombre']?.toString()),
-          ),
-          empresaId: resolvedEmpresaId,
-        );
-      }
-      final areas = catalogo.comoMapa();
+      // Personas, cargos y áreas de la empresa: con ellos se sabe el área de
+      // quien asignó cada tarea. Una entrada por área real y sin ids crudos.
+      final personas = resolvedEmpresaId == null
+          ? const PersonasEmpresa.vacio()
+          : await PersonasEmpresa.cargar(resolvedEmpresaId);
       if (!mounted) return;
       setState(() {
         _empresaIds = filteredEmpresas;
-        _catalogoAreas = catalogo;
-        _areas = areas;
+        _personas = personas;
+        _catalogoAreas = personas.areas;
         _userData = data;
       });
     } catch (_) {}
@@ -1005,52 +1013,81 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     final scopedEmpresaId = _selectedEmpresaId?.isNotEmpty == true
         ? _selectedEmpresaId
         : (_empresaIds.length == 1 ? _empresaIds.first : null);
+    final key = '${widget.userId}|${scopedEmpresaId ?? ''}';
+    final actual = _tareasStream;
+    if (actual != null && _tareasStreamKey == key) return actual;
     Query<Map<String, dynamic>> query = FirebaseFirestore.instance
         .collection('TBL_TAREAS')
         .where('asignado_uid', isEqualTo: widget.userId);
     if (scopedEmpresaId != null) {
       query = query.where('empresaId', isEqualTo: scopedEmpresaId);
     }
-    return query.snapshots();
+    _tareasStreamKey = key;
+    return _tareasStream = query.snapshots();
+  }
+
+  bool _coincideBusqueda(Map<String, dynamic> data, String q) {
+    if (q.isEmpty) return true;
+    final asignador = taskAsignador(data);
+    final nombreAsignador = asignador.nombre.isNotEmpty
+        ? asignador.nombre
+        : (UserDirectory.instance.peek(asignador.id)?.displayName ?? '');
+    final numero = taskNumero(data);
+    final haystack = [
+      _str(data, ['titulo', 'title']),
+      _str(data, ['descripcion', 'description']),
+      nombreAsignador,
+      asignador.id,
+      if (numero != null) '$numero',
+      taskNumeroTexto(data),
+      _areaAsignadorNombre(_areaAsignadorDe(data)),
+      taskModuloOrigenNombre(taskModuloOrigen(data)),
+      _priorityLabel(data),
+      taskEstadoVisible(data).nombre,
+    ].join(' ').toLowerCase();
+    return haystack.contains(q);
+  }
+
+  /// Tareas activas que pasan búsqueda, área y módulo, sin mirar el estado:
+  /// de aquí salen los contadores de cada estado.
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filtrarSinEstado(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> activas,
+  ) {
+    final q = _searchCtrl.text.trim().toLowerCase();
+    return activas.where((d) {
+      final data = d.data();
+      if (_areaFilter != 'todas' && _areaAsignadorDe(data) != _areaFilter) {
+        return false;
+      }
+      if (_moduloFilter != 'todos' && taskModuloOrigen(data) != _moduloFilter) {
+        return false;
+      }
+      return _coincideBusqueda(data, q);
+    }).toList();
   }
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _applyFilters(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> sinEstado,
   ) {
-    final q = _searchCtrl.text.trim().toLowerCase();
-    final filtered = docs.where((d) {
-      final data = d.data();
-      final title = _str(data, ['titulo', 'title']).toLowerCase();
-      final description = _str(data, [
-        'descripcion',
-        'description',
-      ]).toLowerCase();
-      final creator = _str(data, [
-        'creador_nombre',
-        'creatorName',
-        'creador_id',
-        'creatorId',
-      ]).toLowerCase();
-      final areaId = _str(data, ['areaId']);
-      final areaName = _areaLabelFor(areaId).toLowerCase();
-      final priority = _priorityLabel(data).toLowerCase();
-      final status = _resolvedStatus(data);
-      if (status == 'finalizado') return false;
-      if (q.isNotEmpty &&
-          !title.contains(q) &&
-          !description.contains(q) &&
-          !creator.contains(q) &&
-          !areaName.contains(q) &&
-          !priority.contains(q)) {
-        return false;
-      }
-      if (_statusFilter != 'todas' && status != _statusFilter) return false;
-      if (!_catalogoAreas.coincide(filtro: _areaFilter, valor: areaId)) {
-        return false;
-      }
-      return true;
-    }).toList();
+    final filtered = _statusFilter == 'todas'
+        ? [...sinEstado]
+        : sinEstado
+              .where((d) => taskEstadoVisible(d.data()).clave == _statusFilter)
+              .toList();
     filtered.sort(_compareByDueDate);
+    if (!_groupByArea) return filtered;
+    final etiquetas = {
+      for (final d in filtered)
+        d.id: _areaAsignadorNombre(_areaAsignadorDe(d.data())).toLowerCase(),
+    };
+    // Orden estable: por área de quien asignó y, dentro, por fecha límite.
+    final indice = {
+      for (var i = 0; i < filtered.length; i++) filtered[i].id: i,
+    };
+    filtered.sort((a, b) {
+      final c = etiquetas[a.id]!.compareTo(etiquetas[b.id]!);
+      return c != 0 ? c : indice[a.id]!.compareTo(indice[b.id]!);
+    });
     return filtered;
   }
 
@@ -1125,13 +1162,15 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         ? 'Requiere evidencias'
         : 'Explica el cumplimiento y solicita aprobación.';
 
-    showModalBottomSheet(
+    final estadoVisible = taskEstadoVisible(data);
+    final numeroTexto = taskNumeroTexto(data);
+    final moduloNombre = taskModuloOrigenNombre(taskModuloOrigen(data));
+    final asignador = taskAsignador(data);
+
+    // Centrado en pantallas amplias, hoja inferior en el teléfono (3 oct
+    // 2026, "centrar la ventana de acciones").
+    showTaskPanel<void>(
       context: context,
-      isScrollControlled: true,
-      constraints: taskPanelConstraints(context, desktopMaxWidth: 980),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
       // Mismo arreglo que en Tareas creadas: en un celular el panel se salía
       // de la pantalla y no se podía desplazar hasta las acciones finales.
       builder: (sheetContext) => SafeArea(
@@ -1149,10 +1188,15 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                     children: [
                       Row(
                         children: [
-                          const Expanded(
+                          Expanded(
                             child: Text(
-                              'ACCIONES DE TAREA',
-                              style: TextStyle(
+                              [
+                                'ACCIONES DE TAREA',
+                                if (numeroTexto.isNotEmpty)
+                                  numeroTexto.toUpperCase(),
+                                moduloNombre.toUpperCase(),
+                              ].join(' · '),
+                              style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 10,
                                 color: Colors.blueGrey,
@@ -1160,6 +1204,8 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                               ),
                             ),
                           ),
+                          TaskEstadoPill(estado: estadoVisible),
+                          const SizedBox(width: 4),
                           IconButton(
                             tooltip: 'Cerrar',
                             onPressed: () => Navigator.of(sheetContext).pop(),
@@ -1201,12 +1247,10 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                           _MetaChip(
                             icon: Icons.person_outline,
                             label: 'Asigna: ',
-                            userId: _str(data, [
-                              'creador_id',
-                              'creatorId',
-                              'createdBy',
-                            ]),
-                            userFallbackName: asigna,
+                            userId: asignador.id,
+                            userFallbackName: asignador.nombre.isNotEmpty
+                                ? asignador.nombre
+                                : asigna,
                           ),
                         ],
                       ),
@@ -1446,7 +1490,9 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: _streamAssignedToMe(),
           builder: (_, snap) {
-            if (snap.connectionState == ConnectionState.waiting) {
+            // Solo la primera carga muestra el esqueleto: si la consulta se
+            // renueva, se conserva lo que ya estaba en pantalla.
+            if (!snap.hasData) {
               return const Scaffold(body: SkeletonList(items: 5));
             }
             final allDocs = snap.data?.docs ?? [];
@@ -1466,16 +1512,26 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
             }
 
             final focusMode = widget.highlightTaskId != null && !_showAllTasks;
+            // Mis tareas muestra lo que falta por hacer: lo terminado va al
+            // historial.
+            final activas = allDocs
+                .where(
+                  (d) =>
+                      taskEstadoVisible(d.data()) !=
+                      TaskEstadoVisible.terminada,
+                )
+                .toList();
+            final sinEstado = _filtrarSinEstado(activas);
             final filtered = focusMode
                 ? allDocs.where((d) => d.id == widget.highlightTaskId).toList()
-                : _applyFilters(allDocs);
+                : _applyFilters(sinEstado);
             return TaskResponsiveLayout(
               title: 'Mis tareas',
               subtitle: focusMode
                   ? 'Mostrando únicamente la tarea seleccionada'
                   : 'Tareas asignadas a ti',
               header: focusMode ? _buildHighlightHeader() : null,
-              filters: _buildFilters(),
+              filters: _buildFilters(activas, sinEstado),
               content: filtered.isEmpty
                   ? EmptyStateWidget(
                       icon: Icons.assignment_turned_in_outlined,
@@ -1483,16 +1539,24 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                       message:
                           'No tienes tareas pendientes que coincidan con los filtros.',
                       actionLabel: 'Limpiar',
-                      onAction: () => setState(() {
-                        _statusFilter = 'todas';
-                        _areaFilter = 'todas';
-                        _groupByArea = false;
-                        _searchCtrl.clear();
-                      }),
+                      onAction: _limpiarFiltros,
                     )
-                  : _groupByArea
-                  ? _buildGroupedList(filtered)
-                  : _buildSimpleList(filtered),
+                  : TaskCardGrid<QueryDocumentSnapshot<Map<String, dynamic>>>(
+                      items: filtered,
+                      page: _page,
+                      onPageChanged: (p) => setState(() => _page = p),
+                      grupoDe: _groupByArea && !focusMode
+                          ? (d) => _areaAsignadorDe(d.data())
+                          : null,
+                      nombreGrupo: _areaAsignadorNombre,
+                      itemBuilder: (context, doc, compact) => TaskModernCard(
+                        data: doc.data(),
+                        compact: compact,
+                        persona: TaskCardPersona.asignador,
+                        onTap: () => _showActionsSheet(doc),
+                        badge: (_finishPending(doc.data()) ? 1 : 0),
+                      ),
+                    ),
             );
           },
         );
@@ -1531,41 +1595,122 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   bool get _hasActiveFilters =>
       _searchCtrl.text.isNotEmpty ||
       _statusFilter != 'todas' ||
-      _areaFilter != 'todas';
+      _areaFilter != 'todas' ||
+      _moduloFilter != 'todos';
 
-  Widget _buildFilters() {
+  void _limpiarFiltros() => setState(() {
+    _searchCtrl.clear();
+    _statusFilter = 'todas';
+    _areaFilter = 'todas';
+    _moduloFilter = 'todos';
+    _groupByArea = false;
+    _page = 0;
+  });
+
+  /// Filtros de Mis tareas. Las opciones de área y módulo salen de las
+  /// tareas de la persona: no se ofrecen áreas de las que no tiene nada
+  /// (3 oct 2026, "solo mostrarle las tareas que le corresponden").
+  Widget _buildFilters(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> activas,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> sinEstado,
+  ) {
     final scheme = Theme.of(context).colorScheme;
     final isWide = MediaQuery.of(context).size.width >= 900;
+
+    final conteo = <String, int>{};
+    for (final d in sinEstado) {
+      final clave = taskEstadoVisible(d.data()).clave;
+      conteo[clave] = (conteo[clave] ?? 0) + 1;
+    }
+
+    final areas = <String, String>{};
+    final modulos = <String, String>{};
+    for (final d in activas) {
+      final data = d.data();
+      final area = _areaAsignadorDe(data);
+      areas.putIfAbsent(area, () => _areaAsignadorNombre(area));
+      final modulo = taskModuloOrigen(data);
+      modulos.putIfAbsent(modulo, () => taskModuloOrigenNombre(modulo));
+    }
+    int porNombre(MapEntry<String, String> a, MapEntry<String, String> b) =>
+        a.value.toLowerCase().compareTo(b.value.toLowerCase());
+    final areasOrdenadas = areas.entries.toList()..sort(porNombre);
+    final modulosOrdenados = modulos.entries.toList()..sort(porNombre);
+
     return TaskFiltersPanel(
       searchController: _searchCtrl,
-      onSearchChanged: (_) => setState(() {}),
-      searchHint: 'Buscar tarea...',
-      quickFilters: const [
-        TaskQuickFilter(label: 'Todos', value: 'todas'),
-        TaskQuickFilter(label: 'En progreso', value: 'en_progreso'),
-        TaskQuickFilter(label: 'Por aprobar', value: 'por_aprobar'),
-        TaskQuickFilter(label: 'Vencidas', value: 'retrasada'),
+      onSearchChanged: (_) => setState(() => _page = 0),
+      searchHint: 'Buscar por título, número o quién asignó...',
+      quickFilters: [
+        TaskQuickFilter(
+          label: 'Todos',
+          value: 'todas',
+          count: sinEstado.length,
+        ),
+        for (final estado in const [
+          TaskEstadoVisible.pendiente,
+          TaskEstadoVisible.reasignada,
+          TaskEstadoVisible.porAprobar,
+          TaskEstadoVisible.retrasada,
+        ])
+          TaskQuickFilter(
+            label: estado.nombre,
+            value: estado.clave,
+            count: conteo[estado.clave] ?? 0,
+            color: estado.color,
+          ),
       ],
       selectedQuickFilter: _statusFilter,
-      onQuickFilterChanged: (value) => setState(() => _statusFilter = value),
+      onQuickFilterChanged: (value) => setState(() {
+        _statusFilter = value;
+        _page = 0;
+      }),
       dropdowns: [
         TaskFilterDropdownData(
-          label: 'Área',
+          label: 'Área que asignó',
           value: _areaFilter,
-          items: _areas.entries
-              .map(
-                (e) => DropdownMenuItem(
-                  value: e.key,
-                  child: Text(e.value, overflow: TextOverflow.ellipsis),
-                ),
-              )
-              .toList(),
-          onChanged: (v) => setState(() => _areaFilter = v ?? 'todas'),
+          items: [
+            const DropdownMenuItem(
+              value: 'todas',
+              child: Text('Todas las áreas'),
+            ),
+            for (final e in areasOrdenadas)
+              DropdownMenuItem(
+                value: e.key,
+                child: Text(e.value, overflow: TextOverflow.ellipsis),
+              ),
+          ],
+          onChanged: (v) => setState(() {
+            _areaFilter = v ?? 'todas';
+            _page = 0;
+          }),
+        ),
+        TaskFilterDropdownData(
+          label: 'Módulo de origen',
+          value: _moduloFilter,
+          items: [
+            const DropdownMenuItem(
+              value: 'todos',
+              child: Text('Todos los módulos'),
+            ),
+            for (final e in modulosOrdenados)
+              DropdownMenuItem(
+                value: e.key,
+                child: Text(e.value, overflow: TextOverflow.ellipsis),
+              ),
+          ],
+          onChanged: (v) => setState(() {
+            _moduloFilter = v ?? 'todos';
+            _page = 0;
+          }),
         ),
       ],
       trailingFilters: [
         InkWell(
-          onTap: () => setState(() => _groupByArea = !_groupByArea),
+          onTap: () => setState(() {
+            _groupByArea = !_groupByArea;
+            _page = 0;
+          }),
           borderRadius: BorderRadius.circular(12),
           child: Container(
             padding: EdgeInsets.symmetric(
@@ -1591,7 +1736,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                 ),
                 const SizedBox(width: 12),
                 Text(
-                  'Agrupar por área',
+                  'Agrupar por área que asignó',
                   style: TextStyle(
                     fontSize: isWide ? 12 : 13,
                     fontWeight: FontWeight.w600,
@@ -1601,7 +1746,10 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                 const SizedBox(width: 8),
                 Switch.adaptive(
                   value: _groupByArea,
-                  onChanged: (v) => setState(() => _groupByArea = v),
+                  onChanged: (v) => setState(() {
+                    _groupByArea = v;
+                    _page = 0;
+                  }),
                   activeThumbColor: scheme.primary,
                   activeTrackColor: scheme.primary.withValues(alpha: 0.25),
                 ),
@@ -1610,95 +1758,8 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
           ),
         ),
       ],
-      onClearFilters: () => setState(() {
-        _searchCtrl.clear();
-        _statusFilter = 'todas';
-        _areaFilter = 'todas';
-        _groupByArea = false;
-      }),
+      onClearFilters: _limpiarFiltros,
       hasActiveFilters: _hasActiveFilters || _groupByArea,
-    );
-  }
-
-  Widget _buildSimpleList(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) {
-    final isWide = MediaQuery.of(context).size.width >= 900;
-    return ListView.builder(
-      padding: EdgeInsets.symmetric(
-        horizontal: isWide ? 20 : 16,
-        vertical: isWide ? 14 : 20,
-      ),
-      itemCount: docs.length,
-      itemBuilder: (_, i) => _limitTaskWidth(
-        TaskModernCard(
-          data: docs[i].data(),
-          onTap: () => _showActionsSheet(docs[i]),
-          badge: (_finishPending(docs[i].data()) ? 1 : 0),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildGroupedList(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) {
-    final grouped = _groupTasksByArea(docs);
-    final keys = grouped.keys.toList()
-      ..sort((a, b) => _areaLabelFor(a).compareTo(_areaLabelFor(b)));
-    final isWide = MediaQuery.of(context).size.width >= 900;
-    return ListView.builder(
-      padding: EdgeInsets.symmetric(
-        horizontal: isWide ? 20 : 16,
-        vertical: isWide ? 14 : 20,
-      ),
-      itemCount: keys.length,
-      itemBuilder: (_, i) {
-        final key = keys[i];
-        final tasks = grouped[key]!;
-        return _limitTaskWidth(
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 12,
-                  horizontal: 4,
-                ),
-                child: Text(
-                  _areaLabelFor(key).toUpperCase(),
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w900,
-                    fontSize: 10,
-                    color: Colors.blueGrey,
-                    letterSpacing: 1.5,
-                  ),
-                ),
-              ),
-              ...tasks.map(
-                (t) => TaskModernCard(
-                  data: t.data(),
-                  onTap: () => _showActionsSheet(t),
-                  badge: (_finishPending(t.data()) ? 1 : 0),
-                ),
-              ),
-              const SizedBox(height: 12),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _limitTaskWidth(Widget child) {
-    final isWide = MediaQuery.of(context).size.width >= 900;
-    if (!isWide) return child;
-
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 1180),
-        child: child,
-      ),
     );
   }
 }
