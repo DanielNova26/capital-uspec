@@ -112,8 +112,21 @@ traerlos, comparar contra esta entrada.
   marcadas "[pendiente TH]"; `tareas_rules.rules.js` 13/13 con una nueva (la
   app no crea ni cambia `numero` y no lee ni escribe el contador).
 - **Pendiente:**
-  - Publicar en este orden: reglas e índices (siguen pendientes los del 2
-    oct: 503 al compilar), Functions (incluye `tareasAsignarNumero` y
+  - **Reglas: no publicarlas todavía.** 3 oct, desde el PC nuevo: la
+    compilación volvió a dar HTTP 503 en
+    `firebaserules.googleapis.com/...:test` (igual que el 2 oct; en el
+    emulador compilan y pasan). Producción sigue con las reglas anteriores al
+    2 oct, donde `TBL_TAREAS` no tiene regla propia y cae en la regla general
+    (cualquier sesión lee y escribe): la Web 2.6.15 funciona con ellas. Las
+    reglas nuevas son más estrictas y la app de iPhone de la tienda (2.5.0)
+    y los Android anteriores consultan el Home sin empresa: se quedarían sin
+    tareas. Orden: Web y Functions ahora; reglas cuando 2.6.15 esté en las
+    tiendas y `TBL_CONFIG/APP_VERSION` obligue a actualizar, y antes
+    averiguar el 503 (el bloque de `TBL_TAREAS` del 2 oct llevó el archivo
+    de 104 KB a 129 KB; no supera los límites documentados de argumentos,
+    `let` ni tamaño). Los índices sí se pueden publicar solos
+    (`firebase deploy --only firestore:indexes`).
+  - Publicar Functions (incluye `tareasAsignarNumero` y
     `tareasNumerarHistoricas`) y Web (`flutter build web --release` y
     `firebase deploy --only hosting`). Comprobar que
     `https://to-do-gestion.com/version.json` diga 2.6.15 / 29 y el menú
