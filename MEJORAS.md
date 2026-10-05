@@ -6,6 +6,42 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## 2026-10-05 — Comprobación cruzada de Tareas 2.6.15 (Codex)
+
+- Se trajo `origin/main` de `c9a9b65` a `a3c93be` (commits de Claude
+  `3a70c8f`, `7212f90` y `a3c93be`). El trabajo local anterior de Codex quedó
+  conservado en el stash local `Codex local Tareas review before Claude sync
+  2026-10-05`, sin mezclarlo con la versión recibida. La implementación de
+  Claude cubre los paneles centrados, dictado, buscador estable, tarjetas y
+  filtros, Correspondencia, Mi equipo, exportaciones y numeración que estaban
+  en revisión local, además de las correcciones de Compras.
+- La Web pública `https://to-do-gestion.com/version.json` respondió
+  `2.6.15` / build `29` el 5 de octubre. Se descargó el `main.dart.js`
+  público y contiene textos de las nuevas pantallas de dictado, filtros,
+  Correspondencia y equipo. Firebase lista activas las Functions nuevas
+  `tareasAsignarNumero` y `tareasNumerarHistoricas`. Esto confirma publicación
+  de Web y presencia de Functions, pero no sustituye una prueba de sesión real.
+- La App Store colombiana sigue mostrando iOS `2.5.0 (12)` en la consulta
+  oficial de Apple. La ficha pública de Google Play para
+  `com.todogestion.app` devuelve 404; no se pudo saber el estado de canales
+  internos de Android. La numeración de tareas históricas requiere ejecutar
+  **Revisar** y **Numerar** en Admin para cada empresa; no se verificó si ya se
+  hizo. Las reglas nuevas constan como pendientes en la entrada del 3 de
+  octubre; su estado desplegado no se comprobó en esta revisión.
+- Validación local de lo sincronizado: `flutter test --no-pub` 1478/1478;
+  `node --test test/tareas_numero.test.js` 6/6; `flutter analyze --no-pub`
+  sin errores, con 211 avisos de lint. Quedan sin prueba visual
+  autenticada la Web a 390/768/1024/1366 y con texto ampliado, la app
+  instalada de Windows, Android e iOS.
+- Diferencias frente al trabajo local reservado: la versión recibida muestra
+  **PENDIENTE** en la interfaz, pero las tareas nuevas conservan
+  `estado: en_progreso` en datos; Gerencia y avisos de servidor aún usan ese
+  estado. El texto de permiso de micrófono y reconocimiento de voz en iOS
+  todavía menciona solo Interventoría. Las reglas propuestas permiten a
+  quien tenga `puedeVerEquipo` leer cualquier tarea de su empresa, mientras
+  el tablero limita en la interfaz el equipo de jefes y directores. Hay que
+  ajustar ese alcance en reglas antes de considerarlo protegido por servidor.
+
 ## Tareas: documento "TAREAS - SEPTIEMBRE 29" completo — 3 oct 2026 (Claude)
 
 Pedido del usuario desde un PC nuevo: "Codex estaba trabajando algo y no hay
