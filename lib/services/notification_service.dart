@@ -41,6 +41,7 @@ import 'local_notification_service.dart'
 import '../core/task_route_guard.dart';
 import '../facturacion/facturacion_navigation.dart';
 import '../interventoria/interventoria_dashboard_screen.dart';
+import '../interventoria/interventoria_planes_screen.dart';
 import '../visitas/visitas_navigation.dart';
 
 typedef CedulaProvider = FutureOr<String?> Function();
@@ -344,6 +345,10 @@ class NotificationsService {
       return;
     }
 
+    if (notifType == 'interventoria_plan_mejora') {
+      await abrirPlanesDesdeAviso(context, empresaId: notifEmpresaId ?? '', tareaId: taskId ?? '');
+      return;
+    }
     if (_isInterventoriaActaEliminada(notifType)) {
       final eid = (notifEmpresaId ?? '').trim();
       if (eid.isEmpty) {

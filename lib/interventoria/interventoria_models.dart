@@ -1212,6 +1212,8 @@ String cuerpoNotificacionSeguimiento(
 }
 
 class InterventoriaVisita {
+  /// Código que asignó K2; no es el id interno de Firestore.
+  final String idVisitaK2;
   final String id;
   final String empresaId;
   final String centroCostoId;
@@ -1251,6 +1253,7 @@ class InterventoriaVisita {
   final Timestamp? updatedAt;
 
   const InterventoriaVisita({
+    this.idVisitaK2 = '',
     this.id = '',
     required this.empresaId,
     required this.centroCostoId,
@@ -1320,6 +1323,7 @@ class InterventoriaVisita {
       );
     }
     return InterventoriaVisita(
+      idVisitaK2: (data['idVisitaK2'] ?? '').toString(),
       id: id,
       empresaId: (data['empresaId'] ?? '').toString(),
       centroCostoId: (data['centroCostoId'] ?? '').toString(),
@@ -1375,6 +1379,7 @@ class InterventoriaVisita {
     'porcentajeGeneral': porcentajeGeneral,
     'itemsEvaluacion': items.map((key, value) => MapEntry(key, value.toMap())),
     'totalCondicionesServicio': porcentajeGeneral,
+    'idVisitaK2': idVisitaK2,
     'imagenesActa': adjuntos.map((a) => a.toMap()).toList(),
     'actaOriginalUrl': actaOriginalUrl,
     'ocrTextoExtraido': ocrTextoExtraido,
@@ -2284,10 +2289,12 @@ List<InterventoriaComparativoActa> ordenarComparativo(
   List<InterventoriaComparativoActa> puntos,
   OrdenComparativo orden,
 ) {
-  int porNombre(InterventoriaComparativoActa a, InterventoriaComparativoActa b) =>
-      a.centroCostoNombre.toLowerCase().compareTo(
-        b.centroCostoNombre.toLowerCase(),
-      );
+  int porNombre(
+    InterventoriaComparativoActa a,
+    InterventoriaComparativoActa b,
+  ) => a.centroCostoNombre.toLowerCase().compareTo(
+    b.centroCostoNombre.toLowerCase(),
+  );
   final lista = [...puntos];
   switch (orden) {
     case OrdenComparativo.recientes:

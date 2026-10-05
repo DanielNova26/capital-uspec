@@ -153,12 +153,13 @@ const interventoriaTableRoles = TableModuleRoleConfig(
   },
   levelDescriptions: {
     kRolInterventoriaRegistrador:
-        'Registra las actas: sube el PDF y los puntajes.',
+        'Registra el ID externo de la visita y los porcentajes, sin evidencia inicial.',
     kRolInterventoriaRevisor:
         'Revisa y corrige actas en "Por revisar" y aprueba eliminaciones.',
     kRolInterventoriaCalidad:
-        'Ve el histórico, las subsanaciones en solo lectura y el análisis; '
-        'no revisa actas ni mueve responsables.',
+        'Gestiona planes de mejora: revisa compromisos y soportes, devuelve '
+        'entregas y prepara su presentación en K2. Consulta histórico y análisis; '
+        'no reasigna responsables ni edita las actas.',
     kRolInterventoriaGerente:
         'Revisa actas, ve el análisis y aprueba eliminaciones.',
     kRolInterventoriaDirectivo:

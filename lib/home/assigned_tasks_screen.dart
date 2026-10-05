@@ -20,6 +20,7 @@ import '../compras/compras_dashboard_screen.dart';
 import '../facturacion/facturacion_models.dart';
 import '../facturacion/facturacion_navigation.dart';
 import '../interventoria/interventoria_dashboard_screen.dart';
+import '../interventoria/interventoria_planes_screen.dart';
 import '../gestion_documental/correspondencia/gd_correspondencia_screen.dart';
 import 'complete_task_screen.dart' hide kArial;
 import 'notify_avances_screen.dart' hide kArial;
@@ -1258,6 +1259,28 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                   ),
                 ),
                 const Divider(height: 1),
+                if ((data['sourceModule'] ?? data['origen']) ==
+                        'interventoria' &&
+                    (data['sourceEntityCollection'] ?? '') ==
+                        'TBL_INTERVENTORIA_HALLAZGOS')
+                  _ActionTile(
+                    icon: Icons.fact_check_outlined,
+                    color: Colors.teal,
+                    title: 'Plan de mejora: respuesta y soportes',
+                    subtitle:
+                        'Consulta las fechas máximas y envía tus entregas a Calidad.',
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => PlanesDeTareaScreen(
+                            empresaId: (data['empresaId'] ?? '').toString(),
+                            tareaId: taskId,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
                 if (canComplete)
                   _ActionTile(
                     icon: finishPending

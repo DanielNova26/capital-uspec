@@ -1558,9 +1558,9 @@ class InterventoriaService {
   }
 
   Future<String> guardarVisita(InterventoriaVisita visita) async {
-    if (!contieneActaPdf(visita.adjuntos)) {
+    if (visita.idVisitaK2.trim().isEmpty) {
       throw ArgumentError(
-        'El acta en PDF es obligatoria para registrar la visita.',
+        'Indica el ID externo de la visita K2.',
       );
     }
     final ref = visita.id.isEmpty
@@ -1654,6 +1654,7 @@ class InterventoriaService {
         'tiempoComida': visita.tiempoComida,
         'porcentajeGeneral': visita.porcentajeGeneral,
         'totalCondicionesServicio': visita.porcentajeGeneral,
+        'idVisitaK2': visita.idVisitaK2,
         'itemsEvaluacion': visita.items.map(
           (key, value) => MapEntry(key, value.toMap()),
         ),

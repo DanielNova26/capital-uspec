@@ -31,6 +31,7 @@ import '../widgets/memo_stream_builder.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 
 import 'interventoria_conceptos_sanitarios.dart';
+import 'interventoria_planes_screen.dart';
 import 'interventoria_hallazgo_panel.dart';
 import 'interventoria_maestro_subsanaciones.dart';
 import 'interventoria_subsanaciones_export.dart';
@@ -310,6 +311,11 @@ class _InterventoriaDashboardScreenState
         : (_centroFiltro.isEmpty ? null : _centroFiltro);
 
     final tabs = <InternalModuleTabItem>[
+      if (rol == kRolInterventoriaCalidad)
+        const InternalModuleTabItem(
+          label: 'Planes de mejora',
+          icon: Icons.fact_check_outlined,
+        ),
       const InternalModuleTabItem(
         label: 'Historico de actas',
         icon: Icons.assignment_rounded,
@@ -395,6 +401,8 @@ class _InterventoriaDashboardScreenState
               index: _tab,
               children: [
                 // Tab: Historico de actas (antes "Visitas")
+                if (rol == kRolInterventoriaCalidad)
+                  InterventoriaPlanesPanel(empresaId: widget.empresaId),
                 _VisitasTab(
                   empresaId: widget.empresaId,
                   userId: widget.userId,
@@ -5960,7 +5968,10 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
                 v.centroCostoNombre.isNotEmpty
                     ? nombreComparativo(v)
                     : v.centroCostoCodigo,
-                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 11),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 11,
+                ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -6031,7 +6042,10 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
               width: 200,
               child: Text(
                 cat.label,
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),
@@ -6070,7 +6084,9 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
               decoration: BoxDecoration(
-                color: _percentColor(v.porcentajeGeneral).withValues(alpha: 0.15),
+                color: _percentColor(
+                  v.porcentajeGeneral,
+                ).withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Text(
@@ -6802,40 +6818,41 @@ class _ComparativoUltimaActaCardState
                       scrollDirection: Axis.horizontal,
                       padding: EdgeInsets.only(bottom: desborda ? 12 : 0),
                       child: SizedBox(
-                      width: chartWidth,
-                      height: 270,
-                      child: MouseRegion(
-                        cursor: onSelected == null
-                            ? SystemMouseCursors.basic
-                            : SystemMouseCursors.click,
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTapDown: onSelected == null
-                              ? null
-                              : (details) {
-                                  const left = 46.0;
-                                  final plotWidth = chartWidth - left - 18;
-                                  if (details.localPosition.dx < left ||
-                                      plotWidth <= 0) {
-                                    return;
-                                  }
-                                  final slot = plotWidth / points.length;
-                                  final index =
-                                      ((details.localPosition.dx - left) / slot)
-                                          .floor();
-                                  if (index >= 0 && index < points.length) {
-                                    _mostrarDetalleBarra(
-                                      context,
-                                      points[index],
-                                    );
-                                  }
-                                },
-                          child: CustomPaint(
-                            painter: _ComparativoUltimaActaPainter(points),
+                        width: chartWidth,
+                        height: 270,
+                        child: MouseRegion(
+                          cursor: onSelected == null
+                              ? SystemMouseCursors.basic
+                              : SystemMouseCursors.click,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTapDown: onSelected == null
+                                ? null
+                                : (details) {
+                                    const left = 46.0;
+                                    final plotWidth = chartWidth - left - 18;
+                                    if (details.localPosition.dx < left ||
+                                        plotWidth <= 0) {
+                                      return;
+                                    }
+                                    final slot = plotWidth / points.length;
+                                    final index =
+                                        ((details.localPosition.dx - left) /
+                                                slot)
+                                            .floor();
+                                    if (index >= 0 && index < points.length) {
+                                      _mostrarDetalleBarra(
+                                        context,
+                                        points[index],
+                                      );
+                                    }
+                                  },
+                            child: CustomPaint(
+                              painter: _ComparativoUltimaActaPainter(points),
+                            ),
                           ),
                         ),
                       ),
-                    ),
                     ),
                   );
                   if (!desborda) return grafico;
@@ -7284,6 +7301,7 @@ class _RegistrarActaSheet extends StatefulWidget {
 }
 
 class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
+  final _idVisitaK2Ctrl = TextEditingController();
   CentroCostoRef? _centro;
 
   /// División interna del establecimiento, cuando lo está: Cómbita Alta o
@@ -7335,6 +7353,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
   void initState() {
     super.initState();
     final existente = widget.visitaEditar;
+    _idVisitaK2Ctrl.text = existente?.idVisitaK2 ?? '';
     _fecha = existente?.fechaVisita.toDate() ?? DateTime.now();
     _tipoActa = existente?.tipoActa;
     _tiempoComida = existente?.tiempoComida;
@@ -7420,6 +7439,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
   @override
   void dispose() {
     _ocrCtrl.dispose();
+    _idVisitaK2Ctrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
   }
@@ -7502,14 +7522,11 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
 
                 // ── Botón guardar (fijo al fondo) ─────────────────────────
                 // Deshabilitado (no solo validado al click) si falta el
-                // establecimiento, el acta PDF o algún ítem sin puntaje/NE.
+                // establecimiento, el ID K2 o algún ítem sin puntaje/NE.
                 Builder(
                   builder: (_) {
                     final faltantes = _itemsIncompletos();
-                    final faltaActa = !puedeGenerarActaPdf([
-                      ..._adjuntosExistentes.map((file) => file.contentType),
-                      ..._files.map((file) => file.contentType),
-                    ]);
+                    final faltaActa = _idVisitaK2Ctrl.text.trim().isEmpty;
                     final puedeGuardar =
                         !_saving &&
                         !_extracting &&
@@ -7537,7 +7554,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
                                         : _tipoActa == null
                                         ? 'Selecciona el tipo de acta asignado'
                                         : faltaActa
-                                        ? 'Adjunta el acta PDF obligatoria'
+                                        ? 'Indica el ID externo de la visita K2'
                                         : 'Faltan ${faltantes.length} sección(es) sin puntaje ni NE',
                                     style: const TextStyle(
                                       fontSize: 11,
@@ -7587,6 +7604,15 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
   Widget _buildCommonHeader(bool isWeb) {
     return Column(
       children: [
+        TextField(
+          controller: _idVisitaK2Ctrl,
+          decoration: const InputDecoration(
+            labelText: 'ID externo de la visita K2',
+            border: OutlineInputBorder(),
+          ),
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 12),
         if (_editando) ...[
           Container(
             width: double.infinity,
@@ -7810,19 +7836,28 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
           },
         ),
         const SizedBox(height: 10),
-        _ActaGeneralCard(
-          files: _files,
-          existingFiles: _adjuntosExistentes,
-          extracting: _extracting,
-          onPickArchivo: _pickArchivo,
-          onPickCamera: _pickCamera,
-          onPickGallery: _pickGallery,
-          onPreview: _showActaPreview,
-          onRemove: (file) => setState(() => _files.remove(file)),
-          onOpenExisting: (file) {
-            if (file.url.trim().isNotEmpty) launchUrlString(file.url);
-          },
-        ),
+        if (widget.visitaEditar != null && _adjuntosExistentes.isNotEmpty)
+          ExpansionTile(
+            title: const Text('Acta original del registro anterior'),
+            subtitle: const Text(
+              'El registro requiere el ID de visita y los porcentajes. No se exige evidencia inicial.',
+            ),
+            children: [
+              _ActaGeneralCard(
+                files: _files,
+                existingFiles: _adjuntosExistentes,
+                extracting: _extracting,
+                onPickArchivo: _pickArchivo,
+                onPickCamera: _pickCamera,
+                onPickGallery: _pickGallery,
+                onPreview: _showActaPreview,
+                onRemove: (file) => setState(() => _files.remove(file)),
+                onOpenExisting: (file) {
+                  if (file.url.trim().isNotEmpty) launchUrlString(file.url);
+                },
+              ),
+            ],
+          ),
       ],
     );
   }
@@ -8854,14 +8889,11 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
       );
       return;
     }
-    if (!puedeGenerarActaPdf([
-      ..._adjuntosExistentes.map((file) => file.contentType),
-      ..._files.map((file) => file.contentType),
-    ])) {
+    if (_idVisitaK2Ctrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: Color(0xFFB91C1C),
-          content: Text('Debes adjuntar el acta PDF antes de guardar.'),
+          content: Text('Indica el ID externo de la visita K2.'),
         ),
       );
       return;
@@ -8901,25 +8933,16 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
         }
       }
 
-      // 1. Preparar el PDF obligatorio. Las imágenes escaneadas se convierten
-      // en un PDF general antes de que exista la visita en Firestore.
+      // 1. Conservar adjuntos históricos, si existen. Un registro nuevo
+      // requiere únicamente el ID de K2 y los porcentajes.
       final itemsParaGuardar = _itemsParaGuardar();
       final pctGeneral = calcularPorcentajeGeneral(itemsParaGuardar);
       final filesToUpload = <_PickedActa>[];
       final generatedPdf = await _buildGeneralActaPdf();
       if (generatedPdf != null) filesToUpload.add(generatedPdf);
       filesToUpload.addAll(_files);
-      if (!filesToUpload.any(
-            (file) => file.contentType.toLowerCase() == 'application/pdf',
-          ) &&
-          !_adjuntosExistentes.any(
-            (file) => file.contentType.toLowerCase() == 'application/pdf',
-          )) {
-        throw StateError('No fue posible generar el acta PDF obligatoria.');
-      }
 
-      // 2. Reservar el id y subir los archivos. Si la carga falla, no queda
-      // una visita registrada sin el PDF que la respalda.
+      // 2. Reservar el id y subir solo los archivos aportados.
       final visitaId =
           widget.visitaEditar?.id ??
           widget.service.visitaIdParaActa(
@@ -8964,14 +8987,12 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
           break;
         }
       }
-      if (actaPdf == null) {
-        throw StateError('No fue posible conservar el acta PDF obligatoria.');
-      }
 
-      // 3. Persistir la visita únicamente cuando el PDF ya existe.
+      // 3. Persistir la visita, con o sin adjuntos históricos.
       final existente = widget.visitaEditar;
       final visita = InterventoriaVisita(
         id: visitaId,
+        idVisitaK2: _idVisitaK2Ctrl.text.trim(),
         empresaId: widget.empresaId,
         centroCostoId: _centro!.centroId,
         centroCostoCodigo: _centro!.codigo,
@@ -8987,7 +9008,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
         porcentajeGeneral: pctGeneral,
         items: itemsParaGuardar,
         adjuntos: adjuntos,
-        actaOriginalUrl: actaPdf.url,
+        actaOriginalUrl: actaPdf?.url ?? existente?.actaOriginalUrl ?? '',
         observaciones: existente?.observaciones ?? '',
         ocrTextoExtraido: _ocrCtrl.text.trim(),
         ocrDatosDetectados: existente?.ocrDatosDetectados ?? const {},
@@ -9839,7 +9860,7 @@ class _ActaGeneralCard extends StatelessWidget {
               children: [
                 const Expanded(
                   child: Text(
-                    'Acta general (PDF) *',
+                    'Acta general (PDF)',
                     style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
                   ),
                 ),
@@ -9861,7 +9882,7 @@ class _ActaGeneralCard extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               files.isEmpty && existingFiles.isEmpty
-                  ? 'Obligatorio. Adjunta el PDF o escanea sus páginas para generarlo.'
+                  ? 'Archivo conservado del registro anterior.'
                   : existingFiles.isNotEmpty && files.isEmpty
                   ? 'El archivo actual se conservará. Adjunta uno nuevo solo si debes reemplazar o complementar el soporte.'
                   : 'Las imágenes escaneadas se convierten en el PDF general al guardar.',

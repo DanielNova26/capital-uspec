@@ -966,6 +966,15 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Expedientes K2 y su historial: solo el callable comprueba Calidad,
+    // acceso activo y responsable ACTUAL de la tarea antes de cada operación.
+    match /TBL_INTERVENTORIA_PLANES/{document=**} {
+      allow read, write: if false;
+    }
+    match /TBL_INTERVENTORIA_PLAN_ITEMS/{document=**} {
+      allow read, write: if false;
+    }
+
     // Concepto higiénico sanitario (28 sep 2026): el acta de la autoridad de
     // salud con establecimiento, fecha, puntaje y concepto. La ve la empresa;
     // la registran y corrigen los roles con escritura del módulo
@@ -2428,6 +2437,8 @@ service cloud.firestore {
           'TBL_CORREO_REGLAS',
           'TBL_GD_EXPEDIENTES',
           'TBL_INTERVENTORIA_VISITAS',
+          'TBL_INTERVENTORIA_PLANES',
+          'TBL_INTERVENTORIA_PLAN_ITEMS',
           'TBL_INTERVENTORIA_HALLAZGOS',
           'TBL_INTERVENTORIA_ROLES',
           'TBL_INTERVENTORIA_CONFIG',

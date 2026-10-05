@@ -1,7 +1,8 @@
 # Interventoría: preparación de planes para K2
 
-Fecha: 5 de octubre de 2026. Estado: propuesta funcional contrastada con K2,
-los documentos aportados y el código local; **no implementada ni desplegada**.
+Fecha: 5 de octubre de 2026. Estado: **implementado y probado en código;
+pendiente de despliegue y validación en dispositivos reales**. Esta versión
+incorpora la corrección del usuario: el administrador no aporta evidencia inicial.
 
 ## Objetivo solicitado
 
@@ -34,10 +35,12 @@ La entrega en K2 es una etapa independiente de completar el trabajo en ToDo.
   plazo de respuesta en el Excel. No equivalen a sumar 5 y 20 días calendario
   a la notificación; no se dedujo de ello una regla contractual.
 
-## Flujo propuesto
+## Flujo implementado
 
-1. El administrador registra el acta con su ID externo de visita y evidencia
-   inicial. Se conservan la fecha de visita, de notificación y de registro.
+1. El administrador registra el ID externo de visita K2 y los porcentajes,
+   conservando el contexto habitual de establecimiento, tipo y fecha de acta.
+   No se muestra carga de evidencia inicial en registros nuevos ni se exige
+   PDF. Los adjuntos de actas históricas se conservan.
 2. Se vinculan los hallazgos con sus tareas existentes. Cada responsable ve
    su respuesta pendiente y su entrega de soportes, con vencimientos distintos.
 3. En la primera etapa se prepara el compromiso y sus fechas; no se exige
@@ -49,8 +52,9 @@ La entrega en K2 es una etapa independiente de completar el trabajo en ToDo.
    incluir varias visitas, como ocurre en el ejemplo real.
 6. ToDo ofrece copiar compromiso, copiar fecha de ejecución y copiar fecha
    de seguimiento. Conserva además respuesta y referencias para el expediente.
-7. Los responsables adjuntan evidencias de cumplimiento a sus tareas. Calidad
-   revisa la versión concreta de texto y adjuntos; si cambia, se revisa de nuevo.
+7. Los responsables abren el plan desde su tarea existente y aportan evidencias
+   de subsanación; también pueden reutilizar textos y archivos de la tarea.
+   Calidad revisa una versión concreta; si cambia, se revisa nuevamente.
 8. Cuando los soportes requeridos están satisfactorios, se genera un PDF por
    hallazgo y una descarga conjunta. Nombre propuesto sin colisiones:
    `PM_ESTABLECIMIENTO_IDVISITA_NUMERAL_IDHALLAZGO.pdf`.
@@ -59,23 +63,25 @@ La entrega en K2 es una etapa independiente de completar el trabajo en ToDo.
    Descargar o copiar no cambia esos estados. Presentado tampoco significa
    aceptado/cerrado por la interventoría.
 
-El expediente conserva la evidencia inicial separada de la evidencia de
-subsanación, sus autores, fechas y procedencia. La devolución de Calidad debe
-mantener la historia y la asignación; no sustituye silenciosamente la aprobación
-operativa que hoy pertenece al aprobador de la tarea.
+El expediente conserva autores, fechas, versiones y procedencia de la evidencia
+de subsanación. Las devoluciones y reaperturas quedan en historial del servidor;
+no sustituyen la aprobación operativa que pertenece al aprobador de la tarea.
 
-## Plazos que falta precisar
+## Fechas comunes del plan
 
-- Fecha de inicio: notificación oficial, fecha del acta o registro en ToDo.
-- Si los 20 días parten del mismo origen que los 5 o de presentar la respuesta.
-- Si los plazos indicados son metas internas o vencimientos externos.
+Al crear un plan se propone fecha de notificación +5 días para respuesta y
++20 días para soportes, sin excluir fines de semana ni festivos. Calidad
+confirma o corrige ambas fechas máximas antes de guardar; todos los hallazgos
+leen esas mismas fechas. El formulario explica este origen del cálculo y no
+presenta los valores propuestos como fechas verificadas en K2. Registrar o
+vincular después un hallazgo no reinicia los plazos. Cambiarlos requiere motivo
+y conservar la compatibilidad con las fechas de compromiso ya registradas.
 
-Propuesta: almacenar ambos plazos internos y las fechas oficiales de K2,
-mostrar discrepancias y no reemplazar una fecha externa por un cálculo local.
-Usar días calendario y zona America/Bogota, con convención explícita de día
-inicial y hora de cierre. Cargar tarde un acta no debe reiniciar un plazo
-oficial. Las alertas deben distinguir respuesta, soportes y carga externa,
-con responsables y Calidad como destinatarios según su acceso vigente.
+Los vencimientos se calculan por día civil en Colombia. Hay avisos de nueva
+asignación, entrega, revisión y reapertura; el recordatorio diario empieza
+tres días antes de cada máximo, a las 08:00 de Bogotá, y continúa si está
+vencido. Una etapa aprobada pero sin presentación registrada sigue pendiente
+para Calidad. El responsable actual y Calidad deben conservar acceso vigente.
 
 ## Encaje con ToDo y permisos
 
@@ -87,9 +93,11 @@ con responsables y Calidad como destinatarios según su acceso vigente.
   capacidades explícitas de revisión, devolución, exportación y registro de
   presentación, aplicadas en interfaz y servidor. Los responsables solo
   aportan a sus tareas dentro de la empresa y cobertura que les corresponda.
-- Mantener coherencia con Admin, roles, revocación y reactivación; registrar
-  los parámetros copiables en los catálogos de maestros cliente y servidor.
-  Los planes, respuestas y evidencias operativos no se copian entre empresas.
+- Se reutilizan el catálogo canónico de apps, el creador de roles de Admin y
+  el nivel Calidad existentes. Servidor exige asignación canónica en la empresa;
+  un rol histórico suelto no otorga permiso. No se agrega otro maestro ni una
+  configuración duplicada: las fechas son datos operativos de cada plan.
+  Los planes, respuestas y evidencias no se copian entre empresas.
 - No almacenar las credenciales aportadas de K2 en código, documentos ni
   configuración cliente. Este flujo manual asistido no las necesita.
 - Web: bandeja con filtros por establecimiento, fecha de acta, plan,
@@ -105,7 +113,8 @@ actual distingue `numeroHallazgo` de `numeralActa`: no son intercambiables.
 La exportación de subsanaciones hoy usa `numeroHallazgo` y muestra solo
 Sí/Sin tarea; requiere revisar el mapeo antes de alimentar un expediente K2.
 
-El Excel sirve como entrada asistida, con vista previa y resolución explícita
+La importación del Excel queda fuera de esta entrega. Como ampliación serviría
+como entrada asistida, con vista previa y resolución explícita
 de coincidencias. Buscar por empresa, notificación, visita y numeral; si hay
 ambigüedad, no vincular automáticamente. Reimportar no debe duplicar planes
 ni pisar respuestas. El filtro de correo CRF-K2 del PDF es una mejora posterior
@@ -117,10 +126,21 @@ Se verificaron PDF completo, estructura del Excel, pantallas reales indicadas
 de K2 y los puntos de integración del código. No se verificó una API oficial
 de K2 ni los límites de carga de adjuntos. No se promete envío automático.
 
-Antes de implementar/cerrar: resolver los plazos; probar asociación y
-reimportación, numerales, versiones aprobadas, devoluciones, entregas
-parciales, auditoría, empresa secundaria, permisos históricos, revocación y
-reactivación, y alertas sin duplicados. Validar reglas/servicios y descargas.
-Probar Web a 390/768/1024/1366 y texto ampliado; Android e iOS por separado,
-con teclado, áreas seguras, cámara/archivos y permisos. Ninguna de estas
-pruebas de la nueva funcionalidad se ha realizado: aún no existe implementación.
+Validación: 252 pruebas Flutter de Interventoría y maestros; 25 de roles de
+Admin; seis de política de fechas/revisión; diez de integración con Firestore
+y Storage emulados. Incluyen empresa secundaria, rol histórico, revocación,
+reactivación, reasignación, versiones, devoluciones, presentación y reapertura,
+PDF real, protección de soportes y avisos idempotentes. Compilación TypeScript
+y Web correctas. Se revisaron visualmente las capturas y la portada del PDF.
+
+Pruebas de widgets: 390/768/1024/1366, escala de texto 1 y 1.6, temas Android e
+iOS. No equivalen a pruebas en navegador autenticado ni dispositivos reales:
+pendientes teclado, áreas seguras, cámara, selector y descarga en Android/iPhone.
+También queda pendiente el despliegue coordinado de reglas, Functions y cliente.
+Sin migraciones automáticas ni escrituras en K2.
+
+Soportes admitidos: PDF/JPG/PNG, 5 MB por archivo y 12 archivos por hallazgo.
+Se almacenan cifrados; solo el servicio autorizado devuelve el contenido.
+La descarga conjunta genera ZIP con un PDF por hallazgo, hasta 100 MB de
+fuentes; paquetes grandes se transfieren por partes con vigencia de una hora.
+Estos límites pertenecen a ToDo, no se verificaron como límites de K2.

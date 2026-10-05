@@ -6,6 +6,41 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## 2026-10-05 — Planes de mejora K2 implementados (Codex)
+
+- Interventoría → Calidad → Planes de mejora: PM/CSC, hallazgos de visitas
+  vinculados a sus tareas existentes, responsables actuales y dos entregas
+  independientes. El administrador registra ID K2 y porcentajes; las actas
+  nuevas no piden PDF ni evidencia inicial. Los archivos históricos se conservan.
+- Máximos comunes por plan: propuesta +5/+20 días calendario desde notificación,
+  confirmada o corregida por Calidad. Cada responsable ve las dos fechas.
+  Edición de fechas con motivo, sin reiniciar plazos al vincular hallazgos.
+- Compromiso, ejecución y seguimiento; revisar/devolver con motivo; evidencias
+  de subsanación propias o reutilizadas de Tareas; copiar campos; PDF por hallazgo
+  y ZIP; registro explícito de la presentación en K2 por etapa. Cambiar una
+  entrega invalida su revisión. Reaperturas y versiones quedan auditadas.
+- Avisos de asignación, entrega, revisión y reapertura; recordatorios diarios
+  a las 08:00 de Bogotá desde tres días antes de cada máximo, sin duplicarse
+  ni volver a marcar avisos leídos. Navegación desde Tareas y Notificaciones.
+- Servicio exige empresa habilitada, app vigente y rol canónico de Calidad o
+  asignación actual de tarea. Firestore directo denegado en expedientes y
+  subcolecciones; evidencias cifradas y descargadas por servicio autorizado.
+  Se reutilizan `interventoriadashboard`, Admin y su creador de roles; no se
+  crean maestros ni fuentes de configuración duplicadas. Sin migraciones.
+- Validación: 252 pruebas Flutter (Interventoría y catálogo de maestros), 25
+  de creador/asignación/edición/revocación de roles, 6 de política y 10 de
+  integración Firestore/Storage. Cobertura de empresa secundaria, rol histórico,
+  reactivación, reasignación, versiones, PDF y avisos. TypeScript y Web compilan.
+  Widgets en 390/768/1024/1366, texto 1/1.6, temas Android e iOS; capturas y PDF
+  de prueba revisados. Las pruebas no modificaron datos de producción.
+- Pendientes reales: despliegue de reglas, dos Functions y cliente; prueba
+  autenticada en navegador y en Android/iPhone reales (teclado, áreas seguras,
+  cámara, archivos y descarga). Web JS compilada; dependencias existentes
+  siguen mostrando advertencias de compatibilidad Wasm. No se implementan
+  importación Excel, correo ni envío automático a K2 en esta entrega.
+- Alcance y límites en `docs/interventoria-k2-propuesta.md`. Se conservó el
+  trabajo local previo de Functions y registradores generados.
+
 ## 2026-10-05 — Propuesta de preparación de planes K2 (Codex)
 
 - Analizados el PDF `NUEVO SUBMODULO_INTERVENTORIA.pdf` (10 páginas), el

@@ -12,6 +12,7 @@ import 'package:todo/widgets/user_avatar.dart';
 import '../core/task_route_guard.dart';
 import '../facturacion/facturacion_navigation.dart';
 import '../interventoria/interventoria_dashboard_screen.dart';
+import '../interventoria/interventoria_planes_screen.dart';
 
 import '../compras/compras_dashboard_screen.dart';
 import '../nutricion/nutricion_dashboard_screen.dart';
@@ -926,6 +927,15 @@ class _NotificationList extends StatelessWidget {
                                       return;
                                     }
 
+                                    if (type == 'interventoria_plan_mejora') {
+                                      final opened = await abrirPlanesDesdeAviso(context, empresaId: notifEmpresaId, tareaId: taskId ?? '');
+                                      if (opened && !isRead) {
+                                        try {
+                                          await doc.reference.update({'read': true});
+                                        } catch (_) {}
+                                      }
+                                      return;
+                                    }
                                     if (_isInterventoriaActaEliminada(type)) {
                                       final opened =
                                           await _openInterventoriaFromNotification(
