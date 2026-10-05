@@ -2,9 +2,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../state/empresa_scope.dart';
-import '../utils/task_status.dart';
 import '../utils/user_company.dart';
+import 'task_flujo.dart';
 import 'user_resolver.dart';
+
+export 'task_flujo.dart' show processTabForNotificationType;
 
 String _firstTaskValue(Iterable<dynamic> values) {
   for (final value in values) {
@@ -233,225 +235,29 @@ class TaskRouteGuard {
       );
     }
 
-    final tabKey = processTabForNotificationType(type);
-    final normalizedType = type.trim().toLowerCase();
-    final isReassignRequest =
-        normalizedType == 'task_solicitud_reasignacion' ||
-        normalizedType == 'solicitud_reasignacion';
-    final isReassignResolution =
-        normalizedType == 'task_reasignacion_aprobada' ||
-        normalizedType == 'task_reasignacion_rechazada' ||
-        normalizedType == 'task_reassign_rejected';
-    // task_reassigned_info / task_reassigned_report → creator/boss gets informed of reassignment
-    final isReassignNotice =
-        normalizedType == 'task_reassigned_info' ||
-        normalizedType == 'task_reassigned_report';
-    final knownIds = validation.knownUserIds;
-    bool isMine(String candidate) =>
-        candidate.trim().isNotEmpty && knownIds.contains(candidate.trim());
-    // Determinar si la tarea está finalizada (afecta a qué pantalla dirigir)
-    final rootTaskData = validation.taskData ?? const <String, dynamic>{};
-    final taskIsFinalized = resolveTaskStatus(rootTaskData) == 'finalizado';
-
-    if (tabKey == null) {
-      if (isReassignRequest || isReassignResolution || isReassignNotice) {
-        final taskData = validation.taskData ?? const <String, dynamic>{};
-        final creatorId =
-            (taskData['creador_id'] ?? taskData['creatorId'] ?? '')
-                .toString()
-                .trim();
-        final bossId = (taskData['jefe_uid'] ?? taskData['bossId'] ?? '')
-            .toString()
-            .trim();
-        final approverId = _firstTaskValue([
-          taskData['aprobador_uid'],
-          taskData['approverId'],
-          bossId,
-        ]);
-        final assignedId =
-            (taskData['asignado_uid'] ?? taskData['assignedTo'] ?? '')
-                .toString()
-                .trim();
-
-        // Si la tarea está activa y el usuario es creador/jefe → CreatedTasksScreen
-        if (!taskIsFinalized &&
-            !isReassignNotice &&
-            !isMine(assignedId) &&
-            (isMine(creatorId) || isMine(bossId) || isMine(approverId))) {
-          return TaskNotificationDecision(
-            allowed: true,
-            target: isMine(approverId) && !isMine(creatorId)
-                ? TaskRouteTarget.approvalTasks
-                : TaskRouteTarget.createdTasks,
-            resolvedUserId: validation.resolvedUserId!,
-            empresaId: validation.empresaId!,
-          );
-        }
-
-        // Tarea finalizada o assignee → TaskHistoryScreen
-        int tabIndex = 1;
-        if (!isReassignNotice && isMine(assignedId)) {
-          tabIndex = 0;
-        }
-        return TaskNotificationDecision(
-          allowed: true,
-          target: TaskRouteTarget.taskHistory,
-          resolvedUserId: validation.resolvedUserId!,
-          empresaId: validation.empresaId!,
-          initialTabIndex: tabIndex,
-        );
-      }
-
-      // task_assigned / task_reassigned
-      if (normalizedType == 'task_assigned' ||
-          normalizedType == 'task_reassigned') {
-        final taskData = validation.taskData ?? const <String, dynamic>{};
-        final creatorId =
-            (taskData['creador_id'] ?? taskData['creatorId'] ?? '')
-                .toString()
-                .trim();
-        final bossId = (taskData['jefe_uid'] ?? taskData['bossId'] ?? '')
-            .toString()
-            .trim();
-        final approverId = _firstTaskValue([
-          taskData['aprobador_uid'],
-          taskData['approverId'],
-          bossId,
-        ]);
-        final assignedId =
-            (taskData['asignado_uid'] ?? taskData['assignedTo'] ?? '')
-                .toString()
-                .trim();
-        if (!isMine(assignedId) &&
-            (isMine(creatorId) || isMine(bossId) || isMine(approverId))) {
-          // Creator/boss notificado: si activa → CreatedTasksScreen; si finalizada → Historial
-          return TaskNotificationDecision(
-            allowed: true,
-            target: taskIsFinalized
-                ? TaskRouteTarget.taskHistory
-                : (isMine(approverId) && !isMine(creatorId)
-                      ? TaskRouteTarget.approvalTasks
-                      : TaskRouteTarget.createdTasks),
-            resolvedUserId: validation.resolvedUserId!,
-            empresaId: validation.empresaId!,
-            initialTabIndex: 1,
-          );
-        }
-      }
-
-      // Assignee de tarea activa → AssignedTasksScreen
-      return TaskNotificationDecision(
-        allowed: true,
-        target: TaskRouteTarget.assignedTasks,
-        resolvedUserId: validation.resolvedUserId!,
-        empresaId: validation.empresaId!,
-      );
-    }
-
-    // Notificaciones con pestaña de proceso (avances, novedades, finalización):
-    // Si la tarea está ACTIVA → abrir la pantalla activa correspondiente (no historial).
-    // Si la tarea está FINALIZADA → abrir TaskHistoryScreen con la pestaña del proceso.
-    final taskData = validation.taskData ?? const <String, dynamic>{};
-    final creatorId = (taskData['creador_id'] ?? taskData['creatorId'] ?? '')
-        .toString()
-        .trim();
-    final bossId = (taskData['jefe_uid'] ?? taskData['bossId'] ?? '')
-        .toString()
-        .trim();
-    final approverId = _firstTaskValue([
-      taskData['aprobador_uid'],
-      taskData['approverId'],
-      bossId,
-    ]);
-    final assignedId =
-        (taskData['asignado_uid'] ?? taskData['assignedTo'] ?? '')
-            .toString()
-            .trim();
-
-    if (!taskIsFinalized) {
-      // Tarea aún activa: llevar al contexto activo, no al historial.
-      final target = isMine(assignedId)
-          ? TaskRouteTarget.assignedTasks
-          : (isMine(approverId) && !isMine(creatorId)
-                ? TaskRouteTarget.approvalTasks
-                : TaskRouteTarget.createdTasks);
-      return TaskNotificationDecision(
-        allowed: true,
-        target: target,
-        resolvedUserId: validation.resolvedUserId!,
-        empresaId: validation.empresaId!,
-        // openProcessTabKey no aplica en pantallas activas
-      );
-    }
-
-    // Tarea finalizada → historial con la pestaña correcta.
-    int tabIndex = 1;
-    if (isMine(assignedId)) {
-      tabIndex = 0;
-    } else if (isMine(creatorId) || isMine(bossId) || isMine(approverId)) {
-      tabIndex = 1;
-    }
-
+    // El destino depende de la relación de la persona con la tarea, no del
+    // tipo de aviso (ver `decidirDestinoAvisoTarea`).
+    final decision = decidirDestinoAvisoTarea(
+      tarea: validation.taskData ?? const <String, dynamic>{},
+      misIds: validation.knownUserIds,
+      tipo: type,
+    );
     return TaskNotificationDecision(
       allowed: true,
-      target: TaskRouteTarget.taskHistory,
+      target: switch (decision.destino) {
+        TaskDestinoAviso.misTareas => TaskRouteTarget.assignedTasks,
+        TaskDestinoAviso.tareasQueAsigne => TaskRouteTarget.createdTasks,
+        TaskDestinoAviso.porAprobar => TaskRouteTarget.approvalTasks,
+        TaskDestinoAviso.historial => TaskRouteTarget.taskHistory,
+      },
       resolvedUserId: validation.resolvedUserId!,
       empresaId: validation.empresaId!,
-      openProcessTabKey: tabKey,
-      initialTabIndex: tabIndex,
+      openProcessTabKey: decision.destino == TaskDestinoAviso.historial
+          ? decision.proceso
+          : null,
+      initialTabIndex: decision.pestanaHistorial,
     );
   }
 }
 
-String? processTabForNotificationType(String raw) {
-  final t = raw.trim().toLowerCase();
-  if (t.startsWith('task_status_')) {
-    final status = t.replaceFirst('task_status_', '').trim();
-    if (status == 'finalizada' ||
-        status == 'finalizado' ||
-        status == 'completada' ||
-        status == 'por_aprobar') {
-      return 'Finalización';
-    }
-    if (status == 'en_progreso' || status == 'devuelta') return 'Avances';
-    // reasignado/retrasada → null → abre AssignedTasksScreen con tarea resaltada
-    return null;
-  }
-
-  const avances = {
-    'avance',
-    'progress',
-    'task_progress',
-    'task_avance',
-    'gestion_avance',
-    'avance_creado',
-    'avance_actualizado',
-  };
-
-  const novedades = {
-    'novedad',
-    'news',
-    'task_news',
-    'task_novedad',
-    'respuesta_novedad',
-    'novedad_creada',
-    'novedad_actualizada',
-  };
-
-  const finalizacion = {
-    'finalizacion',
-    'solicitud_finalizacion',
-    'completed',
-    'task_completed',
-    'task_por_aprobar',
-    'task_aprobada',
-    'finalizado',
-    'task_finalizado',
-    'task_finalizada',
-  };
-
-  if (avances.contains(t)) return 'Avances';
-  if (novedades.contains(t)) return 'Novedades';
-  if (finalizacion.contains(t)) return 'Finalización';
-  return null;
-}
+// `processTabForNotificationType` vive en task_flujo.dart.

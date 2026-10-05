@@ -13,7 +13,9 @@ const {
   collection,
   doc,
   getDoc,
+  and,
   getDocs,
+  or,
   query,
   setDoc,
   updateDoc,
@@ -606,4 +608,135 @@ test("el número interno y su contador son solo del servidor", async () => {
       ultimo: 1,
     }));
   }
+});
+
+// ── Documento "Tareas - octubre 04 de 2026" ────────────────────────────────
+
+test("'No opera en To-Do': no recibe tareas ni usa la app de Tareas", async () => {
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, "TBL_USUARIOS/auxiliar"), user("EMP_A", ["tareasdashboard"], {
+      soloTalentoHumano: true,
+    }));
+    await setDoc(doc(db, "TBL_TAREAS/aux1"), task({asignado_uid: "auxiliar"}));
+    await setDoc(doc(db, "TBL_TAREAS/aux_reas"), task());
+  });
+  // Nadie le crea una tarea nueva.
+  await assertFails(setDoc(doc(auth("jefe"), "TBL_TAREAS/para_auxiliar"), task({
+    creador_id: "jefe",
+    asignado_uid: "auxiliar",
+  })));
+  // Ni se la reasignan (hacia otra persona activa sí se puede).
+  const pedir = (destino) => updateDoc(doc(auth("alice"), "TBL_TAREAS/aux_reas"), {
+    solicitud_reasignacion_estado: "pendiente",
+    solicitud_reasignacion_by_uid: "alice",
+    solicitud_reasignacion_to_uid: destino,
+    lastEventType: "solicitud_reasignacion",
+  });
+  await assertFails(pedir("auxiliar"));
+  await assertSucceeds(pedir("destino"));
+  // Aunque conserve la app en la lista, no entra a Tareas.
+  // Es responsable de una tarea vieja, pero sin app efectiva no la lee.
+  await assertFails(getDoc(doc(auth("auxiliar"), "TBL_TAREAS/aux1")));
+});
+
+test("con una reasignación en espera la tarea solo se consulta", async () => {
+  await env.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "TBL_TAREAS/espera"), task({
+      solicitud_reasignacion_estado: "pendiente",
+      solicitud_reasignacion_by_uid: "alice",
+      solicitud_reasignacion_to_uid: "destino",
+    }));
+  });
+  const db = auth("alice");
+  const avance = writeBatch(db);
+  avance.set(doc(db, "TBL_TAREAS/espera/avances/uno"), {by: "alice", message: "50%"});
+  avance.update(doc(db, "TBL_TAREAS/espera"), {
+    lastEventType: "task_avance", lastEventText: "50%",
+  });
+  await assertFails(avance.commit());
+  await assertFails(updateDoc(doc(db, "TBL_TAREAS/espera"), {
+    estado: "por_aprobar",
+    status: "por_aprobar",
+    solicitud_finalizacion_estado: "pendiente",
+    solicitud_finalizacion_by_uid: "alice",
+    lastEventType: "solicitud_finalizacion",
+  }));
+  await assertSucceeds(getDoc(doc(db, "TBL_TAREAS/espera")));
+});
+
+test("al aprobar la reasignación el aprobador pasa al jefe del nuevo responsable", async () => {
+  await env.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "TBL_TAREAS/reas2"), task({
+      solicitud_reasignacion_estado: "pendiente",
+      solicitud_reasignacion_by_uid: "alice",
+      solicitud_reasignacion_to_uid: "destino",
+    }));
+  });
+  await assertSucceeds(updateDoc(doc(auth("jefe"), "TBL_TAREAS/reas2"), {
+    asignado_uid: "destino",
+    estado: "en_progreso",
+    status: "en_progreso",
+    reasignado: false,
+    solicitud_reasignacion_estado: "aprobada",
+    participantes_uid: arrayUnion("alice", "destino"),
+    jefe_uid: "lider",
+    jefe_nombre: "Líder",
+    aprobador_uid: "lider",
+    aprobador_nombre: "Líder",
+    approverId: "lider",
+    approverName: "Líder",
+    lastEventType: "reasignacion_aprobada",
+  }));
+  // El nuevo aprobador decide la finalización.
+  await env.withSecurityRulesDisabled(async (context) => {
+    await updateDoc(doc(context.firestore(), "TBL_TAREAS/reas2"), {
+      estado: "por_aprobar",
+      status: "por_aprobar",
+      solicitud_finalizacion_estado: "pendiente",
+    });
+  });
+  await assertSucceeds(updateDoc(doc(auth("lider"), "TBL_TAREAS/reas2"), {
+    estado: "finalizado",
+    status: "finalizado",
+    approved: true,
+    solicitud_finalizacion_estado: "aprobado",
+    lastEventType: "aprobada",
+  }));
+});
+
+test("retroalimentación de quien asignó a una novedad", async () => {
+  await env.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "TBL_TAREAS/retro"), task({creador_id: "lider"}));
+  });
+  await assertSucceeds(setDoc(doc(auth("lider"), "TBL_TAREAS/retro/novedades/r1"), {
+    type: "respuesta_novedad", by: "lider", message: "No fue lo solicitado",
+  }));
+  await assertSucceeds(setDoc(doc(auth("jefe"), "TBL_TAREAS/retro/novedades/r2"), {
+    type: "respuesta_novedad", by: "jefe", message: "Revisa el formato",
+  }));
+  // Sin suplantar al autor, sin texto, ni alguien ajeno a la tarea.
+  await assertFails(setDoc(doc(auth("jefe"), "TBL_TAREAS/retro/novedades/r3"), {
+    type: "respuesta_novedad", by: "lider", message: "Suplantada",
+  }));
+  await assertFails(setDoc(doc(auth("jefe"), "TBL_TAREAS/retro/novedades/r4"), {
+    type: "respuesta_novedad", by: "jefe", message: "",
+  }));
+  await assertFails(setDoc(doc(auth("compras"), "TBL_TAREAS/retro/novedades/r5"), {
+    type: "respuesta_novedad", by: "compras", message: "Ajena",
+  }));
+});
+
+test("Tareas por aprobar consulta también lo que asignó la persona", async () => {
+  await assertSucceeds(getDocs(query(
+    collection(auth("jefe"), "TBL_TAREAS"),
+    and(
+      or(
+        where("aprobador_uid", "==", "jefe"),
+        where("jefe_uid", "==", "jefe"),
+        where("creador_id", "==", "jefe")
+      ),
+      where("empresaId", "==", "EMP_A")
+    )
+  )));
 });

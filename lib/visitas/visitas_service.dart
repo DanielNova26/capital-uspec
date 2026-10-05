@@ -599,6 +599,9 @@ class VisitasService {
       final data = d.data();
       if (!userBelongsToEmpresa(data, empresaId)) continue;
       if (!personaHabilitadaEn(data, empresaId)) continue;
+      // "No opera en To-Do" (Talento Humano): no se le asignan visitas ni
+      // hallazgos.
+      if (soloTalentoHumanoEn(data, empresaId)) continue;
       final scoped = getUserCompanyDetail(data, empresaId) ?? const {};
       final unaEmpresa = extractUserEmpresaIds(data).length <= 1;
       String campo(List<String> claves) {

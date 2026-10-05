@@ -6,6 +6,118 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## 2026-10-05 — Tareas: documento "Tareas - octubre 04 de 2026" (Claude)
+
+Pedido del usuario: "módulo de tareas, lo que hay que mejorar" (documento con
+capturas de Notificaciones, Crear tarea, Mis tareas, Por aprobar, Reportar
+avance/novedad, Historial, Interventoría y Mi equipo).
+
+- **Lógica compartida** (`lib/core/task_flujo.dart`, pura y probada):
+  - *Aprobador efectivo* (`taskAprobadorId`): `aprobador_uid`, luego
+    `jefe_uid` y luego quien asignó, **nunca el propio responsable**. La
+    tarea 2090 (reasignada a quien era su aprobador y terminada por ella) no
+    le salía a nadie: ahora decide quien la asignó. Espejo en servidor:
+    `functions/src/tareas_avisos.ts` (`aprobadorDeTarea`).
+  - *Destinatarios de seguimiento*: quien asignó (emisor) + aprobador, sin
+    quien hace la acción ni el creador automático de Interventoría.
+  - *Destino de un aviso* (`decidirDestinoAvisoTarea`) según la relación de
+    la persona con la tarea, no según el tipo: responsable → Mis tareas;
+    aprobador con decisión pendiente → Por aprobar; quien asignó → Tareas que
+    asigné; quien la entregó → Historial › Antes asignadas; cerrada →
+    Historial con el proceso. `TaskRouteGuard.resolveNotificationRoute` lo
+    usa, y los tres despachadores repetidos (bandeja, Home, toque de push)
+    pasan por `lib/home/task_aviso_navigation.dart`.
+  - *Aprobador al aprobar una reasignación* (`taskAprobadorTrasReasignar`):
+    pasa al jefe inmediato del nuevo responsable (como al crear); sin jefe,
+    a quien asignó.
+- **Avisos.** "Tarea No. N" en rojo en la bandeja (`TaskNumeroAvisoChip`;
+  los avisos nuevos traen `taskNumero`, los viejos lo buscan una vez por
+  tarea) y al principio del texto del push. `onTaskCreated` espera unos
+  segundos el número que asigna `tareasAsignarNumero` (corren a la vez).
+  Avance, novedad y solicitud de reasignación avisan a quien asignó y al
+  aprobador (antes solo a `jefe_uid`, vacío en Visitas: al analista no le
+  llegaba). La solicitud de finalización (servidor) va al aprobador y a quien
+  asignó. Aprobada/rechazada la reasignación, el aviso lleva número.
+- **Crear tarea.** Botón habilitado solo con título, descripción, fecha
+  límite, área, cargo y persona (dice qué falta). Área y Cargo en la misma
+  línea desde 520 px de ancho del formulario; en teléfono, uno debajo del
+  otro. Al crear, diálogo con número (en cuanto llega), título, responsable,
+  área, cargo, prioridad, fecha, evidencias y quién aprueba.
+- **Talento Humano: "No opera en To-Do"** (TH › Accesos del personal, en el
+  editor de cada persona). `empresasDetalle.{empresa}.soloTalentoHumano`.
+  Al marcarla se le retiran los módulos que administra TH; además
+  `userHasApp` y el Home la neutralizan (no ve módulos ni Tareas aunque le
+  quede alguno), `recibeAsignacionesEnEmpresa` la saca de todo desplegable
+  de asignación (Crear tarea, Interventoría) y también de la reasignación,
+  del personal de Visitas y de responsables de Correspondencia. Sigue
+  vinculada (no es retiro) y conserva perfil, hoja de vida, avisos y
+  calendario. Reglas: no se le crea ni reasigna una tarea y
+  `tieneAppDeListaEn` la deja sin app en esa empresa. Quitar la marca no
+  devuelve módulos.
+- **Mis tareas.** "Completar tarea" dice siempre "Requiere evidencias" o
+  "No requiere evidencias" (y hay un chip en el encabezado). Con una
+  reasignación en espera: completar, novedad y avance quedan inhabilitados
+  (también en el servicio, `CompleteTaskScreen` y reglas) y el panel y la
+  tarjeta muestran a quién pasa y quién la aprueba. Avance y novedad se abren
+  encima del panel, se cierran al enviar y se vuelve al panel; si la novedad
+  terminó en finalización, el panel se cierra. Historial de actividad en
+  ventana flotante centrada (hoja en el teléfono) con "volver"
+  (`showTaskActivityPanel`), también en Mi equipo e Interventoría. En
+  "Mostrando únicamente la tarea seleccionada" los filtros ya funcionan
+  (salen de ese modo) y si la tarea ya no es suya lo dice. En tareas de
+  Interventoría, "Ver hallazgo" abre el panel de ESE hallazgo (consulta), no
+  el módulo; sin hallazgo vinculado no aparece.
+- **Por aprobar / Tareas que asigné.** "Por aprobar" lista solo lo que
+  espera una decisión de la persona (finalización o reasignación), con
+  chips Todas/Finalización/Reasignación; la consulta suma `creador_id` para
+  las tareas cuyo aprobador guardado es el propio responsable. Aprobar,
+  devolver y resolver reasignaciones solo lo ve el aprobador efectivo; quien
+  asignó sin ser aprobador ve "en espera" y quién la aprueba (**cambio**:
+  antes el creador también podía aprobar desde Tareas que asigné; las reglas
+  lo siguen permitiendo). El panel muestra descripción, fecha, prioridad,
+  evidencias y quién asignó. "Devolver" se habilita con fecha y motivo.
+  Retroalimentación: en "Ver novedades", quien asignó o aprueba responde cada
+  novedad del responsable (`type: respuesta_novedad`), le llega aviso y
+  queda en el historial con la etiqueta "Retroalimentación".
+- **Tareas de mi equipo.** No se actualizaba: desde el 3 oct se leía una
+  sola vez (para no repetir la consulta al escribir). Ahora escucha en vivo
+  (consultas unidas). Para Dirección, el área se consulta con todas sus
+  variantes de id y por las personas del área (antes `areaId ==`, contra la
+  regla de Áreas). "Actualizar" vuelve a leer también el equipo.
+- **Validación.** `flutter test --no-pub` 1547/1547; nuevas:
+  `test/core/task_flujo_test.dart` (18), `test/utils/solo_talento_humano_test.dart`
+  (4), `test/widgets/task_avisos_widgets_test.dart` (4). Functions
+  `npm test` 178/178 (4 nuevas en `tareas_avisos.test.js`), ESLint sin
+  errores. Reglas en emulador: `tareas_rules.rules.js` 18/18 (5 nuevas:
+  "No opera en To-Do", reasignación en espera, aprobador tras reasignar,
+  retroalimentación, consulta de Por aprobar) y todas las suites `functions/test/*.rules.js` juntas: 171 aprobadas, 0
+  fallas, 3 omitidas que ya estaban marcadas. `flutter analyze` sin errores (solo avisos previos).
+- **Pendiente / decisiones:**
+  - Despliegue: Functions `onTaskCreated`, `onTaskUpdated`,
+    `onNotificationCreated` (número y destinatarios) y Web. Las reglas
+    siguen el plan de Tareas (esperan 2.6.15 en tiendas); sin ellas la marca
+    de TH y el bloqueo con reasignación en espera rigen solo en app/servicio.
+  - `TBL_USUARIOS` no tiene regla propia (cae en la general): la marca
+    `soloTalentoHumano` no está protegida contra escritura por servidor.
+    Hace falta una regla de usuarios (o un callable de TH) — tarea aparte.
+  - Mis tareas, punto "cuando se reasigna, debe mostrarse al responsable (no
+    a quien la reasignó)": se interpretó junto con "tareas con reasignación
+    en espera: mostrar a quién y quién aprueba". Mientras espera aprobación
+    la tarea sigue en Mis tareas de quien la pidió, solo de consulta y con
+    esos datos; al aprobarse pasa al nuevo responsable y sale de su lista.
+    Si el usuario quiere que salga apenas se pide, es otro cambio.
+  - Tareas ya reasignadas antes de hoy conservan el aprobador anterior; el
+    aprobador efectivo corrige el caso del propio responsable, no otros.
+    Si se quiere, preparar una incorporación revisable por empresa.
+  - Admin › Apps/Usuarios todavía no muestra la marca "No opera en To-Do"
+    (solo TH): si Admin le concede un módulo, sigue neutralizado.
+  - "N.º tarea" sale "—" en Mi equipo para tareas sin número: falta correr
+    Admin › Migraciones › "Número interno de tareas" en cada empresa.
+  - Sin verificación visual en Web (390/768/1024/1366, texto ampliado),
+    Android ni iOS: solo pruebas de widgets.
+- Git: entregado en la rama `claude/kind-wright-jnusvi` (sesión en la nube,
+  sin acceso a `main`); integrar en `main`.
+
 ## 2026-10-05 — Gestión documental: plantilla Word del formato institucional (Claude)
 
 Pedido del usuario: "así como me permite generar el Excel cuando quiero

@@ -11,6 +11,8 @@
 // Alcance (sin cambios): Gerencia ve la empresa; Dirección, su área; jefes y
 // coordinadores, a las personas a su cargo.
 
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
@@ -32,7 +34,7 @@ import '../core/user_directory.dart';
 import '../utils/excel_download.dart';
 import '../widgets/paged_list.dart';
 import 'task_correspondencia_preview.dart';
-import 'task_history_screen.dart' show TaskActivityScreen;
+import 'task_history_screen.dart' show showTaskActivityPanel;
 import 'team_tasks_export.dart';
 
 const String kArial = 'Arial';
@@ -88,9 +90,12 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
   final Set<String> _subordinados = {};
   PersonasEmpresa _personas = const PersonasEmpresa.vacio();
 
-  /// Se consulta una vez por empresa (y al actualizar): antes la consulta se
-  /// repetía con cada letra del buscador.
-  Future<List<_Doc>>? _tareasFuture;
+  /// Tareas del equipo EN VIVO (4 oct 2026: "revisar por qué no se
+  /// actualizan todas las tareas del personal seleccionado"). Desde el 3 oct
+  /// se consultaban una sola vez para que el buscador no repitiera la
+  /// consulta, y lo que pasaba después (una reasignación, un cierre) no se
+  /// veía hasta salir y volver. Se arma una vez por empresa y escucha.
+  Future<Stream<List<_Doc>>>? _tareasFuture;
 
   static const String _kSinArea = '__sin_area__';
 
@@ -126,11 +131,12 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
     });
   }
 
-  void _actualizar() => setState(() => _tareasFuture = _fetchTasks());
+  /// Vuelve a leer el equipo (personas a cargo, área) y las tareas.
+  void _actualizar() => setState(() => _tareasFuture = _bootstrap());
 
   // ── Carga ────────────────────────────────────────────────────────────────
 
-  Future<List<_Doc>> _bootstrap() async {
+  Future<Stream<List<_Doc>>> _bootstrap() async {
     _subordinados.clear();
     _soyGerente = false;
     _soyDirector = false;
@@ -147,7 +153,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
         preferredEmpresaId: _empresaId,
       );
       final empresa = (_empresaId ?? '').trim();
-      if (empresa.isEmpty) return const [];
+      if (empresa.isEmpty) return Stream.value(const <_Doc>[]);
       final resultados = await Future.wait([
         PersonasEmpresa.cargar(empresa),
         _cargarNombreEmpresa(empresa),
@@ -159,7 +165,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
     } catch (e) {
       debugPrint('[TeamOverview] bootstrap: $e');
     }
-    return _fetchTasks();
+    return _streamTareas();
   }
 
   Future<String> _cargarNombreEmpresa(String empresa) async {
@@ -263,11 +269,29 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
     }
   }
 
-  Future<List<_Doc>> _fetchTasks() async {
+  /// Consultas del alcance de la persona: Gerencia, toda la empresa;
+  /// Dirección, su área (con todas las variantes de id de esa área y las
+  /// personas que la integran); jefes, las personas a su cargo.
+  List<Query<Map<String, dynamic>>> _consultas() {
     final empresa = (_empresaId ?? '').trim();
     if (empresa.isEmpty) return const [];
     final db = FirebaseFirestore.instance.collection('TBL_TAREAS');
     final consultas = <Query<Map<String, dynamic>>>[];
+    void porResponsables(Iterable<String> ids) {
+      final lista = ids.where((id) => id.trim().isNotEmpty).toSet().toList();
+      for (var i = 0; i < lista.length; i += 30) {
+        final chunk = lista.sublist(
+          i,
+          i + 30 > lista.length ? lista.length : i + 30,
+        );
+        consultas.add(
+          db
+              .where('asignado_uid', whereIn: chunk)
+              .where('empresaId', isEqualTo: empresa)
+              .limit(800),
+        );
+      }
+    }
 
     if (_soyGerente) {
       // Toda la empresa, solo lo abierto: con el límite anterior (1000 de
@@ -280,47 +304,100 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
         );
       }
     } else if (_soyDirector && (_miAreaId ?? '').isNotEmpty) {
-      consultas.add(
-        db
-            .where('areaId', isEqualTo: _miAreaId)
-            .where('empresaId', isEqualTo: empresa)
-            .limit(800),
-      );
-    } else {
-      final ids = _subordinados.toList();
-      for (var i = 0; i < ids.length; i += 10) {
-        final chunk = ids.sublist(i, i + 10 > ids.length ? ids.length : i + 10);
+      // La misma área existe con varios ids (regla de Áreas): antes se
+      // consultaba solo `areaId == miArea` y quedaban por fuera tareas del
+      // área guardadas con otra variante y las de su gente sin área.
+      final opcion = _personas.areas.opciones
+          .where((o) => o.contiene(_miAreaId))
+          .firstOrNull;
+      final ids = <String>{_miAreaId!.trim(), ...?opcion?.ids}..remove('');
+      final variantes = ids.toList();
+      for (var i = 0; i < variantes.length; i += 30) {
         consultas.add(
           db
-              .where('asignado_uid', whereIn: chunk)
+              .where(
+                'areaId',
+                whereIn: variantes.sublist(
+                  i,
+                  i + 30 > variantes.length ? variantes.length : i + 30,
+                ),
+              )
               .where('empresaId', isEqualTo: empresa)
               .limit(800),
         );
       }
+      porResponsables(
+        _personas.porId.values
+            .where(
+              (p) => opcion == null
+                  ? p.areaId == _miAreaId
+                  : opcion.contiene(p.areaId),
+            )
+            .map((p) => p.id),
+      );
+    } else {
+      porResponsables(_subordinados);
     }
-    if (consultas.isEmpty) return const [];
+    return consultas;
+  }
 
-    final porId = <String, _Doc>{};
-    final resultados = await Future.wait(
-      consultas.map((q) async {
-        try {
-          return (await q.get()).docs;
-        } catch (e) {
-          debugPrint('[TeamOverview] consulta: $e');
-          return <_Doc>[];
+  Stream<List<_Doc>> _streamTareas() {
+    final consultas = _consultas();
+    if (consultas.isEmpty) return Stream.value(const <_Doc>[]);
+    return _combinarConsultas(consultas).asyncMap((docs) async {
+      final ids = <String>{for (final d in docs) _responsableDe(d.data())}
+        ..remove('');
+      // Nombres y fotos de una vez para la matriz y la exportación.
+      await UserDirectory.instance.warm(ids);
+      return docs;
+    });
+  }
+
+  /// Une varias consultas en vivo en una lista sin repetidos. Emite cuando
+  /// todas respondieron al menos una vez y luego con cada cambio. Una que
+  /// falla cuenta como vacía: no tumba el tablero.
+  static Stream<List<_Doc>> _combinarConsultas(
+    List<Query<Map<String, dynamic>>> consultas,
+  ) {
+    final porConsulta = List<List<_Doc>?>.filled(consultas.length, null);
+    final subs = <StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>[];
+    late final StreamController<List<_Doc>> ctrl;
+    void emitir() {
+      if (porConsulta.any((l) => l == null)) return;
+      final porId = <String, _Doc>{};
+      for (final lista in porConsulta) {
+        for (final d in lista!) {
+          porId[d.id] = d;
         }
-      }),
-    );
-    for (final docs in resultados) {
-      for (final d in docs) {
-        porId[d.id] = d;
       }
+      ctrl.add(porId.values.toList());
     }
-    final ids = <String>{for (final d in porId.values) _responsableDe(d.data())}
-      ..remove('');
-    // Nombres y fotos de una vez para la matriz y la exportación.
-    await UserDirectory.instance.warm(ids);
-    return porId.values.toList();
+
+    ctrl = StreamController<List<_Doc>>(
+      onListen: () {
+        for (var i = 0; i < consultas.length; i++) {
+          subs.add(
+            consultas[i].snapshots().listen(
+              (snap) {
+                porConsulta[i] = snap.docs;
+                emitir();
+              },
+              onError: (Object e) {
+                debugPrint('[TeamOverview] consulta: $e');
+                porConsulta[i] = const [];
+                emitir();
+              },
+            ),
+          );
+        }
+      },
+      onCancel: () async {
+        for (final sub in subs) {
+          await sub.cancel();
+        }
+      },
+    );
+    return ctrl.stream;
   }
 
   // ── Datos de cada tarea ──────────────────────────────────────────────────
@@ -538,49 +615,59 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
               ? 'Dirección y responsables del área'
               : 'Personas a tu cargo');
 
-    return FutureBuilder<List<_Doc>>(
+    const cargando = TaskResponsiveLayout(
+      title: 'Tareas de mi equipo',
+      subtitle: 'Cargando responsables y actividades',
+      content: Center(child: CircularProgressIndicator()),
+    );
+    return FutureBuilder<Stream<List<_Doc>>>(
       future: _tareasFuture,
-      builder: (context, snap) {
-        if (snap.connectionState != ConnectionState.done && !snap.hasData) {
-          return const TaskResponsiveLayout(
-            title: 'Tareas de mi equipo',
-            subtitle: 'Cargando responsables y actividades',
-            content: Center(child: CircularProgressIndicator()),
-          );
-        }
-        final abiertas = _abiertas(snap.data ?? const []);
-        final base = _base(abiertas);
-        final sinEstado = _delResponsable(base);
-        final visibles = _conEstado(sinEstado);
-
-        return TaskResponsiveLayout(
-          title: 'Tareas de mi equipo',
-          subtitle: '$scopeLabel · tareas abiertas por responsable',
-          actions: [
-            IconButton(
-              tooltip: 'Actualizar',
-              onPressed: _actualizar,
-              icon: const Icon(Icons.refresh_rounded),
-            ),
-          ],
-          filters: _filtros(abiertas, base, sinEstado, visibles),
-          content: abiertas.isEmpty
-              ? _vacio('No hay tareas abiertas del equipo en esta empresa.')
-              : ListView(
-                  padding: EdgeInsets.fromLTRB(
-                    _esAncho(context) ? 20 : 12,
-                    8,
-                    _esAncho(context) ? 20 : 12,
-                    24,
-                  ),
-                  children: [
-                    _centrado(_tablero(base)),
-                    const SizedBox(height: 16),
-                    _centrado(_matriz(visibles)),
-                  ],
-                ),
+      builder: (context, futuro) {
+        final stream = futuro.data;
+        if (stream == null) return cargando;
+        return StreamBuilder<List<_Doc>>(
+          stream: stream,
+          builder: (context, snap) {
+            if (!snap.hasData) return cargando;
+            return _contenido(context, snap.data!, scopeLabel);
+          },
         );
       },
+    );
+  }
+
+  Widget _contenido(BuildContext context, List<_Doc> docs, String scopeLabel) {
+    final abiertas = _abiertas(docs);
+    final base = _base(abiertas);
+    final sinEstado = _delResponsable(base);
+    final visibles = _conEstado(sinEstado);
+
+    return TaskResponsiveLayout(
+      title: 'Tareas de mi equipo',
+      subtitle: '$scopeLabel · tareas abiertas por responsable',
+      actions: [
+        IconButton(
+          tooltip: 'Actualizar',
+          onPressed: _actualizar,
+          icon: const Icon(Icons.refresh_rounded),
+        ),
+      ],
+      filters: _filtros(abiertas, base, sinEstado, visibles),
+      content: abiertas.isEmpty
+          ? _vacio('No hay tareas abiertas del equipo en esta empresa.')
+          : ListView(
+              padding: EdgeInsets.fromLTRB(
+                _esAncho(context) ? 20 : 12,
+                8,
+                _esAncho(context) ? 20 : 12,
+                24,
+              ),
+              children: [
+                _centrado(_tablero(base)),
+                const SizedBox(height: 16),
+                _centrado(_matriz(visibles)),
+              ],
+            ),
     );
   }
 
@@ -1175,17 +1262,12 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
                 alignment: Alignment.centerRight,
                 child: FilledButton.icon(
                   style: FilledButton.styleFrom(backgroundColor: kTeal),
-                  onPressed: () {
-                    Navigator.pop(panelContext);
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => TaskActivityScreen(
-                          taskId: d.id,
-                          currentUserId: widget.currentUserId,
-                        ),
-                      ),
-                    );
-                  },
+                  // Se apila sobre el detalle: al volver, el detalle sigue.
+                  onPressed: () => showTaskActivityPanel(
+                    panelContext,
+                    taskId: d.id,
+                    currentUserId: widget.currentUserId,
+                  ),
                   icon: const Icon(Icons.history_rounded),
                   label: const Text('Ver historial de actividad'),
                 ),

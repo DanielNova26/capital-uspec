@@ -144,13 +144,16 @@ class _PersonnelAccessScreenState extends State<PersonnelAccessScreen> {
       modulos: _modulos,
       seleccionInicial: seleccionInicial,
       gestionadosPorAdmin: noAdministrados,
+      soloTalentoHumanoInicial: row.soloTalentoHumano,
     );
     if (resultado == null) return;
 
     try {
+      // "No opera en To-Do" retira los módulos que administra Talento
+      // Humano: la marca no es solo visual.
       final next = PersonnelAccessService.combinarConNoAdministrados(
         actuales: actuales,
-        seleccion: resultado,
+        seleccion: resultado.soloTalentoHumano ? <String>{} : resultado.apps,
         administrables: _modulos,
       );
       await _service.saveApps(
@@ -159,7 +162,20 @@ class _PersonnelAccessScreenState extends State<PersonnelAccessScreen> {
         apps: next,
         actorId: widget.userId,
       );
-      _mensaje('Accesos actualizados para ${row.nombreVisible}.');
+      if (resultado.soloTalentoHumano != row.soloTalentoHumano) {
+        await _service.saveSoloTalentoHumano(
+          userId: row.userId,
+          empresaId: widget.empresaId,
+          valor: resultado.soloTalentoHumano,
+          actorId: widget.userId,
+        );
+      }
+      _mensaje(
+        resultado.soloTalentoHumano
+            ? '${row.nombreVisible} queda solo para Talento Humano: no opera '
+                  'en To-Do ni recibe tareas.'
+            : 'Accesos actualizados para ${row.nombreVisible}.',
+      );
       await _cargar(conIndicador: false);
     } catch (e) {
       _mensaje('No se pudo guardar: $e', error: true);
@@ -764,6 +780,16 @@ class _PersonaCard extends StatelessWidget {
                         labelStyle: theme.textTheme.labelSmall,
                       ),
                     ),
+                  if (row.soloTalentoHumano)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Chip(
+                        visualDensity: VisualDensity.compact,
+                        avatar: const Icon(Icons.badge_outlined, size: 16),
+                        label: const Text('No opera en To-Do'),
+                        labelStyle: theme.textTheme.labelSmall,
+                      ),
+                    ),
                   TextButton.icon(
                     onPressed: onEditar,
                     icon: const Icon(Icons.tune_rounded, size: 18),
@@ -772,7 +798,16 @@ class _PersonaCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 10),
-              if (asignados.isEmpty)
+              if (row.soloTalentoHumano)
+                Text(
+                  'Solo hoja de vida y trámites de Talento Humano. No recibe '
+                  'tareas.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                    fontStyle: FontStyle.italic,
+                  ),
+                )
+              else if (asignados.isEmpty)
                 Text(
                   'Solo notificaciones y calendario.',
                   style: theme.textTheme.bodySmall?.copyWith(
@@ -854,30 +889,84 @@ class _ErrorState extends StatelessWidget {
   }
 }
 
+/// Lo que confirmó Talento Humano en el editor de una persona.
+class PersonnelAccessEdicion {
+  final Set<String> apps;
+
+  /// "No opera en To-Do": solo hoja de vida y trámites de Talento Humano.
+  final bool soloTalentoHumano;
+
+  const PersonnelAccessEdicion({
+    required this.apps,
+    required this.soloTalentoHumano,
+  });
+}
+
 /// Abre el selector de módulos: hoja inferior en móvil, diálogo en web.
 /// Devuelve la selección confirmada o null si se canceló.
-Future<Set<String>?> showPersonnelAccessEditor({
+Future<PersonnelAccessEdicion?> showPersonnelAccessEditor({
   required BuildContext context,
   required String titulo,
   required String subtitulo,
   required List<AppCatalogEntry> modulos,
   required Set<String> seleccionInicial,
   Set<String> gestionadosPorAdmin = const <String>{},
+  bool soloTalentoHumanoInicial = false,
 }) {
   final isWide = MediaQuery.of(context).size.width >= 900;
   var seleccion = {...seleccionInicial};
+  var soloTalentoHumano = soloTalentoHumanoInicial;
+
+  PersonnelAccessEdicion resultado() => PersonnelAccessEdicion(
+    apps: seleccion,
+    soloTalentoHumano: soloTalentoHumano,
+  );
 
   Widget contenido(void Function(void Function()) setLocal) {
-    return PersonnelAccessPicker(
-      seleccion: seleccion,
-      modulos: modulos,
-      gestionadosPorAdmin: gestionadosPorAdmin,
-      onChanged: (next) => setLocal(() => seleccion = next),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // 4 oct 2026: "un campo para marcar cuando una persona no va a estar
+        // habilitada para operar en To-Do" (auxiliares de servicios
+        // generales, auxiliares de procesos).
+        SwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          value: soloTalentoHumano,
+          onChanged: (v) => setLocal(() => soloTalentoHumano = v),
+          title: const Text(
+            'No opera en To-Do',
+            style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w800),
+          ),
+          subtitle: const Text(
+            'Solo hoja de vida y trámites de Talento Humano. No recibe '
+            'tareas ni usa módulos en esta empresa.',
+          ),
+        ),
+        const Divider(),
+        if (soloTalentoHumano)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              'Al guardar se le retiran los módulos que administra Talento '
+              'Humano. Si después vuelve a operar, quite la marca y conceda '
+              'los módulos que necesite.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          )
+        else
+          PersonnelAccessPicker(
+            seleccion: seleccion,
+            modulos: modulos,
+            gestionadosPorAdmin: gestionadosPorAdmin,
+            onChanged: (next) => setLocal(() => seleccion = next),
+          ),
+      ],
     );
   }
 
   if (isWide) {
-    return showDialog<Set<String>>(
+    return showDialog<PersonnelAccessEdicion>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setLocal) => AlertDialog(
@@ -904,7 +993,7 @@ Future<Set<String>?> showPersonnelAccessEditor({
               child: const Text('Cancelar'),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(ctx, seleccion),
+              onPressed: () => Navigator.pop(ctx, resultado()),
               child: const Text('Guardar accesos'),
             ),
           ],
@@ -913,7 +1002,7 @@ Future<Set<String>?> showPersonnelAccessEditor({
     );
   }
 
-  return showModalBottomSheet<Set<String>>(
+  return showModalBottomSheet<PersonnelAccessEdicion>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
@@ -965,7 +1054,7 @@ Future<Set<String>?> showPersonnelAccessEditor({
                     const SizedBox(width: 8),
                     Expanded(
                       child: FilledButton(
-                        onPressed: () => Navigator.pop(ctx, seleccion),
+                        onPressed: () => Navigator.pop(ctx, resultado()),
                         child: const Text('Guardar'),
                       ),
                     ),

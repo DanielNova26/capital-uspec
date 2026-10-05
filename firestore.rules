@@ -2039,17 +2039,21 @@ service cloud.firestore {
     // Las subcolecciones son una bitácora: solo se agregan eventos, nunca se
     // modifican ni se borran desde el cliente. El documento raíz conserva la
     // empresa y los participantes; un cambio de responsable valida el destino.
+    // "No opera en To-Do" (Talento Humano, 4 oct 2026): en esa empresa la
+    // persona no usa módulos aunque conserve alguno en la lista. Espejo de
+    // `soloTalentoHumanoEn` en lib/utils/user_company.dart.
     function tieneAppDeListaEn(empresaId, apps) {
       let u = currentUser();
       let detalle = u.get('empresasDetalle', {});
       let bloque = detalle is map ? detalle.get(empresaId, {}) : {};
       let propias = bloque is map ? bloque.get('apps', null) : null;
       let raiz = u.get('apps', []);
-      return u.get('appsPorEmpresa', false) == true
-        ? (propias is list ? propias.hasAny(apps)
-          : (raizEsDeEmpresa(u, empresaId) && raiz is list && raiz.hasAny(apps)))
-        : ((raiz is list && raiz.hasAny(apps))
-          || (propias is list && propias.hasAny(apps)));
+      return !(bloque is map && bloque.get('soloTalentoHumano', false) == true)
+        && (u.get('appsPorEmpresa', false) == true
+          ? (propias is list ? propias.hasAny(apps)
+            : (raizEsDeEmpresa(u, empresaId) && raiz is list && raiz.hasAny(apps)))
+          : ((raiz is list && raiz.hasAny(apps))
+            || (propias is list && propias.hasAny(apps))));
     }
 
     function tieneAppTareasEn(empresaId) {
@@ -2082,16 +2086,19 @@ service cloud.firestore {
             || (cargo is string && cargo.lower().matches('.*(director|jefe|coordinador|supervisor|gerente|gerencia).*'))));
     }
 
+    // Quien Talento Humano marcó "No opera en To-Do" no recibe tareas.
     function usuarioActivoParaTarea(empresaId, uid) {
       let path = /databases/$(database)/documents/TBL_USUARIOS/$(uid);
       let u = exists(path) ? get(path).data : {};
       let empresas = u.get('empresas', []);
       let detalle = u.get('empresasDetalle', {});
+      let bloque = detalle is map ? detalle.get(empresaId, {}) : {};
       return uid is string && uid.size() > 0 && exists(path)
         && ((empresas is list && empresaId in empresas)
           || (detalle is map && empresaId in detalle)
           || u.get('empresaId', '') == empresaId
           || u.get('empresa', '') == empresaId)
+        && !(bloque is map && bloque.get('soloTalentoHumano', false) == true)
         && habilitadaEn(u, empresaId);
     }
 
@@ -2213,6 +2220,9 @@ service cloud.firestore {
           'solicitud_finalizacion', 'solicitud_reasignacion']
         && esResponsableTarea(antes)
         && !(actual in ['finalizado', 'por_aprobar'])
+        // Con una reasignación en espera la tarea solo se consulta (4 oct
+        // 2026): ni avance, ni novedad, ni finalización, ni otra solicitud.
+        && antes.get('solicitud_reasignacion_estado', '') != 'pendiente'
         && d.get('asignado_uid', '') == antes.get('asignado_uid', '')
         && (
           (evento == 'task_avance'
@@ -2323,12 +2333,16 @@ service cloud.firestore {
             && d.get('asignado_uid', '')
               == antes.get('solicitud_reasignacion_to_uid', '')
             && d.get('estado', '') == 'en_progreso'
+            // El aprobador pasa al jefe inmediato del nuevo responsable
+            // (`taskAprobadorTrasReasignar`, 4 oct 2026).
             && cambios.hasOnly(['asignado_uid', 'asignado_nombre',
               'asignado_cargo_id', 'asignado_cargo_nombre', 'areaId',
               'estado', 'status', 'reasignado',
               'solicitud_reasignacion_estado', 'reasignacion_resuelta_at',
               'participantes_uid', 'lastEventType', 'lastEventAt',
-              'updatedAt', 'lastEventText'])
+              'updatedAt', 'lastEventText', 'jefe_uid', 'jefe_nombre',
+              'aprobador_uid', 'aprobador_nombre', 'approverId',
+              'approverName'])
             // El destino ya se validó activo al pedir la reasignación y la
             // aprobación solo puede llevar a ese destino: no se vuelve a leer.
             && tareaConservaParticipantes(antes, d))
@@ -2434,6 +2448,13 @@ service cloud.firestore {
           || (tipo == 'novedades'
             && ((evento.get('by', '') == uid && esResponsableTarea(tarea))
               || (evento.get('type', '') in ['devolucion', 'respuesta_avance']
+                && esAprobadorTarea(tarea))
+              // Retroalimentación de quien asignó o aprueba a una novedad
+              // del responsable (4 oct 2026).
+              || (evento.get('type', '') == 'respuesta_novedad'
+                && evento.get('by', '') == uid
+                && evento.get('message', '') is string
+                && evento.message.size() > 0
                 && esAprobadorTarea(tarea))))
           || (tipo == 'finalizacion'
             && evento.get('createdBy', '') == uid

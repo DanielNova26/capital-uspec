@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:todo/core/task_estado_visible.dart';
+import 'package:todo/core/task_flujo.dart';
 import 'package:todo/utils/task_status.dart';
 import 'package:todo/widgets/user_avatar.dart';
 
@@ -72,6 +73,9 @@ class _TaskModernCardState extends State<TaskModernCard> {
         estado == TaskEstadoVisible.pendiente && taskFueDevuelta(data);
     final modulo = taskModuloOrigenNombre(taskModuloOrigen(data));
     final numero = taskNumeroTexto(data);
+    final reasignacion = widget.isHistorical
+        ? null
+        : taskReasignacionEnEspera(data);
 
     // Pie: el responsable, o quien asignó (en Mis tareas).
     final String personId;
@@ -230,6 +234,13 @@ class _TaskModernCardState extends State<TaskModernCard> {
                                         height: compact ? 1.3 : 1.4,
                                         fontFamily: kArial,
                                       ),
+                                    ),
+                                  ],
+                                  if (reasignacion != null) ...[
+                                    SizedBox(height: compact ? 6 : 8),
+                                    TaskReasignacionEsperaNota(
+                                      espera: reasignacion,
+                                      compact: compact,
                                     ),
                                   ],
                                 ],
@@ -406,6 +417,80 @@ class _TaskModernCardState extends State<TaskModernCard> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Reasignación en trámite: a quién pasaría la tarea y quién debe aprobarla
+/// (4 oct 2026: "Tareas en estado reasignado (con reasignación en espera):
+/// mostrar usuario al que se le reasignó y el responsable de aprobar").
+class TaskReasignacionEsperaNota extends StatelessWidget {
+  final TaskReasignacionEnEspera espera;
+  final bool compact;
+
+  const TaskReasignacionEsperaNota({
+    super.key,
+    required this.espera,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = TaskEstadoVisible.reasignada.texto;
+    final estilo = TextStyle(
+      fontFamily: kArial,
+      fontSize: compact ? 11 : 12,
+      fontWeight: FontWeight.w600,
+      color: color,
+    );
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 8 : 10,
+        vertical: compact ? 5 : 7,
+      ),
+      decoration: BoxDecoration(
+        color: TaskEstadoVisible.reasignada.fondo.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.swap_horiz_rounded, size: 14, color: color),
+              const SizedBox(width: 4),
+              Flexible(
+                child: UserNameText(
+                  espera.destinoId,
+                  fallbackName: espera.destinoNombre.isEmpty
+                      ? 'destino sin definir'
+                      : espera.destinoNombre,
+                  prefix: 'Reasignada a: ',
+                  style: estilo,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Row(
+            children: [
+              Icon(Icons.verified_user_outlined, size: 14, color: color),
+              const SizedBox(width: 4),
+              Flexible(
+                child: espera.aprobadorId.isEmpty
+                    ? Text('Sin aprobador definido', style: estilo)
+                    : UserNameText(
+                        espera.aprobadorId,
+                        fallbackName: espera.aprobadorNombre,
+                        prefix: 'Aprueba: ',
+                        style: estilo,
+                      ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

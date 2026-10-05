@@ -176,6 +176,8 @@ Object.defineProperty(exports, "comprasGenerarReporteAbastecimiento", { enumerab
 const admin = __importStar(require("firebase-admin"));
 const notification_sound_policy_1 = require("./notification_sound_policy");
 const interventoria_task_sync_1 = require("./interventoria_task_sync");
+const tareas_avisos_1 = require("./tareas_avisos");
+const tareas_numero_2 = require("./tareas_numero");
 console.log("[BUILD] functions v2025-10-09-#fix-notif-subcollection-jsdoc");
 admin.initializeApp();
 const db = admin.firestore();
@@ -231,7 +233,8 @@ function taskNotificationDescription(data, detail) {
             ? responsible
             : (data?.lastEventByName || data?.creador_nombre ||
                 data?.creatorName || "Sistema")).toString();
-    return `${getTaskTitle(data)} · ${detail} · Fecha: ${date} · Emisor: ${emitter} · Responsable: ${responsible}`;
+    // "Tarea No. 2088" al principio (4 oct 2026, "mostrar número de tarea").
+    return (0, tareas_avisos_1.conNumeroTarea)(data ?? undefined, `${getTaskTitle(data)} · ${detail} · Fecha: ${date} · Emisor: ${emitter} · Responsable: ${responsible}`);
 }
 function isTrue(v) {
     return v === true;
@@ -348,11 +351,14 @@ function taskNotificationContext(data) {
         data?.hallazgoId ??
         data?.facObservacionId ??
         "").toString().trim();
+    const taskNumero = (0, tareas_numero_2.numeroDeTarea)(data ?? undefined);
     return {
         ...(empresaId ? { empresaId } : {}),
         module,
         sourceType: sourceType || "manual",
         ...(sourceEntityId ? { sourceEntityId } : {}),
+        // La bandeja lo muestra en rojo ("Tarea No. 2088").
+        ...(taskNumero !== null ? { taskNumero } : {}),
     };
 }
 /**
@@ -633,7 +639,7 @@ exports.onNotificationCreated = functions
     if (isRead)
         return;
     const title = (data.title || "Notificación").toString();
-    const body = (data.description || data.body || "").toString();
+    const body = (0, tareas_avisos_1.cuerpoPushConNumero)(data.taskNumero, (data.description || data.body || "").toString());
     const taskId = data.taskId ? String(data.taskId) : "";
     const type = data.type ? String(data.type) : "";
     const empresaId = data.empresaId ? String(data.empresaId) : "";
@@ -665,7 +671,7 @@ exports.onTaskCreated = functions
     .region("us-central1")
     .firestore.document("TBL_TAREAS/{taskId}")
     .onCreate(async (snap, ctx) => {
-    const data = snap.data() ?? {};
+    let data = snap.data() ?? {};
     const taskId = ctx.params.taskId;
     const assignedId = getAssignedId(data);
     console.log("[onTaskCreated] taskId:", taskId, "assignedId:", assignedId);
@@ -676,6 +682,16 @@ exports.onTaskCreated = functions
     if (data.notificarCreacion === false) {
         console.log("[onTaskCreated] aviso agrupado por el módulo:", taskId);
         return;
+    }
+    // El aviso de la tarea nueva lleva su número ("Tarea No. 2088"), que
+    // asigna `tareasAsignarNumero` al mismo tiempo que corre este trigger.
+    try {
+        const numero = await (0, tareas_avisos_1.esperarNumeroTarea)(async () => (await snap.ref.get()).data());
+        if (numero !== null)
+            data = { ...data, numero };
+    }
+    catch (e) {
+        console.warn("[onTaskCreated] sin número de tarea:", e);
     }
     const title = getTaskTitle(data);
     const description = taskNotificationDescription(data, getTaskDescription(data) || "Nueva tarea asignada");
@@ -816,10 +832,22 @@ exports.onTaskUpdated = functions
             ? (after?.solicitud_finalizacion_by_uid ?? "").toString().trim()
             : "";
         const recipients = new Set();
-        if (!isPorAprobar && newAssigned && !notifiedIds.has(newAssigned))
-            recipients.add(newAssigned);
-        if (bossId && !notifiedIds.has(bossId) && bossId !== solicitanteUid)
-            recipients.add(bossId);
+        if (isPorAprobar) {
+            // La solicitud de finalización va a quien la aprueba y a quien
+            // asignó la tarea (4 oct 2026: "Finalizar tarea: enviar notificación
+            // al usuario que la asignó"). Antes solo al jefe del responsable, que
+            // tras una reasignación podía ser el propio responsable.
+            for (const uid of (0, tareas_avisos_1.destinatariosSeguimiento)(after, solicitanteUid || newAssigned || "")) {
+                if (!notifiedIds.has(uid))
+                    recipients.add(uid);
+            }
+        }
+        else {
+            if (newAssigned && !notifiedIds.has(newAssigned))
+                recipients.add(newAssigned);
+            if (bossId && !notifiedIds.has(bossId))
+                recipients.add(bossId);
+        }
         if (recipients.size === 0)
             return;
         await Promise.all(Array.from(recipients).map(async (uid) => {

@@ -13,6 +13,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../core/task_route_guard.dart';
 import '../core/area_directory.dart';
+import '../core/task_estado_visible.dart' show taskNumeroTexto;
 import '../core/task_origen.dart';
 
 const Color kBrand = Color(0xFF1E3A8A);
@@ -110,6 +111,100 @@ class _TaskActivityScreenState extends State<TaskActivityScreen> {
           },
         ),
       ),
+    );
+  }
+}
+
+/// Historial de actividad de una tarea en una ventana flotante: centrada en
+/// pantallas amplias, hoja inferior en el teléfono, con "volver" al panel de
+/// gestión de la tarea (4 oct 2026: "mostrar el historial en ventana flotante
+/// centrada con botón volver, igual como se ve en el entorno del usuario que
+/// asignó la actividad"). Se apila sobre el panel que la abre: al cerrarla,
+/// ese panel sigue ahí.
+Future<void> showTaskActivityPanel(
+  BuildContext context, {
+  required String taskId,
+  required String currentUserId,
+}) {
+  return showTaskPanel<void>(
+    context: context,
+    maxWidth: 1000,
+    builder: (panelContext) => SafeArea(
+      child: SizedBox(
+        height: taskPanelHeight(
+          context,
+          mobileFraction: 0.86,
+          desktopMaxHeight: 720,
+        ),
+        child: _TaskActivityPanel(taskId: taskId, currentUserId: currentUserId),
+      ),
+    ),
+  );
+}
+
+class _TaskActivityPanel extends StatefulWidget {
+  final String taskId;
+  final String currentUserId;
+
+  const _TaskActivityPanel({required this.taskId, required this.currentUserId});
+
+  @override
+  State<_TaskActivityPanel> createState() => _TaskActivityPanelState();
+}
+
+class _TaskActivityPanelState extends State<_TaskActivityPanel> {
+  Future<TaskAccessValidation>? _validation;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _validation ??= TaskRouteGuard().validateTaskAccess(
+      context,
+      userIdentity: widget.currentUserId,
+      taskId: widget.taskId,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<TaskAccessValidation>(
+      future: _validation,
+      builder: (context, snap) {
+        final data = snap.data?.taskData ?? const <String, dynamic>{};
+        final titulo = (data['titulo'] ?? data['title'] ?? '').toString();
+        final numero = taskNumeroTexto(data);
+        Widget cuerpo;
+        if (snap.connectionState != ConnectionState.done) {
+          cuerpo = const Center(child: CircularProgressIndicator());
+        } else if (snap.hasError || snap.data == null) {
+          cuerpo = const Center(child: Text('No se pudo abrir la tarea.'));
+        } else if (!snap.data!.allowed) {
+          cuerpo = Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(snap.data!.message ?? 'Acceso denegado'),
+            ),
+          );
+        } else {
+          cuerpo = _ProcesosTab(taskId: widget.taskId);
+        }
+        return Column(
+          children: [
+            const SizedBox(height: 12),
+            const TaskPanelHandle(),
+            TaskPanelHeader(
+              title: 'Historial de actividad',
+              eyebrow: [
+                if (numero.isNotEmpty) numero.toUpperCase(),
+                if (titulo.isNotEmpty) titulo.toUpperCase(),
+              ].join(' · '),
+              onBack: () => Navigator.of(context).pop(),
+            ),
+            const Divider(height: 1),
+            Expanded(child: cuerpo),
+          ],
+        );
+      },
     );
   }
 }
@@ -1159,6 +1254,12 @@ class _ProcesoEntry extends StatelessWidget {
     final byId = (data['byId'] ?? data['by'] ?? data['createdBy'] ?? '')
         .toString();
     final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
+    final tipo = switch ((data['type'] ?? '').toString()) {
+      'respuesta_novedad' => 'Retroalimentación',
+      'devolucion' => 'Devolución',
+      'respuesta_avance' => 'Respuesta al avance',
+      _ => '',
+    };
 
     // attachments pueden venir en 'attachments' (avances/novedades) o 'attachments' (finalizacion)
     final attachments = (data['attachments'] as List<dynamic>? ?? [])
@@ -1214,6 +1315,10 @@ class _ProcesoEntry extends StatelessWidget {
                     ],
                   ),
                 ),
+                if (tipo.isNotEmpty) ...[
+                  _Badge(tipo, color: accentColor),
+                  const SizedBox(width: 6),
+                ],
                 if (attachments.isNotEmpty)
                   _Badge('${attachments.length}', color: accentColor),
               ],

@@ -211,10 +211,7 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
   Future<void> _takePhoto() async {
     XFile? x;
     try {
-      x = await _picker.pickImage(
-        source: ImageSource.camera,
-        imageQuality: 90,
-      );
+      x = await _picker.pickImage(source: ImageSource.camera, imageQuality: 90);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -374,17 +371,19 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
         photoMeta: _photoMeta,
       );
 
-      setState(() {
-        _success = 'Avance enviado';
-        _descCtrl.clear();
-        _nextDate = null;
-        _files.clear();
-        _photoMeta.clear();
-      });
+      // Enviado: se cierra la ventana y se vuelve al panel de gestión de la
+      // tarea, que queda debajo (4 oct 2026, "cerrar ventana una vez enviado
+      // el reporte de avance"). Quien asignó la tarea y quien la aprueba
+      // reciben el aviso.
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Avance enviado.')));
+      Navigator.of(context).pop(true);
     } catch (e) {
-      setState(() => _error = 'Error: $e');
+      if (mounted) setState(() => _error = 'Error: $e');
     } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 

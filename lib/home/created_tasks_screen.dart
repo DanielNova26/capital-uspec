@@ -15,9 +15,12 @@ import '../gestion_documental/correspondencia/gd_correspondencia_screen.dart';
 import '../services/task_service.dart';
 import '../core/area_directory.dart';
 import '../core/task_estado_visible.dart';
+import '../core/task_flujo.dart';
+import '../core/org_context_resolver.dart';
 import '../core/task_origen.dart';
 import '../core/task_personas_empresa.dart';
 import '../core/user_directory.dart';
+import '../utils/task_status.dart';
 import '../widgets/task_card_grid.dart';
 import 'task_correspondencia_preview.dart';
 
@@ -69,11 +72,12 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
 
   static const String _kSinArea = '__sin_area__';
 
-  @override
-  void initState() {
-    super.initState();
-    if (widget.approvalMode) _statusFilter = 'por_aprobar';
-  }
+  /// Identidades de la persona para decidir si una tarea espera su
+  /// aprobación.
+  Set<String> get _misIds => {widget.userId.trim()}..remove('');
+
+  bool _esperaMiDecision(Map<String, dynamic> m) =>
+      taskEsperaDecisionDe(m, _misIds);
 
   @override
   void didChangeDependencies() {
@@ -129,6 +133,10 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
               Filter('aprobador_uid', isEqualTo: widget.userId),
               // Compatibilidad con tareas históricas anteriores al contrato v2.
               Filter('jefe_uid', isEqualTo: widget.userId),
+              // Quien la asignó decide cuando el aprobador guardado es el
+              // propio responsable (reasignadas antes de oct 2026, tarea
+              // 2090). El filtro fino es `taskEsperaDecisionDe`.
+              Filter('creador_id', isEqualTo: widget.userId),
             ),
           )
         : q.where('creador_id', isEqualTo: widget.userId);
@@ -267,11 +275,22 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
   ) {
     final result = _statusFilter == 'todas'
         ? [...sinEstado]
-        : sinEstado
-              .where((d) => taskEstadoVisible(d.data()).clave == _statusFilter)
-              .toList();
+        : sinEstado.where((d) => _cumpleEstado(d.data())).toList();
     result.sort(_compareByDueDate);
     return result;
+  }
+
+  /// En "Por aprobar" el filtro es por lo que espera decisión (finalización
+  /// o reasignación); en "Tareas que asigné", por el estado visible.
+  bool _cumpleEstado(Map<String, dynamic> m) {
+    if (widget.approvalMode) {
+      return switch (_statusFilter) {
+        'por_aprobar' => taskFinalizacionPendiente(m),
+        'reasignacion' => taskReasignacionPendiente(m),
+        _ => true,
+      };
+    }
+    return taskEstadoVisible(m).clave == _statusFilter;
   }
 
   List<Map<String, String>> _extractAttachments(Map<String, dynamic> data) {
@@ -466,116 +485,305 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     );
   }
 
+  /// Retroalimentación de quien asignó o aprueba sobre una novedad del
+  /// responsable (4 oct 2026, "Reportar novedad: permitir comentarios de
+  /// retroalimentación"). Queda en la bitácora de novedades y le avisa al
+  /// responsable.
+  Future<bool> _responderNovedad({
+    required String taskId,
+    required Map<String, dynamic> tarea,
+    required String novedadId,
+  }) async {
+    final ctrl = TextEditingController();
+    final enviar = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Responder novedad'),
+          content: SizedBox(
+            width: 480,
+            child: TextField(
+              controller: ctrl,
+              autofocus: true,
+              maxLines: 4,
+              maxLength: 1500,
+              textCapitalization: TextCapitalization.sentences,
+              onChanged: (_) => setDialogState(() {}),
+              decoration: const InputDecoration(
+                hintText: 'Comentario para el responsable',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: ctrl.text.trim().isEmpty
+                  ? null
+                  : () => Navigator.pop(dialogContext, true),
+              child: const Text('Enviar'),
+            ),
+          ],
+        ),
+      ),
+    );
+    // Sin `dispose` inmediato: el diálogo todavía anima su salida con el
+    // campo (mismo criterio que el motivo de "Devolver").
+    final texto = ctrl.text.trim();
+    if (enviar != true || texto.isEmpty) return false;
+    final miNombre =
+        UserDirectory.instance.peek(widget.userId)?.displayName ?? '';
+    try {
+      await FirebaseFirestore.instance
+          .collection('TBL_TAREAS')
+          .doc(taskId)
+          .collection('novedades')
+          .add({
+            'type': 'respuesta_novedad',
+            'by': widget.userId,
+            'byName': miNombre,
+            'message': texto,
+            'respondeA': novedadId,
+            'createdAt': Timestamp.now(),
+          });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se pudo enviar la respuesta.')),
+        );
+      }
+      return false;
+    }
+    final responsable = taskResponsableId(tarea);
+    if (responsable.isNotEmpty && responsable != widget.userId) {
+      try {
+        final titulo = (tarea['titulo'] ?? tarea['title'] ?? 'Tarea')
+            .toString();
+        final empresaId = (tarea['empresaId'] ?? '').toString().trim();
+        await TaskService().pushNotification(
+          toUserId: responsable,
+          title: 'Respuesta a tu novedad',
+          description: conNumeroDeTarea(tarea, '$titulo · $texto'),
+          taskId: taskId,
+          type: 'task_respuesta_novedad',
+          fromId: widget.userId,
+          fromName: miNombre,
+          empresaId: empresaId.isEmpty ? null : empresaId,
+          taskNumero: taskNumero(tarea),
+        );
+      } catch (_) {}
+    }
+    return true;
+  }
+
   Future<void> _showCollectionDialog({
     required String title,
     required String taskId,
     required String collection,
+    Map<String, dynamic>? tarea,
   }) async {
-    final docs = await _loadCollectionDocs(taskId, collection);
+    var docs = await _loadCollectionDocs(taskId, collection);
     if (!mounted) return;
+    // Retroalimentación: en novedades, quien asignó o aprueba puede responder
+    // las que reportó el responsable.
+    final tareaData = tarea ?? const <String, dynamic>{};
+    final puedeResponder =
+        collection == 'novedades' &&
+        tarea != null &&
+        (laAsignoEstaPersona(tareaData, widget.userId) ||
+            taskAprobadorId(tareaData) == widget.userId) &&
+        resolveTaskStatus(tareaData) != 'finalizado';
+    final responsable = taskResponsableId(tareaData);
     await showTaskPanel<void>(
       context: context,
       maxWidth: 1000,
-      builder: (sheetContext) => SafeArea(
-        child: SizedBox(
-          height: taskPanelHeight(context, desktopMaxHeight: 620),
-          child: Column(
-            children: [
-              const SizedBox(height: 12),
-              const TaskPanelHandle(),
-              TaskPanelHeader(
-                title: title,
-                onBack: () => Navigator.of(sheetContext).pop(),
-                trailing: Text(
-                  '${docs.length}',
-                  style: TextStyle(
-                    color: Colors.grey.shade600,
-                    fontWeight: FontWeight.w700,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setPanel) => SafeArea(
+          child: SizedBox(
+            height: taskPanelHeight(context, desktopMaxHeight: 620),
+            child: Column(
+              children: [
+                const SizedBox(height: 12),
+                const TaskPanelHandle(),
+                TaskPanelHeader(
+                  title: title,
+                  onBack: () => Navigator.of(sheetContext).pop(),
+                  trailing: Text(
+                    '${docs.length}',
+                    style: TextStyle(
+                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: docs.isEmpty
-                    ? const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Text('No hay registros disponibles.'),
-                        ),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: docs.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 10),
-                        itemBuilder: (_, i) {
-                          final data = docs[i].data();
-                          final itemAttachments = _collectionItemAttachments(
-                            data,
-                          );
-                          return Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade50,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: Colors.grey.shade200),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _messageOf(data),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                if ((data['comment'] ??
-                                        data['comentario'] ??
-                                        '')
+                const Divider(height: 1),
+                Expanded(
+                  child: docs.isEmpty
+                      ? const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(24),
+                            child: Text('No hay registros disponibles.'),
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: docs.length,
+                          separatorBuilder: (_, _) =>
+                              const SizedBox(height: 10),
+                          itemBuilder: (_, i) {
+                            final data = docs[i].data();
+                            final itemAttachments = _collectionItemAttachments(
+                              data,
+                            );
+                            final autor =
+                                (data['by'] ?? data['createdBy'] ?? '')
                                     .toString()
-                                    .trim()
-                                    .isNotEmpty) ...[
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'Comentario: ${(data['comment'] ?? data['comentario']).toString().trim()}',
-                                    style: const TextStyle(fontSize: 13),
-                                  ),
-                                ],
-                                const SizedBox(height: 6),
-                                Text(
-                                  _fmtDate(data['createdAt']),
-                                  style: TextStyle(
-                                    color: Colors.grey.shade600,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                                if (itemAttachments.isNotEmpty) ...[
-                                  const SizedBox(height: 10),
-                                  Align(
-                                    alignment: Alignment.centerRight,
-                                    child: TextButton.icon(
-                                      onPressed: () =>
-                                          _showItemAttachmentsDialog(
-                                            title: 'Adjuntos del registro',
-                                            attachments: itemAttachments,
+                                    .trim();
+                            final autorNombre =
+                                (data['byName'] ?? data['createdByName'] ?? '')
+                                    .toString()
+                                    .trim();
+                            final tipo = (data['type'] ?? '').toString();
+                            final etiqueta = switch (tipo) {
+                              'respuesta_novedad' => 'Retroalimentación',
+                              'devolucion' => 'Devolución',
+                              'respuesta_avance' => 'Respuesta al avance',
+                              _ => '',
+                            };
+                            final esDelResponsable =
+                                tipo.isEmpty &&
+                                autor.isNotEmpty &&
+                                autor == responsable;
+                            return Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: tipo == 'respuesta_novedad'
+                                    ? Colors.blue.withValues(alpha: 0.05)
+                                    : Colors.grey.shade50,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: Colors.grey.shade200),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (autor.isNotEmpty ||
+                                      autorNombre.isNotEmpty ||
+                                      etiqueta.isNotEmpty) ...[
+                                    Row(
+                                      children: [
+                                        if (autor.isNotEmpty ||
+                                            autorNombre.isNotEmpty)
+                                          Flexible(
+                                            child: UserNameText(
+                                              autor,
+                                              fallbackName: autorNombre,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w700,
+                                                color: Colors.grey.shade700,
+                                              ),
+                                            ),
                                           ),
-                                      icon: const Icon(
-                                        Icons.attach_file_rounded,
-                                        size: 18,
-                                      ),
-                                      label: Text(
-                                        '${itemAttachments.length} adjunto(s)',
-                                      ),
+                                        if (etiqueta.isNotEmpty) ...[
+                                          const SizedBox(width: 8),
+                                          _ReassignMetaPill(
+                                            icon: Icons.forum_outlined,
+                                            label: etiqueta,
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                    const SizedBox(height: 6),
+                                  ],
+                                  Text(
+                                    _messageOf(data),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 14,
                                     ),
                                   ),
+                                  if ((data['comment'] ??
+                                          data['comentario'] ??
+                                          '')
+                                      .toString()
+                                      .trim()
+                                      .isNotEmpty) ...[
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Comentario: ${(data['comment'] ?? data['comentario']).toString().trim()}',
+                                      style: const TextStyle(fontSize: 13),
+                                    ),
+                                  ],
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    _fmtDate(data['createdAt']),
+                                    style: TextStyle(
+                                      color: Colors.grey.shade600,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  if (itemAttachments.isNotEmpty ||
+                                      (puedeResponder && esDelResponsable)) ...[
+                                    const SizedBox(height: 10),
+                                    Wrap(
+                                      alignment: WrapAlignment.end,
+                                      spacing: 8,
+                                      children: [
+                                        if (puedeResponder && esDelResponsable)
+                                          OutlinedButton.icon(
+                                            onPressed: () async {
+                                              final ok =
+                                                  await _responderNovedad(
+                                                    taskId: taskId,
+                                                    tarea: tareaData,
+                                                    novedadId: docs[i].id,
+                                                  );
+                                              if (!ok) return;
+                                              final nuevos =
+                                                  await _loadCollectionDocs(
+                                                    taskId,
+                                                    collection,
+                                                  );
+                                              if (sheetContext.mounted) {
+                                                setPanel(() => docs = nuevos);
+                                              }
+                                            },
+                                            icon: const Icon(
+                                              Icons.reply_rounded,
+                                              size: 18,
+                                            ),
+                                            label: const Text('Responder'),
+                                          ),
+                                        if (itemAttachments.isNotEmpty)
+                                          TextButton.icon(
+                                            onPressed: () =>
+                                                _showItemAttachmentsDialog(
+                                                  title:
+                                                      'Adjuntos del registro',
+                                                  attachments: itemAttachments,
+                                                ),
+                                            icon: const Icon(
+                                              Icons.attach_file_rounded,
+                                              size: 18,
+                                            ),
+                                            label: Text(
+                                              '${itemAttachments.length} adjunto(s)',
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ],
                                 ],
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-              ),
-            ],
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -826,7 +1034,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
   /// Adjuntos de la tarea por origen: iniciales, novedades, avances y
   /// finalización. Lo usan "Ver adjuntos" y el conteo que inhabilita el botón.
   Future<Map<String, List<Map<String, String>>>> _agruparAdjuntos(
-    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    DocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
     final grouped = <String, List<Map<String, String>>>{
       'Iniciales': <Map<String, String>>[],
@@ -861,7 +1069,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     };
     addAll(
       'Iniciales',
-      _extractAttachments(doc.data()).where((a) {
+      _extractAttachments(doc.data() ?? const {}).where((a) {
         final desc = (a['desc'] ?? '').trim();
         return desc.isEmpty || !_processLabels.contains(desc);
       }).toList(),
@@ -891,7 +1099,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
   /// botón de consulta sale inhabilitado (3 oct 2026: "si no hay
   /// novedades/avances/adjuntos, mostrar los botones inhabilitados").
   Future<({int novedades, int avances, int adjuntos})> _contarActividad(
-    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    DocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
     Future<int> contar(String coll) async {
       try {
@@ -916,7 +1124,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
   }
 
   Future<void> _showAllAttachmentsDialog(
-    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    DocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
     final grouped = await _agruparAdjuntos(doc);
     final tabs = grouped.keys.toList();
@@ -1015,7 +1223,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
   }
 
   Future<void> _approveFinish(
-    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    DocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
     final ref = FirebaseFirestore.instance.collection('TBL_TAREAS').doc(doc.id);
     final approvalRef = ref.collection('finalizacion').doc();
@@ -1076,9 +1284,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     }
   }
 
-  Future<void> _returnTask(
-    QueryDocumentSnapshot<Map<String, dynamic>> doc,
-  ) async {
+  Future<void> _returnTask(DocumentSnapshot<Map<String, dynamic>> doc) async {
     DateTime? nuevaFecha;
     final motivoCtrl = TextEditingController();
 
@@ -1121,6 +1327,8 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                 TextField(
                   controller: motivoCtrl,
                   maxLines: 2,
+                  // Habilita "Devolver" en cuanto hay motivo.
+                  onChanged: (_) => setDialogState(() {}),
                   decoration: const InputDecoration(
                     hintText: 'Motivo',
                     border: OutlineInputBorder(),
@@ -1133,8 +1341,13 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                 onPressed: () => Navigator.pop(context, false),
                 child: const Text('Cancelar'),
               ),
+              // Solo con fecha y motivo (4 oct 2026: "no habilitar botón
+              // hasta que se seleccionen todos los campos"); antes se podía
+              // tocar y no pasaba nada.
               ElevatedButton(
-                onPressed: () => Navigator.pop(context, true),
+                onPressed: nuevaFecha == null || motivoCtrl.text.trim().isEmpty
+                    ? null
+                    : () => Navigator.pop(context, true),
                 child: const Text('Devolver'),
               ),
             ],
@@ -1216,10 +1429,10 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
   }
 
   Future<void> _resolveReassign(
-    QueryDocumentSnapshot<Map<String, dynamic>> doc, {
+    DocumentSnapshot<Map<String, dynamic>> doc, {
     required bool approve,
   }) async {
-    final initialData = doc.data();
+    final initialData = doc.data() ?? const <String, dynamic>{};
     final now = Timestamp.now();
 
     final titulo = (initialData['titulo'] ?? initialData['title'] ?? 'Tarea')
@@ -1278,9 +1491,32 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
           if (latestNewUid.isEmpty) {
             throw StateError('La solicitud no tiene responsable destino.');
           }
+          // El aprobador pasa al jefe inmediato del nuevo responsable (4 oct
+          // 2026, tarea 2090: reasignada y terminada, no le salía a quien
+          // debía aprobarla).
+          final destinoSnap = await trx.get(
+            FirebaseFirestore.instance
+                .collection('TBL_USUARIOS')
+                .doc(latestNewUid),
+          );
+          final empresaTarea = (latest['empresaId'] ?? '').toString().trim();
+          final destinoData = destinoSnap.data();
+          final org = destinoData == null || empresaTarea.isEmpty
+              ? null
+              : const OrgContextResolver().resolve(
+                  userData: destinoData,
+                  empresaId: empresaTarea,
+                );
+          final aprobador = taskAprobadorTrasReasignar(
+            tarea: latest,
+            nuevoResponsableId: latestNewUid,
+            jefeId: org?.jefeId,
+            jefeNombre: org?.jefeNombre,
+          );
           approvedNewUid = latestNewUid;
           approvedNewName = latestNewName;
           trx.update(ref, {
+            ...aprobador,
             'asignado_uid': latestNewUid,
             if (latestNewName.isNotEmpty) 'asignado_nombre': latestNewName,
             'areaId': latestNewArea,
@@ -1323,13 +1559,16 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
           await TaskService().pushNotification(
             toUserId: prevAsignadoId,
             title: 'Reasignación aprobada',
-            description:
-                '$titulo · Ahora asignada a ${approvedNewName.isNotEmpty ? approvedNewName : approvedNewUid}',
+            description: conNumeroDeTarea(
+              initialData,
+              '$titulo · Ahora asignada a ${approvedNewName.isNotEmpty ? approvedNewName : approvedNewUid}',
+            ),
             taskId: doc.id,
             type: 'task_reasignacion_aprobada',
             fromId: widget.userId,
             fromName: widget.userId,
             empresaId: empresaId.isNotEmpty ? empresaId : null,
+            taskNumero: taskNumero(initialData),
           );
         } catch (_) {}
       }
@@ -1381,19 +1620,23 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
         await TaskService().pushNotification(
           toUserId: prevAsignadoId,
           title: 'Solicitud de reasignación rechazada',
-          description: titulo,
+          description: conNumeroDeTarea(
+            initialData,
+            '$titulo · La tarea sigue a tu cargo.',
+          ),
           taskId: doc.id,
           type: 'task_reasignacion_rechazada',
           fromId: widget.userId,
           fromName: widget.userId,
           empresaId: empresaId.isNotEmpty ? empresaId : null,
+          taskNumero: taskNumero(initialData),
         );
       } catch (_) {}
     }
   }
 
-  void _showActions(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data();
+  void _showActions(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data() ?? const <String, dynamic>{};
     // Una tarea de Gestión de Correspondencia abre el mismo panel de
     // cualquier tarea, con la vista previa de la respuesta y un botón al
     // expediente (3 oct 2026). Antes saltaba directo al módulo y quien debía
@@ -1413,6 +1656,27 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
             .toString()
             .toLowerCase() ==
         'pendiente';
+    // Aprueba o devuelve solo quien decide sobre la tarea (el jefe
+    // inmediato del responsable o, en su defecto, quien la asignó). Quien la
+    // asignó sin ser el aprobador ve que está en espera y de quién.
+    final aprobadorId = taskAprobadorId(data);
+    final soyAprobador =
+        aprobadorId.isNotEmpty && _misIds.contains(aprobadorId);
+    final requiereEvidencias = () {
+      final raw = data['requiere_adjunto'] ?? data['requiereAdjunto'];
+      if (raw == null) return true;
+      if (raw is bool) return raw;
+      final t = raw.toString().toLowerCase().trim();
+      return t == 'true' || t == 'si';
+    }();
+    final descripcion = (data['descripcion'] ?? data['description'] ?? '')
+        .toString()
+        .trim();
+    final asignador = taskAsignador(data);
+    final fechaLimite = _toDate(data['fecha_limite'] ?? data['dueDate']);
+    final prioridad = (data['prioridad'] ?? data['priority'] ?? '')
+        .toString()
+        .trim();
     final lastEventType = (data['lastEventType'] ?? '')
         .toString()
         .toLowerCase();
@@ -1533,6 +1797,70 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                     ),
                   ],
                 ),
+                // Detalle de la tarea: quien aprueba una reasignación o un
+                // cierre necesita saber qué es (4 oct 2026: "nombre,
+                // detalle, requiere evidencias, usuario que asignó").
+                if (descripcion.isNotEmpty) ...[
+                  const SizedBox(height: 12, width: double.infinity),
+                  Text(
+                    descripcion,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Colors.black87,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12, width: double.infinity),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _ReassignMetaPill(
+                      icon: Icons.event_outlined,
+                      label: fechaLimite == null
+                          ? 'Sin fecha límite'
+                          : 'Fecha: ${DateFormat('dd/MM/yyyy').format(fechaLimite)}',
+                    ),
+                    if (prioridad.isNotEmpty)
+                      _ReassignMetaPill(
+                        icon: Icons.flag_outlined,
+                        label: 'Prioridad: $prioridad',
+                      ),
+                    _ReassignMetaPill(
+                      icon: requiereEvidencias
+                          ? Icons.attach_file_rounded
+                          : Icons.do_not_disturb_alt_outlined,
+                      label: requiereEvidencias
+                          ? 'Requiere evidencias'
+                          : 'No requiere evidencias',
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.85),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: Colors.purple.withValues(alpha: 0.14),
+                        ),
+                      ),
+                      child: UserNameText(
+                        asignador.id,
+                        fallbackName: asignador.nombre.isNotEmpty
+                            ? asignador.nombre
+                            : 'Sin dato',
+                        prefix: 'Asignó: ',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
                 if (hasAvance || hasNovedad) ...[
                   const SizedBox(height: 16, width: double.infinity),
                   Container(
@@ -1620,7 +1948,60 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                   padding: EdgeInsets.symmetric(vertical: 20),
                   child: Divider(height: 1),
                 ),
-                if (hasPendingFinish || hasPendingReassign) ...[
+                if ((hasPendingFinish || hasPendingReassign) &&
+                    !soyAprobador) ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: Colors.orange.withValues(alpha: 0.25),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.hourglass_top_rounded,
+                          color: Colors.orange,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                hasPendingReassign
+                                    ? 'Reasignación a $reassignTarget en espera'
+                                    : 'Finalización en espera de aprobación',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              aprobadorId.isEmpty
+                                  ? const Text('Sin aprobador definido.')
+                                  : UserNameText(
+                                      aprobadorId,
+                                      fallbackName: taskAprobadorNombre(data),
+                                      prefix: 'La aprueba: ',
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Divider(height: 1),
+                  ),
+                ],
+                if ((hasPendingFinish || hasPendingReassign) &&
+                    soyAprobador) ...[
                   const Text(
                     'ACCIONES PENDIENTES DE TU APROBACIÓN',
                     style: TextStyle(
@@ -1852,6 +2233,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                                     title: 'Novedades de la tarea',
                                     taskId: doc.id,
                                     collection: 'novedades',
+                                    tarea: data,
                                   );
                                 },
                         ),
@@ -1911,17 +2293,20 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
         // "Tareas que asigné" es lo que la persona asignó. Lo que asignó la
         // matriz de Interventoría cuando alguien dio clic no es suyo
         // (25 sep 2026), aunque las tareas viejas lo tengan como creador.
+        // "Por aprobar" muestra solo lo que espera una decisión de la persona
+        // (4 oct 2026: "deben salir solo las tareas que este usuario tiene
+        // por APROBAR"); antes salían también pendientes y retrasadas.
+        final raw = snap.data?.docs ?? const [];
         final allDocs = widget.approvalMode
-            ? (snap.data?.docs ?? const [])
-            : (snap.data?.docs ?? const [])
+            ? raw.where((d) => _esperaMiDecision(d.data())).toList()
+            : raw
                   .where((d) => laAsignoEstaPersona(d.data(), widget.userId))
                   .toList();
 
-        // Auto-open highlight from notification
+        // El aviso abre la tarea aunque no esté en la lista filtrada (p. ej.
+        // el aviso informativo al jefe de una tarea nueva).
         if (widget.highlightTaskId != null && !_didAutoOpen) {
-          final hit = allDocs
-              .where((d) => d.id == widget.highlightTaskId)
-              .toList();
+          final hit = raw.where((d) => d.id == widget.highlightTaskId).toList();
           if (hit.isNotEmpty) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (!_didAutoOpen) {
@@ -1941,7 +2326,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
         final delModulo = _delModulo(activas);
         final sinEstado = _filtrarSinEstado(delModulo);
         final tasks = focusMode
-            ? allDocs.where((d) => d.id == widget.highlightTaskId).toList()
+            ? raw.where((d) => d.id == widget.highlightTaskId).toList()
             : _applyFilters(sinEstado);
         return TaskResponsiveLayout(
           title: widget.approvalMode
@@ -1950,7 +2335,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
           subtitle: focusMode
               ? 'Mostrando únicamente la tarea seleccionada'
               : (widget.approvalMode
-                    ? 'Solicitudes de cierre bajo tu aprobación'
+                    ? 'Finalizaciones y reasignaciones que esperan tu aprobación'
                     : 'Seguimiento de las tareas que asignaste'),
           header: focusMode ? _buildHighlightHeader() : null,
           filters: _buildFiltersPanel(activas, delModulo, sinEstado),
@@ -1959,7 +2344,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                   icon: Icons.assignment_outlined,
                   title: 'Sin tareas activas',
                   message: widget.approvalMode
-                      ? 'No tienes solicitudes de cierre pendientes en esta empresa.'
+                      ? 'No tienes finalizaciones ni reasignaciones por aprobar en esta empresa.'
                       : (_moduloFilter == 'tareas'
                             ? 'No tienes tareas pendientes asignadas por ti. '
                                   'Las que nacieron en un módulo se ven '
@@ -2079,7 +2464,8 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
 
   void _clearAllFilters() => setState(() {
     _searchCtrl.clear();
-    _statusFilter = widget.approvalMode ? 'por_aprobar' : 'todas';
+    _statusFilter = 'todas';
+    _showAllTasks = true;
     _areaFilter = 'todas';
     _cargoFilter = 'todas';
     _responsableFilter = 'todos';
@@ -2089,7 +2475,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
 
   bool get _hasActiveFilters =>
       _searchCtrl.text.isNotEmpty ||
-      _statusFilter != (widget.approvalMode ? 'por_aprobar' : 'todas') ||
+      _statusFilter != 'todas' ||
       _areaFilter != 'todas' ||
       _cargoFilter != 'todas' ||
       _responsableFilter != 'todos' ||
@@ -2109,15 +2495,15 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
       final clave = taskEstadoVisible(d.data()).clave;
       conteo[clave] = (conteo[clave] ?? 0) + 1;
     }
+    final finalizaciones = sinEstado
+        .where((d) => taskFinalizacionPendiente(d.data()))
+        .length;
+    final reasignaciones = sinEstado
+        .where((d) => taskReasignacionPendiente(d.data()))
+        .length;
 
-    final baseOpciones = widget.approvalMode
-        ? delModulo
-              .where(
-                (d) =>
-                    taskEstadoVisible(d.data()) == TaskEstadoVisible.porAprobar,
-              )
-              .toList()
-        : delModulo;
+    // En "Por aprobar" la lista ya es solo lo que espera decisión.
+    final baseOpciones = delModulo;
     final areas = <String, String>{};
     final cargos = <String, String>{};
     final responsables = <String, String>{};
@@ -2177,31 +2563,55 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
 
     return TaskFiltersPanel(
       searchController: _searchCtrl,
-      onSearchChanged: (_) => setState(() => _page = 0),
+      onSearchChanged: (_) => setState(() {
+        _page = 0;
+        _showAllTasks = true;
+      }),
       searchHint: 'Buscar por título, número o responsable...',
-      quickFilters: [
-        TaskQuickFilter(
-          label: 'Todos',
-          value: 'todas',
-          count: sinEstado.length,
-        ),
-        for (final estado in const [
-          TaskEstadoVisible.pendiente,
-          TaskEstadoVisible.reasignada,
-          TaskEstadoVisible.porAprobar,
-          TaskEstadoVisible.retrasada,
-        ])
-          TaskQuickFilter(
-            label: estado.nombre,
-            value: estado.clave,
-            count: conteo[estado.clave] ?? 0,
-            color: estado.color,
-          ),
-      ],
+      quickFilters: widget.approvalMode
+          ? [
+              TaskQuickFilter(
+                label: 'Todas',
+                value: 'todas',
+                count: sinEstado.length,
+              ),
+              TaskQuickFilter(
+                label: 'Finalización',
+                value: 'por_aprobar',
+                count: finalizaciones,
+                color: TaskEstadoVisible.porAprobar.color,
+              ),
+              TaskQuickFilter(
+                label: 'Reasignación',
+                value: 'reasignacion',
+                count: reasignaciones,
+                color: TaskEstadoVisible.reasignada.color,
+              ),
+            ]
+          : [
+              TaskQuickFilter(
+                label: 'Todos',
+                value: 'todas',
+                count: sinEstado.length,
+              ),
+              for (final estado in const [
+                TaskEstadoVisible.pendiente,
+                TaskEstadoVisible.reasignada,
+                TaskEstadoVisible.porAprobar,
+                TaskEstadoVisible.retrasada,
+              ])
+                TaskQuickFilter(
+                  label: estado.nombre,
+                  value: estado.clave,
+                  count: conteo[estado.clave] ?? 0,
+                  color: estado.color,
+                ),
+            ],
       selectedQuickFilter: _statusFilter,
       onQuickFilterChanged: (value) => setState(() {
         _statusFilter = value;
         _page = 0;
+        _showAllTasks = true;
       }),
       dropdowns: [
         TaskFilterDropdownData(

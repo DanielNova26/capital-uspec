@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:todo/theme/app_typography.dart';
 import 'package:intl/intl.dart';
 import 'package:todo/widgets/empty_state_widget.dart';
+import 'package:todo/widgets/task_numero_aviso.dart';
 import 'package:todo/widgets/user_avatar.dart';
 import '../core/task_route_guard.dart';
 import '../facturacion/facturacion_navigation.dart';
@@ -20,9 +21,7 @@ import '../rutas/rutas_dashboard_screen.dart';
 import '../rutas/rutas_models.dart';
 import '../visitas/visitas_navigation.dart';
 import '../talento_humano/hoja_de_vida_screen.dart';
-import 'assigned_tasks_screen.dart';
-import 'created_tasks_screen.dart';
-import 'task_history_screen.dart' hide kArial;
+import 'task_aviso_navigation.dart';
 
 const String _notifsRoot = 'TBL_NOTIFICACIONES';
 const Color kMarronOscuro = Color(0xFF145DA0);
@@ -59,13 +58,12 @@ Future<bool> _openInterventoriaFromNotification(
   Navigator.push(
     context,
     MaterialPageRoute(
-      builder: (_) =>
-          InterventoriaDashboardScreen(
-            userId: userId,
-            empresaId: eid,
-            openDeleteRequests: deleteRequestId != null,
-            focusedDeleteRequestId: deleteRequestId,
-          ),
+      builder: (_) => InterventoriaDashboardScreen(
+        userId: userId,
+        empresaId: eid,
+        openDeleteRequests: deleteRequestId != null,
+        focusedDeleteRequestId: deleteRequestId,
+      ),
     ),
   );
   return true;
@@ -254,55 +252,14 @@ Future<bool> _openNotificationTask(
     return false;
   }
 
-  if (context.mounted) {
-    if (routeDecision.target == TaskRouteTarget.taskHistory) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => TaskHistoryScreen(
-            currentUserId: cedula,
-            initialTabIndex: routeDecision.initialTabIndex,
-            highlightTaskId: taskId,
-          ),
-        ),
-      );
-      return true;
-    }
-
-    if (routeDecision.target == TaskRouteTarget.createdTasks) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) =>
-              CreatedTasksScreen(userId: cedula, highlightTaskId: taskId),
-        ),
-      );
-      return true;
-    }
-    if (routeDecision.target == TaskRouteTarget.approvalTasks) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => CreatedTasksScreen(
-            userId: cedula,
-            highlightTaskId: taskId,
-            approvalMode: true,
-          ),
-        ),
-      );
-      return true;
-    }
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) =>
-            AssignedTasksScreen(userId: cedula, highlightTaskId: taskId),
-      ),
-    );
-    return true;
-  }
-  return false;
+  if (!context.mounted) return false;
+  await abrirDestinoAvisoTarea(
+    Navigator.of(context),
+    routeDecision,
+    cedula: cedula,
+    taskId: taskId,
+  );
+  return true;
 }
 
 class NotificationsScreen extends StatelessWidget {
@@ -532,7 +489,8 @@ class _NotificationList extends StatelessWidget {
     if (t.contains('avance') || t.contains('progress')) return 'Avance';
     if (t.contains('novedad') || t.contains('news')) return 'Novedad';
     if (t.contains('recepcion_cargada_calidad') ||
-        t.contains('recepcion_doc_rechazado')) return 'Compras/Bodega';
+        t.contains('recepcion_doc_rechazado'))
+      return 'Compras/Bodega';
     if (t.contains('finaliz') ||
         t.contains('aprobad') ||
         t.contains('complet')) {
@@ -928,10 +886,17 @@ class _NotificationList extends StatelessWidget {
                                     }
 
                                     if (type == 'interventoria_plan_mejora') {
-                                      final opened = await abrirPlanesDesdeAviso(context, empresaId: notifEmpresaId, tareaId: taskId ?? '');
+                                      final opened =
+                                          await abrirPlanesDesdeAviso(
+                                            context,
+                                            empresaId: notifEmpresaId,
+                                            tareaId: taskId ?? '',
+                                          );
                                       if (opened && !isRead) {
                                         try {
-                                          await doc.reference.update({'read': true});
+                                          await doc.reference.update({
+                                            'read': true,
+                                          });
                                         } catch (_) {}
                                       }
                                       return;
@@ -969,7 +934,9 @@ class _NotificationList extends StatelessWidget {
                                           );
                                       if (opened && !isRead) {
                                         try {
-                                          await doc.reference.update({'read': true});
+                                          await doc.reference.update({
+                                            'read': true,
+                                          });
                                         } catch (_) {}
                                       }
                                       return;
@@ -1134,6 +1101,10 @@ class _NotificationList extends StatelessWidget {
                                                       ),
                                                     ),
                                                   ),
+                                                  TaskNumeroAvisoChip(
+                                                    taskId: taskId,
+                                                    numero: data['taskNumero'],
+                                                  ),
                                                   if (showCompanyDivision)
                                                     Container(
                                                       padding:
@@ -1168,7 +1139,7 @@ class _NotificationList extends StatelessWidget {
                                               ),
                                               const SizedBox(height: 8),
                                               Text(
-                                                desc,
+                                                sinPrefijoNumeroTarea(desc),
                                                 style: TextStyle(
                                                   fontFamily: kArial,
                                                   color:
