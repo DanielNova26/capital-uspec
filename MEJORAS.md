@@ -6,6 +6,31 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## 2026-10-05 — Propuesta de preparación de planes K2 (Codex)
+
+- Analizados el PDF `NUEVO SUBMODULO_INTERVENTORIA.pdf` (10 páginas), el
+  Excel `k2_EstadoPlanMejoraOperador_2026-10-01.xlsx` (9 registros, 14
+  columnas) y el flujo autenticado de K2, solo en consulta. No se enviaron
+  respuestas ni se modificaron planes externos.
+- Propuesta en `docs/interventoria-k2-propuesta.md`: ampliar Interventoría
+  con planes para Calidad vinculados a las tareas existentes; revisión de
+  compromisos y soportes por separado, copiar campos, PDFs por hallazgo y
+  registro explícito de presentación en K2. No implementado ni desplegado.
+- El usuario indica 5 días calendario para respuesta y 20 para soportes.
+  Falta precisar el origen de ambos plazos y si son internos o externos.
+  K2 muestra para PM-4158 notificación 27/09, presentación 05/10 y ejecución
+  máxima 27/10/2026: conservar las fechas oficiales sin sustituirlas por una
+  regla supuesta. Preguntas de cómputo enviadas al usuario.
+- Identificados puntos de integración: distinguir numeral, ordinal de
+  hallazgo, ID externo de visita y número de tarea; importación con vista
+  previa, sin duplicados ni sobrescritura. El Excel declara A1:A1 pero
+  contiene más filas/columnas; no confiar en esa dimensión al importarlo.
+- Validación pendiente de la funcionalidad futura: permisos en servidor,
+  roles y multiempresa, vencimientos, archivos, alertas, Web a
+  390/768/1024/1366 con texto ampliado, Android e iOS. No se confirmó API
+  oficial de K2. Se conservaron los cambios locales ajenos de Functions y
+  registradores generados; esta entrega solo documenta el análisis.
+
 ## 2026-10-05 — Comprobación cruzada de Tareas 2.6.15 (Codex)
 
 - Se trajo `origin/main` de `c9a9b65` a `a3c93be` (commits de Claude
