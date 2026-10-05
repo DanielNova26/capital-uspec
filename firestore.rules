@@ -1145,7 +1145,11 @@ service cloud.firestore {
           && (esFirmanteDeVisita()
             || administraVisitasAreaEn(resource.data.empresaId, resource.data.areaId)
             || rolVisitasEn(resource.data.empresaId, ['consulta'])));
-      allow create: if administraVisitasArea(request.resource.data.empresaId,
+      // `numero` es el consecutivo por empresa que asigna el servidor
+      // (`visitasAsignarNumero`, 5 oct 2026): la app no lo trae al crear y
+      // ninguna actualización de abajo lo deja tocar.
+      allow create: if !request.resource.data.keys().hasAny(['numero'])
+        && administraVisitasArea(request.resource.data.empresaId,
           request.resource.data.areaId)
         && request.resource.data.asignadoPorId == request.auth.token.userDocId
         && request.resource.data.estado == 'programada'
@@ -1400,6 +1404,56 @@ service cloud.firestore {
       allow delete: if isDeveloperFor(resource.data.empresaId)
         || isDeveloperIn(resource.data.empresaId)
         || esGerenciaVisitas(resource.data.empresaId);
+    }
+
+    // Establecimientos propios de Visitas (5 oct 2026): los que se visitan y
+    // no son centros de costo (no los ve Interventoría). Se administran en
+    // Admin › Maestros por módulo › Visitas: los escriben Desarrollo, Admin
+    // de la empresa y Gerencia de Visitas. Los lee quien participa en
+    // Visitas (jefes para programar y armar grupos) y Admin. El id es
+    // `{empresa}_est_{nombre}` y es el `centroId` con que se programan; no se
+    // borran (las visitas y los grupos los nombran), se inactivan.
+    match /TBL_VISITAS_ESTABLECIMIENTOS/{docId} {
+      allow get: if resource == null
+        || leeEstablecimientosVisitas(resource.data.empresaId);
+      allow list: if leeEstablecimientosVisitas(resource.data.empresaId);
+      allow create: if establecimientoVisitasValido(docId, request.resource.data)
+        && belongsToCompany(request.resource.data.empresaId)
+        && editaEstablecimientosVisitasEn(request.resource.data.empresaId);
+      allow update: if resource.data.empresaId == request.resource.data.empresaId
+        && resource.data.centroId == request.resource.data.centroId
+        && establecimientoVisitasValido(docId, request.resource.data)
+        && belongsToCompany(resource.data.empresaId)
+        && editaEstablecimientosVisitasEn(resource.data.empresaId);
+      allow delete: if false;
+    }
+
+    function establecimientoVisitasValido(docId, d) {
+      return d.empresaId is string && d.empresaId.size() > 0
+        && docId.matches('^' + d.empresaId + '_est_[a-z0-9_]+$')
+        && d.centroId == docId
+        && d.nombre is string
+        && d.nombre.trim().size() >= 2 && d.nombre.size() <= 120
+        && d.get('ciudad', '') is string && d.get('ciudad', '').size() <= 80
+        && d.enabled is bool;
+    }
+
+    // `participaEnVisitas` o Admin, siempre de la misma empresa:
+    // `tieneAppAdminEn` solo mira la app, no la empresa.
+    function leeEstablecimientosVisitas(empresaId) {
+      return belongsToCompany(empresaId)
+        && (rolVisitasEn(empresaId,
+            ['jefe', 'gerencia', 'profesional', 'consulta', 'firmante'])
+          || tieneAppAdminEn(empresaId)
+          || isDeveloper() || isDeveloperIn(empresaId)
+          || esGerenciaPorFicha(empresaId));
+    }
+
+    // Sin volver a mirar la empresa: va después de un `belongsToCompany`.
+    function editaEstablecimientosVisitasEn(empresaId) {
+      return isDeveloper() || isDeveloperIn(empresaId)
+        || tieneAppAdminEn(empresaId)
+        || gerenciaVisitasEn(empresaId);
     }
 
     // La colección de roles no puede quedar en el fallback general: de otro
@@ -1694,6 +1748,12 @@ service cloud.firestore {
     // Consecutivo de tareas por empresa: solo `tareasAsignarNumero` y la
     // incorporación de Admin › Migraciones (Functions) lo leen y escriben.
     match /TBL_TAREAS_CONTADORES/{docId} {
+      allow read, write: if false;
+    }
+
+    // Consecutivo de visitas por empresa (5 oct 2026): solo
+    // `visitasAsignarNumero` y la incorporación de Admin › Migraciones.
+    match /TBL_VISITAS_CONTADORES/{docId} {
       allow read, write: if false;
     }
 
@@ -2449,6 +2509,8 @@ service cloud.firestore {
           'TBL_VISITAS_ROLES',
           'TBL_VISITAS_UBICACIONES',
           'TBL_VISITAS_GRUPOS',
+          'TBL_VISITAS_ESTABLECIMIENTOS',
+          'TBL_VISITAS_CONTADORES',
           'TBL_CORREO_ROLES',
           'TBL_ROLES',
           'TBL_MIGRATIONS_LOGS',

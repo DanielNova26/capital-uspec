@@ -37,6 +37,7 @@ import 'package:http/http.dart' as http;
 import 'gd_models.dart';
 import 'gd_role_access.dart';
 import 'gd_formato_plantilla.dart';
+import 'gd_formato_plantilla_word.dart';
 import 'gd_library_logic.dart';
 import '../core/user_directory.dart';
 import '../services/task_service.dart';
@@ -641,9 +642,13 @@ class GdService {
   /// de la empresa, nombre del formato, área, código, versión, fecha
   /// y, si ya pasó por Calidad, quién lo validó y cuándo. Devuelve los bytes
   /// y el nombre de archivo sugerido.
+  ///
+  /// Con [word] (5 oct 2026) sale la misma plantilla en Word: el mismo
+  /// encabezado en el encabezado de página y un pie con "Página X de Y".
   Future<(Uint8List, String)> generarPlantillaFormato({
     required String docId,
     required String empresaId,
+    bool word = false,
   }) async {
     final docSnap = await _docCol.doc(docId).get();
     final data = docSnap.data();
@@ -673,6 +678,7 @@ class GdService {
       version: (data['versionActual'] ?? 'v1').toString(),
       aprobadoPor: aprobadoPor,
       aprobadoEn: aprobadoEn,
+      word: word,
     );
   }
 
@@ -685,6 +691,7 @@ class GdService {
     required String titulo,
     required String codigo,
     required String area,
+    bool word = false,
   }) {
     if (titulo.trim().isEmpty || area.trim().isEmpty) {
       throw const GdException(
@@ -698,6 +705,7 @@ class GdService {
       codigo: codigo,
       area: area,
       version: 'v1',
+      word: word,
     );
   }
 
@@ -710,6 +718,7 @@ class GdService {
     required String version,
     String? aprobadoPor,
     DateTime? aprobadoEn,
+    bool word = false,
   }) async {
     final empresaSnap = await _db
         .collection('TBL_EMPRESAS')
@@ -749,6 +758,12 @@ class GdService {
           (empresa['colorSecundario'] ?? kGdPlantillaColorSecundario)
               .toString(),
     );
+    if (word) {
+      return (
+        gdGenerarPlantillaFormatoWord(datos),
+        gdNombreArchivoPlantillaWord(datos),
+      );
+    }
     return (gdGenerarPlantillaFormato(datos), gdNombreArchivoPlantilla(datos));
   }
 
@@ -796,10 +811,11 @@ class GdService {
         .get();
 
     // Sello dentro del archivo: si es el .xlsx de la plantilla, se escribe
-    // el nombre de quien validó en la celda Aprobado (O2) y se sube como archivo de la
-    // versión (el original queda en Storage como respaldo). Si no se puede
-    // —PDF, Word, encabezado dañado, red— el check sigue igual y el motivo
-    // queda en el historial.
+    // el nombre de quien validó en la celda Aprobado (O2); si es el .docx de
+    // la plantilla Word, en el campo Aprobado del encabezado. Se sube como
+    // archivo de la versión (el original queda en Storage como respaldo). Si
+    // no se puede —PDF, encabezado dañado, red— el check sigue igual y el
+    // motivo queda en el historial.
     final sello = await _sellarArchivoValidado(
       empresaId: empresaId,
       docId: docId,
@@ -865,7 +881,7 @@ class GdService {
   }
 
   /// Descarga el archivo de la versión, le escribe el sello en el
-  /// encabezado (solo .xlsx de la plantilla) y sube el resultado.
+  /// encabezado (.xlsx o .docx de la plantilla) y sube el resultado.
   Future<({String? url, String? path, String detalle})> _sellarArchivoValidado({
     required String empresaId,
     required String docId,
@@ -874,8 +890,13 @@ class GdService {
     String? nombreActor,
   }) async {
     final nombre = (verData['nombreArchivo'] ?? '').toString();
-    if (!nombre.toLowerCase().endsWith('.xlsx')) {
-      return (url: null, path: null, detalle: 'El archivo no es .xlsx.');
+    final esWord = nombre.toLowerCase().endsWith('.docx');
+    if (!esWord && !nombre.toLowerCase().endsWith('.xlsx')) {
+      return (
+        url: null,
+        path: null,
+        detalle: 'El archivo no es .xlsx ni .docx.',
+      );
     }
     try {
       final response = await http
@@ -893,11 +914,17 @@ class GdService {
         final info = await UserDirectory.instance.resolve(actorId);
         quien = info.nombre.trim().isEmpty ? 'Calidad' : info.nombre.trim();
       }
-      final sello = gdSellarPlantillaValidada(
-        response.bodyBytes,
-        aprobadoPor: quien,
-        aprobadoEn: DateTime.now(),
-      );
+      final sello = esWord
+          ? gdSellarPlantillaWordValidada(
+              response.bodyBytes,
+              aprobadoPor: quien,
+              aprobadoEn: DateTime.now(),
+            )
+          : gdSellarPlantillaValidada(
+              response.bodyBytes,
+              aprobadoPor: quien,
+              aprobadoEn: DateTime.now(),
+            );
       if (sello.bytes == null) {
         return (url: null, path: null, detalle: sello.detalle);
       }

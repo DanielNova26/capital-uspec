@@ -4,6 +4,7 @@
 // puede cerrar, qué es un hallazgo, cómo se consolida) vive en
 // `visitas_models.dart` y aquí solo se persiste.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -35,6 +36,11 @@ class VisitasException implements Exception {
 /// Establecimiento visitable. Es la misma colección que usa Interventoría
 /// (`TBL_CENTROS_COSTOS`); se lee aquí con lo mínimo para no depender de
 /// las clases de ese módulo.
+///
+/// 5 oct 2026: también los establecimientos propios de Visitas
+/// ([propio], `TBL_VISITAS_ESTABLECIMIENTOS`), que no son centros de costo
+/// y se administran en Admin. Se programan, se agrupan y se ubican igual;
+/// no tienen subcentros.
 class VisitaCentro {
   final String id;
   final String nombre;
@@ -43,14 +49,46 @@ class VisitaCentro {
   /// Id del documento en TBL_CENTROS_COSTOS (casi siempre igual a [id]);
   /// con él se le agregan subcentros.
   final String docId;
+
+  /// Establecimiento propio de Visitas (no es centro de costo).
+  final bool propio;
+  final String ciudad;
   const VisitaCentro({
     required this.id,
     required this.nombre,
     this.subcentros = const [],
     this.docId = '',
+    this.propio = false,
+    this.ciudad = '',
   });
+
+  factory VisitaCentro.propio(VisitaEstablecimientoPropio e) => VisitaCentro(
+    id: e.id,
+    nombre: e.nombre,
+    docId: e.id,
+    propio: true,
+    ciudad: e.ciudad,
+  );
+
   List<SubcentroCosto> get subcentrosActivos =>
       subcentros.where((s) => s.enabled).toList();
+}
+
+/// Los centros de costo y, con ellos, los establecimientos propios activos,
+/// en una sola lista por nombre. Un propio con el id de un centro no entra:
+/// manda el centro de costo.
+List<VisitaCentro> unirEstablecimientos(
+  List<VisitaCentro> centros,
+  Iterable<VisitaEstablecimientoPropio> propios,
+) {
+  final ids = {for (final c in centros) c.id};
+  final out = [
+    ...centros,
+    for (final e in propios)
+      if (e.activo && !ids.contains(e.id)) VisitaCentro.propio(e),
+  ];
+  out.sort((a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()));
+  return out;
 }
 
 /// Un establecimiento que se visita: el centro entero o uno de sus
@@ -378,11 +416,173 @@ class VisitasService {
     return list;
   }
 
-  Stream<List<VisitaCentro>> streamCentros(String empresaId) =>
-      _centrosQuery(empresaId).snapshots().map(_centrosDe);
+  /// Centros de costo y establecimientos propios de Visitas, al día. Si los
+  /// propios no se pueden leer, siguen los centros (Visitas no se cae por
+  /// el maestro nuevo).
+  Stream<List<VisitaCentro>> streamCentros(String empresaId) {
+    StreamSubscription<List<VisitaCentro>>? subCentros;
+    StreamSubscription<List<VisitaEstablecimientoPropio>>? subPropios;
+    List<VisitaCentro>? centros;
+    List<VisitaEstablecimientoPropio>? propios;
+    late final StreamController<List<VisitaCentro>> ctrl;
+    void emitir() {
+      if (centros == null || propios == null || ctrl.isClosed) return;
+      ctrl.add(unirEstablecimientos(centros!, propios!));
+    }
 
-  Future<List<VisitaCentro>> centrosDeEmpresa(String empresaId) async =>
-      _centrosDe(await _centrosQuery(empresaId).get());
+    ctrl = StreamController<List<VisitaCentro>>(
+      onListen: () {
+        subCentros = _centrosQuery(empresaId)
+            .snapshots()
+            .map(_centrosDe)
+            .listen((c) {
+              centros = c;
+              emitir();
+            }, onError: ctrl.addError);
+        subPropios = streamEstablecimientosPropios(empresaId).listen(
+          (p) {
+            propios = p;
+            emitir();
+          },
+          onError: (Object _) {
+            propios = const [];
+            emitir();
+          },
+        );
+      },
+      onCancel: () async {
+        await subCentros?.cancel();
+        await subPropios?.cancel();
+      },
+    );
+    return ctrl.stream;
+  }
+
+  /// Centros de costo y establecimientos propios activos de la empresa.
+  Future<List<VisitaCentro>> centrosDeEmpresa(String empresaId) async {
+    final centros = _centrosDe(await _centrosQuery(empresaId).get());
+    List<VisitaEstablecimientoPropio> propios = const [];
+    try {
+      propios = await establecimientosPropiosDeEmpresa(empresaId);
+    } catch (_) {}
+    return unirEstablecimientos(centros, propios);
+  }
+
+  // ── Establecimientos propios de Visitas (Admin, 5 oct 2026) ───────────
+
+  CollectionReference<Map<String, dynamic>> get _establecimientos =>
+      _db.collection(kVisitasEstablecimientosCol);
+
+  Query<Map<String, dynamic>> _establecimientosQuery(String empresaId) =>
+      _establecimientos.where('empresaId', isEqualTo: empresaId);
+
+  static List<VisitaEstablecimientoPropio> _propiosDe(
+    QuerySnapshot<Map<String, dynamic>> s,
+  ) =>
+      s.docs
+          .map((d) => VisitaEstablecimientoPropio.fromMap(d.id, d.data()))
+          .toList()
+        ..sort(
+          (a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()),
+        );
+
+  /// Todos, activos e inactivos (Admin los muestra todos).
+  Stream<List<VisitaEstablecimientoPropio>> streamEstablecimientosPropios(
+    String empresaId,
+  ) => _establecimientosQuery(empresaId).snapshots().map(_propiosDe);
+
+  Future<List<VisitaEstablecimientoPropio>> establecimientosPropiosDeEmpresa(
+    String empresaId,
+  ) async => _propiosDe(await _establecimientosQuery(empresaId).get());
+
+  /// Crea ([e] sin id) o actualiza el establecimiento. No repite el nombre
+  /// de otro propio ni el de un centro de costo de la empresa. Al crearlo,
+  /// el id sale del nombre; si ya está usado (otro se renombró), se le
+  /// agrega `_2`, `_3`… Devuelve el id.
+  Future<String> guardarEstablecimientoPropio(
+    VisitaEstablecimientoPropio e, {
+    required String actorId,
+  }) async {
+    final empresaId = e.empresaId.trim();
+    if (empresaId.isEmpty) {
+      throw const VisitasException('Selecciona una empresa.');
+    }
+    final propios = await establecimientosPropiosDeEmpresa(empresaId);
+    final centrosSnap = await _centrosQuery(empresaId).get();
+    final errores = validarEstablecimientoPropio(
+      e,
+      propios: [
+        for (final p in propios)
+          if (p.id != e.id) p.nombre,
+      ],
+      centros: [
+        for (final d in centrosSnap.docs)
+          if ((d.data()['enabled'] as bool?) ?? true)
+            (d.data()['nombre'] ?? '').toString(),
+      ],
+    );
+    if (errores.isNotEmpty) throw VisitasException(errores.join('\n'));
+
+    if (e.id.isNotEmpty) {
+      if (!esEstablecimientoPropioVisitas(empresaId, e.id)) {
+        throw const VisitasException('El establecimiento no es de Visitas.');
+      }
+      await _establecimientos.doc(e.id).update({
+        'nombre': e.nombre.trim(),
+        'ciudad': e.ciudad.trim(),
+        'enabled': e.activo,
+        'actualizadoPor': actorId,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return e.id;
+    }
+
+    final base = idEstablecimientoPropio(empresaId, e.nombre);
+    final usados = {
+      for (final p in propios) p.id,
+      for (final d in centrosSnap.docs) d.id,
+      for (final d in centrosSnap.docs) (d.data()['centroId'] ?? '').toString(),
+    };
+    var id = base;
+    for (var i = 2; usados.contains(id); i++) {
+      id = '${base}_$i';
+    }
+    final ref = _establecimientos.doc(id);
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      if (snap.exists) {
+        throw const VisitasException(
+          'Alguien acaba de crear ese establecimiento. Vuelve a intentarlo.',
+        );
+      }
+      tx.set(ref, {
+        ...VisitaEstablecimientoPropio(
+          id: id,
+          empresaId: empresaId,
+          nombre: e.nombre,
+          ciudad: e.ciudad,
+          activo: e.activo,
+        ).toMap(),
+        'creadoPor': actorId,
+        'actualizadoPor': actorId,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
+    return id;
+  }
+
+  /// Activa o inactiva. Uno inactivo no sale para programar ni en los
+  /// grupos; las visitas que ya tiene se conservan.
+  Future<void> activarEstablecimientoPropio(
+    String id, {
+    required bool activo,
+    required String actorId,
+  }) => _establecimientos.doc(id).update({
+    'enabled': activo,
+    'actualizadoPor': actorId,
+    'updatedAt': FieldValue.serverTimestamp(),
+  });
 
   /// Personal activo de la empresa. Es de quien el jefe escoge al
   /// profesional; su área sirve para proponerle el formato correcto.
@@ -698,6 +898,12 @@ class VisitasService {
     VisitaCentro centro,
     String nombre,
   ) async {
+    if (centro.propio) {
+      throw const VisitasException(
+        'Los establecimientos propios de Visitas no tienen subcentros: '
+        'agrégalo como otro establecimiento en Admin.',
+      );
+    }
     final limpio = nombre.trim();
     if (limpio.length < 2) {
       throw const VisitasException('Escribe el nombre del subcentro.');
@@ -1699,7 +1905,15 @@ class VisitasService {
             asignadoNombre: destino.nombre,
             creadorUid: actorId,
             creadorNombre: actorNombre,
-            centroId: visita.centroId,
+            // Un establecimiento propio de Visitas no es una sede (centro
+            // de costo) de Tareas: la tarea queda sin sede.
+            centroId:
+                esEstablecimientoPropioVisitas(
+                  visita.empresaId,
+                  visita.centroId,
+                )
+                ? 'global'
+                : visita.centroId,
             areaId: destino.areaId,
             empresaId: visita.empresaId,
             fechaLimite: fechaLimiteHallazgo(ahora),

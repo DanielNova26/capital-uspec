@@ -22,6 +22,11 @@
 // el mapa lo muestra con el radio y se puede afinar tocando el punto exacto.
 // También se agregan subcentros desde aquí, para visitarlos como
 // establecimiento propio.
+//
+// 5 oct 2026: salen también los establecimientos propios de Visitas (los que
+// no son centros de costo), que se crean en Admin › Maestros por módulo ›
+// Visitas. Aquí se les carga la ubicación como a cualquier otro; no tienen
+// subcentros.
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -151,6 +156,17 @@ class _VisitasUbicacionesTabState extends State<VisitasUbicacionesTab> {
                     ),
                   ),
                 ),
+                const SizedBox(height: 6),
+                const Text(
+                  '¿Falta un establecimiento que no es centro de costo? Se '
+                  'agrega en Admin › Maestros por módulo › Visitas y aparece '
+                  'aquí para cargarle la ubicación.',
+                  style: TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 12,
+                    color: Colors.black54,
+                  ),
+                ),
                 const SizedBox(height: 8),
                 TextField(
                   decoration: const InputDecoration(
@@ -172,7 +188,7 @@ class _VisitasUbicacionesTabState extends State<VisitasUbicacionesTab> {
                     onQuitar: r.ubicacion == null
                         ? null
                         : () => _quitar(r.ubicacion!),
-                    onAgregarSubcentro: r.esSubcentro
+                    onAgregarSubcentro: r.esSubcentro || r.centro.propio
                         ? null
                         : () => _agregarSubcentro(
                             r,
@@ -392,15 +408,19 @@ class _FilaCard extends StatelessWidget {
           ),
         ),
         subtitle: Text(
-          u == null
-              ? (fila.esSubcentro
-                    ? 'Hereda la ubicación del centro'
-                    : 'Sin ubicación: tócalo para buscarlo en Google Maps')
-              : [
-                  if (u.direccion.isNotEmpty) u.direccion,
-                  'radio ${u.radioMetros.round()} m',
-                  if (u.ciudad.isNotEmpty) u.ciudad,
-                ].join(' · '),
+          [
+            // No es centro de costo: se creó en Admin solo para Visitas.
+            if (fila.centro.propio) 'Solo Visitas',
+            u == null
+                ? (fila.esSubcentro
+                      ? 'Hereda la ubicación del centro'
+                      : 'Sin ubicación: tócalo para buscarlo en Google Maps')
+                : [
+                    if (u.direccion.isNotEmpty) u.direccion,
+                    'radio ${u.radioMetros.round()} m',
+                    if (u.ciudad.isNotEmpty) u.ciudad,
+                  ].join(' · '),
+          ].join(' · '),
           style: TextStyle(
             fontFamily: _kFont,
             fontSize: 12,

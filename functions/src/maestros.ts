@@ -98,6 +98,11 @@ export const MODULOS_MAESTROS: ModuloMaestros[] = [
     maestros: [
       {id: "TBL_VISITAS_FORMATOS", nombre: "Formatos", tipo: "coleccion",
         clave: ["areaNombre", "nombre", "version"]},
+      // Los que no son centros de costo (5 oct 2026). Antes que Ubicaciones:
+      // su id (`{empresa}_est_…`) es el centroId que nombra la ubicación.
+      {id: "TBL_VISITAS_ESTABLECIMIENTOS",
+        nombre: "Establecimientos propios de Visitas", tipo: "coleccion",
+        clave: ["nombre"], omitir: ["creadoPor", "actualizadoPor"]},
       {id: "TBL_VISITAS_UBICACIONES", nombre: "Ubicaciones de establecimientos",
         tipo: "coleccion", clave: ["centroNombre", "subcentroNombre"],
         omitir: ["actualizadoPor"]},

@@ -63,6 +63,8 @@ exports.MODULOS_LIMPIEZA = [
             { id: "TBL_VISITAS_FORMATOS", nombre: "Formatos" },
             { id: "TBL_VISITAS_GRUPOS", nombre: "Grupos de profesionales" },
             { id: "TBL_VISITAS_UBICACIONES", nombre: "Ubicaciones de establecimientos" },
+            { id: "TBL_VISITAS_ESTABLECIMIENTOS",
+                nombre: "Establecimientos propios de Visitas" },
         ],
     },
     {

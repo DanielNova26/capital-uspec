@@ -289,6 +289,8 @@ pw.Widget _datosVisita(VisitaProfesional v) {
         ),
         pw.Row(
           children: [
+            if (v.numero != null)
+              par('VISITA No:', numeroVisitaCorto(v.numero)),
             par('FECHA:', _dd(t)),
             par('ESTABLECIMIENTO:', v.establecimiento, flex: 2),
             par('CIUDAD:', v.ciudad),
@@ -1183,7 +1185,10 @@ Future<Uint8List> generarInformeVisita({
   bool conAnexos = true,
 }) async {
   final doc = pw.Document(
-    title: _s('Visita ${v.areaNombre} · ${v.establecimiento}'),
+    title: _s(
+      '${v.numero == null ? 'Visita' : v.numeroTexto} · ${v.areaNombre} · '
+      '${v.establecimiento}',
+    ),
     author: _s(empresaNombre),
   );
   await _agregarVisita(
@@ -1709,7 +1714,12 @@ Future<Uint8List> generarConsolidadoVisitas({
                     child: muestra(v.areaId),
                   ),
                   _celda(_dd(v.fechaProgramada), fs: 7),
-                  _celda(v.establecimiento, fs: 7),
+                  _celda(
+                    v.numero == null
+                        ? v.establecimiento
+                        : '${v.establecimiento}\nNo ${numeroVisitaCorto(v.numero)}',
+                    fs: 7,
+                  ),
                   _celda(v.areaNombre, fs: 7),
                   _celda(v.profesionalNombre, fs: 7),
                   _celda(
@@ -1769,7 +1779,8 @@ Future<Uint8List> generarConsolidadoVisitas({
         acento: color(v.areaId),
         etiqueta:
             'ACTA ${i + 1} DE ${terminadas.length} · ${v.areaNombre.toUpperCase()} · '
-            '${v.establecimiento.toUpperCase()} · ${_dd(v.fechaProgramada)}',
+            '${v.establecimiento.toUpperCase()} · ${_dd(v.fechaProgramada)}'
+            '${v.numero == null ? '' : ' · ${v.numeroTexto.toUpperCase()}'}',
       );
     }
   }

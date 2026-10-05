@@ -624,7 +624,7 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
 
   String _sectionDescription(GdLibrarySection section) => switch (section) {
     GdLibrarySection.formatos =>
-      'Cada formato nace con su registro; desde ahí se descarga la plantilla Excel con encabezado institucional y celdas combinables, y Calidad lo valida con un check.',
+      'Cada formato nace con su registro; desde ahí se descarga la plantilla Excel o Word con encabezado institucional, y Calidad lo valida con un check.',
     GdLibrarySection.contrato =>
       'Documentos ya existentes, publicados al cargarlos, organizados por carpetas temáticas y localizables por nombre, alias o código externo.',
     GdLibrarySection.normograma =>
@@ -2244,7 +2244,8 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
   bool get _puedeDescargarPlantilla =>
       _titulo.trim().isNotEmpty && _areaController.text.trim().isNotEmpty;
 
-  Future<void> _descargarPlantilla() async {
+  /// [word]: la misma plantilla en Word (5 oct 2026).
+  Future<void> _descargarPlantilla({bool word = false}) async {
     if (_descargandoPlantilla) return;
     setState(() => _descargandoPlantilla = true);
     try {
@@ -2255,12 +2256,14 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
             titulo: _titulo,
             codigo: _codigoController.text.trim(),
             area: _areaController.text.trim(),
+            word: word,
           );
+      final extension = word ? 'docx' : 'xlsx';
       await FileSaver.instance.saveFile(
-        name: fileName.replaceAll(RegExp(r'\.xlsx$'), ''),
+        name: fileName.replaceAll(RegExp('\\.$extension\$'), ''),
         bytes: bytes,
-        fileExtension: 'xlsx',
-        mimeType: MimeType.microsoftExcel,
+        fileExtension: extension,
+        mimeType: word ? MimeType.microsoftWord : MimeType.microsoftExcel,
       );
       if (mounted) setState(() => _plantillaDescargada = true);
     } catch (e) {
@@ -2311,7 +2314,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
           const SizedBox(height: 8),
           Text(
             listo
-                ? 'Excel con logo, "$_titulo", ${_areaController.text.trim()}, código ${_codigoController.text.trim()} y versión v1. Desde la fila 7 arma el formato y combina celdas como necesites.'
+                ? 'Excel o Word con logo, "$_titulo", ${_areaController.text.trim()}, código ${_codigoController.text.trim()} y versión v1. En Excel arma el formato desde la fila 7 y combina celdas como necesites; en Word escribe debajo del encabezado, que se repite en cada página.'
                 : 'Escribe el área y el nombre del formato para habilitar la descarga.',
             style: const TextStyle(
               fontFamily: kArial,
@@ -2336,11 +2339,14 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.table_view_outlined, size: 18),
-                label: Text(
-                  _plantillaDescargada
-                      ? 'DESCARGAR DE NUEVO'
-                      : 'DESCARGAR PLANTILLA EXCEL',
-                ),
+                label: const Text('PLANTILLA EXCEL'),
+              ),
+              FilledButton.tonalIcon(
+                onPressed: listo && !_descargandoPlantilla
+                    ? () => _descargarPlantilla(word: true)
+                    : null,
+                icon: const Icon(Icons.description_outlined, size: 18),
+                label: const Text('PLANTILLA WORD'),
               ),
               if (_plantillaDescargada)
                 const Row(

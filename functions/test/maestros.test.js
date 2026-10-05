@@ -242,3 +242,21 @@ test('solo los ids con prefijo o de Firestore se traducen como referencia', () =
   assert.ok(!pareceId('1001', 'EMP_A'));
   assert.ok(!pareceId('EMP_B_sede', 'EMP_A'));
 });
+
+test('visitas: el establecimiento propio va antes que su ubicación', () => {
+  // 5 oct 2026: los establecimientos que no son centros de costo se copian
+  // con su id `{empresa}_est_…`, que es el centroId de la ubicación; por
+  // eso se planean antes y la ubicación queda apuntando al del destino.
+  const visitas = MODULOS_MAESTROS.find((m) => m.id === 'visitas');
+  const ids = visitas.maestros.map((m) => m.id);
+  assert.ok(ids.indexOf('TBL_VISITAS_ESTABLECIMIENTOS') <
+    ids.indexOf('TBL_VISITAS_UBICACIONES'));
+  const c = ctx({EMP_A_est_bodega: 'EMP_B_est_bodega_2'});
+  assert.equal(idDestino('EMP_A_EMP_A_est_bodega', c), 'EMP_B_EMP_B_est_bodega_2');
+  assert.deepEqual(
+    remapear({centroId: 'EMP_A_est_bodega', centroNombre: 'Bodega'}, c),
+    {centroId: 'EMP_B_est_bodega_2', centroNombre: 'Bodega'}
+  );
+  // Sin equivalente previo, el id conserva el nombre con la otra empresa.
+  assert.equal(idDestino('EMP_A_est_picota', ctx()), 'EMP_B_est_picota');
+});

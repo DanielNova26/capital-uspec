@@ -58,8 +58,8 @@ const kModulosLimpieza = <ModuloLimpiezaInfo>[
     icono: Icons.place_outlined,
     color: Color(0xFF9D174D),
     descripcion:
-        'Visitas y sus tareas. Maestros: formatos, grupos y '
-        'ubicaciones.',
+        'Visitas y sus tareas. Maestros: formatos, grupos, ubicaciones y '
+        'establecimientos propios.',
     maestros: true,
   ),
   ModuloLimpiezaInfo(

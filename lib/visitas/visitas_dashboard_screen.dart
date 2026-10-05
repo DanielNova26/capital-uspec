@@ -1346,6 +1346,70 @@ Widget? _estadoSolicitud(VisitaProfesional v) {
   );
 }
 
+/// Rojo del número de la visita, como en el documento "Visitas - octubre 03".
+const Color _kNumeroVisita = Color(0xFFDC2626);
+
+/// Nombre del establecimiento con el número de la visita en rojo al lado
+/// ("Visita No 00001"). Sin número (recién programada o de prueba), solo el
+/// nombre. El número no se parte en dos renglones.
+class _TituloVisita extends StatelessWidget {
+  final VisitaProfesional visita;
+  const _TituloVisita(this.visita);
+
+  @override
+  Widget build(BuildContext context) {
+    final numero = visita.numeroTexto;
+    return Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(
+            text: visita.establecimiento,
+            style: const TextStyle(
+              fontFamily: _kFont,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (numero.isNotEmpty) ...[
+            const TextSpan(text: '   '),
+            TextSpan(
+              text: numero.replaceAll(' ', '\u00A0'),
+              style: const TextStyle(
+                fontFamily: _kFont,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: _kNumeroVisita,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Título de la barra de una visita: el establecimiento y, debajo, su número.
+Widget _tituloBarraVisita(VisitaProfesional v) => Column(
+  crossAxisAlignment: CrossAxisAlignment.start,
+  mainAxisSize: MainAxisSize.min,
+  children: [
+    Text(
+      v.establecimiento,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(fontFamily: _kFont),
+    ),
+    if (v.numeroTexto.isNotEmpty)
+      Text(
+        v.numeroTexto,
+        style: const TextStyle(
+          fontFamily: _kFont,
+          fontSize: 12,
+          color: Colors.white70,
+        ),
+      ),
+  ],
+);
+
 class _VisitaCard extends StatelessWidget {
   final VisitaProfesional visita;
   final bool vencida;
@@ -1367,13 +1431,7 @@ class _VisitaCard extends StatelessWidget {
           userId: v.profesionalId,
           nameHint: v.profesionalNombre,
         ),
-        title: Text(
-          v.establecimiento,
-          style: const TextStyle(
-            fontFamily: _kFont,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
+        title: _TituloVisita(v),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1845,13 +1903,7 @@ class _RegistroVisitaTabState extends State<_RegistroVisitaTab> {
               : Icons.assignment_turned_in_outlined,
           color: kVisitasColor,
         ),
-        title: Text(
-          v.establecimiento,
-          style: const TextStyle(
-            fontFamily: _kFont,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
+        title: _TituloVisita(v),
         subtitle: Text(
           [
             if (v.areaNombre.isNotEmpty) v.areaNombre,
@@ -2661,10 +2713,7 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
             appBar: AppBar(
               backgroundColor: kVisitasColor,
               foregroundColor: Colors.white,
-              title: Text(
-                v.establecimiento,
-                style: const TextStyle(fontFamily: _kFont),
-              ),
+              title: _tituloBarraVisita(v),
             ),
             // Programada sin formato: el inicio muestra los formatos para
             // escoger (28 sep 2026).
@@ -5156,7 +5205,9 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
       );
       await entregarPdf(
         bytes,
-        'Visita_${v.areaNombre}_${v.establecimiento}_${_dd(v.fechaProgramada).replaceAll('/', '-')}'
+        'Visita${v.numero == null ? '' : '_${numeroVisitaCorto(v.numero)}'}'
+                '_${v.areaNombre}_${v.establecimiento}_'
+                '${_dd(v.fechaProgramada).replaceAll('/', '-')}'
             .replaceAll(RegExp(r'[^\w\-]+'), '_'),
       );
     } catch (e) {
@@ -5286,10 +5337,7 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
           appBar: AppBar(
             backgroundColor: kVisitasColor,
             foregroundColor: Colors.white,
-            title: Text(
-              v.establecimiento,
-              style: const TextStyle(fontFamily: _kFont),
-            ),
+            title: _tituloBarraVisita(v),
             actions: [
               if (v.estado == kVisitaTerminada)
                 IconButton(

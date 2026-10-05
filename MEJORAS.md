@@ -6,6 +6,108 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## 2026-10-05 — Gestión documental: plantilla Word del formato institucional (Claude)
+
+Pedido del usuario: "así como me permite generar el Excel cuando quiero
+cargar un formato, así mismo me permita un Word, con las mismas
+especificaciones, el mismo encabezado y un pie de página bonito".
+
+- `lib/gestion_documental/gd_formato_plantilla_word.dart`: `.docx` escrito a
+  mano (OOXML, sin dependencias de Flutter), con los mismos datos que el
+  Excel (`GdPlantillaFormatoDatos`): logo en las cuatro filas, TIPO arriba,
+  título en mayúscula en dos filas, área, y Versión/Aprobado/Fecha/Código
+  con la etiqueta sobre el color secundario; bordes finos del primario y
+  colores de `TBL_EMPRESAS` igual que el Excel. Va en el **encabezado de
+  página** (se repite en cada hoja). Pie: línea del color primario, empresa,
+  código y versión a la izquierda y "Página X de Y" a la derecha. Carta
+  vertical, Arial; estilos Título 1/2 y "Tabla con cuadrícula" en el color
+  primario para que lo que se escriba debajo combine.
+- Botones **PLANTILLA EXCEL** y **PLANTILLA WORD** en el paso 1 del alta del
+  formato y en el detalle del formato (`generarPlantillaFormato*` con
+  `word: true`). El nombre del archivo es el del Excel en `.docx`.
+- Sello de Calidad: "Aprobado" es un control de contenido bloqueado
+  (`w:tag gdAprobado`); al validar, `gdSellarPlantillaWordValidada` escribe
+  quién validó en todas las copias del encabezado (Word o LibreOffice lo
+  duplican al guardar) sin tocar el resto del archivo. `.xlsx` sigue igual.
+- Validación: `.docx` generado validado contra los esquemas OOXML (con logo,
+  sin logo y sellado) y renderizado con LibreOffice (encabezado, pie y sello
+  correctos); el sello también funciona después de volver a guardar el
+  archivo en LibreOffice. Pruebas: `test/gestion_documental/gd_formato_plantilla_word_test.dart`.
+- Integrado sobre `main` `ed9d9f6` (planes K2 de Codex) junto con lo de
+  Visitas: `flutter test` 1521/1521, Functions 174/174, reglas en emulador
+  157/157 (+2 omitidas de antes) y planes K2 10/10; `flutter build web
+  --release` correcto. Se entrega como parche para aplicar en `main` desde
+  PowerShell (`git apply --3way`), probado también con finales de línea CRLF.
+- Despliegue sugerido: Functions `visitasAsignarNumero`,
+  `visitasNumerarHistoricas`, `interventoriaPlanes` e
+  `interventoriaPlanesAvisos`, y hosting. Las reglas siguen esperando el plan
+  de Tareas (apps 2.6.15 en tiendas).
+- Sin verificar: apertura en Microsoft Word real (solo LibreOffice), Web a
+  390/768/1024/1366 y con texto ampliado, Android e iOS (la descarga usa el
+  mismo `FileSaver` del Excel).
+
+## 2026-10-05 — Visitas: número de visita y establecimientos propios en Admin (Claude)
+
+Pedido del usuario con el documento "Visitas - octubre 03" ("Guardar ID de
+VISITA", ejemplo "Visita No 00001" en rojo junto al establecimiento) y, aparte,
+"agregarle al módulo de visitas ciertos establecimientos que no son
+necesariamente iguales a los de Interventoría, pero hacen falta para visitas;
+lo podemos poner en el admin".
+
+- **Número de visita.** Consecutivo por empresa que asigna el servidor:
+  `visitasAsignarNumero` (`functions/src/visitas_numero.ts`, onCreate de
+  `TBL_VISITAS`, contador `TBL_VISITAS_CONTADORES/{empresaId}`), mismo
+  esquema que `tareasAsignarNumero`. Las visitas de prueba no se numeran
+  (se pueden eliminar y dejarían huecos). La primera vez en una empresa se
+  reservan 1..N para las visitas reales que ya existían; las del mismo lote
+  de Programar no cuentan como históricas (`historicasAntesDe`).
+  Incorporación revisable en **Admin › Migraciones › Número de visitas**
+  (`visitasNumerarHistoricas`, `TaskNumeracionCard.visitas`).
+- Se muestra en rojo junto al establecimiento en Cronograma, Mis visitas,
+  Registro de visita y Por firmar; bajo el título en el detalle y al
+  ejecutar; en el PDF ("VISITA No:" en DATOS, título, etiqueta del acta y
+  tabla del consolidado), en el nombre del archivo y en la descripción de la
+  tarea de cada hallazgo. El buscador encuentra "00012".
+- Reglas: crear una visita con `numero` se rechaza; ninguna actualización lo
+  admite; `TBL_VISITAS_CONTADORES` cerrado a la app y excluido del fallback.
+- **Establecimientos propios de Visitas** (`TBL_VISITAS_ESTABLECIMIENTOS`):
+  lugares que se visitan y no son centros de costo. Se crean, renombran e
+  inactivan en **Admin › Maestros por módulo › Visitas › Configuración**
+  (`lib/admin/visitas_establecimientos_panel.dart`; tabla desde 720 px,
+  tarjetas en móvil, 20 por página). No se borran. Id = `centroId` =
+  `{empresa}_est_{nombre}`; no repite el nombre de otro propio ni de un centro
+  de costo de la empresa. En Visitas salen junto con los centros
+  (`centrosDeEmpresa`/`streamCentros` → `unirEstablecimientos`): Programar,
+  Equipo › Grupos y Ubicaciones (marcados "Solo Visitas", sin subcentros).
+  Interventoría y Facturación no los ven. La tarea de un hallazgo en uno de
+  ellos queda con sede `global` (no es centro de costo de Tareas).
+- Reglas: escriben Desarrollo, Admin de la empresa y Gerencia de Visitas;
+  leen quienes participan en Visitas y Admin, siempre de la misma empresa
+  (la prueba detectó que `tieneAppAdminEn` sola dejaba listar a un Admin de
+  otra empresa; corregido). Id y `centroId` fijos; borrar, nunca.
+- Catálogo común: agregado a `MODULOS_MAESTROS` (antes de Ubicaciones, para
+  que la copia traduzca el `centroId` de la ubicación) y a `kModulosMaestros`
+  con `PanelAdminModulo.visitas`; también en Limpieza (maestros de Visitas).
+- Validación: `flutter test --no-pub` 1491/1491 (13 nuevas en
+  `test/visitas/visitas_numero_establecimientos_test.dart`, panel a 390 y
+  1366 px); `npm test` de Functions; reglas en emulador
+  (`test/visitas_establecimientos.rules.js` y las demás `*.rules.js`);
+  `flutter analyze` sin avisos nuevos en los archivos tocados.
+- **Pendiente de despliegue:** Functions `visitasAsignarNumero` y
+  `visitasNumerarHistoricas` (sin ellas las visitas nuevas no reciben número)
+  y reglas. Las reglas siguen el plan de Codex para Tareas (esperan a 2.6.15
+  en las tiendas): mientras no se publiquen, `TBL_VISITAS_ESTABLECIMIENTOS`
+  cae en la regla general (cualquier sesión de la empresa lee y escribe) y
+  el bloqueo de `numero` en `TBL_VISITAS` no rige.
+  Después, en cada empresa: Admin › Migraciones › Número de visitas ›
+  **Revisar** y **Numerar visitas existentes**.
+- Sin verificar en dispositivo: Web a 768/1024 px y con texto ampliado,
+  Android e iOS (solo pruebas de widgets a 390 y 1366 px).
+- Git: esta entrega se publicó por error primero en la rama
+  `claude/pensive-ramanujan-4zdtkn`. Se integró sobre `main` (`ed9d9f6`, planes
+  K2 de Codex) en un parche junto con la plantilla Word, que el usuario aplica
+  en `main` con PowerShell; después se borra la rama remota.
+
 ## 2026-10-05 — Planes de mejora K2 implementados (Codex)
 
 - Interventoría → Calidad → Planes de mejora: PM/CSC, hallazgos de visitas

@@ -135,6 +135,7 @@ export {tareasReemplazarJefeInmediato} from "./jefe_inmediato_sync";
 export {tareasAsignarNumero, tareasNumerarHistoricas} from "./tareas_numero";
 export {visitasEliminarFormato, visitasEliminarPrueba} from "./visitas_cleanup";
 export {visitasBuscarLugar} from "./visitas_lugares";
+export {visitasAsignarNumero, visitasNumerarHistoricas} from "./visitas_numero";
 export {
   rutasResumenEvidencia,
   rutasGenerarInforme,

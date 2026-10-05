@@ -9,7 +9,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 
 /// Paneles de configuración que viven en Admin (no en el módulo).
-enum PanelAdminModulo { compras, correo, tokensDian, whatsapp }
+enum PanelAdminModulo { compras, visitas, correo, tokensDian, whatsapp }
 
 class MaestroInfo {
   const MaestroInfo(this.id, this.nombre);
@@ -78,8 +78,16 @@ const kModulosMaestros = <ModuloMaestrosInfo>[
     nombre: 'Visitas',
     icono: Icons.place_outlined,
     color: Color(0xFF9D174D),
+    // Establecimientos propios de Visitas (5 oct 2026): se crean en Admin.
+    panel: PanelAdminModulo.visitas,
     maestros: [
       MaestroInfo('TBL_VISITAS_FORMATOS', 'Formatos'),
+      // Antes que Ubicaciones: la copia traduce el id del establecimiento
+      // y la ubicación lo nombra.
+      MaestroInfo(
+        'TBL_VISITAS_ESTABLECIMIENTOS',
+        'Establecimientos propios de Visitas',
+      ),
       MaestroInfo('TBL_VISITAS_UBICACIONES', 'Ubicaciones de establecimientos'),
     ],
   ),

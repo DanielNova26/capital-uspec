@@ -859,7 +859,8 @@ class _GrupoDialogState extends State<_GrupoDialog> {
           padding: EdgeInsets.all(12),
           child: Text(
             'La empresa no tiene establecimientos habilitados en el maestro '
-            'de centros de costo.',
+            'de centros de costo ni establecimientos propios de Visitas '
+            '(Admin › Maestros por módulo › Visitas).',
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.black54),
           ),
@@ -886,7 +887,9 @@ class _GrupoDialogState extends State<_GrupoDialog> {
           value: entero,
           title: Text(c.nombre),
           subtitle: subs.isEmpty
-              ? null
+              ? (c.propio
+                    ? const Text('Solo Visitas', style: TextStyle(fontSize: 11))
+                    : null)
               : Text(
                   entero
                       ? 'Todo el establecimiento, con sus ${subs.length} '

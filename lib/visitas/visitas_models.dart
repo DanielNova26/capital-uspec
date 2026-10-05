@@ -31,6 +31,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../core/area_directory.dart' show areaClave;
+import '../core/subcentros_costo.dart' show slugSubcentro;
 
 const String kVisitasAppId = 'visitasdashboard';
 
@@ -50,6 +51,14 @@ const String kVisitasGruposCol = 'TBL_VISITAS_GRUPOS';
 /// sitio. Un centro sin ubicación aquí no se puede visitar: primero se
 /// carga el maestro.
 const String kVisitasUbicacionesCol = 'TBL_VISITAS_UBICACIONES';
+
+/// Establecimientos propios de Visitas (5 oct 2026): "ciertos
+/// establecimientos que no son necesariamente iguales a los de
+/// Interventoría, pero sí hacen falta para las visitas". Se programan igual
+/// que un centro de costo, pero no existen en `TBL_CENTROS_COSTOS` (no los
+/// ven Interventoría ni Facturación). Se crean en Admin › Maestros por
+/// módulo › Visitas; el id del documento es el `centroId` de la visita.
+const String kVisitasEstablecimientosCol = 'TBL_VISITAS_ESTABLECIMIENTOS';
 
 /// Radio por defecto alrededor del establecimiento, en metros. Corto a
 /// propósito: la idea es saber que el acta se hace adentro, no en la
@@ -1540,6 +1549,110 @@ class VisitaUbicacion {
       );
 }
 
+// ── Establecimientos propios de Visitas (5 oct 2026) ───────────────────────
+
+/// Un establecimiento que se visita y no es centro de costo de la empresa
+/// (ver [kVisitasEstablecimientosCol]). Se inactiva en vez de borrarse: las
+/// visitas y los grupos lo nombran por su id.
+class VisitaEstablecimientoPropio {
+  /// Id del documento, que es también el `centroId` de sus visitas:
+  /// `{empresaId}_est_{nombre}` (ver [idEstablecimientoPropio]).
+  final String id;
+  final String empresaId;
+  final String nombre;
+  final String ciudad;
+  final bool activo;
+
+  const VisitaEstablecimientoPropio({
+    required this.id,
+    required this.empresaId,
+    required this.nombre,
+    this.ciudad = '',
+    this.activo = true,
+  });
+
+  VisitaEstablecimientoPropio copyWith({
+    String? nombre,
+    String? ciudad,
+    bool? activo,
+  }) => VisitaEstablecimientoPropio(
+    id: id,
+    empresaId: empresaId,
+    nombre: nombre ?? this.nombre,
+    ciudad: ciudad ?? this.ciudad,
+    activo: activo ?? this.activo,
+  );
+
+  Map<String, dynamic> toMap() => {
+    'empresaId': empresaId,
+    'centroId': id,
+    'nombre': nombre.trim(),
+    'ciudad': ciudad.trim(),
+    'enabled': activo,
+  };
+
+  factory VisitaEstablecimientoPropio.fromMap(
+    String id,
+    Map<String, dynamic> d,
+  ) => VisitaEstablecimientoPropio(
+    id: id,
+    empresaId: (d['empresaId'] ?? '').toString(),
+    nombre: (d['nombre'] ?? '').toString(),
+    ciudad: (d['ciudad'] ?? '').toString(),
+    activo: d['enabled'] != false,
+  );
+}
+
+/// Id (y `centroId`) de un establecimiento propio: `{empresa}_est_{slug}`.
+/// El prefijo de la empresa es el que entiende la copia entre empresas de
+/// Admin (`functions/src/maestros.ts`): el establecimiento, su ubicación y
+/// las referencias pasan al id del destino. Vacío si el nombre no tiene
+/// letras ni números.
+String idEstablecimientoPropio(String empresaId, String nombre) {
+  final slug = slugSubcentro(nombre);
+  return slug.isEmpty ? '' : '${empresaId}_est_$slug';
+}
+
+/// La visita (o el grupo) apunta a un establecimiento propio de Visitas y no
+/// a un centro de costo.
+bool esEstablecimientoPropioVisitas(String empresaId, String centroId) =>
+    empresaId.isNotEmpty && centroId.startsWith('${empresaId}_est_');
+
+/// Errores del establecimiento antes de guardarlo. [propios] son los
+/// nombres de los demás establecimientos propios (sin él mismo) y [centros]
+/// los de los centros de costo: uno igual, sin tildes ni mayúsculas, se
+/// rechaza.
+List<String> validarEstablecimientoPropio(
+  VisitaEstablecimientoPropio e, {
+  Iterable<String> propios = const [],
+  Iterable<String> centros = const [],
+}) {
+  final errores = <String>[];
+  final nombre = e.nombre.trim();
+  if (nombre.length < 2) {
+    errores.add('Escribe el nombre del establecimiento.');
+  } else if (nombre.length > 120) {
+    errores.add('El nombre es muy largo (máximo 120 caracteres).');
+  } else if (slugSubcentro(nombre).isEmpty) {
+    errores.add('El nombre necesita letras o números.');
+  }
+  if (e.ciudad.trim().length > 80) {
+    errores.add('La ciudad es muy larga (máximo 80 caracteres).');
+  }
+  final clave = areaClave(nombre);
+  if (clave.isNotEmpty) {
+    if (centros.any((c) => areaClave(c) == clave)) {
+      errores.add(
+        '"$nombre" ya es un centro de costo de la empresa: ya se puede '
+        'visitar, no hace falta agregarlo aquí.',
+      );
+    } else if (propios.any((p) => areaClave(p) == clave)) {
+      errores.add('Ya existe un establecimiento llamado "$nombre".');
+    }
+  }
+  return errores;
+}
+
 /// Un resultado de la búsqueda en Google Maps (`visitasBuscarLugar`, 28 sep
 /// 2026): "si busco Buen Pastor, que muestre cuál sale y al elegirlo traiga
 /// los datos".
@@ -1836,9 +1949,28 @@ visitasParaRegistro(Iterable<VisitaProfesional> visitas, DateTime ahora) {
 
 // ── La visita ───────────────────────────────────────────────────────────────
 
+/// "Visita No 00001" (documento "Visitas - octubre 03"). Vacío mientras el
+/// servidor no le ha dado número (recién programada) o si es de prueba.
+String numeroVisitaTexto(int? numero) =>
+    numero == null ? '' : 'Visita No ${numeroVisitaCorto(numero)}';
+
+/// El número con cinco cifras ("00001"), o vacío.
+String numeroVisitaCorto(int? numero) =>
+    numero == null ? '' : numero.toString().padLeft(5, '0');
+
+int? _numeroVisita(Object? raw) {
+  final n = raw is num ? raw : num.tryParse('${raw ?? ''}');
+  return n != null && n == n.roundToDouble() && n > 0 ? n.toInt() : null;
+}
+
 class VisitaProfesional {
   final String id;
   final String empresaId;
+
+  /// Consecutivo por empresa que asigna el servidor al crear la visita
+  /// (`visitasAsignarNumero`). Null en las de prueba y mientras llega.
+  /// No va en [toMap]: la app nunca lo escribe.
+  final int? numero;
   final String formatoId;
   final String formatoNombre;
 
@@ -1897,6 +2029,7 @@ class VisitaProfesional {
   const VisitaProfesional({
     this.id = '',
     required this.empresaId,
+    this.numero,
     required this.formatoId,
     required this.formatoNombre,
     this.formatoAsignado,
@@ -1942,6 +2075,9 @@ class VisitaProfesional {
   /// consolidado y de los filtros.
   String get claveEstablecimiento =>
       subcentroId.isEmpty ? centroId : '$centroId|$subcentroId';
+
+  /// "Visita No 00001", o vacío si todavía no tiene número.
+  String get numeroTexto => numeroVisitaTexto(numero);
 
   List<VisitaFilaTabla> filasDe(String tablaId) => tablas[tablaId] ?? const [];
 
@@ -2016,6 +2152,7 @@ class VisitaProfesional {
     return VisitaProfesional(
       id: id,
       empresaId: (d['empresaId'] ?? '').toString(),
+      numero: _numeroVisita(d['numero']),
       formatoId: (d['formatoId'] ?? '').toString(),
       formatoNombre: (d['formatoNombre'] ?? '').toString(),
       formatoAsignado: d['formatoAsignado'] is Map
@@ -2320,6 +2457,7 @@ String descripcionTareaHallazgo(VisitaProfesional v, VisitaHallazgo h) {
     b.writeln('Evidencias: ${h.evidencias.length}');
   }
   b.writeln('Profesional: ${v.profesionalNombre}');
+  if (v.numero != null) b.writeln(v.numeroTexto);
   return b.toString().trim();
 }
 
@@ -2520,8 +2658,8 @@ bool visitaEnRango(VisitaProfesional v, DateTime desde, DateTime hasta) {
 }
 
 /// Filtros de las listas de visitas (Mis visitas y Cronograma). Vacío o
-/// null = sin ese filtro. [texto] busca en establecimiento, formato, área y
-/// profesional sin tildes ni mayúsculas.
+/// null = sin ese filtro. [texto] busca en establecimiento, formato, área,
+/// profesional y número de visita, sin tildes ni mayúsculas.
 List<VisitaProfesional> filtrarVisitas(
   Iterable<VisitaProfesional> visitas, {
   String texto = '',
@@ -2556,7 +2694,7 @@ List<VisitaProfesional> filtrarVisitas(
           (q.isEmpty ||
               areaClave(
                 '${v.establecimiento} ${v.formatoNombre} ${v.areaNombre} '
-                '${v.profesionalNombre}',
+                '${v.profesionalNombre} ${v.numeroTexto}',
               ).contains(q)))
         v,
   ];

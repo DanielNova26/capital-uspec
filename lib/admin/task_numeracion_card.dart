@@ -6,6 +6,10 @@
 // Las tareas nuevas reciben su número al crearse (`tareasAsignarNumero`). Las
 // anteriores se numeran aquí, por empresa y en orden de creación, después de
 // revisar cuántas son. Un número asignado no cambia nunca.
+//
+// 5 oct 2026: la misma tarjeta numera las visitas que ya existían
+// (`TaskNumeracionCard.visitas`, función `visitasNumerarHistoricas`); las
+// nuevas reciben su número con `visitasAsignarNumero`.
 
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
@@ -16,11 +20,40 @@ class TaskNumeracionCard extends StatefulWidget {
   final String empresaId;
   final FirebaseFunctions? functions;
 
-  const TaskNumeracionCard({
+  /// Función que cuenta (`aplicar: false`) y numera (`aplicar: true`).
+  final String funcion;
+  final String titulo;
+  final String descripcion;
+
+  /// "tarea"/"tareas" o "visita"/"visitas", para los textos.
+  final String singular;
+  final String plural;
+
+  const TaskNumeracionCard({super.key, required this.empresaId, this.functions})
+    : funcion = 'tareasNumerarHistoricas',
+      titulo = 'Número interno de tareas',
+      descripcion =
+          'Las tareas nuevas reciben su número al crearse. Las que ya '
+          'existían en la empresa activa se numeran aquí, en el orden en '
+          'que se crearon. Primero revisa cuántas faltan.',
+      singular = 'tarea',
+      plural = 'tareas';
+
+  /// Número de visita ("Visita No 00001", 5 oct 2026). Las de prueba no se
+  /// numeran.
+  const TaskNumeracionCard.visitas({
     super.key,
     required this.empresaId,
     this.functions,
-  });
+  }) : funcion = 'visitasNumerarHistoricas',
+       titulo = 'Número de visitas',
+       descripcion =
+           'Las visitas nuevas reciben su número al programarse. Las que ya '
+           'existían en la empresa activa se numeran aquí, en el orden en '
+           'que se programaron. Las de prueba no llevan número. Primero '
+           'revisa cuántas faltan.',
+       singular = 'visita',
+       plural = 'visitas';
 
   @override
   State<TaskNumeracionCard> createState() => _TaskNumeracionCardState();
@@ -42,11 +75,11 @@ class _TaskNumeracionCardState extends State<TaskNumeracionCard> {
       final ok = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('Numerar tareas existentes'),
+          title: Text('Numerar ${widget.plural} existentes'),
           content: Text(
-            'Se asignará número a $pendientes tarea(s) de esta empresa, en '
-            'el orden en que se crearon. Los números no se pueden cambiar '
-            'después.',
+            'Se asignará número a $pendientes ${widget.singular}(s) de esta '
+            'empresa, en el orden en que se crearon. Los números no se '
+            'pueden cambiar después.',
           ),
           actions: [
             TextButton(
@@ -69,7 +102,7 @@ class _TaskNumeracionCardState extends State<TaskNumeracionCard> {
     try {
       final res = await _functions
           .httpsCallable(
-            'tareasNumerarHistoricas',
+            widget.funcion,
             options: HttpsCallableOptions(timeout: const Duration(minutes: 9)),
           )
           .call<Map<String, dynamic>>({
@@ -100,9 +133,9 @@ class _TaskNumeracionCardState extends State<TaskNumeracionCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Número interno de tareas',
-              style: TextStyle(
+            Text(
+              widget.titulo,
+              style: const TextStyle(
                 fontFamily: _kFont,
                 fontWeight: FontWeight.w900,
                 fontSize: 16,
@@ -110,11 +143,9 @@ class _TaskNumeracionCardState extends State<TaskNumeracionCard> {
               ),
             ),
             const SizedBox(height: 6),
-            const Text(
-              'Las tareas nuevas reciben su número al crearse. Las que ya '
-              'existían en la empresa activa se numeran aquí, en el orden en '
-              'que se crearon. Primero revisa cuántas faltan.',
-              style: TextStyle(
+            Text(
+              widget.descripcion,
+              style: const TextStyle(
                 fontFamily: _kFont,
                 fontSize: 12,
                 color: Colors.black54,
@@ -135,7 +166,7 @@ class _TaskNumeracionCardState extends State<TaskNumeracionCard> {
                       ? null
                       : () => _llamar(aplicar: true),
                   icon: const Icon(Icons.format_list_numbered_rounded),
-                  label: const Text('Numerar tareas existentes'),
+                  label: Text('Numerar ${widget.plural} existentes'),
                 ),
               ],
             ),
@@ -158,11 +189,12 @@ class _TaskNumeracionCardState extends State<TaskNumeracionCard> {
               const SizedBox(height: 10),
               Text(
                 r['aplicado'] == true
-                    ? 'Listo: ${n('numeradas')} tarea(s) numeradas. '
-                          '${n('total')} en total.'
-                    : '${n('total')} tareas en la empresa: '
+                    ? 'Listo: ${n('numeradas')} ${widget.singular}(s) '
+                          'numeradas. ${n('total')} en total.'
+                    : '${n('total')} ${widget.plural} en la empresa: '
                           '${n('conNumero')} con número y '
-                          '${n('sinNumero')} por numerar.',
+                          '${n('sinNumero')} por numerar.'
+                          '${n('pruebas') > 0 ? ' ${n('pruebas')} de prueba, sin número.' : ''}',
                 style: const TextStyle(
                   fontFamily: _kFont,
                   fontSize: 13,

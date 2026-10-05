@@ -56,6 +56,7 @@ import 'estructura_por_empresa.dart';
 import 'module_cleanup_card.dart';
 import 'maestros_sync_card.dart';
 import 'maestros_sync_service.dart';
+import 'visitas_establecimientos_panel.dart';
 import 'module_cleanup_service.dart';
 import 'billing_module_role.dart';
 import 'management_module_role.dart';
@@ -2785,6 +2786,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   Widget _panelAdminModulo(PanelAdminModulo panel, String empresaId) =>
       switch (panel) {
         PanelAdminModulo.compras => _tabReqCompras(),
+        PanelAdminModulo.visitas => VisitasEstablecimientosPanel(
+          key: ValueKey('visitas-establecimientos-$empresaId'),
+          userId: widget.userId,
+          empresaId: empresaId,
+        ),
         PanelAdminModulo.correo => AdminCorreoPanel(
           userId: widget.userId,
           empresaId: empresaId,
@@ -10950,7 +10956,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       const Align(
                         alignment: Alignment.centerLeft,
                         child: Text(
-                          'Van en el encabezado de la plantilla Excel de los formatos institucionales. Hex de 6 dígitos; vacío usa los colores por defecto.',
+                          'Van en el encabezado de las plantillas Excel y Word de los formatos institucionales. Hex de 6 dígitos; vacío usa los colores por defecto.',
                           style: TextStyle(
                             fontFamily: kArial,
                             fontSize: 12,
@@ -11456,6 +11462,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         // Número interno de las tareas que ya existían (3 oct 2026).
         TaskNumeracionCard(
           key: ValueKey('numeracion-${_empresaId ?? ''}'),
+          empresaId: _empresaId ?? '',
+        ),
+        const SizedBox(height: 12),
+        // Número de las visitas que ya existían (5 oct 2026).
+        TaskNumeracionCard.visitas(
+          key: ValueKey('numeracion-visitas-${_empresaId ?? ''}'),
           empresaId: _empresaId ?? '',
         ),
         const SizedBox(height: 12),

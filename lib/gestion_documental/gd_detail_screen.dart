@@ -647,11 +647,18 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                       ? null
                       : () => _downloadFormatTemplate(doc),
                   icon: const Icon(Icons.table_view_outlined, size: 18),
-                  label: const Text('DESCARGAR PLANTILLA EXCEL'),
+                  label: const Text('PLANTILLA EXCEL'),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: _loadingAction
+                      ? null
+                      : () => _downloadFormatTemplate(doc, word: true),
+                  icon: const Icon(Icons.description_outlined, size: 18),
+                  label: const Text('PLANTILLA WORD'),
                 ),
                 if (doc.estado == GdEstado.borrador)
                   const Text(
-                    'Trae el encabezado institucional (logo, nombre, código y versión). Puedes combinar celdas; arma el formato debajo y súbelo con "Subir archivo".',
+                    'Traen el encabezado institucional (logo, nombre, código y versión). En Excel puedes combinar celdas; en Word el encabezado se repite en cada página. Arma el formato debajo y súbelo con "Subir archivo".',
                     style: TextStyle(
                       fontFamily: kArial,
                       fontSize: 12,
@@ -1960,17 +1967,22 @@ class _GdDetailScreenState extends State<GdDetailScreen>
   /// Plantilla con el encabezado bloqueado. Está para cualquiera con rol
   /// documental: quien redacta la baja para armar el formato, y Calidad para
   /// cotejar el encabezado.
-  Future<void> _downloadFormatTemplate(DocumentoDoc doc) async {
+  Future<void> _downloadFormatTemplate(
+    DocumentoDoc doc, {
+    bool word = false,
+  }) async {
     await _handleAction(() async {
       final (bytes, fileName) = await _service.generarPlantillaFormato(
         docId: doc.docId,
         empresaId: widget.empresaId,
+        word: word,
       );
+      final extension = word ? 'docx' : 'xlsx';
       await FileSaver.instance.saveFile(
-        name: fileName.replaceAll(RegExp(r'\.xlsx$'), ''),
+        name: fileName.replaceAll(RegExp('\\.$extension\$'), ''),
         bytes: bytes,
-        fileExtension: 'xlsx',
-        mimeType: MimeType.microsoftExcel,
+        fileExtension: extension,
+        mimeType: word ? MimeType.microsoftWord : MimeType.microsoftExcel,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
