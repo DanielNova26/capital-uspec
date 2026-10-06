@@ -311,6 +311,8 @@ class GdCorrespondenciaService {
       // Retirado en Talento Humano para esta empresa: no puede quedar como
       // responsable, revisor ni clasificador de correspondencia.
       if (!personaHabilitadaEn(data, empresaId)) continue;
+      // "No opera en To-Do": no recibe correspondencia para responder.
+      if (soloTalentoHumanoEn(data, empresaId)) continue;
       final nombre = _userName(data, doc.id);
       final org = const OrgContextResolver().resolve(
         userData: data,

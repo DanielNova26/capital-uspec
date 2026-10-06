@@ -362,6 +362,9 @@ bool isDeveloperUser(Map<String, dynamic> data, {String? empresaId}) {
 bool userHasApp(Map<String, dynamic> data, String? appId, {String? empresaId}) {
   final target = normalizeAppId(appId);
   if (target == null) return false;
+  // "No opera en To-Do" (Talento Humano) neutraliza todo módulo en esa
+  // empresa, aunque la lista conserve alguno (ver [soloTalentoHumanoEn]).
+  if (soloTalentoHumanoEn(data, empresaId)) return false;
   final assigned = extractUserApps(
     data,
     empresaId: empresaId,
@@ -844,11 +847,50 @@ bool recibeAsignacionesEnEmpresa(
   String? empresaId, {
   bool? marcaDelCargo,
 }) {
+  // "No opera en To-Do": nunca recibe tareas en esa empresa.
+  if (soloTalentoHumanoEn(data, empresaId)) return false;
   final propia =
       _marcaRecibeAsignaciones(getUserCompanyDetail(data, empresaId)) ??
       _marcaRecibeAsignaciones(data);
   if (propia != null) return propia;
   return marcaDelCargo ?? true;
+}
+
+/// Marca de Talento Humano: la persona **no opera en To-Do** en esta empresa
+/// (documento "Tareas - octubre 04 de 2026": auxiliares de servicios
+/// generales, auxiliares de procesos). Solo entra para su hoja de vida y los
+/// trámites de Talento Humano que le llegan como avisos.
+///
+/// Efectos, por empresa:
+///  - no aparece para recibir ni para reasignarle tareas
+///    ([recibeAsignacionesEnEmpresa]);
+///  - no ve ni abre módulos aunque conserve alguno asignado ([userHasApp] y
+///    el Home), porque una marca así debe neutralizar el acceso efectivo;
+///  - sigue vinculada: no es un retiro ([isPersonaActivaEnEmpresa]).
+///
+/// Vive en `empresasDetalle.{empresa}.soloTalentoHumano`; la raíz solo
+/// cuenta para la empresa principal.
+const String kCampoSoloTalentoHumano = 'soloTalentoHumano';
+
+bool soloTalentoHumanoEn(Map<String, dynamic> data, String? empresaId) {
+  bool? leer(Object? raw) {
+    if (raw == null) return null;
+    if (raw is bool) return raw;
+    final text = raw.toString().trim().toLowerCase();
+    if (const {'true', 'si', 'sí', '1'}.contains(text)) return true;
+    if (const {'false', 'no', '0'}.contains(text)) return false;
+    return null;
+  }
+
+  final propia = leer(
+    getUserCompanyDetail(data, empresaId)?[kCampoSoloTalentoHumano],
+  );
+  if (propia != null) return propia;
+  if ((empresaId ?? '').trim().isNotEmpty &&
+      !raizEsDeEmpresa(data, empresaId)) {
+    return false;
+  }
+  return leer(data[kCampoSoloTalentoHumano]) ?? false;
 }
 
 /// Igual que [recibeAsignacionesEnEmpresa] pero leyendo la marca del cargo

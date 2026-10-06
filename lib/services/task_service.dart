@@ -13,6 +13,8 @@ import 'package:crypto/crypto.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
 import '../core/task_contract.dart';
+import '../core/task_estado_visible.dart' show taskNumero;
+import '../core/task_flujo.dart';
 import '../utils/user_company.dart';
 
 class TaskAttachment {
@@ -55,16 +57,25 @@ class TaskService {
     return def;
   }
 
-  void _requireActiveAssignee(
-    Map<String, dynamic> task,
-    String byUserId,
-  ) {
+  void _requireActiveAssignee(Map<String, dynamic> task, String byUserId) {
     if (_s(task, ['asignado_uid', 'assignedTo']) != byUserId.trim()) {
-      throw StateError('Solo el responsable actual puede registrar esta acción.');
+      throw StateError(
+        'Solo el responsable actual puede registrar esta acción.',
+      );
     }
-    final status = TaskContract.normalizeStatus(task['estado'] ?? task['status']);
+    final status = TaskContract.normalizeStatus(
+      task['estado'] ?? task['status'],
+    );
     if (status == 'finalizado' || status == 'por_aprobar') {
-      throw StateError('La tarea ya está finalizada o pendiente de aprobación.');
+      throw StateError(
+        'La tarea ya está finalizada o pendiente de aprobación.',
+      );
+    }
+    // Con una reasignación en espera la tarea solo se consulta (4 oct 2026).
+    if (taskReasignacionPendiente(task)) {
+      throw StateError(
+        'La tarea tiene una reasignación en espera de aprobación.',
+      );
     }
   }
 
@@ -86,7 +97,10 @@ class TaskService {
     final emitter = (emitterName ?? '').trim().isEmpty
         ? 'Sistema'
         : emitterName!.trim();
-    return '$detail · Fecha: $date · Emisor: $emitter · Responsable: $responsible';
+    return conNumeroDeTarea(
+      task,
+      '$detail · Fecha: $date · Emisor: $emitter · Responsable: $responsible',
+    );
   }
 
   String _slug(String value, {String fallback = 'archivo'}) {
@@ -190,6 +204,8 @@ class TaskService {
     // Sin sonido: canal `tasks_silent` en Android y `passive` en iOS
     // (functions/src/notification_sound_policy.ts). Para lo informativo.
     bool silenciosa = false,
+    // "Tarea No. 2088" en rojo en la bandeja (4 oct 2026).
+    int? taskNumero,
   }) async {
     if (toUserId.trim().isEmpty) return;
 
@@ -213,6 +229,8 @@ class TaskService {
     };
     if (extraData != null) payload.addAll(extraData);
     if (silenciosa) payload['silenciosa'] = true;
+    if (taskNumero != null && taskNumero > 0)
+      payload['taskNumero'] = taskNumero;
     final eid = empresaId?.trim() ?? '';
     if (eid.isNotEmpty) payload['empresaId'] = eid;
     if (normalizedKey.isEmpty) {
@@ -236,6 +254,7 @@ class TaskService {
     String? empresaId,
     Map<String, dynamic>? extraData,
     String? idempotencyKey,
+    int? taskNumero,
   }) async {
     final unique = <String>{};
     for (final u in toUserIds) {
@@ -255,6 +274,7 @@ class TaskService {
         empresaId: empresaId,
         extraData: extraData,
         idempotencyKey: idempotencyKey,
+        taskNumero: taskNumero,
       );
     }
   }
@@ -415,7 +435,6 @@ class TaskService {
 
     // Extraemos los datos de la tarea ANTES de la transacción para poder
     // notificar DESPUÉS de que la transacción commitee (sin riesgo de retry duplicado).
-    final jefeId = _s(t, ['jefe_uid', 'bossId', 'delegatedTo']);
     final titulo = _s(t, ['titulo', 'title'], def: 'Tarea');
     final empresaIdTask = _s(t, ['empresaId', 'empresa_id']);
 
@@ -469,13 +488,15 @@ class TaskService {
       trx.update(taskRef, updateData);
     });
 
-    // Notificar DESPUÉS de que la transacción commitee
-    final recipients = <String>[];
-    if (jefeId.isNotEmpty && jefeId != byUserId) recipients.add(jefeId);
+    // Notificar DESPUÉS de que la transacción commitee. El avance llega a
+    // quien asignó la tarea y a quien la aprueba (4 oct 2026: "enviar
+    // notificación del AVANCE al usuario que asignó la tarea"); antes solo
+    // al jefe, que en Visitas no existe.
+    final recipients = taskDestinatariosSeguimiento(t, excluir: byUserId);
     if (recipients.isNotEmpty) {
       try {
         await pushNotificationToMany(
-          toUserIds: recipients,
+          toUserIds: recipients.toList(),
           title: 'Avance en tarea',
           description: _taskEventDescription(
             t,
@@ -490,6 +511,7 @@ class TaskService {
           fromName: byUserName,
           empresaId: empresaIdTask.isNotEmpty ? empresaIdTask : null,
           idempotencyKey: 'task_avance:$taskId:${doc.id}',
+          taskNumero: taskNumero(t),
         );
       } catch (_) {}
     }
@@ -523,7 +545,6 @@ class TaskService {
 
     // Extraemos los datos de la tarea ANTES de la transacción para notificar
     // DESPUÉS de que la transacción commitee.
-    final jefeId = _s(t, ['jefe_uid', 'bossId', 'delegatedTo']);
     final titulo = _s(t, ['titulo', 'title'], def: 'Tarea');
     final empresaIdTask = _s(t, ['empresaId', 'empresa_id']);
 
@@ -571,13 +592,14 @@ class TaskService {
       trx.update(taskRef, updateData);
     });
 
-    // Notificar DESPUÉS de que la transacción commitee
-    final recipients = <String>[];
-    if (jefeId.isNotEmpty && jefeId != byUserId) recipients.add(jefeId);
+    // Notificar DESPUÉS de que la transacción commitee: alerta a quien
+    // asignó la tarea y a quien la aprueba (4 oct 2026, "enviar alerta
+    // cuando se envíe novedad").
+    final recipients = taskDestinatariosSeguimiento(t, excluir: byUserId);
     if (recipients.isNotEmpty) {
       try {
         await pushNotificationToMany(
-          toUserIds: recipients,
+          toUserIds: recipients.toList(),
           title: 'Novedad en tarea',
           description: _taskEventDescription(
             t,
@@ -590,6 +612,7 @@ class TaskService {
           fromName: byUserName,
           empresaId: empresaIdTask.isNotEmpty ? empresaIdTask : null,
           idempotencyKey: 'task_novedad:$taskId:${doc.id}',
+          taskNumero: taskNumero(t),
         );
       } catch (_) {}
     }

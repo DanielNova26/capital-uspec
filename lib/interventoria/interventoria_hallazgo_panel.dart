@@ -11,7 +11,7 @@ import 'package:url_launcher/url_launcher_string.dart';
 import '../core/user_directory.dart';
 import '../core/task_permissions.dart';
 import '../home/complete_task_screen.dart';
-import '../home/task_history_screen.dart' show TaskActivityScreen;
+import '../home/task_history_screen.dart' show showTaskActivityPanel;
 import '../widgets/memo_stream_builder.dart';
 import '../widgets/user_avatar.dart';
 import 'interventoria_actas_catalogo.dart';
@@ -1204,13 +1204,10 @@ class _AvanceDeTarea extends StatelessWidget {
                             label: const Text('Solicitar finalización'),
                           ),
                         OutlinedButton.icon(
-                          onPressed: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => TaskActivityScreen(
-                                taskId: tareaId,
-                                currentUserId: currentUserId,
-                              ),
-                            ),
+                          onPressed: () => showTaskActivityPanel(
+                            context,
+                            taskId: tareaId,
+                            currentUserId: currentUserId,
                           ),
                           icon: const Icon(Icons.history_rounded),
                           label: const Text('Ver historial de actividad'),

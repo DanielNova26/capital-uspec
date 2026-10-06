@@ -19,15 +19,18 @@ import '../core/task_permissions.dart';
 import '../compras/compras_dashboard_screen.dart';
 import '../facturacion/facturacion_models.dart';
 import '../facturacion/facturacion_navigation.dart';
-import '../interventoria/interventoria_dashboard_screen.dart';
+import '../interventoria/interventoria_hallazgo_panel.dart';
+import '../interventoria/interventoria_models.dart';
+import '../interventoria/interventoria_service.dart';
 import '../interventoria/interventoria_planes_screen.dart';
 import '../gestion_documental/correspondencia/gd_correspondencia_screen.dart';
 import 'complete_task_screen.dart' hide kArial;
 import 'notify_avances_screen.dart' hide kArial;
 import 'notify_novedades_screen.dart' hide kArial;
-import 'task_history_screen.dart' show TaskActivityScreen;
+import 'task_history_screen.dart' show showTaskActivityPanel;
 import '../core/area_directory.dart';
 import '../core/task_estado_visible.dart';
+import '../core/task_flujo.dart';
 import '../core/task_personas_empresa.dart';
 import '../core/user_directory.dart';
 import '../widgets/task_card_grid.dart';
@@ -348,9 +351,9 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   }
 
   Future<void> _requestReassign(
-    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    DocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
-    final taskData = doc.data();
+    final taskData = doc.data() ?? const <String, dynamic>{};
     final esInterventoria =
         (taskData['origen'] ?? '').toString() == 'interventoria' ||
         taskData['permite_reasignacion_director'] == true;
@@ -455,6 +458,35 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                   : areaCargo),
       };
     }).toList();
+    // Marca de cada cargo del maestro ("recibe asignaciones"), por id y por
+    // nombre: la ficha de la persona suele traer solo el nombre.
+    final marcaPorCargo = <String, bool>{};
+    for (final d in cargosSnap.docs) {
+      final marca = cargoRecibeAsignaciones(d.data());
+      final id = (d.data()['cargoId'] ?? d.id).toString().trim();
+      if (id.isNotEmpty) marcaPorCargo['id:$id'] = marca;
+      final clave = _claveCargo(
+        (d.data()['nombre'] ?? d.data()['descripcion'] ?? '').toString(),
+      );
+      if (clave.isNotEmpty) marcaPorCargo['nombre:$clave'] = marca;
+    }
+    bool? marcaCargoDe(Map<String, dynamic> m, String empresaId) {
+      final cargoId = resolveScopedStringWithFallbacks(
+        m,
+        empresaId,
+        const ['cargoId', 'cargo_id'],
+        const ['cargoId', 'cargo_id'],
+      ).trim();
+      final cargo = resolveScopedStringWithFallbacks(
+        m,
+        empresaId,
+        const ['cargo', 'cargoNombre', 'cargo_nombre', 'puesto'],
+        const ['cargo', 'cargoNombre', 'cargo_nombre', 'puesto'],
+      ).trim();
+      return marcaPorCargo['id:$cargoId'] ??
+          marcaPorCargo['nombre:${_claveCargo(cargo)}'];
+    }
+
     // La mayoría del personal no guarda `areaId`: el área vive en su cargo
     // (TBL_CARGOS.areaId). Sin este puente, al elegir otra área para
     // reasignar casi nadie aparecía.
@@ -465,7 +497,8 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       final id = (c['id'] ?? '').trim();
       if (id.isNotEmpty) areaPorCargo.putIfAbsent('id:$id', () => area);
       final clave = _claveCargo(c['nombre'] ?? '');
-      if (clave.isNotEmpty) areaPorCargo.putIfAbsent('nombre:$clave', () => area);
+      if (clave.isNotEmpty)
+        areaPorCargo.putIfAbsent('nombre:$clave', () => area);
     }
     final usuarios = userDocs.values
         .map((d) {
@@ -480,6 +513,15 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
           // No se puede pedir reasignación hacia alguien ya retirado en
           // Talento Humano: el estado laboral vive por empresa.
           if (!personaHabilitadaEn(m, empresaId)) return null;
+          // Ni hacia quien Talento Humano marcó fuera de la asignación
+          // operativa ("No opera en To-Do", cargos no operativos).
+          if (!recibeAsignacionesEnEmpresa(
+            m,
+            empresaId,
+            marcaDelCargo: marcaCargoDe(m, empresaId),
+          )) {
+            return null;
+          }
           final nombre = [
             (m['nombres'] ?? m['primerNombre'] ?? '').toString(),
             (m['apellidos'] ?? m['primerApellido'] ?? '').toString(),
@@ -943,15 +985,18 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         return;
       }
 
-      // La solicitud solo avisa al jefe inmediato del responsable.
-      final taskData = doc.data();
-      final jefeId = _str(taskData, ['jefe_uid', 'bossId']);
+      // La solicitud avisa a quien la aprueba (el jefe inmediato) y a quien
+      // asignó la tarea (4 oct 2026: "debe llegar notificación al emisor
+      // cuando el usuario solicite reasignar"). Antes iba solo a `jefe_uid`,
+      // vacío en las tareas de Visitas: al analista no le llegaba nada.
       final titulo = _str(taskData, ['titulo', 'title'], def: 'Tarea');
       final empresaId = _str(taskData, ['empresaId', 'empresa_id']);
       final actorName = _currentUserName();
       final toName = pickedUser!['nombre'] ?? '';
-      final recipients = <String>{};
-      if (jefeId.isNotEmpty && jefeId != widget.userId) recipients.add(jefeId);
+      final recipients = taskDestinatariosSeguimiento(
+        taskData,
+        excluir: widget.userId,
+      );
       if (recipients.isNotEmpty) {
         try {
           final fecha = DateTime.now();
@@ -965,17 +1010,29 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
           await TaskService().pushNotificationToMany(
             toUserIds: recipients.toList(),
             title: 'Solicitud de reasignación',
-            description:
-                '$titulo · $actorName solicita reasignar a $toName'
-                ' · Fecha: $fechaTexto · Emisor: $actorName'
-                ' · Responsable: $responsable',
+            description: conNumeroDeTarea(
+              taskData,
+              '$titulo · $actorName solicita reasignar a $toName'
+              ' · Fecha: $fechaTexto · Emisor: $actorName'
+              ' · Responsable: $responsable',
+            ),
             taskId: doc.id,
             type: 'task_solicitud_reasignacion',
             fromId: widget.userId,
             fromName: actorName,
             empresaId: empresaId.isNotEmpty ? empresaId : null,
+            taskNumero: taskNumero(taskData),
           );
         } catch (_) {}
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Solicitud enviada. La tarea pasa a $toName cuando se apruebe.',
+            ),
+          ),
+        );
       }
     }
   }
@@ -1092,8 +1149,63 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     return filtered;
   }
 
-  void _showActionsSheet(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data();
+  String _hallazgoDeTarea(Map<String, dynamic> data) {
+    final source = data['source'] is Map
+        ? Map<String, dynamic>.from(data['source'] as Map)
+        : const <String, dynamic>{};
+    final coleccion =
+        (data['sourceEntityCollection'] ?? source['entityCollection'] ?? '')
+            .toString();
+    final directo = _str(data, ['hallazgoId']).trim();
+    if (directo.isNotEmpty) return directo;
+    if (coleccion.isNotEmpty && coleccion != 'TBL_INTERVENTORIA_HALLAZGOS') {
+      return '';
+    }
+    return (data['sourceEntityId'] ?? source['entityId'] ?? '')
+        .toString()
+        .trim();
+  }
+
+  Future<void> _abrirHallazgo(
+    BuildContext panelContext,
+    Map<String, dynamic> data,
+  ) async {
+    final hallazgoId = _hallazgoDeTarea(data);
+    final empresaId = _str(data, ['empresaId']);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('TBL_INTERVENTORIA_HALLAZGOS')
+          .doc(hallazgoId)
+          .get();
+      final hallazgoData = snap.data();
+      if (!snap.exists || hallazgoData == null) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('El hallazgo ya no existe.')),
+        );
+        return;
+      }
+      if (!panelContext.mounted) return;
+      // Consulta: quien responde la tarea ve el hallazgo pero no lo gestiona
+      // desde aquí (eso es del módulo, según su rol).
+      await mostrarPanelHallazgo(
+        panelContext,
+        hallazgo: InterventoriaHallazgo.fromMap(snap.id, hallazgoData),
+        service: InterventoriaService(),
+        userId: widget.userId,
+        empresaId: empresaId,
+        canWrite: false,
+        canReasignar: false,
+      );
+    } catch (_) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('No se pudo abrir el hallazgo.')),
+      );
+    }
+  }
+
+  void _showActionsSheet(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data() ?? const <String, dynamic>{};
     final taskId = doc.id;
     final esInterventoria =
         (data['origen'] ?? '').toString() == 'interventoria' ||
@@ -1159,9 +1271,17 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         ? 'Abre Compras y envía la corrección a Calidad.'
         : esRequerimientoFacturacion
         ? 'Abre Facturación en el documento indicado y envíalo a revisión.'
+        : hasPendingReassign
+        ? 'Inhabilitado mientras se aprueba la reasignación.'
+        // Siempre dice si pide evidencias (4 oct 2026: "si no se definió que
+        // la tarea requiere evidencias, indicarlo"; antes una decía
+        // "Requiere evidencias" y la otra "Explica el cumplimiento…").
         : requiresAttachment
         ? 'Requiere evidencias'
-        : 'Explica el cumplimiento y solicita aprobación.';
+        : 'No requiere evidencias';
+    // Con una reasignación en espera solo se consulta: completar, reportar
+    // novedad o avance quedan inhabilitados hasta que se resuelva.
+    final reasignacionEnEspera = taskReasignacionEnEspera(data);
 
     final estadoVisible = taskEstadoVisible(data);
     final numeroTexto = taskNumeroTexto(data);
@@ -1253,8 +1373,22 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                                 ? asignador.nombre
                                 : asigna,
                           ),
+                          _MetaChip(
+                            icon: requiresAttachment
+                                ? Icons.attach_file_rounded
+                                : Icons.do_not_disturb_alt_outlined,
+                            label: requiresAttachment
+                                ? 'Requiere evidencias'
+                                : 'No requiere evidencias',
+                          ),
                         ],
                       ),
+                      if (reasignacionEnEspera != null) ...[
+                        const SizedBox(height: 12),
+                        TaskReasignacionEsperaNota(
+                          espera: reasignacionEnEspera,
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -1289,9 +1423,30 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                     color: finishPending ? Colors.orange : Colors.green,
                     title: completionTitle,
                     subtitle: completionSubtitle,
-                    onTap: finishPending
+                    onTap: finishPending || hasPendingReassign
                         ? null
                         : () async {
+                            if (!esCorrespondencia &&
+                                !esCorreccionCompras &&
+                                !esRequerimientoFacturacion) {
+                              // Encima del panel: si se devuelve sin
+                              // terminar, el panel sigue abierto.
+                              final terminada = await Navigator.of(sheetContext)
+                                  .push<bool>(
+                                    MaterialPageRoute(
+                                      builder: (_) => CompleteTaskScreen(
+                                        taskId: taskId,
+                                        currentUserId: widget.userId,
+                                        requestFinish: true,
+                                        requestFinishByName: _currentUserName(),
+                                      ),
+                                    ),
+                                  );
+                              if (terminada == true && sheetContext.mounted) {
+                                Navigator.of(sheetContext).pop();
+                              }
+                              return;
+                            }
                             Navigator.pop(context);
                             if (esCorrespondencia) {
                               await Navigator.of(context).push(
@@ -1344,68 +1499,67 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                               }
                               return;
                             }
-                            await Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => CompleteTaskScreen(
-                                  taskId: taskId,
-                                  currentUserId: widget.userId,
-                                  requestFinish: true,
-                                  requestFinishByName: _currentUserName(),
-                                ),
-                              ),
-                            );
                           },
                   ),
+                // Novedad y avance se abren ENCIMA del panel: al enviarlos la
+                // ventana se cierra y se vuelve al panel de gestión de la
+                // tarea (4 oct 2026). Si la novedad terminó en una
+                // finalización, la tarea ya no está pendiente y el panel se
+                // cierra también.
                 _ActionTile(
                   icon: Icons.markunread_mailbox_rounded,
                   color: Colors.indigo,
                   title: 'Reportar novedad',
-                  subtitle: 'Comunica una novedad o inconveniente.',
-                  onTap: () async {
-                    Navigator.pop(context);
-                    await Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => NotifyNovedadesScreen(
-                          taskId: taskId,
-                          currentUserId: widget.userId,
-                        ),
-                      ),
-                    );
-                  },
+                  subtitle: hasPendingReassign
+                      ? 'Inhabilitado mientras se aprueba la reasignación.'
+                      : 'Comunica una novedad o inconveniente.',
+                  onTap: hasPendingReassign || finishPending
+                      ? null
+                      : () async {
+                          final finalizo = await Navigator.of(sheetContext)
+                              .push<bool>(
+                                MaterialPageRoute(
+                                  builder: (_) => NotifyNovedadesScreen(
+                                    taskId: taskId,
+                                    currentUserId: widget.userId,
+                                  ),
+                                ),
+                              );
+                          if (finalizo == true && sheetContext.mounted) {
+                            Navigator.of(sheetContext).pop();
+                          }
+                        },
                 ),
                 _ActionTile(
                   icon: Icons.trending_up_rounded,
                   color: Colors.blue,
                   title: 'Reportar avance',
-                  subtitle: 'Notifica progreso realizado hoy.',
-                  onTap: () async {
-                    Navigator.pop(context);
-                    await Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => NotifyAvancesScreen(
-                          taskId: taskId,
-                          currentUserId: widget.userId,
+                  subtitle: hasPendingReassign
+                      ? 'Inhabilitado mientras se aprueba la reasignación.'
+                      : 'Notifica progreso realizado hoy.',
+                  onTap: hasPendingReassign || finishPending
+                      ? null
+                      : () => Navigator.of(sheetContext).push<bool>(
+                          MaterialPageRoute(
+                            builder: (_) => NotifyAvancesScreen(
+                              taskId: taskId,
+                              currentUserId: widget.userId,
+                            ),
+                          ),
                         ),
-                      ),
-                    );
-                  },
                 ),
+                // Ventana flotante con "volver": al cerrarla se ve de nuevo
+                // el panel de gestión.
                 _ActionTile(
                   icon: Icons.history_rounded,
                   color: Colors.blueGrey,
                   title: 'Ver historial de actividad',
                   subtitle: 'Consulta novedades, avances y finalizaciones.',
-                  onTap: () async {
-                    Navigator.pop(context);
-                    await Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => TaskActivityScreen(
-                          taskId: taskId,
-                          currentUserId: widget.userId,
-                        ),
-                      ),
-                    );
-                  },
+                  onTap: () => showTaskActivityPanel(
+                    sheetContext,
+                    taskId: taskId,
+                    currentUserId: widget.userId,
+                  ),
                 ),
                 _ActionTile(
                   icon: hasPendingReassign
@@ -1435,26 +1589,18 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                           await _requestReassign(doc);
                         },
                 ),
-                // Gap 3: enlace al hallazgo en Interventoría
-                if (esInterventoria) ...[
+                // El hallazgo de ESTA tarea, no el módulo completo (4 oct
+                // 2026: "mostrar el hallazgo específico, no mostrar el
+                // módulo"). Sin hallazgo vinculado no se ofrece el botón.
+                if (esInterventoria && _hallazgoDeTarea(data).isNotEmpty) ...[
                   const Divider(),
                   _ActionTile(
                     icon: Icons.fact_check_rounded,
                     color: const Color(0xFF0F766E),
-                    title: 'Ver hallazgo en Interventoría',
-                    subtitle: 'Abre el módulo de interventoría directamente.',
-                    onTap: () {
-                      Navigator.pop(context);
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => InterventoriaDashboardScreen(
-                            userId: widget.userId,
-                            empresaId: (data['empresaId'] ?? '').toString(),
-                            rolInterventoria: null, // la pantalla lo carga sola
-                          ),
-                        ),
-                      );
-                    },
+                    title: 'Ver hallazgo',
+                    subtitle:
+                        'Detalle del hallazgo de Interventoría de esta tarea.',
+                    onTap: () => _abrirHallazgo(sheetContext, data),
                   ),
                 ],
                 if (attachments.isNotEmpty) ...[
@@ -1555,7 +1701,17 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                   : 'Tareas asignadas a ti',
               header: focusMode ? _buildHighlightHeader() : null,
               filters: _buildFilters(activas, sinEstado),
-              content: filtered.isEmpty
+              content: filtered.isEmpty && focusMode
+                  ? EmptyStateWidget(
+                      icon: Icons.manage_search_rounded,
+                      title: 'La tarea ya no está a tu cargo',
+                      message:
+                          'Pudo reasignarse o cerrarse. Puedes consultarla en '
+                          'el historial o ver todas tus tareas.',
+                      actionLabel: 'Ver todas',
+                      onAction: () => setState(() => _showAllTasks = true),
+                    )
+                  : filtered.isEmpty
                   ? EmptyStateWidget(
                       icon: Icons.assignment_turned_in_outlined,
                       title: 'Todo al día',
@@ -1621,7 +1777,11 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       _areaFilter != 'todas' ||
       _moduloFilter != 'todos';
 
+  // En "Mostrando únicamente la tarea seleccionada" los filtros parecían
+  // pegados (4 oct 2026): se pintaban pero no hacían nada. Tocar cualquiera
+  // sale de ese modo y filtra todas las tareas.
   void _limpiarFiltros() => setState(() {
+    _showAllTasks = true;
     _searchCtrl.clear();
     _statusFilter = 'todas';
     _areaFilter = 'todas';
@@ -1662,7 +1822,10 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
 
     return TaskFiltersPanel(
       searchController: _searchCtrl,
-      onSearchChanged: (_) => setState(() => _page = 0),
+      onSearchChanged: (_) => setState(() {
+        _page = 0;
+        _showAllTasks = true;
+      }),
       searchHint: 'Buscar por título, número o quién asignó...',
       quickFilters: [
         TaskQuickFilter(
@@ -1687,6 +1850,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       onQuickFilterChanged: (value) => setState(() {
         _statusFilter = value;
         _page = 0;
+        _showAllTasks = true;
       }),
       dropdowns: [
         TaskFilterDropdownData(
@@ -1706,6 +1870,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
           onChanged: (v) => setState(() {
             _areaFilter = v ?? 'todas';
             _page = 0;
+            _showAllTasks = true;
           }),
         ),
         TaskFilterDropdownData(
@@ -1725,6 +1890,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
           onChanged: (v) => setState(() {
             _moduloFilter = v ?? 'todos';
             _page = 0;
+            _showAllTasks = true;
           }),
         ),
       ],
@@ -1733,6 +1899,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
           onTap: () => setState(() {
             _groupByArea = !_groupByArea;
             _page = 0;
+            _showAllTasks = true;
           }),
           borderRadius: BorderRadius.circular(12),
           child: Container(
@@ -1772,6 +1939,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                   onChanged: (v) => setState(() {
                     _groupByArea = v;
                     _page = 0;
+                    _showAllTasks = true;
                   }),
                   activeThumbColor: scheme.primary,
                   activeTrackColor: scheme.primary.withValues(alpha: 0.25),

@@ -527,6 +527,12 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
             'La tarea ya se finalizó o está pendiente de aprobación.',
           );
         }
+        if ((data['solicitud_reasignacion_estado'] ?? '').toString() ==
+            'pendiente') {
+          throw StateError(
+            'La tarea tiene una reasignación en espera de aprobación.',
+          );
+        }
         final currentAdj = (data['adjuntos'] as List<dynamic>? ?? [])
             .map((e) => Map<String, dynamic>.from(e as Map))
             .toList();

@@ -457,9 +457,10 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Novedad enviada')));
-      _descCtrl.clear();
-      setState(() => _picked.clear());
+      ).showSnackBar(const SnackBar(content: Text('Novedad enviada.')));
+      // Igual que el avance: se cierra y se vuelve al panel de la tarea.
+      // `false` = la tarea sigue abierta (no se fue a finalización).
+      Navigator.of(context).pop(false);
     } catch (e) {
       setState(() => _error = 'Error: $e');
     } finally {

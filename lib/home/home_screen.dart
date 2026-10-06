@@ -48,6 +48,7 @@ import 'assigned_tasks_screen.dart';
 import 'created_tasks_screen.dart';
 import 'notifications_screen.dart';
 import 'task_history_screen.dart' hide kArial;
+import 'task_aviso_navigation.dart';
 import 'create_task_screen.dart' hide kArial;
 import '../core/task_estado_visible.dart';
 import '../core/access_guard.dart';
@@ -302,48 +303,11 @@ class _HomeScreenState extends State<HomeScreen> {
       } catch (_) {}
     }
     if (!mounted) return;
-    if (routeDecision.target == TaskRouteTarget.taskHistory) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => TaskHistoryScreen(
-            currentUserId: cedula,
-            initialTabIndex: routeDecision.initialTabIndex,
-            highlightTaskId: taskId,
-          ),
-        ),
-      );
-      return;
-    }
-    if (routeDecision.target == TaskRouteTarget.createdTasks) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) =>
-              CreatedTasksScreen(userId: cedula, highlightTaskId: taskId),
-        ),
-      );
-      return;
-    }
-    if (routeDecision.target == TaskRouteTarget.approvalTasks) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => CreatedTasksScreen(
-            userId: cedula,
-            highlightTaskId: taskId,
-            approvalMode: true,
-          ),
-        ),
-      );
-      return;
-    }
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) =>
-            AssignedTasksScreen(userId: cedula, highlightTaskId: taskId),
-      ),
+    await abrirDestinoAvisoTarea(
+      Navigator.of(context),
+      routeDecision,
+      cedula: cedula,
+      taskId: taskId,
     );
   }
 
@@ -787,15 +751,16 @@ class _HomeScreenState extends State<HomeScreen> {
                         _navegandoACorreccion = true;
                         await cerrarDialogo();
                         if (!mounted) return;
-                        final corregida = await Navigator.of(context).push<bool>(
-                          MaterialPageRoute<bool>(
-                            builder: (_) => InterventoriaDashboardScreen(
-                              userId: userId,
-                              empresaId: empresaId,
-                              focusedCorrectionId: visita.id,
-                            ),
-                          ),
-                        );
+                        final corregida = await Navigator.of(context)
+                            .push<bool>(
+                              MaterialPageRoute<bool>(
+                                builder: (_) => InterventoriaDashboardScreen(
+                                  userId: userId,
+                                  empresaId: empresaId,
+                                  focusedCorrectionId: visita.id,
+                                ),
+                              ),
+                            );
                         if (corregida == true) {
                           _correccionesActa = _correccionesActa
                               .where((acta) => acta.id != visita.id)
@@ -1056,8 +1021,12 @@ class _HomeScreenState extends State<HomeScreen> {
         }
 
         final userData = userSnap.data?.data() ?? {};
-        final apps = extractUserApps(userData, empresaId: scopeEmpresa);
         final isDev = isDeveloperUser(userData, empresaId: scopeEmpresa);
+        // "No opera en To-Do" (Talento Humano): sin módulos ni Tareas en esta
+        // empresa; conserva perfil, hoja de vida, avisos y calendario.
+        final apps = !isDev && soloTalentoHumanoEn(userData, scopeEmpresa)
+            ? const <String>[]
+            : extractUserApps(userData, empresaId: scopeEmpresa);
         final nombreUsuario =
             userData['primerNombre'] ?? userData['nombres'] ?? cedula;
         // Visitas en el calendario: solo si el módulo está en sus accesos

@@ -33,9 +33,7 @@ import '../nutricion/nutricion_dashboard_screen.dart';
 import '../rutas/rutas_dashboard_screen.dart';
 import '../rutas/rutas_models.dart';
 import '../home/notifications_screen.dart';
-import '../home/assigned_tasks_screen.dart';
-import '../home/created_tasks_screen.dart';
-import '../home/task_history_screen.dart';
+import '../home/task_aviso_navigation.dart';
 import 'local_notification_service.dart'
     show kCanalSilencioso, notificacionSilenciosa;
 import '../core/task_route_guard.dart';
@@ -346,7 +344,11 @@ class NotificationsService {
     }
 
     if (notifType == 'interventoria_plan_mejora') {
-      await abrirPlanesDesdeAviso(context, empresaId: notifEmpresaId ?? '', tareaId: taskId ?? '');
+      await abrirPlanesDesdeAviso(
+        context,
+        empresaId: notifEmpresaId ?? '',
+        tareaId: taskId ?? '',
+      );
       return;
     }
     if (_isInterventoriaActaEliminada(notifType)) {
@@ -506,46 +508,11 @@ class NotificationsService {
       return;
     }
 
-    if (routeDecision.target == TaskRouteTarget.taskHistory) {
-      navigator.push(
-        MaterialPageRoute(
-          builder: (_) => TaskHistoryScreen(
-            currentUserId: cedula,
-            initialTabIndex: routeDecision.initialTabIndex,
-            highlightTaskId: taskId,
-          ),
-        ),
-      );
-      return;
-    }
-
-    if (routeDecision.target == TaskRouteTarget.createdTasks) {
-      navigator.push(
-        MaterialPageRoute(
-          builder: (_) =>
-              CreatedTasksScreen(userId: cedula, highlightTaskId: taskId),
-        ),
-      );
-      return;
-    }
-    if (routeDecision.target == TaskRouteTarget.approvalTasks) {
-      navigator.push(
-        MaterialPageRoute(
-          builder: (_) => CreatedTasksScreen(
-            userId: cedula,
-            highlightTaskId: taskId,
-            approvalMode: true,
-          ),
-        ),
-      );
-      return;
-    }
-
-    navigator.push(
-      MaterialPageRoute(
-        builder: (_) =>
-            AssignedTasksScreen(userId: cedula, highlightTaskId: taskId),
-      ),
+    await abrirDestinoAvisoTarea(
+      navigator,
+      routeDecision,
+      cedula: cedula,
+      taskId: taskId,
     );
   }
 

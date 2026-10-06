@@ -37,6 +37,9 @@ class PersonnelAccessRow {
   final bool activo;
   final Set<String> apps;
 
+  /// "No opera en To-Do": solo hoja de vida y trámites de Talento Humano.
+  final bool soloTalentoHumano;
+
   const PersonnelAccessRow({
     required this.userId,
     required this.cedula,
@@ -45,6 +48,7 @@ class PersonnelAccessRow {
     required this.correo,
     required this.activo,
     required this.apps,
+    this.soloTalentoHumano = false,
   });
 
   String get nombreVisible => nombre.trim().isEmpty ? cedula : nombre.trim();
@@ -156,6 +160,7 @@ class PersonnelAccessService {
         // (no entra a la app) no es personal activo.
         activo: personaHabilitadaEn(data, id),
         apps: extractUserApps(data, empresaId: id).toSet(),
+        soloTalentoHumano: soloTalentoHumanoEn(data, id),
       );
     }).toList();
     rows.sort(
@@ -223,6 +228,35 @@ class PersonnelAccessService {
       'updatedAt': now,
     });
     return next;
+  }
+
+  /// Marca o desmarca "No opera en To-Do" para la persona en esta empresa.
+  ///
+  /// Solo toca el bloque de la empresa: en otra razón social la persona
+  /// puede seguir operando. Quitar la marca no devuelve módulos: se conceden
+  /// de nuevo a conciencia.
+  Future<void> saveSoloTalentoHumano({
+    required String userId,
+    required String empresaId,
+    required bool valor,
+    String? actorId,
+  }) async {
+    final empresa = empresaId.trim();
+    final id = userId.trim();
+    if (id.isEmpty || empresa.isEmpty) {
+      throw ArgumentError(
+        'Se requiere usuario y empresa para guardar la marca',
+      );
+    }
+    final now = FieldValue.serverTimestamp();
+    await _db.collection('TBL_USUARIOS').doc(id).update({
+      FieldPath(['empresasDetalle', empresa, kCampoSoloTalentoHumano]): valor,
+      FieldPath(['empresasDetalle', empresa, 'soloTalentoHumanoAt']): now,
+      if ((actorId ?? '').trim().isNotEmpty)
+        FieldPath(['empresasDetalle', empresa, 'soloTalentoHumanoPor']):
+            actorId!.trim(),
+      'updatedAt': now,
+    });
   }
 
   /// Combina lo que Talento Humano marcó con lo que no administra.

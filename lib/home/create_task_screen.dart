@@ -18,6 +18,7 @@ import 'package:todo/services/company_branding_service.dart';
 import 'package:todo/state/empresa_scope.dart';
 import 'package:todo/utils/user_company.dart';
 
+import '../core/task_flujo.dart';
 import '../core/org_context_resolver.dart';
 import '../core/hierarchy_order.dart';
 import '../core/task_assignment_options.dart';
@@ -566,7 +567,27 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   @override
   void initState() {
     super.initState();
+    // El botón "Crear tarea" se habilita al completar los campos: hay que
+    // repintar mientras se escribe el título y la descripción.
+    _titleCtl.addListener(_alCambiarTexto);
+    _descCtl.addListener(_alCambiarTexto);
   }
+
+  void _alCambiarTexto() {
+    if (mounted) setState(() {});
+  }
+
+  /// Lo que falta para poder crear la tarea, en el orden del formulario.
+  /// Vacío = se puede crear (4 oct 2026: "habilitar el botón solo cuando se
+  /// diligencien todos los campos").
+  List<String> get _camposFaltantes => [
+    if (_titleCtl.text.trim().isEmpty) 'título',
+    if (_descCtl.text.trim().isEmpty) 'descripción',
+    if (_deadline == null) 'fecha límite',
+    if ((_areaId ?? '').trim().isEmpty) 'área',
+    if (_cargoFiltro.trim().isEmpty || _cargoFiltro == 'todos') 'cargo',
+    if (_asignadoUid == null) 'persona asignada',
+  ];
 
   @override
   void didChangeDependencies() {
@@ -593,6 +614,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   @override
   void dispose() {
+    _titleCtl.removeListener(_alCambiarTexto);
+    _descCtl.removeListener(_alCambiarTexto);
     _titleCtl.dispose();
     _descCtl.dispose();
     _empresaState?.removeListener(_onEmpresaChanged);
@@ -1797,10 +1820,11 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       _pickedFiles.clear();
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Tarea creada (ID: ${ref.id}).')),
-        );
-        Navigator.pop(context, true);
+        setState(() => _saving = false);
+        // Mensaje con los datos de la tarea creada (4 oct 2026) en vez de un
+        // aviso fugaz con el id interno.
+        await _mostrarResumenTareaCreada(ref, normalizedPayload);
+        if (mounted) Navigator.pop(context, true);
       }
     } catch (e) {
       if (mounted) {
@@ -1811,6 +1835,129 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  /// Resumen de la tarea recién creada. El número lo asigna el servidor
+  /// (`tareasAsignarNumero`) un instante después: se muestra en cuanto llega.
+  Future<void> _mostrarResumenTareaCreada(
+    DocumentReference<Map<String, dynamic>> ref,
+    Map<String, dynamic> datos,
+  ) {
+    final limite = _deadline;
+    final cargoId = _cargoFiltro;
+    final filas = <(IconData, String, String)>[
+      (Icons.title, 'Título', (datos['titulo'] ?? '').toString()),
+      (
+        Icons.person_outline,
+        'Responsable',
+        (datos['asignado_nombre'] ?? '').toString(),
+      ),
+      (Icons.account_tree_outlined, 'Área', _nombreAreaPorId(_areaId) ?? '—'),
+      (Icons.badge_outlined, 'Cargo', _nombreCargoPorId(cargoId) ?? '—'),
+      (
+        Icons.flag_outlined,
+        'Prioridad',
+        (datos['prioridad'] ?? '').toString().toUpperCase(),
+      ),
+      (
+        Icons.event_outlined,
+        'Fecha límite',
+        limite == null ? '—' : DateFormat('dd/MM/yyyy HH:mm').format(limite),
+      ),
+      (
+        Icons.attach_file_rounded,
+        'Evidencias',
+        _requiresAttachment ? 'Requiere evidencias' : 'No requiere evidencias',
+      ),
+      (
+        Icons.verified_user_outlined,
+        'Aprueba',
+        (datos['aprobador_nombre'] ?? '').toString().trim().isEmpty
+            ? '—'
+            : datos['aprobador_nombre'].toString(),
+      ),
+    ];
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(
+          Icons.check_circle_rounded,
+          color: Colors.green,
+          size: 40,
+        ),
+        title: const Text('Tarea creada'),
+        content: SizedBox(
+          width: 460,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  stream: ref.snapshots(),
+                  builder: (_, snap) {
+                    final numero = taskNumeroAviso(
+                      snap.data?.data() ?? const <String, dynamic>{},
+                    );
+                    return Text(
+                      numero.isEmpty ? 'Asignando número…' : numero,
+                      style: TextStyle(
+                        fontFamily: 'Arial',
+                        fontWeight: FontWeight.w900,
+                        fontSize: 16,
+                        color: numero.isEmpty
+                            ? Colors.black45
+                            : const Color(0xFFDC2626),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 12),
+                for (final (icono, etiqueta, valor) in filas)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(icono, size: 18, color: Colors.black54),
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: 96,
+                          child: Text(
+                            etiqueta,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            valor.trim().isEmpty ? '—' : valor,
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Se le avisó a la persona responsable.',
+                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Listo'),
+          ),
+        ],
+      ),
+    );
   }
 
   // ==================== UI: CHIP RESUMEN ====================
@@ -2083,91 +2230,113 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                         ),
                         const SizedBox(height: 12),
 
-                        // Área (primer filtro)
-                        DropdownButtonFormField<String>(
-                          isExpanded: true,
-                          initialValue: _areaId,
-                          decoration: InputDecoration(
-                            labelText: 'Área',
-                            border: const OutlineInputBorder(),
-                            prefixIcon: const Icon(Icons.account_tree_outlined),
-                            helperText: _loadingCatalogos
-                                ? 'Cargando áreas…'
-                                : areasDisponibles.isEmpty
-                                ? 'No hay áreas disponibles para tu usuario.'
-                                : null,
-                          ),
-                          items: areasDisponibles
-                              .map(
-                                (a) => DropdownMenuItem(
-                                  value: a['id'],
-                                  child: Text(
-                                    a['nombre'] ?? '—',
-                                    overflow: TextOverflow.ellipsis,
-                                    maxLines: 1,
-                                  ),
+                        // Área y Cargo en la misma línea (4 oct 2026); en
+                        // un teléfono, uno debajo del otro para que se lea el
+                        // nombre completo del cargo.
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final area = DropdownButtonFormField<String>(
+                              isExpanded: true,
+                              initialValue: _areaId,
+                              decoration: InputDecoration(
+                                labelText: 'Área',
+                                border: const OutlineInputBorder(),
+                                prefixIcon: const Icon(
+                                  Icons.account_tree_outlined,
                                 ),
-                              )
-                              .toList(),
-                          onChanged:
-                              _loadingCatalogos || areasDisponibles.isEmpty
-                              ? null
-                              : (v) {
-                                  setState(() {
-                                    _areaId = v?.trim();
-                                    _cargoFiltro = 'todos';
-                                    _alElegirAsignado(null);
-                                  });
-                                },
-                          validator: (v) {
-                            if (_loadingCatalogos) return null;
-                            if (areasDisponibles.isEmpty) {
-                              return 'No hay áreas disponibles para tu usuario';
-                            }
-                            return (v == null || v.trim().isEmpty)
-                                ? 'Selecciona el área'
-                                : null;
-                          },
-                        ),
-
-                        const SizedBox(height: 12),
-
-                        // Cargo (segundo filtro)
-                        DropdownButtonFormField<String>(
-                          isExpanded: true,
-                          initialValue: _cargoFiltro,
-                          decoration: const InputDecoration(
-                            labelText: 'Cargo',
-                            border: OutlineInputBorder(),
-                            prefixIcon: Icon(Icons.badge_outlined),
-                          ),
-                          items: cargosDisponibles
-                              .map(
-                                (c) => DropdownMenuItem(
-                                  value: c['id'],
-                                  child: Text(
-                                    c['nombre'] ?? 'Selecciona un cargo',
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: areaSeleccionada
-                              ? (v) {
-                                  setState(() {
-                                    _cargoFiltro = (v ?? 'todos').trim().isEmpty
-                                        ? 'todos'
-                                        : (v ?? 'todos');
-                                    _alElegirAsignado(null);
-                                    _ensureAreaDisponible();
-                                  });
+                                helperText: _loadingCatalogos
+                                    ? 'Cargando áreas…'
+                                    : areasDisponibles.isEmpty
+                                    ? 'No hay áreas disponibles para tu usuario.'
+                                    : null,
+                              ),
+                              items: areasDisponibles
+                                  .map(
+                                    (a) => DropdownMenuItem(
+                                      value: a['id'],
+                                      child: Text(
+                                        a['nombre'] ?? '—',
+                                        overflow: TextOverflow.ellipsis,
+                                        maxLines: 1,
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged:
+                                  _loadingCatalogos || areasDisponibles.isEmpty
+                                  ? null
+                                  : (v) {
+                                      setState(() {
+                                        _areaId = v?.trim();
+                                        _cargoFiltro = 'todos';
+                                        _alElegirAsignado(null);
+                                      });
+                                    },
+                              validator: (v) {
+                                if (_loadingCatalogos) return null;
+                                if (areasDisponibles.isEmpty) {
+                                  return 'No hay áreas disponibles para tu usuario';
                                 }
-                              : null,
-                          validator: (v) {
-                            if (!areaSeleccionada) return null;
-                            return (v == null || v == 'todos')
-                                ? 'Selecciona el cargo'
-                                : null;
+                                return (v == null || v.trim().isEmpty)
+                                    ? 'Selecciona el área'
+                                    : null;
+                              },
+                            );
+                            final cargo = DropdownButtonFormField<String>(
+                              isExpanded: true,
+                              initialValue: _cargoFiltro,
+                              decoration: const InputDecoration(
+                                labelText: 'Cargo',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.badge_outlined),
+                              ),
+                              items: cargosDisponibles
+                                  .map(
+                                    (c) => DropdownMenuItem(
+                                      value: c['id'],
+                                      child: Text(
+                                        c['nombre'] ?? 'Selecciona un cargo',
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: areaSeleccionada
+                                  ? (v) {
+                                      setState(() {
+                                        _cargoFiltro =
+                                            (v ?? 'todos').trim().isEmpty
+                                            ? 'todos'
+                                            : (v ?? 'todos');
+                                        _alElegirAsignado(null);
+                                        _ensureAreaDisponible();
+                                      });
+                                    }
+                                  : null,
+                              validator: (v) {
+                                if (!areaSeleccionada) return null;
+                                return (v == null || v == 'todos')
+                                    ? 'Selecciona el cargo'
+                                    : null;
+                              },
+                            );
+                            if (constraints.maxWidth < 520) {
+                              return Column(
+                                children: [
+                                  area,
+                                  const SizedBox(height: 12),
+                                  cargo,
+                                ],
+                              );
+                            }
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(child: area),
+                                const SizedBox(width: 12),
+                                Expanded(child: cargo),
+                              ],
+                            );
                           },
                         ),
 
@@ -2390,10 +2559,22 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
               const SizedBox(height: 16),
 
+              if (!_saving && _camposFaltantes.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    'Para crear la tarea falta: ${_camposFaltantes.join(', ')}.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: Colors.black54,
+                    ),
+                  ),
+                ),
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
-                  onPressed: _saving ? null : _saveTask,
+                  onPressed: _saving || _camposFaltantes.isNotEmpty
+                      ? null
+                      : _saveTask,
                   icon: _saving
                       ? const SizedBox(
                           width: 18,
@@ -2405,6 +2586,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                   style: FilledButton.styleFrom(
                     backgroundColor: kMarronOscuro,
                     foregroundColor: Colors.white,
+                    disabledBackgroundColor: Colors.grey.shade300,
+                    disabledForegroundColor: Colors.grey.shade600,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
