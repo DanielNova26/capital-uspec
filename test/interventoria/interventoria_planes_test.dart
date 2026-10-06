@@ -7,6 +7,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:todo/interventoria/interventoria_planes_screen.dart';
 import 'package:todo/interventoria/interventoria_planes_service.dart';
+import 'package:todo/interventoria/interventoria_models.dart';
+import 'package:todo/utils/user_company.dart';
 
 final plan = <String, dynamic>{
   'id': 'p',
@@ -52,6 +54,41 @@ Future<PlanData> fake(PlanData input) async => switch (input['accion']) {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('Desarrollo accede a planes sin sustituir el rol de Calidad', () {
+    expect(puedeGestionarPlanesInterventoria(kRolInterventoriaCalidad), isTrue);
+    for (final rol in [
+      '',
+      kRolInterventoriaAdmin,
+      kRolInterventoriaRegistrador,
+      kRolInterventoriaRevisor,
+    ]) {
+      expect(puedeGestionarPlanesInterventoria(rol), isFalse);
+      expect(
+        puedeGestionarPlanesInterventoria(rol, esDesarrollo: true),
+        isTrue,
+      );
+    }
+    final usuario = <String, dynamic>{
+      'empresasDetalle': {
+        'A': {'roleKey': 'desarrollador'},
+        'B': {'roleKey': 'consulta'},
+      },
+    };
+    expect(
+      puedeGestionarPlanesInterventoria(
+        '',
+        esDesarrollo: isDeveloperUser(usuario, empresaId: 'A'),
+      ),
+      isTrue,
+    );
+    expect(
+      puedeGestionarPlanesInterventoria(
+        '',
+        esDesarrollo: isDeveloperUser(usuario, empresaId: 'B'),
+      ),
+      isFalse,
+    );
+  });
   setUpAll(() async {
     final fontFile = File('C:/Windows/Fonts/arial.ttf');
     if (await fontFile.exists()) {
@@ -62,15 +99,30 @@ void main() {
       await loader.load();
     }
   });
-  testWidgets('una consulta tardía no mezcla planes al cambiar empresa', (tester) async {
+  testWidgets('una consulta tardía no mezcla planes al cambiar empresa', (
+    tester,
+  ) async {
     final pendiente = Completer<PlanData>();
     Widget app(String empresa, PlanRequest request) => MaterialApp(
-      home: Scaffold(body: InterventoriaPlanesPanel(empresaId: empresa, request: request)),
+      home: Scaffold(
+        body: InterventoriaPlanesPanel(empresaId: empresa, request: request),
+      ),
     );
     await tester.pumpWidget(app('A', (_) => pendiente.future));
-    await tester.pumpWidget(app('B', (_) async => {'planes': [{...plan, 'numero': 'PM-9999'}]}));
+    await tester.pumpWidget(
+      app(
+        'B',
+        (_) async => {
+          'planes': [
+            {...plan, 'numero': 'PM-9999'},
+          ],
+        },
+      ),
+    );
     await tester.pumpAndSettle();
-    pendiente.complete({'planes': [plan]});
+    pendiente.complete({
+      'planes': [plan],
+    });
     await tester.pumpAndSettle();
     expect(find.text('PM-9999'), findsOneWidget);
     expect(find.text('PM-4158'), findsNothing);

@@ -511,7 +511,7 @@ class _PlanDetalleState extends State<PlanDetalle> {
             child: ListTile(
               title: Text('${item['establecimiento']} · ${item['numeral']}'),
               subtitle: Text(
-                'Visita K2 ${item['idVisitaK2']} · Tarea ${item['numeroTarea']}\n${item['responsableNombre']}\nRespuesta: ${planEstado(item, 'respuesta')}\nSoportes: ${planEstado(item, 'soportes')}',
+                'Acta ${item['idVisitaK2']} · Tarea ${item['numeroTarea']}\n${item['responsableNombre']}\nRespuesta: ${planEstado(item, 'respuesta')}\nSoportes: ${planEstado(item, 'soportes')}',
               ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () async {
@@ -601,7 +601,7 @@ class _SeleccionHallazgosState extends State<_SeleccionHallazgos> {
             padding: const EdgeInsets.all(16),
             child: TextField(
               decoration: const InputDecoration(
-                labelText: 'Buscar establecimiento, ID de visita o fecha',
+                labelText: 'Buscar establecimiento, número de acta o fecha',
               ),
               onChanged: (v) => setState(() => _query = v.toLowerCase()),
             ),
@@ -620,7 +620,7 @@ class _SeleccionHallazgosState extends State<_SeleccionHallazgos> {
                   CheckboxListTile(
                     secondary: planText(row, 'idVisitaK2').isEmpty
                         ? IconButton(
-                            tooltip: 'Completar ID externo de la visita',
+                            tooltip: 'Completar número de acta',
                             icon: const Icon(Icons.edit_outlined),
                             onPressed: _busy
                                 ? null
@@ -628,12 +628,7 @@ class _SeleccionHallazgosState extends State<_SeleccionHallazgos> {
                                     final data = await _form(
                                       context,
                                       'Identificar visita en K2',
-                                      {
-                                        'idVisitaK2': (
-                                          'ID externo de la visita',
-                                          '',
-                                        ),
-                                      },
+                                      {'idVisitaK2': ('número de acta', '')},
                                     );
                                     if (data == null) return;
                                     setState(() => _busy = true);
@@ -684,7 +679,7 @@ class _SeleccionHallazgosState extends State<_SeleccionHallazgos> {
                       '${row['establecimiento']} · ${row['numeral']}',
                     ),
                     subtitle: Text(
-                      'Visita ${row['idVisitaK2']} · ${planText(row, 'fechaActa').split('T').first}\n${row['descripcion']}\n${row['responsable']}${planText(row, 'idVisitaK2').isEmpty ? '\nFalta ID externo de visita' : ''}${planText(row, 'tareaId').isEmpty ? '\nFalta asignar tarea' : ''}',
+                      'Acta ${row['idVisitaK2']} · ${planText(row, 'fechaActa').split('T').first}\n${row['descripcion']}\n${row['responsable']}${planText(row, 'idVisitaK2').isEmpty ? '\nFalta número de acta' : ''}${planText(row, 'tareaId').isEmpty ? '\nFalta asignar tarea' : ''}',
                     ),
                   ),
                 if (_cursor != null)
@@ -1106,7 +1101,7 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
             children: [
               if (_busy) const LinearProgressIndicator(),
               Text(
-                '${_item['establecimiento']} · Visita K2 ${_item['idVisitaK2']}',
+                '${_item['establecimiento']} · Acta ${_item['idVisitaK2']}',
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               Text(

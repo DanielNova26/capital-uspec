@@ -2,7 +2,9 @@
 
 Fecha: 5 de octubre de 2026. Estado: **implementado y probado en código;
 pendiente de despliegue y validación en dispositivos reales**. Esta versión
-incorpora la corrección del usuario: el administrador no aporta evidencia inicial.
+incorpora la corrección del usuario: el administrador puede adjuntar el PDF del
+acta, sin exigir evidencia inicial de los hallazgos. Desarrollo también accede
+a Planes de mejora, conservando el aislamiento por empresa y la cuenta activa.
 
 ## Objetivo solicitado
 
@@ -37,10 +39,12 @@ La entrega en K2 es una etapa independiente de completar el trabajo en ToDo.
 
 ## Flujo implementado
 
-1. El administrador registra el ID externo de visita K2 y los porcentajes,
+1. El administrador registra el **número de acta** y los porcentajes,
    conservando el contexto habitual de establecimiento, tipo y fecha de acta.
-   No se muestra carga de evidencia inicial en registros nuevos ni se exige
-   PDF. Los adjuntos de actas históricas se conservan.
+   Puede adjuntar el PDF desde el registro nuevo o una corrección. El PDF es
+   opcional; no se exige evidencia inicial de los hallazgos. Los adjuntos
+   históricos se conservan. El número mantiene la clave interna `idVisitaK2`
+   por compatibilidad, sin migrar ni duplicar registros.
 2. Se vinculan los hallazgos con sus tareas existentes. Cada responsable ve
    su respuesta pendiente y su entrega de soportes, con vencimientos distintos.
 3. En la primera etapa se prepara el compromiso y sus fechas; no se exige
@@ -95,7 +99,10 @@ para Calidad. El responsable actual y Calidad deben conservar acceso vigente.
   aportan a sus tareas dentro de la empresa y cobertura que les corresponda.
 - Se reutilizan el catálogo canónico de apps, el creador de roles de Admin y
   el nivel Calidad existentes. Servidor exige asignación canónica en la empresa;
-  un rol histórico suelto no otorga permiso. No se agrega otro maestro ni una
+  un rol histórico suelto no otorga permiso. Desarrollo mantiene el acceso
+  técnico del guard del módulo sin necesitar asignarse el nivel Calidad.
+  La pertenencia, habilitación y empresa se comprueban antes de ese acceso.
+  No se agrega otro maestro ni una
   configuración duplicada: las fechas son datos operativos de cada plan.
   Los planes, respuestas y evidencias no se copian entre empresas.
 - No almacenar las credenciales aportadas de K2 en código, documentos ni

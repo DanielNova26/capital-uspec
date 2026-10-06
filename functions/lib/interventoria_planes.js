@@ -39,6 +39,7 @@ const pdf_lib_1 = require("pdf-lib");
 const jszip_1 = __importDefault(require("jszip"));
 const acceso_1 = require("./acceso");
 const apps_por_empresa_1 = require("./apps_por_empresa");
+const interventoria_deletion_1 = require("./interventoria_deletion");
 const interventoria_planes_policy_1 = require("./interventoria_planes_policy");
 const db = () => admin.firestore();
 const s = (v) => String(v ?? "").trim();
@@ -76,8 +77,10 @@ async function actorPlanes(input, context) {
     if (!user.exists || !(0, acceso_1.empresasSeleccionables)(u).includes(empresaId))
         err("No tienes acceso a esta empresa.", "permission-denied");
     const apps = (0, apps_por_empresa_1.appsDeEmpresa)(u, empresaId).map((a) => a.toLowerCase());
-    const tieneModulo = apps.includes(interventoria_planes_policy_1.APP_PLANES) || apps.includes("interventoria");
-    const calidad = tieneModulo && rol.data()?.empresaId === empresaId && rol.data()?.rol === interventoria_planes_policy_1.ROL_CALIDAD_PLANES;
+    // Same technical access as the module guard, after active membership checks.
+    const desarrollo = (0, interventoria_deletion_1.isInterventoriaDeveloper)(u, empresaId);
+    const tieneModulo = desarrollo || apps.includes(interventoria_planes_policy_1.APP_PLANES) || apps.includes("interventoria");
+    const calidad = desarrollo || (tieneModulo && rol.data()?.empresaId === empresaId && rol.data()?.rol === interventoria_planes_policy_1.ROL_CALIDAD_PLANES);
     const opera = tieneModulo || apps.includes("tareasdashboard") || apps.includes("tareas");
     if (!opera)
         err("Tu acceso al módulo fue retirado.", "permission-denied");
@@ -85,7 +88,7 @@ async function actorPlanes(input, context) {
 }
 function calidad(a) {
     if (!a.calidad)
-        err("Solo Calidad gestiona planes de mejora.", "permission-denied");
+        err("Solo Calidad o Desarrollo gestiona planes de mejora.", "permission-denied");
 }
 function empresa(d, a) {
     if (!d || d.empresaId !== a.empresaId)
@@ -228,7 +231,7 @@ async function vincularHallazgos(input, a) {
             const v = (await tx.get(db().collection("TBL_INTERVENTORIA_VISITAS").doc(id(h.visitaId)))).data();
             empresa(v, a);
             if (!s(v.idVisitaK2))
-                err("Completa el ID externo de la visita antes de vincular el hallazgo.");
+                err("Completa el número de acta antes de vincular el hallazgo.");
             const tarea = await tareaItem({ tareaId: h.tareaId, hallazgoId: hid }, a, tx);
             const responsable = s(tarea.data.asignado_uid || tarea.data.assignedTo);
             if (!responsable)
@@ -474,12 +477,12 @@ async function identificarVisita(input, a) {
     const ref = db().collection("TBL_INTERVENTORIA_VISITAS").doc(id(input.visitaId));
     const codigo = s(input.idVisitaK2);
     if (!/^[A-Za-z0-9_-]{1,80}$/.test(codigo))
-        err("Indica el ID externo de K2.");
+        err("Indica el número de acta.");
     await db().runTransaction(async (tx) => {
         const v = (await tx.get(ref)).data();
         empresa(v, a);
         if (s(v.idVisitaK2) && v.idVisitaK2 !== codigo)
-            err("El ID externo ya está registrado. Solicita corregir el acta.");
+            err("El número de acta ya está registrado. Solicita corregir el acta.");
         tx.update(ref, { idVisitaK2: codigo, idVisitaK2Por: a.id, idVisitaK2At: admin.firestore.Timestamp.now() });
     });
     return { ok: true };
@@ -520,7 +523,7 @@ async function exportar(input, a) {
         let page = pdf.addPage();
         let y = page.getHeight() - 45;
         const text = `${detail.plan.numero} · ${detail.plan.csc}\nNotificación: ${detail.plan.fechaNotificacion}\n` +
-            `${item.establecimiento} · Visita ${item.idVisitaK2} · Hallazgo ${item.numeral}\n` +
+            `${item.establecimiento} · Acta ${item.idVisitaK2} · Hallazgo ${item.numeral}\n` +
             `Hallazgo: ${item.descripcion}\nCompromiso: ${item.compromiso || ""}\n` +
             `Ejecución: ${item.fechaEjecucion || ""} · Seguimiento: ${item.fechaSeguimiento || ""}\n` +
             `Subsanación: ${item.respuestaSoportes || ""}\nRevisión: ${item.soportesRevision.porNombre}\n`;

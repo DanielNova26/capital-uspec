@@ -5,6 +5,7 @@ import {PDFDocument, StandardFonts} from "pdf-lib";
 import JSZip from "jszip";
 import {empresasSeleccionables} from "./acceso";
 import {appsDeEmpresa} from "./apps_por_empresa";
+import {isInterventoriaDeveloper} from "./interventoria_deletion";
 import {APP_PLANES, ROL_CALIDAD_PLANES, PLANES_COL, ITEMS_COL, DatosPlan,
   fechasPlan, validarCompromiso, validarRevision, validarPresentacion,
   etapaAprobada, hoyColombia, diasRestantesPlan, diaValido} from "./interventoria_planes_policy";
@@ -41,14 +42,16 @@ export async function actorPlanes(input: DatosPlan, context: functions.https.Cal
   const u = user.data() || {};
   if (!user.exists || !empresasSeleccionables(u).includes(empresaId)) err("No tienes acceso a esta empresa.", "permission-denied");
   const apps = appsDeEmpresa(u, empresaId).map((a) => a.toLowerCase());
-  const tieneModulo = apps.includes(APP_PLANES) || apps.includes("interventoria");
-  const calidad = tieneModulo && rol.data()?.empresaId === empresaId && rol.data()?.rol === ROL_CALIDAD_PLANES;
+  // Same technical access as the module guard, after active membership checks.
+  const desarrollo = isInterventoriaDeveloper(u, empresaId);
+  const tieneModulo = desarrollo || apps.includes(APP_PLANES) || apps.includes("interventoria");
+  const calidad = desarrollo || (tieneModulo && rol.data()?.empresaId === empresaId && rol.data()?.rol === ROL_CALIDAD_PLANES);
   const opera = tieneModulo || apps.includes("tareasdashboard") || apps.includes("tareas");
   if (!opera) err("Tu acceso al módulo fue retirado.", "permission-denied");
   return {id: uid, empresaId, calidad, opera, nombre: s(u.nombreCompleto || u.nombre || `${u.nombres || ""} ${u.apellidos || ""}`) || "Responsable"};
 }
 function calidad(a: Actor) {
-  if (!a.calidad) err("Solo Calidad gestiona planes de mejora.", "permission-denied");
+  if (!a.calidad) err("Solo Calidad o Desarrollo gestiona planes de mejora.", "permission-denied");
 }
 function empresa(d: DatosPlan | undefined, a: Actor): asserts d is DatosPlan {
   if (!d || d.empresaId !== a.empresaId) err("El registro no existe en la empresa activa.", "permission-denied");
@@ -168,7 +171,7 @@ export async function vincularHallazgos(input: DatosPlan, a: Actor) {
       const h = (await tx.get(db().collection("TBL_INTERVENTORIA_HALLAZGOS").doc(hid))).data(); empresa(h, a);
       if (!h.tareaId || !h.visitaId) err("Cada hallazgo debe tener visita y tarea asignada.");
       const v = (await tx.get(db().collection("TBL_INTERVENTORIA_VISITAS").doc(id(h.visitaId)))).data(); empresa(v, a);
-      if (!s(v.idVisitaK2)) err("Completa el ID externo de la visita antes de vincular el hallazgo.");
+      if (!s(v.idVisitaK2)) err("Completa el número de acta antes de vincular el hallazgo.");
       const tarea = await tareaItem({tareaId: h.tareaId, hallazgoId: hid}, a, tx);
       const responsable = s(tarea.data.asignado_uid || tarea.data.assignedTo);
       if (!responsable) err("La tarea no tiene responsable.");
@@ -374,10 +377,10 @@ async function identificarVisita(input: DatosPlan, a: Actor) {
   calidad(a);
   const ref = db().collection("TBL_INTERVENTORIA_VISITAS").doc(id(input.visitaId));
   const codigo = s(input.idVisitaK2);
-  if (!/^[A-Za-z0-9_-]{1,80}$/.test(codigo)) err("Indica el ID externo de K2.");
+  if (!/^[A-Za-z0-9_-]{1,80}$/.test(codigo)) err("Indica el número de acta.");
   await db().runTransaction(async (tx) => {
     const v = (await tx.get(ref)).data(); empresa(v, a);
-    if (s(v.idVisitaK2) && v.idVisitaK2 !== codigo) err("El ID externo ya está registrado. Solicita corregir el acta.");
+    if (s(v.idVisitaK2) && v.idVisitaK2 !== codigo) err("El número de acta ya está registrado. Solicita corregir el acta.");
     tx.update(ref, {idVisitaK2: codigo, idVisitaK2Por: a.id, idVisitaK2At: admin.firestore.Timestamp.now()});
   });
   return {ok: true};
@@ -412,7 +415,7 @@ async function exportar(input: DatosPlan, a: Actor) {
     const pdf = await PDFDocument.create(); const font = await pdf.embedFont(StandardFonts.Helvetica);
     let page = pdf.addPage(); let y = page.getHeight() - 45;
     const text = `${detail.plan.numero} · ${detail.plan.csc}\nNotificación: ${detail.plan.fechaNotificacion}\n` +
-      `${item.establecimiento} · Visita ${item.idVisitaK2} · Hallazgo ${item.numeral}\n` +
+      `${item.establecimiento} · Acta ${item.idVisitaK2} · Hallazgo ${item.numeral}\n` +
       `Hallazgo: ${item.descripcion}\nCompromiso: ${item.compromiso || ""}\n` +
       `Ejecución: ${item.fechaEjecucion || ""} · Seguimiento: ${item.fechaSeguimiento || ""}\n` +
       `Subsanación: ${item.respuestaSoportes || ""}\nRevisión: ${item.soportesRevision.porNombre}\n`;

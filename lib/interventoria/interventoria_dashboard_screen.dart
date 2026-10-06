@@ -194,7 +194,9 @@ class _InterventoriaDashboardScreenState
           .collection('TBL_USUARIOS')
           .doc(widget.userId)
           .get();
-      final esDev = doc.exists && isDeveloperUser(doc.data() ?? const {});
+      final esDev =
+          doc.exists &&
+          isDeveloperUser(doc.data() ?? const {}, empresaId: widget.empresaId);
       if (mounted) setState(() => _esAdminDesarrollo = esDev);
     } catch (_) {}
   }
@@ -285,6 +287,10 @@ class _InterventoriaDashboardScreenState
 
   Widget _buildBody(BuildContext context) {
     final rol = _rol;
+    final canPlanes = puedeGestionarPlanesInterventoria(
+      rol,
+      esDesarrollo: _esAdminDesarrollo,
+    );
     final canWrite = kInterventoriaRolesEscritura.contains(rol);
     final canDirectivo = kInterventoriaRolesDirectivos.contains(rol);
     final canApproveDeletion = puedeAprobarEliminacionInterventoria(rol);
@@ -311,7 +317,7 @@ class _InterventoriaDashboardScreenState
         : (_centroFiltro.isEmpty ? null : _centroFiltro);
 
     final tabs = <InternalModuleTabItem>[
-      if (rol == kRolInterventoriaCalidad)
+      if (canPlanes)
         const InternalModuleTabItem(
           label: 'Planes de mejora',
           icon: Icons.fact_check_outlined,
@@ -401,7 +407,7 @@ class _InterventoriaDashboardScreenState
               index: _tab,
               children: [
                 // Tab: Historico de actas (antes "Visitas")
-                if (rol == kRolInterventoriaCalidad)
+                if (canPlanes)
                   InterventoriaPlanesPanel(empresaId: widget.empresaId),
                 _VisitasTab(
                   empresaId: widget.empresaId,
@@ -7522,7 +7528,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
 
                 // ── Botón guardar (fijo al fondo) ─────────────────────────
                 // Deshabilitado (no solo validado al click) si falta el
-                // establecimiento, el ID K2 o algún ítem sin puntaje/NE.
+                // establecimiento, el número de acta o algún ítem sin puntaje/NE.
                 Builder(
                   builder: (_) {
                     final faltantes = _itemsIncompletos();
@@ -7554,7 +7560,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
                                         : _tipoActa == null
                                         ? 'Selecciona el tipo de acta asignado'
                                         : faltaActa
-                                        ? 'Indica el ID externo de la visita K2'
+                                        ? 'Indica el número de acta'
                                         : 'Faltan ${faltantes.length} sección(es) sin puntaje ni NE',
                                     style: const TextStyle(
                                       fontSize: 11,
@@ -7607,7 +7613,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
         TextField(
           controller: _idVisitaK2Ctrl,
           decoration: const InputDecoration(
-            labelText: 'ID externo de la visita K2',
+            labelText: 'Número de acta',
             border: OutlineInputBorder(),
           ),
           onChanged: (_) => setState(() {}),
@@ -7836,28 +7842,19 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
           },
         ),
         const SizedBox(height: 10),
-        if (widget.visitaEditar != null && _adjuntosExistentes.isNotEmpty)
-          ExpansionTile(
-            title: const Text('Acta original del registro anterior'),
-            subtitle: const Text(
-              'El registro requiere el ID de visita y los porcentajes. No se exige evidencia inicial.',
-            ),
-            children: [
-              _ActaGeneralCard(
-                files: _files,
-                existingFiles: _adjuntosExistentes,
-                extracting: _extracting,
-                onPickArchivo: _pickArchivo,
-                onPickCamera: _pickCamera,
-                onPickGallery: _pickGallery,
-                onPreview: _showActaPreview,
-                onRemove: (file) => setState(() => _files.remove(file)),
-                onOpenExisting: (file) {
-                  if (file.url.trim().isNotEmpty) launchUrlString(file.url);
-                },
-              ),
-            ],
-          ),
+        _ActaGeneralCard(
+          files: _files,
+          existingFiles: _adjuntosExistentes,
+          extracting: _extracting,
+          onPickArchivo: _pickArchivo,
+          onPickCamera: _pickCamera,
+          onPickGallery: _pickGallery,
+          onPreview: _showActaPreview,
+          onRemove: (file) => setState(() => _files.remove(file)),
+          onOpenExisting: (file) {
+            if (file.url.trim().isNotEmpty) launchUrlString(file.url);
+          },
+        ),
       ],
     );
   }
@@ -8893,7 +8890,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: Color(0xFFB91C1C),
-          content: Text('Indica el ID externo de la visita K2.'),
+          content: Text('Indica el número de acta.'),
         ),
       );
       return;
@@ -8933,8 +8930,8 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
         }
       }
 
-      // 1. Conservar adjuntos históricos, si existen. Un registro nuevo
-      // requiere únicamente el ID de K2 y los porcentajes.
+      // 1. Preparar el acta PDF cuando se adjunta. El registro permite guardar
+      // número de acta y porcentajes sin exigir evidencia inicial de hallazgos.
       final itemsParaGuardar = _itemsParaGuardar();
       final pctGeneral = calcularPorcentajeGeneral(itemsParaGuardar);
       final filesToUpload = <_PickedActa>[];
@@ -9860,7 +9857,7 @@ class _ActaGeneralCard extends StatelessWidget {
               children: [
                 const Expanded(
                   child: Text(
-                    'Acta general (PDF)',
+                    'Adjuntar acta en PDF (opcional)',
                     style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
                   ),
                 ),
@@ -9882,7 +9879,7 @@ class _ActaGeneralCard extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               files.isEmpty && existingFiles.isEmpty
-                  ? 'Archivo conservado del registro anterior.'
+                  ? 'Adjunta el PDF del acta o escanea sus páginas. No se exige evidencia inicial de los hallazgos.'
                   : existingFiles.isNotEmpty && files.isEmpty
                   ? 'El archivo actual se conservará. Adjunta uno nuevo solo si debes reemplazar o complementar el soporte.'
                   : 'Las imágenes escaneadas se convierten en el PDF general al guardar.',

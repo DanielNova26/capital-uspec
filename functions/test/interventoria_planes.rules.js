@@ -40,6 +40,26 @@ test('solo Calidad canónica crea y lista planes; histórico no recupera privile
   for (const u of ['responsable', 'otro', 'historico']) await assert.rejects(call(u, {accion: 'listar'}), {code: 'permission-denied'});
   assert.equal((await call('calidad', {accion: 'listar'})).planes.length, 1);
 });
+
+test('Desarrollo opera planes sin rol de Calidad ni app individual, solo en empresas habilitadas', async () => {
+  await db.doc('TBL_USUARIOS/dev').set({activo: true, empresas: ['A', 'B'], appsPorEmpresa: true,
+    empresasDetalle: {A: {roleKey: 'desarrollador', apps: []}, B: {roleKey: 'consulta', apps: []}}});
+  assert.equal((await call('dev', {accion: 'listar'})).planes.length, 1);
+  await call('dev', {accion: 'vincular', planId, hallazgoIds: ['h']});
+  assert.equal((await call('dev', {accion: 'tarea', tareaId: 't'})).calidad, true);
+  await call('responsable', {accion: 'responder', itemId: itemId(), version: 0, compromiso: 'Corregiremos el rotulado de los productos.', fechaEjecucion: '2026-10-20', fechaSeguimiento: '2026-10-25'});
+  await call('dev', {accion: 'revisar', itemId: itemId(), etapa: 'respuesta', version: 1, estado: 'satisfactorio'});
+  await assert.rejects(call('dev', {empresaId: 'B', accion: 'listar'}), {code: 'permission-denied'});
+  await assert.rejects(call('dev', {empresaId: 'C', accion: 'listar'}), {code: 'permission-denied'});
+  await db.doc('TBL_USUARIOS/dev').update({'empresasDetalle.A.activo': false});
+  await assert.rejects(call('dev', {accion: 'listar'}), {code: 'permission-denied'});
+  await db.doc('TBL_USUARIOS/dev').update({'empresasDetalle.A.activo': true, 'empresasDetalle.A.roleKey': 'consulta'});
+  await assert.rejects(call('dev', {accion: 'listar'}), {code: 'permission-denied'});
+  await db.doc('TBL_USUARIOS/dev').update({roleKey: 'desarrollador'});
+  assert.equal((await call('dev', {accion: 'listar'})).planes.length, 1);
+  await db.doc('TBL_USUARIOS/dev').update({activo: false});
+  await assert.rejects(call('dev', {accion: 'listar'}), {code: 'permission-denied'});
+});
 test('revocación de app y cuenta bloquea incluso con nivel conservado; reactivación sin rol no eleva', async () => {
   await db.doc('TBL_USUARIOS/calidad').update({'empresasDetalle.A.apps': []});
   await assert.rejects(call('calidad', {accion: 'listar'}), {code: 'permission-denied'});

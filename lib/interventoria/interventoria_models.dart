@@ -22,6 +22,12 @@ const String kRolInterventoriaConsulta = 'consulta_interventoria';
 /// revisar" ni mueve responsables.
 const String kRolInterventoriaCalidad = 'calidad_interventoria';
 
+/// Desarrollo conserva el acceso técnico; Calidad opera los planes.
+bool puedeGestionarPlanesInterventoria(
+  String rol, {
+  bool esDesarrollo = false,
+}) => esDesarrollo || rol == kRolInterventoriaCalidad;
+
 /// Roles activos asignables desde el panel de administración.
 /// consulta_interventoria deshabilitado por ahora.
 const List<String> kInterventoriaRoles = [
@@ -1212,7 +1218,7 @@ String cuerpoNotificacionSeguimiento(
 }
 
 class InterventoriaVisita {
-  /// Código que asignó K2; no es el id interno de Firestore.
+  /// Número de acta; conserva la clave histórica para no perder registros.
   final String idVisitaK2;
   final String id;
   final String empresaId;

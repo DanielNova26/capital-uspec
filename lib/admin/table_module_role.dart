@@ -153,7 +153,7 @@ const interventoriaTableRoles = TableModuleRoleConfig(
   },
   levelDescriptions: {
     kRolInterventoriaRegistrador:
-        'Registra el ID externo de la visita y los porcentajes, sin evidencia inicial.',
+        'Registra el número de acta y los porcentajes; puede adjuntar el PDF del acta.',
     kRolInterventoriaRevisor:
         'Revisa y corrige actas en "Por revisar" y aprueba eliminaciones.',
     kRolInterventoriaCalidad:

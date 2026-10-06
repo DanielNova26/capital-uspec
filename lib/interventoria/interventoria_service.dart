@@ -1560,7 +1560,7 @@ class InterventoriaService {
   Future<String> guardarVisita(InterventoriaVisita visita) async {
     if (visita.idVisitaK2.trim().isEmpty) {
       throw ArgumentError(
-        'Indica el ID externo de la visita K2.',
+        'Indica el número de acta.',
       );
     }
     final ref = visita.id.isEmpty

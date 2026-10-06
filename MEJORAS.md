@@ -6,6 +6,22 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## 2026-10-05 — Planes de mejora: Desarrollo, número de acta y PDF (Codex)
+
+- La Web publicada contenía los planes, pero pestaña y callable solo admitían
+  Calidad. Desarrollo ahora accede sin cambiar su nivel, conservando cuenta
+  activa y empresa vinculada/habilitada; no se amplían otros perfiles.
+- «Número de acta» reemplaza el rótulo de ID K2 en registro, selección, detalle
+  y PDF. Se conserva `idVisitaK2` internamente para no migrar registros.
+  Adjuntar PDF vuelve a estar visible en actas nuevas y correcciones, opcional
+  y sin exigir evidencia inicial de los hallazgos.
+- Versión 2.6.16+30: TypeScript y Web compilados, 20 pruebas Flutter, 11 de
+  integración Firestore/Storage y seis de política correctas. Desarrollo,
+  revocación, aislamiento por empresa y tamaños de pantalla cubiertos.
+- Publicación de Web y callable en curso; se integrará además la rama de
+  Tareas solicitada por el usuario antes de publicar la versión consolidada.
+  Pendiente comprobación autenticada del usuario y Android/iPhone reales.
+
 ## 2026-10-05 — Gestión documental: plantilla Word del formato institucional (Claude)
 
 Pedido del usuario: "así como me permite generar el Excel cuando quiero
