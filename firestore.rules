@@ -21,10 +21,28 @@ service cloud.firestore {
     // `role` es `rutas_desarrollador`, que no está en la lista corta). Sin
     // esto la app lo trataba como desarrollador y las reglas no: Admin le
     // decía "permission-denied" al cambiar un rol (11 sep 2026).
+    //
+    // Una sola expresión regular (`matches` compara la cadena completa): la
+    // lista corta y el sufijo `_desarrollador`/`_developer`. Estas funciones
+    // básicas se copian en cada regla que las usa al compilar; mientras más
+    // cortas, más margen para el tamaño máximo que Google acepta (6 oct 2026:
+    // las reglas dejaron de publicarse por pasarse de ese tamaño).
     function esRolDeDesarrollo(valor) {
       return valor is string
-        && (valor in ['desarrollador', 'developer', 'superadmin', 'administrador_sistema']
-          || valor.matches('.*_(desarrollador|developer)$'));
+        && valor.matches('desarrollador|developer|superadmin|administrador_sistema|.*_(desarrollador|developer)');
+    }
+
+    // Marcas de Desarrollo en la ficha raíz, sin mirar sesión ni cuenta: lo
+    // comparten `isDeveloper` y `belongsToCompany`, que ya las comprueban.
+    // `'campo' in u &&` primero: sin el campo se descarta con una sola
+    // expresión (tope de 1000 por petición).
+    function marcaDesarrollo(u) {
+      return ('desarrollador' in u && u.desarrollador == true)
+        || ('developer' in u && u.developer == true)
+        || ('role' in u && esRolDeDesarrollo(u.role))
+        || ('rol' in u && esRolDeDesarrollo(u.rol))
+        || ('roleKey' in u && esRolDeDesarrollo(u.roleKey))
+        || ('roleId' in u && esRolDeDesarrollo(u.roleId));
     }
 
     // `let` y no seis `currentUser()`: cada llamada cuenta como expresiones
@@ -33,16 +51,7 @@ service cloud.firestore {
     // La cuenta apagada va al final: quien no es desarrollador no llega ahí.
     function isDeveloper() {
       let u = currentUser();
-      return isSignedIn()
-        && (
-          ('desarrollador' in u && u.desarrollador == true)
-          || ('developer' in u && u.developer == true)
-          || ('role' in u && esRolDeDesarrollo(u.role))
-          || ('rol' in u && esRolDeDesarrollo(u.rol))
-          || ('roleKey' in u && esRolDeDesarrollo(u.roleKey))
-          || ('roleId' in u && esRolDeDesarrollo(u.roleId))
-        )
-        && !cuentaInhabilitada(u);
+      return isSignedIn() && marcaDesarrollo(u) && !cuentaInhabilitada(u);
     }
 
     // Desarrollo de la raíz actuando sobre [empresaId], para las reglas que
@@ -96,6 +105,10 @@ service cloud.firestore {
     // cuenta apagada, no entra a sus datos, aunque sea desarrollador. Va al
     // final porque es lo más largo, y el rechazo de una empresa ajena no
     // llega hasta ahí.
+    //
+    // Mismo resultado que `(pertenece || isDeveloper()) && habilitadaEn(u,
+    // empresaId)`, sin repetir la sesión ni la cuenta apagada que esas dos ya
+    // comprobaban: es la función que más se copia al compilar (6 oct 2026).
     function belongsToCompany(empresaId) {
       let u = currentUser();
       return isSignedIn()
@@ -106,9 +119,10 @@ service cloud.firestore {
           || ('empresasDetalle' in u && u.empresasDetalle is map && empresaId in u.empresasDetalle)
           || ('empresaId' in u && u.empresaId == empresaId)
           || ('empresa' in u && u.empresa == empresaId)
-          || isDeveloper()
+          || marcaDesarrollo(u)
         )
-        && habilitadaEn(u, empresaId);
+        && !cuentaInhabilitada(u)
+        && !apagadaEnEmpresa(u, empresaId);
     }
 
     function interventoriaRolePath(empresaId) {
@@ -2060,16 +2074,22 @@ service cloud.firestore {
       return tieneAppDeListaEn(empresaId, ['tareasdashboard', 'tareas']);
     }
 
+    // Una sola consulta de apps con la lista del módulo de origen (antes
+    // cinco funciones casi iguales que se copiaban en cada regla de tareas al
+    // compilar; 6 oct 2026, tamaño máximo de las reglas). Compras y Correo
+    // usaban `tieneAppComprasEn`/`tieneAppCorreoEn`, de la misma forma.
+    function appsDeOrigenTarea(modulo) {
+      return modulo == 'interventoria' ? ['interventoriadashboard', 'interventoria']
+        : (modulo == 'compras' ? ['comprasdashboard', 'compras']
+        : (modulo == 'facturacion' ? ['facturaciondashboard', 'facturacion']
+        : (modulo in ['visita', 'visitas'] ? ['visitasdashboard', 'visitas']
+        : (modulo in ['correo', 'gestion_documental'] ? ['correodashboard', 'correo']
+        : []))));
+    }
+
     function tieneAppOrigenTareaEn(empresaId, modulo) {
-      return (modulo == 'interventoria'
-          && tieneAppDeListaEn(empresaId, ['interventoriadashboard', 'interventoria']))
-        || (modulo == 'compras' && tieneAppComprasEn(empresaId))
-        || (modulo == 'facturacion'
-          && tieneAppDeListaEn(empresaId, ['facturaciondashboard', 'facturacion']))
-        || (modulo in ['visita', 'visitas']
-          && tieneAppDeListaEn(empresaId, ['visitasdashboard', 'visitas']))
-        || (modulo in ['correo', 'gestion_documental']
-          && tieneAppCorreoEn(empresaId));
+      let apps = appsDeOrigenTarea(modulo);
+      return apps.size() > 0 && tieneAppDeListaEn(empresaId, apps);
     }
 
     function puedeVerEquipoTareasEn(empresaId) {
@@ -2137,9 +2157,7 @@ service cloud.firestore {
       return (belongsToCompany(empresaId)
           && ((tieneAppTareasEn(empresaId)
               && (esParticipanteTarea(data) || puedeVerEquipoTareasEn(empresaId)))
-            || (modulo == 'interventoria'
-              && tieneAppOrigenTareaEn(empresaId, modulo))
-            || (esParticipanteTarea(data)
+            || ((modulo == 'interventoria' || esParticipanteTarea(data))
               && tieneAppOrigenTareaEn(empresaId, modulo))
             || tieneAppAdminEn(empresaId)
             || isDeveloperIn(empresaId)

@@ -6,6 +6,37 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## 2026-10-06 — Reglas: por qué no se publicaban desde el 2 oct y arreglo (Claude)
+
+- **Causa.** `firebase deploy --only firestore:rules` daba 503 y la consola
+  "error desconocido" en todos los intentos. Compilación en seco
+  (`--dry-run`) de cuatro versiones desde el PC del usuario: la del 1 oct
+  (última publicada) y la actual **sin** el bloque de Tareas compilan; la
+  actual y la actual sin comentarios no. No es el texto ni una caída de
+  Google: Firebase copia cada función dentro de la que la llama al
+  compilar, y el bloque de Tareas (2 oct) llevó el tamaño expandido por
+  encima de lo que acepta. Medido con un expansor propio: 1 oct 2,25 M,
+  sin Tareas 2,33 M (compilan); 2 oct 2,43 M y actual 2,47 M (no).
+- **Arreglo, sin cambiar permisos** (`firestore.rules`, 2,08 M):
+  `belongsToCompany` ya no llama a `isDeveloper()` (repetía la sesión y la
+  cuenta apagada que la propia función comprueba) sino a `marcaDesarrollo(u)`;
+  `esRolDeDesarrollo` es una sola expresión regular; en Tareas, el acceso
+  por módulo de origen es una sola consulta de apps (`appsDeOrigenTarea`)
+  y `puedeLeerTarea` la evalúa una vez. Única diferencia: en tareas de
+  Compras y Correo también rige "No opera en To-Do".
+- Se conservaron las guardas `'campo' in u &&`: sin ellas la versión
+  compacta evaluaba más expresiones y una regla de Gerencia de Visitas
+  pasaba el tope de 1000 por petición.
+- **Pruebas:** todas las suites `functions/test/*.rules.js` en emulador:
+  171 aprobadas, 3 omitidas de antes y 1 falla **ajena y previa**:
+  `visitas_gerencia.rules.js` "Gerencia crea formatos y programa" fija la
+  visita el 5 oct 2026, que ya pasó, y reprogramar una visita vencida se
+  rechaza; falla igual con las reglas de `main`. Hay que fechar esa prueba
+  en relación con hoy.
+- **Al crecer las reglas**, medir antes de publicar: compilar en seco
+  (`firebase deploy --only firestore:rules --dry-run`). Lo que más pesa es
+  `belongsToCompany` (se copia unas 400 veces).
+
 ## 2026-10-05 — Planes de mejora: Desarrollo, número de acta y PDF (Codex)
 
 - La Web publicada contenía los planes, pero pestaña y callable solo admitían
