@@ -2142,7 +2142,14 @@ service cloud.firestore {
       allow list: if puedeLeerTarea(resource.data);
       allow create: if false;
       allow update: if false;
-      allow delete: if false;
+      allow delete: if belongsToCompany(resource.data.get('empresaId', ''))
+        && (tieneAppAdminEn(resource.data.empresaId)
+          || isDeveloper() || isDeveloperIn(resource.data.empresaId)
+          || (resource.data.get('sourceModule', '') == 'interventoria'
+            && resource.data.get('estado', '') != 'finalizado'
+            && tieneAppOrigenTareaEn(resource.data.empresaId, 'interventoria')
+            && hasInterventoriaRole(resource.data.empresaId,
+              ['admin_interventoria', 'gerente_interventoria'])));
 
       match /{tipo}/{eventoId} {
         allow read: if tipo in ['avances', 'novedades', 'finalizacion']
