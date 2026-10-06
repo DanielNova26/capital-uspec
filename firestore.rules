@@ -824,7 +824,7 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Expedientes K2 y su historial: solo el callable comprueba Calidad,
+    // Expedientes K2 y su historial: solo el callable comprueba Calidad/Gerencia/Desarrollo,
     // acceso activo y responsable ACTUAL de la tarea antes de cada operación.
     // `TBL_INTERVENTORIA_PLANES`, `TBL_INTERVENTORIA_PLAN_ITEMS`: cerradas al
     // cliente.
@@ -1323,7 +1323,9 @@ service cloud.firestore {
     function administraInterventoria(empresaId) {
       return isDeveloperFor(empresaId)
         || isDeveloperIn(empresaId)
-        || hasInterventoriaRole(empresaId, ['admin_interventoria']);
+        || hasInterventoriaRole(empresaId, ['admin_interventoria'])
+        || (hasInterventoriaRole(empresaId, ['gerente_interventoria'])
+          && tieneAppsEn(empresaId, ['interventoriadashboard', 'interventoria'], false));
     }
 
     // 29 sep 2026: el módulo pregunta primero por `{empresa}_{usuario}`, que

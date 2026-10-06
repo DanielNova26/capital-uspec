@@ -286,7 +286,10 @@ class _InterventoriaDashboardScreenState
   }
 
   Widget _buildBody(BuildContext context) {
-    final rol = _rol;
+    final rol = rolOperativoInterventoria(
+      _rol,
+      esDesarrollo: _esAdminDesarrollo,
+    );
     final canPlanes = puedeGestionarPlanesInterventoria(
       rol,
       esDesarrollo: _esAdminDesarrollo,
@@ -294,7 +297,7 @@ class _InterventoriaDashboardScreenState
     final canWrite = kInterventoriaRolesEscritura.contains(rol);
     final canDirectivo = kInterventoriaRolesDirectivos.contains(rol);
     final canApproveDeletion = puedeAprobarEliminacionInterventoria(rol);
-    // Solo el Admin puede registrar puntajes (Fase 1)
+    // Registro de actas según el nivel operativo efectivo.
     final canFase1 = kInterventoriaRolesFase1.contains(rol);
     // "Por revisar" (Fase 2, completar el acta): calidad, gerencia y admin.
     // Directivo quedo fuera por instruccion del 9 sep 2026.
@@ -303,12 +306,10 @@ class _InterventoriaDashboardScreenState
     final canReasignar = puedeReasignarResponsable(rol);
     // Registrador heredado: fijo a su centro
     final esRegistrador = rol == kRolInterventoriaRegistrador;
-    // El admin de interventoría (badge "ADMINISTRADOR") o el usuario con
-    // role:'desarrollador' global pueden reabrir actas ya completadas.
-    final esAdminDesarrollo =
-        _esAdminDesarrollo || rol == kRolInterventoriaAdmin;
-    // El maestro es aparte de "ser admin": tambien entra gerencia, y no por
-    // ello puede reabrir actas.
+    final esAdminDesarrollo = puedeReabrirActasInterventoria(
+      rol,
+      esDesarrollo: _esAdminDesarrollo,
+    );
     final canMaestro =
         _esAdminDesarrollo || puedeConsultarMaestroSubsanaciones(rol);
 
@@ -379,7 +380,9 @@ class _InterventoriaDashboardScreenState
     return InternalModuleLayout(
       title: 'Interventoria',
       subtitle: 'Puntajes, hallazgos y seguimiento por centro de costos',
-      badge: rol.isEmpty
+      badge: _esAdminDesarrollo
+          ? 'Desarrollo'
+          : rol.isEmpty
           ? 'Solo consulta'
           : (kInterventoriaRoleLabels[rol] ?? rol),
       accentColor: _kAccent,

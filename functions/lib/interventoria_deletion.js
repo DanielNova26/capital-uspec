@@ -35,6 +35,8 @@ exports.requestNoticeRecipients = requestNoticeRecipients;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 const crypto_1 = require("crypto");
+const acceso_1 = require("./acceso");
+const apps_por_empresa_1 = require("./apps_por_empresa");
 const REGION = "us-central1";
 const REQUESTS = "TBL_INTERVENTORIA_SOLICITUDES_ELIMINACION";
 const USERS = "TBL_USUARIOS";
@@ -70,15 +72,6 @@ function userName(data, fallback) {
     const lastNames = clean(data.apellidos || data.primerApellido, 120);
     return `${names} ${lastNames}`.trim() || fallback;
 }
-function belongsToCompany(data, empresaId) {
-    if (Array.isArray(data.empresas) && data.empresas.map(clean).includes(empresaId)) {
-        return true;
-    }
-    if (data.empresasDetalle && typeof data.empresasDetalle === "object" &&
-        data.empresasDetalle[empresaId])
-        return true;
-    return clean(data.empresaId || data.empresa) === empresaId;
-}
 async function requireActor(raw, context) {
     const input = (raw ?? {});
     const empresaId = clean(input.empresaId, 160);
@@ -89,22 +82,16 @@ async function requireActor(raw, context) {
     }
     const user = await admin.firestore().collection(USERS).doc(id).get();
     const userData = user.data() || {};
-    if (!user.exists || !belongsToCompany(userData, empresaId)) {
+    if (!user.exists || !(0, acceso_1.empresasSeleccionables)(userData).includes(empresaId)) {
         throw new functions.https.HttpsError("permission-denied", "La cuenta no pertenece a la empresa activa.");
     }
-    let roles = await admin.firestore().collection(ROLES)
-        .where("empresaId", "==", empresaId)
-        .where("userId", "==", id)
-        .limit(1)
-        .get();
-    if (roles.empty) {
-        roles = await admin.firestore().collection(ROLES)
-            .where("empresaId", "==", empresaId)
-            .where("cedula", "==", id)
-            .limit(1)
-            .get();
+    const desarrollo = isInterventoriaDeveloper(userData, empresaId);
+    if (!desarrollo && !(0, apps_por_empresa_1.appsDeEmpresa)(userData, empresaId).some((app) => ["interventoriadashboard", "interventoria"].includes(app.toLowerCase()))) {
+        throw new functions.https.HttpsError("permission-denied", "Tu acceso al módulo fue retirado.");
     }
-    const role = roles.empty ? "" : normalizeRole(roles.docs[0].data().rol);
+    const rol = await admin.firestore().collection(ROLES).doc(`${empresaId}_${id}`).get();
+    const role = desarrollo ? "admin_interventoria" :
+        rol.data()?.empresaId === empresaId ? normalizeRole(rol.data()?.rol) : "";
     return { id, name: userName(userData, id), empresaId, role };
 }
 function collectionFor(type) {

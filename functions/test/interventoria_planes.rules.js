@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {createHash} = require('node:crypto');
 const admin = require('firebase-admin');
-const {initializeTestEnvironment, assertFails} = require('@firebase/rules-unit-testing');
+const {initializeTestEnvironment, assertFails, assertSucceeds} = require('@firebase/rules-unit-testing');
 const {doc, getDoc, setDoc, collection, getDocs} = require('firebase/firestore');
 const projectId = 'demo-interventoria-planes';
 assert.ok(process.env.FIRESTORE_EMULATOR_HOST, 'Requiere emulador Firestore.');
@@ -69,6 +69,44 @@ test('revocación de app y cuenta bloquea incluso con nivel conservado; reactiva
   await db.doc('TBL_INTERVENTORIA_ROLES/A_calidad').update({rol: 'calidad_interventoria'});
   await db.doc('TBL_USUARIOS/calidad').update({activo: false});
   await assert.rejects(call('calidad', {accion: 'listar'}), {code: 'permission-denied'});
+});
+
+test('Gerencia opera el expediente completo con rol canónico y acceso vigente por empresa', async () => {
+  await db.doc('TBL_INTERVENTORIA_ROLES/A_otro').set({empresaId: 'A', userId: 'otro', rol: 'gerente_interventoria'});
+  const client = env.authenticatedContext(context('otro').auth.uid, {authVersion: 2, userDocId: 'otro'}).firestore();
+  await assertSucceeds(setDoc(doc(client, 'TBL_INTERVENTORIA_CONFIG', 'A'), {empresaId: 'A', reglasSubsanacion: {}}));
+  await assertFails(setDoc(doc(client, 'TBL_INTERVENTORIA_CONFIG', 'B'), {empresaId: 'B', reglasSubsanacion: {}}));
+  assert.equal((await call('otro', {accion: 'listar'})).planes.length, 1);
+  await call('otro', {accion: 'vincular', planId, hallazgoIds: ['h']});
+  await call('otro', {accion: 'responder', itemId: itemId(), version: 0, compromiso: 'Corregiremos el rotulado de los productos.', fechaEjecucion: '2026-10-20', fechaSeguimiento: '2026-10-25'});
+  await call('otro', {accion: 'revisar', itemId: itemId(), etapa: 'respuesta', version: 1, estado: 'satisfactorio'});
+  await call('otro', {accion: 'presentar', itemId: itemId(), etapa: 'respuesta', version: 1, fecha: policy.hoyColombia(), comprobante: 'Verificado por Gerencia'});
+  await call('otro', {accion: 'reabrir', itemId: itemId(), etapa: 'respuesta', motivo: 'Ajustar el compromiso presentado.'});
+  await assert.rejects(call('otro', {empresaId: 'B', accion: 'listar'}), {code: 'permission-denied'});
+  await db.doc('TBL_INTERVENTORIA_ROLES/B_otro').set({empresaId: 'B', userId: 'otro', rol: 'gerente_interventoria'});
+  assert.deepEqual((await call('otro', {empresaId: 'B', accion: 'listar'})).planes, []);
+  await assert.rejects(call('otro', {empresaId: 'B', accion: 'detalle', planId}), {code: 'permission-denied'});
+  await db.doc('TBL_USUARIOS/otro').update({'empresasDetalle.A.apps': []});
+  await assertFails(setDoc(doc(client, 'TBL_INTERVENTORIA_CONFIG', 'A'), {empresaId: 'A', reglasSubsanacion: {}}));
+  await assert.rejects(call('otro', {accion: 'listar'}), {code: 'permission-denied'});
+  await db.doc('TBL_INTERVENTORIA_ROLES/A_otro').update({rol: ''});
+  await db.doc('TBL_INTERVENTORIA_ROLES/legacy_gerente').set({empresaId: 'A', userId: 'otro', rol: 'gerente_interventoria'});
+  await db.doc('TBL_USUARIOS/otro').update({'empresasDetalle.A.apps': ['interventoriadashboard']});
+  await assert.rejects(call('otro', {accion: 'listar'}), {code: 'permission-denied'});
+});
+
+test('Desarrollo resuelve solicitudes sin otro rol; la revocación canónica no revive roles históricos', async () => {
+  const deletion = require('../lib/interventoria_deletion');
+  await db.doc('TBL_USUARIOS/dev').set({activo: true, empresas: ['A'], empresasDetalle: {A: {roleKey: 'desarrollador'}}});
+  assert.equal((await deletion.requireActor({empresaId: 'A'}, context('dev'))).role, 'admin_interventoria');
+  await assert.rejects(deletion.requireActor({empresaId: 'B'}, context('dev')), {code: 'permission-denied'});
+  await db.doc('TBL_USUARIOS/dev').update({activo: false});
+  await assert.rejects(deletion.requireActor({empresaId: 'A'}, context('dev')), {code: 'permission-denied'});
+  await db.doc('TBL_INTERVENTORIA_ROLES/legacy_gerente').set({empresaId: 'A', userId: 'otro', rol: 'gerente_interventoria'});
+  await db.doc('TBL_INTERVENTORIA_ROLES/A_otro').set({empresaId: 'A', rol: ''});
+  assert.equal((await deletion.requireActor({empresaId: 'A'}, context('otro'))).role, '');
+  await db.doc('TBL_USUARIOS/otro').update({'empresasDetalle.A.apps': []});
+  await assert.rejects(deletion.requireActor({empresaId: 'A'}, context('otro')), {code: 'permission-denied'});
 });
 test('empresa secundaria requiere rol propio y no puede leer un plan ajeno', async () => {
   await assert.rejects(call('calidad', {empresaId: 'B', accion: 'detalle', planId}), {code: 'permission-denied'});

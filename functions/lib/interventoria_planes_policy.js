@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ROL_CALIDAD_PLANES = exports.APP_PLANES = exports.ITEMS_COL = exports.PLANES_COL = void 0;
+exports.ROLES_GESTORES_PLANES = exports.ROL_CALIDAD_PLANES = exports.APP_PLANES = exports.ITEMS_COL = exports.PLANES_COL = void 0;
 exports.diaValido = diaValido;
 exports.sumarDiasPlan = sumarDiasPlan;
 exports.hoyColombia = hoyColombia;
@@ -14,6 +14,7 @@ exports.PLANES_COL = "TBL_INTERVENTORIA_PLANES";
 exports.ITEMS_COL = "TBL_INTERVENTORIA_PLAN_ITEMS";
 exports.APP_PLANES = "interventoriadashboard";
 exports.ROL_CALIDAD_PLANES = "calidad_interventoria";
+exports.ROLES_GESTORES_PLANES = [exports.ROL_CALIDAD_PLANES, "gerente_interventoria"];
 function diaValido(value) {
     const s = typeof value === "string" ? value : "";
     if (!/^\d{4}-\d{2}-\d{2}$/.test(s))

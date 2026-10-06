@@ -748,7 +748,7 @@ class _PlanesDeTareaScreenState extends State<PlanesDeTareaScreen> {
               child: Padding(
                 padding: EdgeInsets.all(24),
                 child: Text(
-                  'Calidad todavía no ha vinculado esta tarea a un plan de mejora.',
+                  'Todavía no se ha vinculado esta tarea a un plan de mejora.',
                 ),
               ),
             );
@@ -1035,7 +1035,7 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
           ),
         ),
         if (planText(revision, 'motivo').isNotEmpty)
-          Text('Observación de Calidad: ${revision['motivo']}'),
+          Text('Observación de revisión: ${revision['motivo']}'),
         if (presentado.isNotEmpty)
           Text(
             'Presentado ${presentado['fecha']} por ${presentado['porNombre']}\n${presentado['comprobante']}',

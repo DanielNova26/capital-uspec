@@ -80,7 +80,7 @@ async function actorPlanes(input, context) {
     // Same technical access as the module guard, after active membership checks.
     const desarrollo = (0, interventoria_deletion_1.isInterventoriaDeveloper)(u, empresaId);
     const tieneModulo = desarrollo || apps.includes(interventoria_planes_policy_1.APP_PLANES) || apps.includes("interventoria");
-    const calidad = desarrollo || (tieneModulo && rol.data()?.empresaId === empresaId && rol.data()?.rol === interventoria_planes_policy_1.ROL_CALIDAD_PLANES);
+    const calidad = desarrollo || (tieneModulo && rol.data()?.empresaId === empresaId && interventoria_planes_policy_1.ROLES_GESTORES_PLANES.includes(rol.data()?.rol));
     const opera = tieneModulo || apps.includes("tareasdashboard") || apps.includes("tareas");
     if (!opera)
         err("Tu acceso al módulo fue retirado.", "permission-denied");
@@ -88,7 +88,7 @@ async function actorPlanes(input, context) {
 }
 function calidad(a) {
     if (!a.calidad)
-        err("Solo Calidad o Desarrollo gestiona planes de mejora.", "permission-denied");
+        err("Solo Calidad, Gerencia Interventoría o Desarrollo gestiona planes de mejora.", "permission-denied");
 }
 function empresa(d, a) {
     if (!d || d.empresaId !== a.empresaId)
@@ -124,7 +124,7 @@ async function gestores(a) {
     const out = [];
     for (const r of roles.docs) {
         const uid = s(r.data().userId || r.data().cedula);
-        if (!uid || r.id !== `${a.empresaId}_${uid}` || r.data().rol !== interventoria_planes_policy_1.ROL_CALIDAD_PLANES)
+        if (!uid || r.id !== `${a.empresaId}_${uid}` || !interventoria_planes_policy_1.ROLES_GESTORES_PLANES.includes(r.data().rol))
             continue;
         const u = (await db().collection("TBL_USUARIOS").doc(uid).get()).data();
         if (u && (0, acceso_1.empresasSeleccionables)(u).includes(a.empresaId) &&
@@ -281,7 +281,7 @@ async function cambiarItem(input, a) {
             if (Number(input.version) !== item[`${e}Version`])
                 err("La entrega cambió. Actualiza antes de guardar.", "aborted");
             if (item[`${e}Presentado`])
-                err("La entrega está presentada en K2. Calidad debe reabrirla con motivo.");
+                err("La entrega está presentada en K2. Una persona gestora del plan debe reabrirla con motivo.");
             if (e === "respuesta") {
                 Object.assign(update, (0, interventoria_planes_policy_1.validarCompromiso)(input, plan));
                 update.soportesRevision = { estado: "pendiente", motivo: "Compromiso actualizado" };

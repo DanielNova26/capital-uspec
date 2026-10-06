@@ -22,11 +22,21 @@ const String kRolInterventoriaConsulta = 'consulta_interventoria';
 /// revisar" ni mueve responsables.
 const String kRolInterventoriaCalidad = 'calidad_interventoria';
 
-/// Desarrollo conserva el acceso técnico; Calidad opera los planes.
+/// Calidad y Gerencia operan los planes; Desarrollo conserva acceso completo.
 bool puedeGestionarPlanesInterventoria(
   String rol, {
   bool esDesarrollo = false,
-}) => esDesarrollo || rol == kRolInterventoriaCalidad;
+}) =>
+    esDesarrollo ||
+    rol == kRolInterventoriaCalidad ||
+    rol == kRolInterventoriaGerente;
+
+/// Capacidad operativa de Desarrollo sin modificar su asignación guardada.
+String rolOperativoInterventoria(String rol, {required bool esDesarrollo}) =>
+    esDesarrollo ? kRolInterventoriaAdmin : rol;
+
+bool puedeReabrirActasInterventoria(String rol, {bool esDesarrollo = false}) =>
+    esDesarrollo || kInterventoriaRolesReasignan.contains(rol);
 
 /// Roles activos asignables desde el panel de administración.
 /// consulta_interventoria deshabilitado por ahora.
@@ -49,9 +59,10 @@ const Map<String, String> kInterventoriaRoleLabels = {
   kRolInterventoriaConsulta: 'Consulta', // deshabilitado
 };
 
-/// Fase 1 — Admin y Registrador suben PDF + puntajes.
+/// Fase 1 — Administración, Gerencia y Registrador registran actas.
 const Set<String> kInterventoriaRolesFase1 = {
   kRolInterventoriaAdmin,
+  kRolInterventoriaGerente,
   kRolInterventoriaRegistrador,
 };
 

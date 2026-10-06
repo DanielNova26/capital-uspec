@@ -303,7 +303,7 @@ class _VisitasDashboardScreenState extends State<VisitasDashboardScreen>
         _TabDef(
           'Cronograma',
           Icons.calendar_month_outlined,
-          (_) => _CronogramaTab(
+          (_) => VisitasCronograma(
             svc: _svc,
             userId: widget.userId,
             empresaId: widget.empresaId,
@@ -451,14 +451,15 @@ class _TabDef {
 // Cronograma (jefe / consulta)
 // ═════════════════════════════════════════════════════════════════════════════
 
-class _CronogramaTab extends StatefulWidget {
+class VisitasCronograma extends StatefulWidget {
   final VisitasService svc;
   final String userId;
   final String empresaId;
   final String? rol;
   final String nombreUsuario;
   final bool esDesarrollador;
-  const _CronogramaTab({
+  const VisitasCronograma({
+    super.key,
     required this.svc,
     required this.userId,
     required this.empresaId,
@@ -468,10 +469,10 @@ class _CronogramaTab extends StatefulWidget {
   });
 
   @override
-  State<_CronogramaTab> createState() => _CronogramaTabState();
+  State<VisitasCronograma> createState() => VisitasCronogramaState();
 }
 
-class _CronogramaTabState extends State<_CronogramaTab> {
+class VisitasCronogramaState extends State<VisitasCronograma> {
   // Calendario de verdad (reunión 18 sep 2026 y pedido del 21 sep: "un
   // calendario, no algo tan cuadriculado"): el jefe ve el mes con las
   // visitas marcadas por día, toca un día y programa ahí mismo.
@@ -589,12 +590,6 @@ class _CronogramaTabState extends State<_CronogramaTab> {
                 (v) => visitaEnMes(v, _mesEnfocado.year, _mesEnfocado.month),
               )
               .toList();
-          final seleccion = _diaElegido == null
-              ? const <VisitaProfesional>[]
-              : (delDia(_diaElegido!).toList()..sort(
-                  (a, b) => a.establecimiento.compareTo(b.establecimiento),
-                ));
-
           return LayoutBuilder(
             builder: (context, constraints) {
               final ancho = constraints.maxWidth >= 1000;
@@ -614,27 +609,41 @@ class _CronogramaTabState extends State<_CronogramaTab> {
                         ),
                       ),
                     ),
-                    DropdownButton<String>(
-                      value: _estado,
-                      underline: const SizedBox.shrink(),
-                      style: const TextStyle(
-                        fontFamily: _kFont,
-                        fontSize: 13,
-                        color: Colors.black87,
+                    Expanded(
+                      flex: 2,
+                      child: DropdownButton<String>(
+                        isExpanded: true,
+                        value: _estado,
+                        underline: const SizedBox.shrink(),
+                        style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 13,
+                          color: Colors.black87,
+                        ),
+                        items: [
+                          const DropdownMenuItem(
+                            value: 'todas',
+                            child: Text('Todas'),
+                          ),
+                          for (final e in kVisitaEstadosLabel.entries)
+                            DropdownMenuItem(
+                              value: e.key,
+                              child: Text(
+                                e.value,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          const DropdownMenuItem(
+                            value: kVisitaVencidaFiltro,
+                            child: Text(
+                              'Vencidas (sin realizar)',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                        onChanged: (v) =>
+                            setState(() => _estado = v ?? 'todas'),
                       ),
-                      items: [
-                        const DropdownMenuItem(
-                          value: 'todas',
-                          child: Text('Todas'),
-                        ),
-                        for (final e in kVisitaEstadosLabel.entries)
-                          DropdownMenuItem(value: e.key, child: Text(e.value)),
-                        const DropdownMenuItem(
-                          value: kVisitaVencidaFiltro,
-                          child: Text('Vencidas (sin realizar)'),
-                        ),
-                      ],
-                      onChanged: (v) => setState(() => _estado = v ?? 'todas'),
                     ),
                   ],
                 ),
@@ -702,6 +711,69 @@ class _CronogramaTabState extends State<_CronogramaTab> {
                         ],
                       ),
                     );
+              Widget detalleDia(DateTime? dia) {
+                final seleccion = dia == null
+                    ? <VisitaProfesional>[]
+                    : (delDia(dia).toList()..sort(
+                        (a, b) =>
+                            a.establecimiento.compareTo(b.establecimiento),
+                      ));
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(4, 8, 4, 6),
+                      child: Text(
+                        dia == null
+                            ? 'Toca un día para ver sus visitas'
+                            : 'Visitas del ${_dd(dia)} (${seleccion.length})',
+                        style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    if (dia != null && seleccion.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Text(
+                          puedeProgramar
+                              ? 'Nada programado ese día. Usa "Agregar visita" '
+                                    'debajo del calendario: puedes marcar varios '
+                                    'días de una vez.'
+                              : 'Nada programado ese día.',
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            color: Colors.black54,
+                          ),
+                        ),
+                      )
+                    else
+                      PagedListSection<VisitaProfesional>(
+                        items: seleccion,
+                        etiqueta: 'visitas',
+                        itemBuilder: (context, v, _) => _VisitaCard(
+                          visita: v,
+                          vencida: visitaVencida(v, ahora),
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => _VisitaDetalleScreen(
+                                svc: widget.svc,
+                                visitaId: v.id,
+                                empresaId: widget.empresaId,
+                                userId: widget.userId,
+                                rol: widget.rol,
+                                nombreUsuario: widget.nombreUsuario,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              }
+
               final calendario = Card(
                 margin: EdgeInsets.zero,
                 shape: RoundedRectangleBorder(
@@ -721,10 +793,55 @@ class _CronogramaTabState extends State<_CronogramaTab> {
                         selectedDayPredicate: (d) =>
                             _diaElegido != null && _mismoDia(d, _diaElegido!),
                         eventLoader: delDia,
-                        onDaySelected: (sel, foc) => setState(() {
-                          _diaElegido = DateTime(sel.year, sel.month, sel.day);
-                          _mesEnfocado = foc;
-                        }),
+                        onDaySelected: (sel, foc) {
+                          final dia = DateTime(sel.year, sel.month, sel.day);
+                          setState(() {
+                            _diaElegido = dia;
+                            _mesEnfocado = foc;
+                          });
+                          if (!ancho) {
+                            showModalBottomSheet<void>(
+                              context: context,
+                              isScrollControlled: true,
+                              useSafeArea: true,
+                              showDragHandle: true,
+                              builder: (sheetContext) => SafeArea(
+                                top: false,
+                                child: SizedBox(
+                                  height:
+                                      MediaQuery.sizeOf(sheetContext).height *
+                                      .75,
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      Align(
+                                        alignment: Alignment.centerRight,
+                                        child: IconButton(
+                                          tooltip: 'Cerrar visitas del día',
+                                          onPressed: () =>
+                                              Navigator.pop(sheetContext),
+                                          icon: const Icon(Icons.close),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: SingleChildScrollView(
+                                          padding: const EdgeInsets.fromLTRB(
+                                            16,
+                                            0,
+                                            16,
+                                            24,
+                                          ),
+                                          child: detalleDia(dia),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          }
+                        },
                         onPageChanged: (foc) => setState(() {
                           _mesEnfocado = foc;
                         }),
@@ -827,61 +944,6 @@ class _CronogramaTabState extends State<_CronogramaTab> {
                 ),
               );
 
-              final detalle = Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(4, 8, 4, 6),
-                    child: Text(
-                      _diaElegido == null
-                          ? 'Toca un día para ver sus visitas'
-                          : 'Visitas del ${_dd(_diaElegido!)} (${seleccion.length})',
-                      style: const TextStyle(
-                        fontFamily: _kFont,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  if (_diaElegido != null && seleccion.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Text(
-                        puedeProgramar
-                            ? 'Nada programado ese día. Usa "Agregar visita" '
-                                  'debajo del calendario: puedes marcar varios '
-                                  'días de una vez.'
-                            : 'Nada programado ese día.',
-                        style: const TextStyle(
-                          fontFamily: _kFont,
-                          color: Colors.black54,
-                        ),
-                      ),
-                    )
-                  else
-                    PagedListSection<VisitaProfesional>(
-                      items: seleccion,
-                      etiqueta: 'visitas',
-                      itemBuilder: (context, v, _) => _VisitaCard(
-                        visita: v,
-                        vencida: visitaVencida(v, ahora),
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => _VisitaDetalleScreen(
-                              svc: widget.svc,
-                              visitaId: v.id,
-                              empresaId: widget.empresaId,
-                              userId: widget.userId,
-                              rol: widget.rol,
-                              nombreUsuario: widget.nombreUsuario,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              );
-
               // Lo que los profesionales piden mover (28 sep 2026): arriba,
               // para que el jefe lo resuelva sin buscar visita por visita.
               final pedidos = solicitudes.isEmpty
@@ -922,7 +984,7 @@ class _CronogramaTabState extends State<_CronogramaTab> {
                         child: SingleChildScrollView(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [pedidos, detalle],
+                            children: [pedidos, detalleDia(_diaElegido)],
                           ),
                         ),
                       ),
@@ -938,7 +1000,7 @@ class _CronogramaTabState extends State<_CronogramaTab> {
                   filtrosTodas,
                   calendario,
                   const SizedBox(height: 8),
-                  detalle,
+                  detalleDia(_diaElegido),
                 ],
               );
             },

@@ -56,6 +56,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   test('Desarrollo accede a planes sin sustituir el rol de Calidad', () {
     expect(puedeGestionarPlanesInterventoria(kRolInterventoriaCalidad), isTrue);
+    expect(puedeGestionarPlanesInterventoria(kRolInterventoriaGerente), isTrue);
     for (final rol in [
       '',
       kRolInterventoriaAdmin,
@@ -88,6 +89,25 @@ void main() {
       ),
       isFalse,
     );
+  });
+  test('Gerencia y Desarrollo tienen registro, revisión y reapertura', () {
+    for (final rol in [
+      kRolInterventoriaGerente,
+      rolOperativoInterventoria('', esDesarrollo: true),
+      rolOperativoInterventoria(
+        kRolInterventoriaRegistrador,
+        esDesarrollo: true,
+      ),
+    ]) {
+      expect(kInterventoriaRolesFase1.contains(rol), isTrue);
+      expect(puedeRevisarActas(rol), isTrue);
+      expect(puedeReabrirActasInterventoria(rol), isTrue);
+      expect(puedeEditarMaestroSubsanaciones(rol), isTrue);
+      expect(puedeReasignarResponsable(rol), isTrue);
+      expect(puedeAprobarEliminacionInterventoria(rol), isTrue);
+    }
+    expect(puedeReabrirActasInterventoria(kRolInterventoriaRevisor), isFalse);
+    expect(rolOperativoInterventoria('', esDesarrollo: false), isEmpty);
   });
   setUpAll(() async {
     final fontFile = File('C:/Windows/Fonts/arial.ttf');

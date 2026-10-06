@@ -6,7 +6,7 @@ import JSZip from "jszip";
 import {empresasSeleccionables} from "./acceso";
 import {appsDeEmpresa} from "./apps_por_empresa";
 import {isInterventoriaDeveloper} from "./interventoria_deletion";
-import {APP_PLANES, ROL_CALIDAD_PLANES, PLANES_COL, ITEMS_COL, DatosPlan,
+import {APP_PLANES, ROLES_GESTORES_PLANES, PLANES_COL, ITEMS_COL, DatosPlan,
   fechasPlan, validarCompromiso, validarRevision, validarPresentacion,
   etapaAprobada, hoyColombia, diasRestantesPlan, diaValido} from "./interventoria_planes_policy";
 
@@ -45,13 +45,13 @@ export async function actorPlanes(input: DatosPlan, context: functions.https.Cal
   // Same technical access as the module guard, after active membership checks.
   const desarrollo = isInterventoriaDeveloper(u, empresaId);
   const tieneModulo = desarrollo || apps.includes(APP_PLANES) || apps.includes("interventoria");
-  const calidad = desarrollo || (tieneModulo && rol.data()?.empresaId === empresaId && rol.data()?.rol === ROL_CALIDAD_PLANES);
+  const calidad = desarrollo || (tieneModulo && rol.data()?.empresaId === empresaId && ROLES_GESTORES_PLANES.includes(rol.data()?.rol));
   const opera = tieneModulo || apps.includes("tareasdashboard") || apps.includes("tareas");
   if (!opera) err("Tu acceso al módulo fue retirado.", "permission-denied");
   return {id: uid, empresaId, calidad, opera, nombre: s(u.nombreCompleto || u.nombre || `${u.nombres || ""} ${u.apellidos || ""}`) || "Responsable"};
 }
 function calidad(a: Actor) {
-  if (!a.calidad) err("Solo Calidad o Desarrollo gestiona planes de mejora.", "permission-denied");
+  if (!a.calidad) err("Solo Calidad, Gerencia Interventoría o Desarrollo gestiona planes de mejora.", "permission-denied");
 }
 function empresa(d: DatosPlan | undefined, a: Actor): asserts d is DatosPlan {
   if (!d || d.empresaId !== a.empresaId) err("El registro no existe en la empresa activa.", "permission-denied");
@@ -84,7 +84,7 @@ async function gestores(a: Actor): Promise<string[]> {
   const out: string[] = [];
   for (const r of roles.docs) {
     const uid = s(r.data().userId || r.data().cedula);
-    if (!uid || r.id !== `${a.empresaId}_${uid}` || r.data().rol !== ROL_CALIDAD_PLANES) continue;
+    if (!uid || r.id !== `${a.empresaId}_${uid}` || !ROLES_GESTORES_PLANES.includes(r.data().rol)) continue;
     const u = (await db().collection("TBL_USUARIOS").doc(uid).get()).data();
     if (u && empresasSeleccionables(u).includes(a.empresaId) &&
         appsDeEmpresa(u, a.empresaId).some((x) => [APP_PLANES, "interventoria"].includes(x.toLowerCase()))) out.push(uid);
@@ -214,7 +214,7 @@ export async function cambiarItem(input: DatosPlan, a: Actor) {
     if (accion === "responder" || accion === "soportes") {
       const e = accion === "responder" ? "respuesta" : "soportes";
       if (Number(input.version) !== item[`${e}Version`]) err("La entrega cambió. Actualiza antes de guardar.", "aborted");
-      if (item[`${e}Presentado`]) err("La entrega está presentada en K2. Calidad debe reabrirla con motivo.");
+      if (item[`${e}Presentado`]) err("La entrega está presentada en K2. Una persona gestora del plan debe reabrirla con motivo.");
       if (e === "respuesta") {
         Object.assign(update, validarCompromiso(input, plan));
         update.soportesRevision = {estado: "pendiente", motivo: "Compromiso actualizado"};

@@ -4,6 +4,7 @@ export const PLANES_COL = "TBL_INTERVENTORIA_PLANES";
 export const ITEMS_COL = "TBL_INTERVENTORIA_PLAN_ITEMS";
 export const APP_PLANES = "interventoriadashboard";
 export const ROL_CALIDAD_PLANES = "calidad_interventoria";
+export const ROLES_GESTORES_PLANES = [ROL_CALIDAD_PLANES, "gerente_interventoria"];
 
 export function diaValido(value: unknown): string {
   const s = typeof value === "string" ? value : "";

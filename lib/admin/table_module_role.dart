@@ -161,7 +161,9 @@ const interventoriaTableRoles = TableModuleRoleConfig(
         'entregas y prepara su presentación en K2. Consulta histórico y análisis; '
         'no reasigna responsables ni edita las actas.',
     kRolInterventoriaGerente:
-        'Revisa actas, ve el análisis y aprueba eliminaciones.',
+        'Gestiona todas las actas y hallazgos, planes de mejora K2, conceptos '
+        'sanitarios, responsables y análisis; registra, revisa, reabre y '
+        'aprueba eliminaciones.',
     kRolInterventoriaDirectivo:
         'Ve el análisis y el histórico y aprueba eliminaciones; no revisa '
         'actas.',

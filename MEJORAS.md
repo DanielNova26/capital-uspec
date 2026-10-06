@@ -6,6 +6,48 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## 2026-10-06 — Cronograma móvil y gestión completa de Gerencia Interventoría (Codex)
+
+- Retomado K2 desde las entregas del 5 oct: los planes ya existían; faltaba
+  admitir a `gerente_interventoria`. Ahora Gerencia accede a todos los planes
+  de su empresa, vincula hallazgos, responde, revisa, devuelve, presenta,
+  reabre y exporta con las mismas validaciones del expediente. También recibe
+  los avisos de entregas y vencimientos. El callable exige acceso vigente y
+  asignación canónica; otra empresa o un rol histórico no conceden acceso.
+- Gerencia registra actas y puede reabrir las completas, además de histórico,
+  revisión, subsanaciones, conceptos sanitarios, responsables y análisis.
+  El maestro ya mostraba edición a Gerencia, pero Firestore la rechazaba:
+  se habilita la configuración de Interventoría con rol y app vigentes.
+  Admin describe estas capacidades usando su catálogo común.
+- Desarrollo usa capacidades operativas completas sin cambiar su rol guardado
+  ni quedar restringido por un nivel Registrador. Las funciones de solicitudes,
+  correcciones y eliminación reconocen Desarrollo y comprueban cuenta/empresa
+  habilitadas y acceso al módulo; una asignación histórica ya no revive un rol
+  canónico retirado. No se migraron usuarios ni datos de producción.
+- **Visitas → Cronograma** (confirmado por el usuario): bajo 1000 px, tocar
+  un día abre un panel desplazable con establecimiento, número, profesional,
+  formato, estado y acceso al detalle de cada visita. Si no hay visitas, lo
+  indica. Conserva calendario, filtros y selección al cerrar. En escritorio
+  permanece el detalle al lado del calendario. Corregido también el desborde
+  del selector de estado con texto ampliado.
+- Validación: 421 pruebas Flutter de Interventoría, Visitas y catálogo de
+  maestros; 14 pruebas Node de políticas y eliminación; 20 pruebas de integración
+  Firestore/Storage y roles, todas correctas. Incluyen Gerencia, Desarrollo,
+  revocación, reactivación sin nivel, empresa secundaria, roles históricos y
+  maestro protegido. Compilaciones TypeScript y Web correctas. Análisis Dart
+  sin errores, con avisos preexistentes. Ocho pruebas del cronograma recorren
+  días con/sin visitas a 390/768/1024/1366 y texto 1,5× con temas Android/iOS;
+  los planes mantienen pruebas con texto 1×/1,6×.
+- Pendiente: publicación de Web, reglas y Functions `interventoriaPlanes`,
+  `interventoriaPlanesAvisos`, `interventoriaSolicitarEliminacion`,
+  `interventoriaResolverEliminacion`, `interventoriaEliminarActa`. El primer
+  `firestore:rules --dry-run` respondió 503; el segundo compiló correctamente,
+  sin publicar (con aviso previo de tipo nullable en la línea 345).
+  No se verificaron navegador autenticado ni Android/iPhone físicos; las
+  pruebas de widgets no verifican permisos nativos ni comportamiento real de
+  teclado, cámara y GPS. Se conserva la compilación JavaScript con los avisos
+  Wasm existentes de dependencias.
+
 ## 2026-10-06 — Reglas: por qué no se publicaban desde el 2 oct y arreglo (Claude)
 
 - **Síntoma.** Desde el 2 oct `firebase deploy --only firestore:rules` daba
