@@ -289,7 +289,7 @@ void main() {
       );
 
       expect(
-        validarAmpliacionRecepcionPendiente(
+        validarEdicionRecepcionBodega(
           original: original,
           productosActualizados: [...original.productos, agregado],
           motivo: 'Faltó registrar el producto de la orden.',
@@ -307,7 +307,7 @@ void main() {
       });
 
       expect(
-        validarAmpliacionRecepcionPendiente(
+        validarEdicionRecepcionBodega(
           original: original,
           productosActualizados: const [
             RecepcionProducto(productoId: 'prod-2'),
@@ -318,21 +318,96 @@ void main() {
       );
     });
 
-    test('una recepción finalizada no se puede reabrir', () {
+    test('Bodega corrige el lote y su fecha en una recepción finalizada', () {
+      // 6 oct 2026: la fecha de vencimiento de una fécula quedó mal y la
+      // recepción finalizada no dejaba cambiarla.
       final original = recepcionConDocumentos({
         'certCalidad': const DocAdjunto(
           url: 'https://consultado',
           estadoCalidad: 'consultado',
         ),
       });
+      final corregido = original.productos.single.copyWith(
+        lotes: [
+          RecepcionLote(
+            numero: 'L-001',
+            fecha: Timestamp.fromDate(DateTime(2027, 3, 1)),
+          ),
+        ],
+      );
 
       expect(
-        validarAmpliacionRecepcionPendiente(
+        estadoRecepcionCompras(original),
+        EstadoRecepcionCompras.historico,
+      );
+      expect(
+        validarEdicionRecepcionBodega(
+          original: original,
+          productosActualizados: [corregido],
+          motivo: 'La fecha de vencimiento del lote quedó mal.',
+        ),
+        isNull,
+      );
+    });
+
+    test('una recepción rechazada se corrige por su propio flujo', () {
+      final original = recepcionConDocumentos({
+        'certCalidad': const DocAdjunto(
+          url: 'https://rechazado',
+          estadoCalidad: 'rechazado',
+        ),
+      });
+
+      expect(
+        validarEdicionRecepcionBodega(
           original: original,
           productosActualizados: original.productos,
           motivo: 'Se detectó una diferencia en la orden.',
         ),
-        contains('mientras está en revisión'),
+        contains('Corregir documentos'),
+      );
+    });
+
+    test('no se quita un documento que Calidad aprobó; sí se reemplaza', () {
+      final original = recepcionConDocumentos({
+        'fichaTecnica': const DocAdjunto(
+          url: 'https://ficha',
+          estadoCalidad: 'aprobado',
+        ),
+        'evidenciaEtiqueta': const DocAdjunto(
+          url: 'https://foto',
+          estadoCalidad: 'consultado',
+        ),
+      });
+      final producto = original.productos.single;
+
+      expect(
+        validarEdicionRecepcionBodega(
+          original: original,
+          productosActualizados: [
+            producto.copyWith(
+              documentos: {
+                'evidenciaEtiqueta': producto.documentos.values.last,
+              },
+            ),
+          ],
+          motivo: 'Ficha equivocada.',
+        ),
+        contains('Calidad ya lo aprobó'),
+      );
+      expect(
+        validarEdicionRecepcionBodega(
+          original: original,
+          productosActualizados: [
+            producto.copyWith(
+              documentos: {
+                'fichaTecnica': const DocAdjunto(url: 'https://ficha-2'),
+              },
+            ),
+          ],
+          motivo: 'La foto del vencimiento estaba en otro soporte.',
+        ),
+        isNull,
       );
     });
 
@@ -345,13 +420,106 @@ void main() {
       });
 
       expect(
-        validarAmpliacionRecepcionPendiente(
+        validarEdicionRecepcionBodega(
           original: original,
           productosActualizados: original.productos,
           motivo: '   ',
         ),
         contains('motivo'),
       );
+    });
+  });
+
+  group('fusionarEdicionRecepcion', () {
+    final guardado = RecepcionDoc(
+      id: 'r1',
+      empresaId: 'empresa-1',
+      fecha: Timestamp.fromMillisecondsSinceEpoch(1),
+      proveedorId: 'prov-1',
+      nit: '900',
+      razonSocial: 'Proveedor',
+      productos: const [
+        RecepcionProducto(
+          productoId: 'fecula',
+          nombre: 'FECULA DE MAIZ',
+          marcaId: 'm1',
+          marca: 'Marca uno',
+          documentos: {
+            'certCalidad': DocAdjunto(
+              url: 'https://cert',
+              estadoCalidad: 'consultado',
+              revisadoPor: 'calidad-1',
+            ),
+            'fechaVencimientoEtiqueta': DocAdjunto(
+              url: 'https://foto-mal',
+              estadoCalidad: 'consultado',
+            ),
+          },
+          lotes: [RecepcionLote(numero: 'L-1')],
+        ),
+      ],
+      createdAt: Timestamp.fromMillisecondsSinceEpoch(1),
+    );
+
+    test('lo reemplazado vuelve a Calidad y lo demás conserva lo guardado', () {
+      final productos = fusionarEdicionRecepcion(
+        original: guardado,
+        productosActualizados: const [
+          RecepcionProducto(
+            productoId: 'fecula',
+            nombre: 'Otro nombre',
+            marcaId: 'm2',
+            documentos: {
+              // Copia vieja en pantalla: Calidad ya lo había consultado.
+              'certCalidad': DocAdjunto(
+                url: 'https://cert',
+                estadoCalidad: 'consulta_calidad',
+              ),
+              'fechaVencimientoEtiqueta': DocAdjunto(
+                url: 'https://foto-bien',
+                estadoCalidad: 'aprobado',
+              ),
+            },
+            lotes: [RecepcionLote(numero: 'L-2')],
+          ),
+        ],
+      );
+
+      final producto = productos.single;
+      expect(producto.nombre, 'FECULA DE MAIZ');
+      expect(producto.marcaId, 'm1');
+      expect(producto.lotes.single.numero, 'L-2');
+      expect(producto.documentos['certCalidad']!.estadoCalidad, 'consultado');
+      expect(producto.documentos['certCalidad']!.revisadoPor, 'calidad-1');
+      final foto = producto.documentos['fechaVencimientoEtiqueta']!;
+      expect(foto.url, 'https://foto-bien');
+      expect(foto.estadoCalidad, 'consulta_calidad');
+      expect(
+        estadoRecepcionCompras(
+          RecepcionDoc(
+            id: 'r1',
+            empresaId: 'empresa-1',
+            fecha: guardado.fecha,
+            proveedorId: 'prov-1',
+            nit: '900',
+            razonSocial: 'Proveedor',
+            productos: productos,
+            createdAt: guardado.createdAt,
+          ),
+        ),
+        EstadoRecepcionCompras.pendiente,
+      );
+    });
+
+    test('un producto agregado pasa como llega', () {
+      const agregado = RecepcionProducto(productoId: 'nuevo', nombre: 'Nuevo');
+      final productos = fusionarEdicionRecepcion(
+        original: guardado,
+        productosActualizados: [...guardado.productos, agregado],
+      );
+
+      expect(productos, hasLength(2));
+      expect(identical(productos.last, agregado), isTrue);
     });
   });
 

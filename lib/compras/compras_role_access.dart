@@ -58,7 +58,7 @@ String comprasLevelDescription(String level) => switch (level) {
   kRolConsultas =>
     'Consultar proveedores, productos, recepciones y vigencias; sin gestión ni Abastecimiento.',
   kRolBodega =>
-    'Registrar y completar recepciones, corregir documentos propios y confirmar entregas. Consultar registros.',
+    'Registrar, completar y corregir recepciones (lotes, fechas y documentos mal cargados) y confirmar entregas. Consultar registros.',
   kRolCompras =>
     'Gestionar proveedores, productos y marcas; registrar recepciones, corregir documentos y programar Abastecimiento.',
   kRolCalidad =>

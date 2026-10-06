@@ -728,11 +728,15 @@ class ComprasService {
     return ref.id;
   }
 
-  /// Completa una recepción que aún está en revisión de Calidad.
+  /// Bodega completa o corrige una recepción en revisión de Calidad o ya
+  /// finalizada: agrega productos y corrige lotes, fechas y documentos mal
+  /// cargados (6 oct 2026).
   ///
-  /// Conserva el encabezado y la fecha originales. La transacción impide que
-  /// una recepción ya finalizada o rechazada sea reabierta desde una pantalla
-  /// que quedó abierta, y tampoco permite retirar productos existentes.
+  /// Conserva el encabezado y la fecha originales. La transacción impide
+  /// reabrir así una recepción rechazada desde una pantalla que quedó
+  /// abierta, no permite retirar productos ni quitar lo que Calidad aprobó, y
+  /// une la edición con lo guardado ([fusionarEdicionRecepcion]): lo
+  /// reemplazado vuelve a revisión de Calidad.
   Future<void> completarRecepcionEnRevision({
     required RecepcionDoc recepcion,
     required String userId,
@@ -752,7 +756,7 @@ class ComprasService {
     final actor = await resolveRolUsuario(recepcion.empresaId, userId);
     if (actor == null || !comprasRolPuedeCompletarRecepcion(actor.rol)) {
       throw StateError(
-        'Solo el perfil de Bodega puede completar una recepción en revisión.',
+        'Solo el perfil de Bodega puede completar o corregir una recepción.',
       );
     }
     final ref = _db.collection('TBL_COMPRAS_RECEPCIONES').doc(recepcionId);
@@ -766,12 +770,18 @@ class ComprasService {
       if (original.empresaId.trim() != recepcion.empresaId.trim()) {
         throw StateError('La recepción no pertenece a la empresa activa.');
       }
-      final error = validarAmpliacionRecepcionPendiente(
+      final error = validarEdicionRecepcionBodega(
         original: original,
         productosActualizados: recepcion.productos,
         motivo: motivo,
       );
       if (error != null) throw StateError(error);
+      final finalizada =
+          estadoRecepcionCompras(original) == EstadoRecepcionCompras.historico;
+      final productos = fusionarEdicionRecepcion(
+        original: original,
+        productosActualizados: recepcion.productos,
+      );
 
       final now = Timestamp.now();
       final historial = [
@@ -790,10 +800,8 @@ class ComprasService {
           : historial;
 
       tx.update(ref, {
-        'productos': recepcion.productos
-            .map((producto) => producto.toMap())
-            .toList(),
-        'productoIds': recepcion.productos
+        'productos': productos.map((producto) => producto.toMap()).toList(),
+        'productoIds': productos
             .map((producto) => producto.productoId.trim())
             .where((id) => id.isNotEmpty)
             .toSet()
@@ -804,7 +812,9 @@ class ComprasService {
         'historialEdiciones': historialAcotado
             .map((nota) => nota.toMap())
             .toList(),
-        'lastEventText': 'Recepción completada durante revisión de Calidad',
+        'lastEventText': finalizada
+            ? 'Recepción finalizada corregida por Bodega'
+            : 'Recepción completada durante revisión de Calidad',
         'updatedAt': FieldValue.serverTimestamp(),
       });
     });

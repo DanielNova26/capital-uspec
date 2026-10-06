@@ -40,7 +40,8 @@ class AbastecimientoCatalogValidation {
   /// OC que ya no están programadas y el archivo intentaba cambiar.
   final List<String> bloqueadas;
 
-  /// Línea (OC + producto) → entrega existente que se actualiza.
+  /// Línea (OC + producto + UM de la fila) → entrega existente que se
+  /// actualiza.
   final Map<String, String> existentePorLinea;
 
   const AbastecimientoCatalogValidation({
@@ -760,13 +761,17 @@ class AbastecimientoService {
     }
 
     for (final row in validRows) {
-      final linea = claveLineaAbastecimiento(row.ordenCompra, row.producto);
+      final linea = claveLineaAbastecimiento(
+        row.ordenCompra,
+        row.producto,
+        row.unidad,
+      );
       if (!processedKeys.add(linea)) {
         unchanged++;
         continue;
       }
-      // Se actualiza la entrega de la misma OC y producto; una entrega
-      // eliminada nunca se revive con otra carga.
+      // Se actualiza la entrega de la misma OC, producto y presentación (UM);
+      // una entrega eliminada nunca se revive con otra carga.
       final existingId = validation.existentePorLinea[linea];
       final existing = existingId == null ? null : existingById[existingId];
       if (existing != null && existing.data()['eliminado'] == true) {
