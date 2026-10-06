@@ -22,11 +22,21 @@ const String kRolInterventoriaConsulta = 'consulta_interventoria';
 /// revisar" ni mueve responsables.
 const String kRolInterventoriaCalidad = 'calidad_interventoria';
 
-/// Desarrollo conserva el acceso técnico; Calidad opera los planes.
+/// Roles que operan los planes de mejora K2. Gerencia se sumó el 6 oct 2026
+/// ("también lo puede hacer Gerencia"), con el mismo alcance que Calidad.
+/// El callable `interventoriaPlanes` comprueba la misma lista
+/// (`ROLES_GESTION_PLANES` en `interventoria_planes_policy.ts`).
+const Set<String> kInterventoriaRolesPlanes = {
+  kRolInterventoriaCalidad,
+  kRolInterventoriaGerente,
+};
+
+/// Desarrollo conserva el acceso técnico; Calidad y Gerencia operan los
+/// planes.
 bool puedeGestionarPlanesInterventoria(
   String rol, {
   bool esDesarrollo = false,
-}) => esDesarrollo || rol == kRolInterventoriaCalidad;
+}) => esDesarrollo || kInterventoriaRolesPlanes.contains(rol);
 
 /// Roles activos asignables desde el panel de administración.
 /// consulta_interventoria deshabilitado por ahora.

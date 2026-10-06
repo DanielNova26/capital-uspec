@@ -485,6 +485,10 @@ class _CronogramaTabState extends State<_CronogramaTab> {
   String _estFiltro = '';
   late final Stream<List<VisitaProfesional>> _stream;
 
+  /// Cabecera del día elegido. En el teléfono queda debajo del calendario:
+  /// al tocar un día se desplaza lo justo para que se vea (6 oct 2026).
+  final _cabeceraDiaKey = GlobalKey();
+
   /// Departamentos de la empresa (28 sep 2026: "en la lista desplegable,
   /// mostrar DEPARTAMENTOS"), no las áreas que traían los formatos.
   Map<String, String> _departamentos = const {};
@@ -517,6 +521,21 @@ class _CronogramaTabState extends State<_CronogramaTab> {
   Color _colorVisita(VisitaProfesional v, DateTime ahora) {
     if (visitaVencida(v, ahora)) return const Color(0xFFDC2626);
     return _colorEstado(v.estado);
+  }
+
+  /// En el teléfono el día elegido se lista debajo del calendario, fuera de
+  /// la pantalla: se baja lo mínimo para que se vea su cabecera.
+  void _mostrarCabeceraDia() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _cabeceraDiaKey.currentContext;
+      if (!mounted || ctx == null) return;
+      Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+      );
+    });
   }
 
   @override
@@ -718,13 +737,25 @@ class _CronogramaTabState extends State<_CronogramaTab> {
                         lastDay: DateTime.utc(2032, 12, 31),
                         focusedDay: _mesEnfocado,
                         startingDayOfWeek: StartingDayOfWeek.monday,
+                        // Solo el deslizamiento lateral (cambiar de mes). Con
+                        // el vertical activo el calendario se quedaba con el
+                        // arrastre del dedo y en el teléfono la pantalla no
+                        // bajaba hasta las visitas del día (6 oct 2026).
+                        availableGestures: AvailableGestures.horizontalSwipe,
                         selectedDayPredicate: (d) =>
                             _diaElegido != null && _mismoDia(d, _diaElegido!),
                         eventLoader: delDia,
-                        onDaySelected: (sel, foc) => setState(() {
-                          _diaElegido = DateTime(sel.year, sel.month, sel.day);
-                          _mesEnfocado = foc;
-                        }),
+                        onDaySelected: (sel, foc) {
+                          setState(() {
+                            _diaElegido = DateTime(
+                              sel.year,
+                              sel.month,
+                              sel.day,
+                            );
+                            _mesEnfocado = foc;
+                          });
+                          if (!ancho) _mostrarCabeceraDia();
+                        },
                         onPageChanged: (foc) => setState(() {
                           _mesEnfocado = foc;
                         }),
@@ -827,29 +858,57 @@ class _CronogramaTabState extends State<_CronogramaTab> {
                 ),
               );
 
+              // El día tocado se programa desde su propia cabecera: en el
+              // teléfono el botón del calendario queda lejos de la lista.
+              final programarDia =
+                  puedeProgramar &&
+                  _diaElegido != null &&
+                  visitaDiaProgramable(_diaElegido!, ahora);
               final detalle = Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(4, 8, 4, 6),
-                    child: Text(
-                      _diaElegido == null
-                          ? 'Toca un día para ver sus visitas'
-                          : 'Visitas del ${_dd(_diaElegido!)} (${seleccion.length})',
-                      style: const TextStyle(
-                        fontFamily: _kFont,
-                        fontWeight: FontWeight.w800,
-                      ),
+                    key: _cabeceraDiaKey,
+                    padding: const EdgeInsets.fromLTRB(4, 8, 0, 6),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _diaElegido == null
+                                ? 'Toca un día para ver sus visitas'
+                                : 'Visitas del ${_dd(_diaElegido!)} (${seleccion.length})',
+                            style: const TextStyle(
+                              fontFamily: _kFont,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        if (programarDia)
+                          TextButton.icon(
+                            style: TextButton.styleFrom(
+                              foregroundColor: kVisitasColor,
+                            ),
+                            onPressed: () => _programar(context),
+                            icon: const Icon(Icons.add, size: 18),
+                            label: const Text(
+                              'Agregar',
+                              style: TextStyle(
+                                fontFamily: _kFont,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                   if (_diaElegido != null && seleccion.isEmpty)
                     Padding(
                       padding: const EdgeInsets.all(12),
                       child: Text(
-                        puedeProgramar
-                            ? 'Nada programado ese día. Usa "Agregar visita" '
-                                  'debajo del calendario: puedes marcar varios '
-                                  'días de una vez.'
+                        programarDia
+                            ? 'Nada programado ese día. Toca "Agregar" para '
+                                  'programar una visita en esta fecha; en el '
+                                  'diálogo puedes marcar varios días de una vez.'
                             : 'Nada programado ese día.',
                         style: const TextStyle(
                           fontFamily: _kFont,

@@ -5743,7 +5743,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           case kRolInterventoriaRevisor:
             return 'Completa y revisa las actas dentro de la segunda fase.';
           case kRolInterventoriaGerente:
-            return 'Revisa la gestión y participa en la validación de las actas.';
+            return 'Revisa la gestión, participa en la validación de las actas '
+                'y gestiona los planes de mejora K2.';
           case kRolInterventoriaDirectivo:
             return 'Realiza seguimiento ejecutivo y revisión de la segunda fase.';
         }

@@ -2028,6 +2028,10 @@ class _HomeScreenState extends State<HomeScreen> {
         firstDay: DateTime.utc(2020, 1, 1),
         lastDay: DateTime.utc(2030, 12, 31),
         focusedDay: _focusedDay,
+        // El inicio móvil es una columna con scroll: con el deslizamiento
+        // vertical el calendario se quedaba con el dedo y no dejaba bajar a
+        // la agenda del día (6 oct 2026). El lateral cambia de mes.
+        availableGestures: AvailableGestures.horizontalSwipe,
         selectedDayPredicate: (day) => _isSameDay(_selectedDay, day),
         eventLoader: _getEventsForDay,
         onDaySelected: (sel, foc) => setState(() {

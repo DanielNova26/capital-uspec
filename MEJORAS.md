@@ -6,6 +6,52 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## 2026-10-06 — Visitas: el calendario en el celular y planes K2 para Gerencia (Claude)
+
+Pedido del usuario (nota de voz): "en el celular, dándole clic al calendario,
+no deja [agregar] visitas a ese día" y "lo que se agregó de Interventoría del
+K2 […] también lo puede [hacer] Gerencia".
+
+- **Causa del calendario.** `TableCalendar` trae por defecto
+  `AvailableGestures.all`: aunque no cambia de formato (no hay
+  `onFormatChanged`), registra un reconocedor de arrastre vertical que le gana
+  al scroll de la pantalla. Con el dedo, todo arrastre que empezaba sobre el
+  calendario se perdía: en el Cronograma no se llegaba a las visitas del día
+  tocado y en "Agregar visitas" (pantalla completa en el teléfono) no se bajaba
+  a ponerle el establecimiento al día marcado. Con mouse no pasa (la rueda no
+  es un arrastre), por eso en Web sí funcionaba.
+- **Arreglo.** `availableGestures: AvailableGestures.horizontalSwipe` en el
+  Cronograma, en el diálogo "Agregar visitas" y en el calendario del inicio
+  (mismo problema en "Mi agenda"). El deslizamiento lateral sigue cambiando
+  de mes. Además, en el Cronograma la cabecera del día tocado trae
+  **"Agregar"** (programa en esa fecha; solo jefe/Gerencia y desde hoy,
+  `visitaDiaProgramable`) y en el teléfono se baja lo justo para que esa
+  cabecera se vea al tocar el día.
+- **Planes de mejora K2 para Gerencia.** El rol Gerente de Interventoría
+  (`gerente_interventoria`) opera los planes con el mismo alcance que Calidad:
+  pestaña "Planes de mejora", crear, vincular, revisar, presentar, reabrir y
+  las acciones de Calidad dentro de la tarea. Lista única
+  `kInterventoriaRolesPlanes` (app) / `ROLES_GESTION_PLANES` (callable
+  `interventoriaPlanes`); una prueba Dart falla si no coinciden. Sigue
+  exigiendo rol canónico `{empresa}_{usuario}`, app activa y empresa
+  habilitada: Directivo, ids históricos y otra empresa sin rol propio quedan
+  fuera. **Decisión:** los avisos de "entrega por revisar" y los recordatorios
+  siguen yendo solo a Calidad (`gestores`), para no llenar de avisos a
+  Gerencia; si la empresa no tiene Calidad, nadie recibe esos avisos. Si el
+  usuario quería solo consulta para Gerencia, hay que separar lectura de
+  gestión en el callable.
+- **Pruebas:** `flutter test test/visitas test/interventoria/interventoria_planes_test.dart`
+  (182) con la prueba nueva de arrastre en el teléfono (sin el arreglo queda
+  en 0 px; con él baja) y `visitaDiaProgramable`. Functions: `npm test`
+  179/179; emulador Firestore + Storage `interventoria_planes.rules.js` 12/12
+  (nueva: Gerencia opera, no recibe los avisos de Calidad, y se revoca por
+  rol, id histórico, empresa y app).
+- **Pendiente:** desplegar Functions (`interventoriaPlanes`; sin eso la
+  pestaña aparece para Gerencia pero el servidor responde "Solo Calidad…") y
+  publicar Web/Android/iOS. Sin verificación en dispositivo: el arrastre del
+  Cronograma y del inicio solo se comprobó con el diálogo en prueba de widget
+  a 390 px; probar en Android e iPhone reales.
+
 ## 2026-10-06 — Reglas: por qué no se publicaban desde el 2 oct y arreglo (Claude)
 
 - **Síntoma.** Desde el 2 oct `firebase deploy --only firestore:rules` daba

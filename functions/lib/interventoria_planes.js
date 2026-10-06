@@ -80,7 +80,9 @@ async function actorPlanes(input, context) {
     // Same technical access as the module guard, after active membership checks.
     const desarrollo = (0, interventoria_deletion_1.isInterventoriaDeveloper)(u, empresaId);
     const tieneModulo = desarrollo || apps.includes(interventoria_planes_policy_1.APP_PLANES) || apps.includes("interventoria");
-    const calidad = desarrollo || (tieneModulo && rol.data()?.empresaId === empresaId && rol.data()?.rol === interventoria_planes_policy_1.ROL_CALIDAD_PLANES);
+    // `calidad` = may manage plans: Calidad or Gerencia with canonical role.
+    const calidad = desarrollo || (tieneModulo && rol.data()?.empresaId === empresaId &&
+        interventoria_planes_policy_1.ROLES_GESTION_PLANES.includes(s(rol.data()?.rol)));
     const opera = tieneModulo || apps.includes("tareasdashboard") || apps.includes("tareas");
     if (!opera)
         err("Tu acceso al módulo fue retirado.", "permission-denied");
@@ -88,7 +90,7 @@ async function actorPlanes(input, context) {
 }
 function calidad(a) {
     if (!a.calidad)
-        err("Solo Calidad o Desarrollo gestiona planes de mejora.", "permission-denied");
+        err("Solo Calidad, Gerencia o Desarrollo gestiona planes de mejora.", "permission-denied");
 }
 function empresa(d, a) {
     if (!d || d.empresaId !== a.empresaId)

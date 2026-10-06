@@ -3187,6 +3187,12 @@ VisitaUbicacion? ubicacionQueAplica(
   return delCentro;
 }
 
+/// ¿Se le puede programar una visita a [dia]? Hoy o después: la misma
+/// frontera que aplica [validarProgramacion]. El cronograma lo usa para
+/// ofrecer "Agregar" en el día tocado.
+bool visitaDiaProgramable(DateTime dia, DateTime hoy) =>
+    !_soloDia(dia).isBefore(_soloDia(hoy));
+
 /// Qué impide programar el lote. Vacío = se puede.
 List<String> validarProgramacion(
   List<FilaProgramacion> filas, {

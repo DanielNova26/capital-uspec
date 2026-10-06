@@ -454,6 +454,10 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
       focusedDay: _mesEnfocado,
       startingDayOfWeek: StartingDayOfWeek.monday,
       rowHeight: 40,
+      // Sin el deslizamiento vertical: en el teléfono el calendario se
+      // quedaba con el arrastre y no se podía bajar a los días elegidos para
+      // ponerles el establecimiento (6 oct 2026).
+      availableGestures: AvailableGestures.horizontalSwipe,
       selectedDayPredicate: (d) =>
           _filas.containsKey(DateTime(d.year, d.month, d.day)),
       onDaySelected: (sel, foc) {

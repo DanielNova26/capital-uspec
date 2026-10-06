@@ -4,6 +4,12 @@ export const PLANES_COL = "TBL_INTERVENTORIA_PLANES";
 export const ITEMS_COL = "TBL_INTERVENTORIA_PLAN_ITEMS";
 export const APP_PLANES = "interventoriadashboard";
 export const ROL_CALIDAD_PLANES = "calidad_interventoria";
+/**
+ * Roles that operate K2 plans. Gerencia joined on 2026-10-06 with the same
+ * scope as Calidad. Mirrors `kInterventoriaRolesPlanes` in the app. Plan
+ * notices still go only to Calidad (`gestores`).
+ */
+export const ROLES_GESTION_PLANES: readonly string[] = [ROL_CALIDAD_PLANES, "gerente_interventoria"];
 
 export function diaValido(value: unknown): string {
   const s = typeof value === "string" ? value : "";

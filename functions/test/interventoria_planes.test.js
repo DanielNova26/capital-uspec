@@ -41,3 +41,9 @@ test('copiar, aprobar o descargar no equivale a presentar en K2', () => {
   assert.throws(() => p.validarPresentacion(item, 'respuesta', 2));
   assert.throws(() => p.validarPresentacion({...item, respuestaPresentado: {fecha: '2026-10-05'}}, 'respuesta', 3));
 });
+test('Calidad y Gerencia gestionan planes; los demás roles no', () => {
+  assert.deepEqual([...p.ROLES_GESTION_PLANES].sort(), ['calidad_interventoria', 'gerente_interventoria']);
+  for (const rol of ['admin_interventoria', 'registrador_interventoria', 'revisor_interventoria', 'directivo_interventoria', '']) {
+    assert.equal(p.ROLES_GESTION_PLANES.includes(rol), false);
+  }
+});

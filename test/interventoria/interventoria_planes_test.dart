@@ -56,11 +56,15 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   test('Desarrollo accede a planes sin sustituir el rol de Calidad', () {
     expect(puedeGestionarPlanesInterventoria(kRolInterventoriaCalidad), isTrue);
+    // Gerencia opera los planes igual que Calidad (6 oct 2026).
+    expect(puedeGestionarPlanesInterventoria(kRolInterventoriaGerente), isTrue);
     for (final rol in [
       '',
       kRolInterventoriaAdmin,
       kRolInterventoriaRegistrador,
       kRolInterventoriaRevisor,
+      kRolInterventoriaDirectivo,
+      kRolInterventoriaConsulta,
     ]) {
       expect(puedeGestionarPlanesInterventoria(rol), isFalse);
       expect(
@@ -89,6 +93,31 @@ void main() {
       isFalse,
     );
   });
+  test(
+    'los roles que gestionan planes son los mismos que exige el servidor',
+    () {
+      final ts = File(
+        'functions/src/interventoria_planes_policy.ts',
+      ).readAsStringSync();
+      final constantes = {
+        for (final m in RegExp(
+          r'export const (\w+) = "([a-z_]+)";',
+        ).allMatches(ts))
+          m.group(1)!: m.group(2)!,
+      };
+      final lista = RegExp(
+        r'export const ROLES_GESTION_PLANES[^=]*= \[([^\]]*)\]',
+      ).firstMatch(ts)!.group(1)!;
+      final servidor = {
+        for (final x in lista.split(','))
+          if (x.trim().isNotEmpty)
+            x.trim().startsWith('"')
+                ? x.trim().replaceAll('"', '')
+                : constantes[x.trim()]!,
+      };
+      expect(servidor, kInterventoriaRolesPlanes);
+    },
+  );
   setUpAll(() async {
     final fontFile = File('C:/Windows/Fonts/arial.ttf');
     if (await fontFile.exists()) {

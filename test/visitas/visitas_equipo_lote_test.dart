@@ -284,6 +284,15 @@ void main() {
         isEmpty,
       );
     });
+
+    test('el cronograma ofrece "Agregar" desde hoy, no en días pasados', () {
+      final ahora = DateTime(2026, 9, 25, 17, 30);
+      expect(visitaDiaProgramable(DateTime(2026, 9, 24), ahora), isFalse);
+      expect(visitaDiaProgramable(DateTime(2026, 9, 25), ahora), isTrue);
+      // TableCalendar entrega los días en UTC: cuenta la fecha, no la hora.
+      expect(visitaDiaProgramable(DateTime.utc(2026, 9, 25), ahora), isTrue);
+      expect(visitaDiaProgramable(DateTime(2026, 10, 1), ahora), isTrue);
+    });
   });
 
   group('grupos', () {

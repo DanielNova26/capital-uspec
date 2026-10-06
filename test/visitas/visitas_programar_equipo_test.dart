@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:table_calendar/table_calendar.dart';
 import 'package:todo/core/subcentros_costo.dart';
 import 'package:todo/visitas/visitas_equipo.dart';
 import 'package:todo/visitas/visitas_models.dart';
@@ -350,6 +351,50 @@ void main() {
     await tester.tap(find.text('↳ Sanidad').last);
     await tester.pumpAndSettle();
     expect(find.textContaining('no se podrá iniciar'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  // 6 oct 2026: en el celular, tocar un día y bajar a ponerle el
+  // establecimiento no se podía: el calendario se quedaba con el arrastre
+  // vertical del dedo y la pantalla no se movía.
+  testWidgets('Agregar visitas en el teléfono: arrastrar sobre el calendario '
+      'baja hasta los días elegidos', (tester) async {
+    await tamano(tester, const Size(390, 844));
+    final manana = DateTime.now().add(const Duration(days: 1));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: FilledButton(
+                onPressed: () => programarVisitas(
+                  context,
+                  svc: _SvcFalso(),
+                  empresaId: 'e',
+                  jefeId: 'zuly',
+                  jefeNombre: 'Zuly',
+                  esDesarrollador: false,
+                  diaInicial: manana,
+                ),
+                child: const Text('abrir'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('abrir'));
+    await tester.pumpAndSettle();
+    // El día tocado en el cronograma ya viene marcado.
+    expect(find.text('1 día elegido'), findsOneWidget);
+    final calendario = find.byType(TableCalendar<void>);
+    final scroll = tester.state<ScrollableState>(
+      find.ancestor(of: calendario, matching: find.byType(Scrollable)).first,
+    );
+    expect(scroll.position.pixels, 0);
+    await tester.drag(calendario, const Offset(0, -300));
+    await tester.pumpAndSettle();
+    expect(scroll.position.pixels, greaterThan(0));
     expect(tester.takeException(), isNull);
   });
 

@@ -60,6 +60,27 @@ test('Desarrollo opera planes sin rol de Calidad ni app individual, solo en empr
   await db.doc('TBL_USUARIOS/dev').update({activo: false});
   await assert.rejects(call('dev', {accion: 'listar'}), {code: 'permission-denied'});
 });
+test('Gerencia opera planes con su rol canónico; los avisos de entrega siguen yendo a Calidad', async () => {
+  await db.doc('TBL_USUARIOS/gerente').set({nombre: 'gerente', activo: true, empresas: ['A', 'B'], empresaId: 'A', appsPorEmpresa: true,
+    empresasDetalle: {A: {apps: ['interventoriadashboard']}, B: {apps: ['interventoriadashboard']}}});
+  await db.doc('TBL_INTERVENTORIA_ROLES/A_gerente').set({empresaId: 'A', userId: 'gerente', rol: 'gerente_interventoria'});
+  assert.equal((await call('gerente', {accion: 'listar'})).planes.length, 1);
+  await call('gerente', {accion: 'vincular', planId, hallazgoIds: ['h']});
+  assert.equal((await call('gerente', {accion: 'tarea', tareaId: 't'})).calidad, true);
+  await call('responsable', {accion: 'responder', itemId: itemId(), version: 0, compromiso: 'Corregiremos el rotulado de los productos.', fechaEjecucion: '2026-10-20', fechaSeguimiento: '2026-10-25'});
+  assert.equal((await db.collection('TBL_NOTIFICACIONES/gerente/notifications').get()).size, 0);
+  assert.ok((await db.collection('TBL_NOTIFICACIONES/calidad/notifications').get()).size >= 1);
+  await call('gerente', {accion: 'revisar', itemId: itemId(), etapa: 'respuesta', version: 1, estado: 'satisfactorio'});
+  // Empresa secundaria sin rol propio, Directivo e id histórico no gestionan.
+  await assert.rejects(call('gerente', {empresaId: 'B', accion: 'listar'}), {code: 'permission-denied'});
+  await db.doc('TBL_INTERVENTORIA_ROLES/A_gerente').update({rol: 'directivo_interventoria'});
+  await db.doc('TBL_INTERVENTORIA_ROLES/gerente_random').set({empresaId: 'A', userId: 'gerente', rol: 'gerente_interventoria'});
+  await assert.rejects(call('gerente', {accion: 'listar'}), {code: 'permission-denied'});
+  // Retirar la app revoca aunque el rol se conserve.
+  await db.doc('TBL_INTERVENTORIA_ROLES/A_gerente').update({rol: 'gerente_interventoria'});
+  await db.doc('TBL_USUARIOS/gerente').update({'empresasDetalle.A.apps': []});
+  await assert.rejects(call('gerente', {accion: 'listar'}), {code: 'permission-denied'});
+});
 test('revocación de app y cuenta bloquea incluso con nivel conservado; reactivación sin rol no eleva', async () => {
   await db.doc('TBL_USUARIOS/calidad').update({'empresasDetalle.A.apps': []});
   await assert.rejects(call('calidad', {accion: 'listar'}), {code: 'permission-denied'});
