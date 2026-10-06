@@ -23,10 +23,9 @@ service cloud.firestore {
     // decía "permission-denied" al cambiar un rol (11 sep 2026).
     //
     // Una sola expresión regular (`matches` compara la cadena completa): la
-    // lista corta y el sufijo `_desarrollador`/`_developer`. Estas funciones
-    // básicas se copian en cada regla que las usa al compilar; mientras más
-    // cortas, más margen para el tamaño máximo que Google acepta (6 oct 2026:
-    // las reglas dejaron de publicarse por pasarse de ese tamaño).
+    // lista corta y el sufijo `_desarrollador`/`_developer`. Mientras más
+    // cortas las reglas, más margen para el tamaño máximo que Google compila
+    // (6 oct 2026; ver functions/test/reglas_tamano.test.js).
     function esRolDeDesarrollo(valor) {
       return valor is string
         && valor.matches('desarrollador|developer|superadmin|administrador_sistema|.*_(desarrollador|developer)');
@@ -108,7 +107,7 @@ service cloud.firestore {
     //
     // Mismo resultado que `(pertenece || isDeveloper()) && habilitadaEn(u,
     // empresaId)`, sin repetir la sesión ni la cuenta apagada que esas dos ya
-    // comprobaban: es la función que más se copia al compilar (6 oct 2026).
+    // comprobaban (6 oct 2026).
     function belongsToCompany(empresaId) {
       let u = currentUser();
       return isSignedIn()
@@ -123,6 +122,11 @@ service cloud.firestore {
         )
         && !cuentaInhabilitada(u)
         && !apagadaEnEmpresa(u, empresaId);
+    }
+
+    // Una actualización no cambia el documento de empresa.
+    function empresaSeConserva() {
+      return resource.data.empresaId == request.resource.data.empresaId;
     }
 
     function interventoriaRolePath(empresaId) {
@@ -178,21 +182,12 @@ service cloud.firestore {
         && get(visitasRolePath(empresaId)).data.rol in allowedRoles;
     }
 
-    function hasVisitasRole(empresaId, allowedRoles) {
-      return belongsToCompany(empresaId)
-        && rolVisitasEn(empresaId, allowedRoles);
-    }
-
     // Las funciones que terminan en `En` no vuelven a mirar la empresa: se
     // usan dentro de una regla que ya pasó por `belongsToCompany`.
     function administraVisitasEn(empresaId) {
       return isDeveloper() || isDeveloperIn(empresaId)
         || rolVisitasEn(empresaId, ['jefe', 'gerencia'])
         || esGerenciaPorFicha(empresaId);
-    }
-
-    function administraVisitas(empresaId) {
-      return belongsToCompany(empresaId) && administraVisitasEn(empresaId);
     }
 
     // Gerencia (26 sep 2026): "es el jefe de todos, puede ver absolutamente
@@ -335,83 +330,51 @@ service cloud.firestore {
     }
 
     // ── Roles configurables por módulo (28 sep 2026, trabajo de Codex) ─────
-    // Espejo de `userHasApp(u, 'admindashboard', empresaId)` en
+    // Espejo de `userHasApp(u, app, empresaId)` en
     // lib/utils/user_company.dart: con módulos por empresa solo cuenta la
     // lista de la empresa (o la raíz si es la principal y no hay lista
     // propia); sin esa marca, la raíz y la de la empresa.
-    function tieneAppAdminEn(empresaId) {
+    // Una sola función para todas las apps (6 oct 2026): antes había una
+    // copia por app y las reglas pasaron el tamaño máximo que Google compila.
+    // [tareas] es true en Tareas y sus módulos de origen, donde cuenta la
+    // marca "No opera en To-Do" de Talento Humano (4 oct 2026; espejo de
+    // `soloTalentoHumanoEn`): con ella la persona no usa esos módulos en la
+    // empresa aunque conserve alguno en la lista.
+    function tieneAppsEn(empresaId, apps, tareas) {
       let u = currentUser();
       let detalle = u.get('empresasDetalle', {});
       let bloque = detalle is map ? detalle.get(empresaId, {}) : {};
       let propias = bloque is map ? bloque.get('apps', null) : null;
       let raiz = u.get('apps', []);
-      let admin = ['admindashboard', 'admin'];
-      return u.get('appsPorEmpresa', false) == true
-        ? (propias is list
-          ? propias.hasAny(admin)
-          : (raizEsDeEmpresa(u, empresaId) && raiz is list && raiz.hasAny(admin)))
-        : ((raiz is list && raiz.hasAny(admin))
-          || (propias is list && propias.hasAny(admin)));
+      return !(tareas && bloque is map && bloque.get('soloTalentoHumano', false) == true)
+        && (u.get('appsPorEmpresa', false) == true
+          ? (propias is list ? propias.hasAny(apps)
+            : (raizEsDeEmpresa(u, empresaId) && raiz is list && raiz.hasAny(apps)))
+          : ((raiz is list && raiz.hasAny(apps))
+            || (propias is list && propias.hasAny(apps))));
+    }
+
+    function tieneAppAdminEn(empresaId) {
+      return tieneAppsEn(empresaId, ['admindashboard', 'admin'], false);
     }
 
     // Mismo contrato de empresa activa para la app de Correo. El rol interno
     // determina las acciones del módulo; la consulta de avisos exige acceso
     // efectivo a la app incluso si existe una asignación histórica de rol.
     function tieneAppCorreoEn(empresaId) {
-      let u = currentUser();
-      let detalle = u.get('empresasDetalle', {});
-      let bloque = detalle is map ? detalle.get(empresaId, {}) : {};
-      let propias = bloque is map ? bloque.get('apps', null) : null;
-      let raiz = u.get('apps', []);
-      let correo = ['correodashboard', 'correo'];
-      return u.get('appsPorEmpresa', false) == true
-        ? (propias is list
-          ? propias.hasAny(correo)
-          : (raizEsDeEmpresa(u, empresaId) && raiz is list && raiz.hasAny(correo)))
-        : ((raiz is list && raiz.hasAny(correo))
-          || (propias is list && propias.hasAny(correo)));
+      return tieneAppsEn(empresaId, ['correodashboard', 'correo'], false);
     }
 
     function tieneAppTokensDianEn(empresaId) {
-      let u = currentUser();
-      let detalle = u.get('empresasDetalle', {});
-      let bloque = detalle is map ? detalle.get(empresaId, {}) : {};
-      let propias = bloque is map ? bloque.get('apps', null) : null;
-      let raiz = u.get('apps', []);
-      let apps = ['tokensdiandashboard', 'tokensdian', 'tokens'];
-      return u.get('appsPorEmpresa', false) == true
-        ? (propias is list ? propias.hasAny(apps)
-          : (raizEsDeEmpresa(u, empresaId) && raiz is list && raiz.hasAny(apps)))
-        : ((raiz is list && raiz.hasAny(apps))
-          || (propias is list && propias.hasAny(apps)));
+      return tieneAppsEn(empresaId, ['tokensdiandashboard', 'tokensdian', 'tokens'], false);
     }
 
     function tieneAppTalentoEn(empresaId) {
-      let u = currentUser();
-      let detalle = u.get('empresasDetalle', {});
-      let bloque = detalle is map ? detalle.get(empresaId, {}) : {};
-      let propias = bloque is map ? bloque.get('apps', null) : null;
-      let raiz = u.get('apps', []);
-      let apps = ['talentohumanodashboard', 'talentohumano', 'talento'];
-      return u.get('appsPorEmpresa', false) == true
-        ? (propias is list ? propias.hasAny(apps)
-          : (raizEsDeEmpresa(u, empresaId) && raiz is list && raiz.hasAny(apps)))
-        : ((raiz is list && raiz.hasAny(apps))
-          || (propias is list && propias.hasAny(apps)));
+      return tieneAppsEn(empresaId, ['talentohumanodashboard', 'talentohumano', 'talento'], false);
     }
 
     function tieneAppNutricionEn(empresaId) {
-      let u = currentUser();
-      let detalle = u.get('empresasDetalle', {});
-      let bloque = detalle is map ? detalle.get(empresaId, {}) : {};
-      let propias = bloque is map ? bloque.get('apps', null) : null;
-      let raiz = u.get('apps', []);
-      let apps = ['nutriciondashboard', 'nutricion'];
-      return u.get('appsPorEmpresa', false) == true
-        ? (propias is list ? propias.hasAny(apps)
-          : (raizEsDeEmpresa(u, empresaId) && raiz is list && raiz.hasAny(apps)))
-        : ((raiz is list && raiz.hasAny(apps))
-          || (propias is list && propias.hasAny(apps)));
+      return tieneAppsEn(empresaId, ['nutriciondashboard', 'nutricion'], false);
     }
 
     // Administrador de Correspondencia por su asignación canónica. Sin mirar
@@ -470,16 +433,7 @@ service cloud.firestore {
     }
 
     function tieneAppComprasEn(empresaId) {
-      let u = currentUser();
-      let detalle = u.get('empresasDetalle', {});
-      let bloque = detalle is map ? detalle.get(empresaId, {}) : {};
-      let propias = bloque is map ? bloque.get('apps', null) : null;
-      let raiz = u.get('apps', []);
-      let apps = ['comprasdashboard', 'compras'];
-      return u.get('appsPorEmpresa', false) == true
-        ? (propias is list ? propias.hasAny(apps)
-          : (raizEsDeEmpresa(u, empresaId) && raiz is list && raiz.hasAny(apps)))
-        : ((raiz is list && raiz.hasAny(apps)) || (propias is list && propias.hasAny(apps)));
+      return tieneAppsEn(empresaId, ['comprasdashboard', 'compras'], false);
     }
 
     // La compatibilidad anterior termina individualmente al materializar su rol.
@@ -541,10 +495,8 @@ service cloud.firestore {
           'tokensdiandashboard', 'talentohumanodashboard',
           'nutriciondashboard', 'facturaciondashboard',
           'gerenciadashboard']
-        && (data.moduleId != 'comprasdashboard' || data.get('baseRole', '') in ['admin','calidad','compras','bodega','consultas'])
-        && (data.moduleId != 'tokensdiandashboard' || data.get('baseRole', '') in ['consulta','operador','administrador'])
-        && (data.moduleId != 'talentohumanodashboard' || data.get('baseRole', '') in ['consulta','solicitante','reclutador','gestor','administrador'])
-        && (data.moduleId != 'nutriciondashboard' || data.get('baseRole', '') in ['consulta','clinico','menus','coordinador','administrador'])
+        && (nivelesDeModulo(data.moduleId).size() == 0
+          || data.get('baseRole', '') in nivelesDeModulo(data.moduleId))
         && data.get('enabled', null) is bool
         && data.get('revision', null) is int && data.revision >= 1
         && data.get('nombre', '') is string
@@ -572,18 +524,11 @@ service cloud.firestore {
 
     // Credenciales, intentos y retos de recuperación son exclusivamente del
     // backend. Nunca se exponen al cliente, ni siquiera a administradores.
-    match /TBL_AUTH_CREDENTIALS/{document=**} {
-      allow read, write: if false;
-    }
-    match /TBL_AUTH_LOGIN_ATTEMPTS/{document=**} {
-      allow read, write: if false;
-    }
-    match /TBL_AUTH_RECOVERY_CHALLENGES/{document=**} {
-      allow read, write: if false;
-    }
-    match /TBL_AUTH_ADMIN_AUDIT/{document=**} {
-      allow read, write: if false;
-    }
+    // `TBL_AUTH_CREDENTIALS`, `TBL_AUTH_LOGIN_ATTEMPTS`,
+    // `TBL_AUTH_RECOVERY_CHALLENGES`, `TBL_AUTH_ADMIN_AUDIT`: cerradas al
+    // cliente.
+    // Sin `match` propio: la regla general las excluye y ninguna otra las
+    // abre (6 oct 2026, tamaño máximo de las reglas).
 
     // Registro de ingresos (29 sep 2026): cada quien agrega el suyo al
     // entrar, con su equipo; lo lee Admin de esa empresa o Desarrollo. Antes
@@ -610,9 +555,9 @@ service cloud.firestore {
           && tieneAppAdminEn(resource.data.empresaId));
       allow write: if false;
     }
-    match /TBL_WHATSAPP_META_ESTADOS/{statusId} {
-      allow read, write: if false;
-    }
+    // `TBL_WHATSAPP_META_ESTADOS`: cerrada al cliente.
+    // Sin `match` propio: la regla general la excluye y ninguna otra la
+    // abre (6 oct 2026, tamaño máximo de las reglas).
 
     // Contiene teléfonos, contenido del aviso y errores del proveedor. Correo
     // y Admin solo lo consultan en su empresa; Functions crea y actualiza.
@@ -647,96 +592,26 @@ service cloud.firestore {
             || request.resource.data.empresaId == resource.data.empresaId);
     }
 
-    match /TBL_PACIENTES/{docId} {
-      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
-      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
-      allow create: if documentoDeSuEmpresa() && nutricionEscribeClinica(request.resource.data.empresaId);
-      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeClinica(resource.data.empresaId);
+    // Las quince colecciones de Nutrición con el mismo contrato van en un
+    // solo `match` (6 oct 2026): quince copias de la misma regla ayudaban a
+    // pasar el tamaño máximo que Google acepta al compilar las reglas. Las
+    // lee quien tiene un nivel del módulo; las de menús las escribe el nivel
+    // de menús y las demás (clínicas) el clínico.
+    // `matches` compara el nombre completo (ver `esColeccionCompras`).
+    function esColeccionNutricion(collection) {
+      return collection.matches('TBL_(PACIENTES|VALORACIONES_NUTRICION'
+        + '|MEDICIONES_NUTRICION|PATOLOGIAS|ASIGNACIONES_DIETA'
+        + '|CARNETS_NUTRICION|DERIVACIONES_NUTRICION|ALERTAS_NUTRICION|FIRMAS'
+        + '|EVIDENCIAS_NUTRICION|DIRECTORIO_NUTRICION'
+        + '|DIETAS|MENUS|PLANTILLAS_MENUS|INGREDIENTES)');
     }
-    match /TBL_VALORACIONES_NUTRICION/{docId} {
-      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
-      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
-      allow create: if documentoDeSuEmpresa() && nutricionEscribeClinica(request.resource.data.empresaId);
-      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeClinica(resource.data.empresaId);
+
+    function nutricionEscribe(collection, empresaId) {
+      return collection.matches('TBL_(DIETAS|MENUS|PLANTILLAS_MENUS|INGREDIENTES)')
+        ? nutricionEscribeMenus(empresaId) : nutricionEscribeClinica(empresaId);
     }
-    match /TBL_MEDICIONES_NUTRICION/{docId} {
-      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
-      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
-      allow create: if documentoDeSuEmpresa() && nutricionEscribeClinica(request.resource.data.empresaId);
-      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeClinica(resource.data.empresaId);
-    }
-    match /TBL_PATOLOGIAS/{docId} {
-      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
-      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
-      allow create: if documentoDeSuEmpresa() && nutricionEscribeClinica(request.resource.data.empresaId);
-      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeClinica(resource.data.empresaId);
-    }
-    match /TBL_DIETAS/{docId} {
-      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
-      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
-      allow create: if documentoDeSuEmpresa() && nutricionEscribeMenus(request.resource.data.empresaId);
-      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeMenus(resource.data.empresaId);
-    }
-    match /TBL_ASIGNACIONES_DIETA/{docId} {
-      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
-      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
-      allow create: if documentoDeSuEmpresa() && nutricionEscribeClinica(request.resource.data.empresaId);
-      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeClinica(resource.data.empresaId);
-    }
-    match /TBL_CARNETS_NUTRICION/{docId} {
-      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
-      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
-      allow create: if documentoDeSuEmpresa() && nutricionEscribeClinica(request.resource.data.empresaId);
-      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeClinica(resource.data.empresaId);
-    }
-    match /TBL_MENUS/{docId} {
-      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
-      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
-      allow create: if documentoDeSuEmpresa() && nutricionEscribeMenus(request.resource.data.empresaId);
-      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeMenus(resource.data.empresaId);
-    }
-    match /TBL_DERIVACIONES_NUTRICION/{docId} {
-      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
-      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
-      allow create: if documentoDeSuEmpresa() && nutricionEscribeClinica(request.resource.data.empresaId);
-      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeClinica(resource.data.empresaId);
-    }
-    match /TBL_ALERTAS_NUTRICION/{docId} {
-      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
-      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
-      allow create: if documentoDeSuEmpresa() && nutricionEscribeClinica(request.resource.data.empresaId);
-      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeClinica(resource.data.empresaId);
-    }
-    match /TBL_FIRMAS/{docId} {
-      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
-      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
-      allow create: if documentoDeSuEmpresa() && nutricionEscribeClinica(request.resource.data.empresaId);
-      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeClinica(resource.data.empresaId);
-    }
-    match /TBL_EVIDENCIAS_NUTRICION/{docId} {
-      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
-      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
-      allow create: if documentoDeSuEmpresa() && nutricionEscribeClinica(request.resource.data.empresaId);
-      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeClinica(resource.data.empresaId);
-    }
-    match /TBL_PLANTILLAS_MENUS/{docId} {
-      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
-      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
-      allow create: if documentoDeSuEmpresa() && nutricionEscribeMenus(request.resource.data.empresaId);
-      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeMenus(resource.data.empresaId);
-    }
-    match /TBL_INGREDIENTES/{docId} {
-      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
-      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
-      allow create: if documentoDeSuEmpresa() && nutricionEscribeMenus(request.resource.data.empresaId);
-      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeMenus(resource.data.empresaId);
-    }
-    match /TBL_DIRECTORIO_NUTRICION/{docId} {
-      allow get: if resource == null || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId));
-      allow list: if documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
-      allow create: if documentoDeSuEmpresa() && nutricionEscribeClinica(request.resource.data.empresaId);
-      allow update, delete: if documentoDeSuEmpresa() && nutricionEscribeClinica(resource.data.empresaId);
-    }
+    // Su `match` está al final, con las colecciones agrupadas.
+
     match /TBL_CITAS_NUTRICION/{docId} {
       allow get: if resource == null || documentoDeSuEmpresa();
       allow list: if documentoDeSuEmpresa();
@@ -745,10 +620,7 @@ service cloud.firestore {
     }
     // Evaluaciones diagnósticas del paciente (29 sep 2026): son datos de
     // salud y seguían en la regla general, legibles desde cualquier empresa.
-    match /TBL_EVALUACIONES_DIAGNOSTICAS/{docId} {
-      allow get: if resource == null || documentoDeSuEmpresa();
-      allow list, create, update, delete: if documentoDeSuEmpresa();
-    }
+    // Su regla es `esColeccionDeSuEmpresa`, junto a Facturación.
 
     // Historial del paciente: `{empresa}-{paciente}/registros`. La consulta
     // no filtra por empresa (lee los últimos 20 del paciente), así que la
@@ -779,7 +651,7 @@ service cloud.firestore {
       allow get: if resource == null || belongsToCompany(resource.data.empresaId);
       allow list: if belongsToCompany(resource.data.empresaId);
       allow create: if configuraFiltrosCorreo(request.resource.data.empresaId);
-      allow update: if resource.data.empresaId == request.resource.data.empresaId
+      allow update: if empresaSeConserva()
         && configuraFiltrosCorreo(resource.data.empresaId);
       allow delete: if configuraFiltrosCorreo(resource.data.empresaId);
     }
@@ -791,63 +663,39 @@ service cloud.firestore {
 
     // Los enlaces Token DIAN y su auditoria solo se exponen mediante
     // Cloud Functions. Esto impide que un cliente lea incluso el ciphertext.
-    match /TBL_DIAN_TOKENS/{document=**} {
-      allow read, write: if false;
-    }
-    match /TBL_DIAN_TOKEN_ACCESOS/{document=**} {
-      allow read, write: if false;
-    }
-    match /TBL_DIAN_TOKEN_CONFIG/{document=**} {
-      allow read, write: if false;
-    }
-    // El nivel operativo vive fuera de los tokens cifrados. Admin de la
-    // empresa o del módulo lo asigna a otros; nunca se autoasigna.
-    match /TBL_DIAN_TOKEN_ROLES/{docId} {
-      allow get: if isSignedIn() && (resource == null || belongsToCompany(resource.data.empresaId));
-      allow list: if belongsToCompany(resource.data.empresaId);
-      allow create: if asignacionDeTablaValida(docId, request.resource.data,
-          ['consulta','operador','administrador'])
-        && asignaEnTablaDeModulo(request.resource.data.empresaId,
-          request.resource.data.userId, 'tokensdiandashboard');
-      allow update: if resource.data.empresaId == request.resource.data.empresaId
-        && asignacionDeTablaValida(docId, request.resource.data,
-          ['consulta','operador','administrador'])
-        && asignaEnTablaDeModulo(resource.data.empresaId,
-          request.resource.data.userId, 'tokensdiandashboard');
-      allow delete: if asignaEnTablaDeModulo(resource.data.empresaId,
-          resource.data.userId, 'tokensdiandashboard');
-    }
-    match /TBL_TALENTO_HUMANO_ROLES/{docId} {
-      allow get: if isSignedIn() && (resource == null || belongsToCompany(resource.data.empresaId));
-      allow list: if belongsToCompany(resource.data.empresaId);
-      allow create: if asignacionDeTablaValida(docId, request.resource.data,
-          ['consulta','solicitante','reclutador','gestor','administrador'])
-        && asignaEnTablaDeModulo(request.resource.data.empresaId,
-          request.resource.data.userId, 'talentohumanodashboard');
-      allow update: if resource.data.empresaId == request.resource.data.empresaId
-        && asignacionDeTablaValida(docId, request.resource.data,
-          ['consulta','solicitante','reclutador','gestor','administrador'])
-        && asignaEnTablaDeModulo(resource.data.empresaId,
-          request.resource.data.userId, 'talentohumanodashboard');
-      allow delete: if asignaEnTablaDeModulo(resource.data.empresaId,
-          resource.data.userId, 'talentohumanodashboard');
+    // `TBL_DIAN_TOKENS`, `TBL_DIAN_TOKEN_ACCESOS`, `TBL_DIAN_TOKEN_CONFIG`:
+    // cerradas al cliente.
+    // Sin `match` propio: la regla general las excluye y ninguna otra las
+    // abre (6 oct 2026, tamaño máximo de las reglas).
+    // El nivel operativo de Tokens DIAN (fuera de los tokens cifrados),
+    // Talento Humano y Nutrición vive en la tabla del módulo. Admin de la
+    // empresa o del módulo lo asigna a otros; nunca se autoasigna. Las tres
+    // tablas tienen el mismo contrato y van en un solo `match` (6 oct 2026,
+    // tamaño máximo de las reglas al compilar).
+    function esTablaDeRoles(collection) {
+      return collection.matches(
+        'TBL_(DIAN_TOKEN_ROLES|TALENTO_HUMANO_ROLES|NUTRICION_ROLES)');
     }
 
-    match /TBL_NUTRICION_ROLES/{docId} {
-      allow get: if isSignedIn() && (resource == null || belongsToCompany(resource.data.empresaId));
-      allow list: if belongsToCompany(resource.data.empresaId);
-      allow create: if asignacionDeTablaValida(docId, request.resource.data,
-          ['consulta','clinico','menus','coordinador','administrador'])
-        && asignaEnTablaDeModulo(request.resource.data.empresaId,
-          request.resource.data.userId, 'nutriciondashboard');
-      allow update: if resource.data.empresaId == request.resource.data.empresaId
-        && asignacionDeTablaValida(docId, request.resource.data,
-          ['consulta','clinico','menus','coordinador','administrador'])
-        && asignaEnTablaDeModulo(resource.data.empresaId,
-          request.resource.data.userId, 'nutriciondashboard');
-      allow delete: if asignaEnTablaDeModulo(resource.data.empresaId,
-          resource.data.userId, 'nutriciondashboard');
+    function moduloDeTablaDeRoles(collection) {
+      return collection == 'TBL_DIAN_TOKEN_ROLES' ? 'tokensdiandashboard'
+        : (collection == 'TBL_TALENTO_HUMANO_ROLES' ? 'talentohumanodashboard'
+          : 'nutriciondashboard');
     }
+
+    // Niveles de los módulos con tabla de roles; son también los roles base
+    // válidos de sus roles configurables (`rolDeModuloValido`).
+    function nivelesDeModulo(moduleId) {
+      return moduleId == 'tokensdiandashboard'
+        ? ['consulta','operador','administrador']
+        : (moduleId == 'talentohumanodashboard'
+          ? ['consulta','solicitante','reclutador','gestor','administrador']
+          : (moduleId == 'nutriciondashboard'
+            ? ['consulta','clinico','menus','coordinador','administrador']
+            : (moduleId == 'comprasdashboard'
+              ? ['admin','calidad','compras','bodega','consultas'] : [])));
+    }
+    // Su `match` está al final, con las colecciones agrupadas.
 
     function nivelNutricionEn(empresaId) {
       let rolePath = /databases/$(database)/documents/TBL_NUTRICION_ROLES/$(empresaId + '_' + request.auth.token.userDocId);
@@ -898,7 +746,7 @@ service cloud.firestore {
             && request.resource.data.get('etapa', '') == 'solicitado'
             && request.resource.data.get('contratados', []) == []
             && request.resource.data.get('candidatos', []) == []));
-      allow update: if resource.data.empresaId == request.resource.data.empresaId
+      allow update: if empresaSeConserva()
         && (nivelTalentoEn(resource.data.empresaId) in
             ['reclutador','gestor','administrador']
           || (nivelTalentoEn(resource.data.empresaId) == 'solicitante'
@@ -916,7 +764,7 @@ service cloud.firestore {
         ['gestor','administrador'];
       allow create: if nivelTalentoEn(request.resource.data.empresaId) in
         ['gestor','administrador'];
-      allow update: if resource.data.empresaId == request.resource.data.empresaId
+      allow update: if empresaSeConserva()
         && nivelTalentoEn(resource.data.empresaId) in ['gestor','administrador'];
       allow delete: if false;
     }
@@ -945,7 +793,7 @@ service cloud.firestore {
           request.resource.data.empresaId,
           request.resource.data
         );
-      allow update: if resource.data.empresaId == request.resource.data.empresaId
+      allow update: if empresaSeConserva()
         && belongsToCompany(resource.data.empresaId)
         && (
           conservaTipoActaInterventoria(
@@ -963,7 +811,7 @@ service cloud.firestore {
       allow get: if resource == null || belongsToCompany(resource.data.empresaId);
       allow list: if belongsToCompany(resource.data.empresaId);
       allow create: if belongsToCompany(request.resource.data.empresaId);
-      allow update: if resource.data.empresaId == request.resource.data.empresaId
+      allow update: if empresaSeConserva()
         && belongsToCompany(resource.data.empresaId);
       // Guardar la revisión de un acta sincroniza sus hallazgos: crea los
       // nuevos y BORRA los que ya no tienen observación y nunca tuvieron
@@ -982,12 +830,10 @@ service cloud.firestore {
 
     // Expedientes K2 y su historial: solo el callable comprueba Calidad,
     // acceso activo y responsable ACTUAL de la tarea antes de cada operación.
-    match /TBL_INTERVENTORIA_PLANES/{document=**} {
-      allow read, write: if false;
-    }
-    match /TBL_INTERVENTORIA_PLAN_ITEMS/{document=**} {
-      allow read, write: if false;
-    }
+    // `TBL_INTERVENTORIA_PLANES`, `TBL_INTERVENTORIA_PLAN_ITEMS`: cerradas al
+    // cliente.
+    // Sin `match` propio: la regla general las excluye y ninguna otra las
+    // abre (6 oct 2026, tamaño máximo de las reglas).
 
     // Concepto higiénico sanitario (28 sep 2026): el acta de la autoridad de
     // salud con establecimiento, fecha, puntaje y concepto. La ve la empresa;
@@ -1018,7 +864,7 @@ service cloud.firestore {
       allow list: if belongsToCompany(resource.data.empresaId);
       allow create: if registraConceptoSanitario(request.resource.data.empresaId)
         && conceptoSanitarioValido(request.resource.data);
-      allow update: if resource.data.empresaId == request.resource.data.empresaId
+      allow update: if empresaSeConserva()
         && registraConceptoSanitario(resource.data.empresaId)
         && conceptoSanitarioValido(request.resource.data);
       allow delete: if isDeveloperFor(resource.data.empresaId)
@@ -1065,7 +911,7 @@ service cloud.firestore {
           || (request.resource.data.rol != 'gerencia'
             && request.resource.data.userId != request.auth.token.userDocId
             && gerenciaVisitasEn(request.resource.data.empresaId)));
-      allow update: if resource.data.empresaId == request.resource.data.empresaId
+      allow update: if empresaSeConserva()
         && resource.data.userId == request.resource.data.userId
         && belongsToCompany(resource.data.empresaId)
         && request.resource.data.rol in ['', 'jefe', 'profesional', 'consulta', 'firmante', 'gerencia']
@@ -1106,7 +952,7 @@ service cloud.firestore {
       allow list: if participaEnVisitas(resource.data.empresaId);
       allow create: if administraVisitasArea(request.resource.data.empresaId,
           request.resource.data.areaId);
-      allow update: if resource.data.empresaId == request.resource.data.empresaId
+      allow update: if empresaSeConserva()
         && resource.data.areaId == request.resource.data.areaId
         && administraVisitasArea(resource.data.empresaId, resource.data.areaId);
       allow delete: if administraVisitasArea(resource.data.empresaId,
@@ -1131,7 +977,7 @@ service cloud.firestore {
       // HSE" no es un departamento: el de SST lo lleva Talento Humano). Hay
       // que administrar los dos, así que en la práctica solo Desarrollo y
       // Gerencia lo mueven; el jefe sigue en el suyo.
-      allow update: if resource.data.empresaId == request.resource.data.empresaId
+      allow update: if empresaSeConserva()
         && administraVisitasArea(resource.data.empresaId, resource.data.areaId)
         && (resource.data.areaId == request.resource.data.areaId
           || administraVisitasAreaEn(resource.data.empresaId,
@@ -1177,7 +1023,7 @@ service cloud.firestore {
       // fija al iniciarla; se inicia y se cierra el día programado; el
       // profesional ya no reprograma: pide el cambio de fecha y el jefe lo
       // aprueba o lo rechaza.
-      allow update: if resource.data.empresaId == request.resource.data.empresaId
+      allow update: if empresaSeConserva()
         && resource.data.profesionalId == request.resource.data.profesionalId
         // La empresa se mira una vez aquí y no en cada rama: cada
         // `belongsToCompany` cuesta expresiones y las reglas tienen un tope
@@ -1411,7 +1257,7 @@ service cloud.firestore {
       allow create: if belongsToCompany(request.resource.data.empresaId)
         && (isDeveloper() || isDeveloperIn(request.resource.data.empresaId)
           || esGerenciaVisitas(request.resource.data.empresaId));
-      allow update: if resource.data.empresaId == request.resource.data.empresaId
+      allow update: if empresaSeConserva()
         && (isDeveloperFor(resource.data.empresaId)
           || isDeveloperIn(resource.data.empresaId)
           || esGerenciaVisitas(resource.data.empresaId));
@@ -1434,7 +1280,7 @@ service cloud.firestore {
       allow create: if establecimientoVisitasValido(docId, request.resource.data)
         && belongsToCompany(request.resource.data.empresaId)
         && editaEstablecimientosVisitasEn(request.resource.data.empresaId);
-      allow update: if resource.data.empresaId == request.resource.data.empresaId
+      allow update: if empresaSeConserva()
         && resource.data.centroId == request.resource.data.centroId
         && establecimientoVisitasValido(docId, request.resource.data)
         && belongsToCompany(resource.data.empresaId)
@@ -1493,7 +1339,7 @@ service cloud.firestore {
       allow create: if gestionaRolesInterventoria(request.resource.data.empresaId,
         asignacionDeTablaValida(docId, request.resource.data,
           nivelesInterventoria()));
-      allow update: if resource.data.empresaId == request.resource.data.empresaId
+      allow update: if empresaSeConserva()
         && gestionaRolesInterventoria(resource.data.empresaId,
           asignacionDeTablaValida(docId, request.resource.data,
             nivelesInterventoria()));
@@ -1541,36 +1387,27 @@ service cloud.firestore {
     // número. Esa es toda la razón de que sean dos colecciones y no dos campos,
     // y por eso el corte se hace ahora aunque el segundo lector no exista
     // todavía: hacerlo después sería una migración.
+    // `hasPlanillasRole` ya mira la empresa (y si la persona está habilitada).
+    function gestionaPagos(empresaId) {
+      return hasPlanillasRole(empresaId, ['tesoreria', 'admin_doc', 'desarrollador']);
+    }
+
     match /TBL_PAGOS_BENEFICIARIOS/{docId} {
-      // `hasPlanillasRole` ya mira la empresa (y si la persona está habilitada).
-      allow read: if hasPlanillasRole(resource.data.empresaId, [
-          'tesoreria', 'admin_doc', 'desarrollador'
-        ]);
-      allow create, update: if hasPlanillasRole(request.resource.data.empresaId, [
-          'tesoreria', 'admin_doc', 'desarrollador'
-        ])
+      allow read: if gestionaPagos(resource.data.empresaId);
+      allow create, update: if gestionaPagos(request.resource.data.empresaId)
         // El número de cuenta no puede colarse aquí ni por descuido ni a
         // propósito: si se admitiera, quedaría legible para Talento Humano y
         // el corte entre las dos colecciones no serviría de nada.
         && !('numeroCuenta' in request.resource.data);
-      allow delete: if hasPlanillasRole(resource.data.empresaId, [
-        'tesoreria', 'admin_doc', 'desarrollador'
-      ]);
+      allow delete: if gestionaPagos(resource.data.empresaId);
     }
 
     // Y aquí, solo el número de cuenta. Tesorería y la administración
     // documental. Talento Humano NO entra: no le hace falta para su trabajo, y
     // un dato que no se necesita no se expone.
     match /TBL_PAGOS_BENEFICIARIOS_CUENTA/{docId} {
-      allow read: if hasPlanillasRole(resource.data.empresaId, [
-          'tesoreria', 'admin_doc', 'desarrollador'
-        ]);
-      allow create, update: if hasPlanillasRole(request.resource.data.empresaId, [
-          'tesoreria', 'admin_doc', 'desarrollador'
-        ]);
-      allow delete: if hasPlanillasRole(resource.data.empresaId, [
-        'tesoreria', 'admin_doc', 'desarrollador'
-      ]);
+      allow read, delete: if gestionaPagos(resource.data.empresaId);
+      allow create, update: if gestionaPagos(request.resource.data.empresaId);
     }
 
     match /TBL_CORREO_ROLES/{docId} {
@@ -1583,7 +1420,7 @@ service cloud.firestore {
         || isCorreoAdmin(request.resource.data.empresaId)
         || (asignacionCorreoValida(docId, request.resource.data)
           && gestionaRolesDeModulo(request.resource.data.empresaId, 'correodashboard'));
-      allow update: if resource.data.empresaId == request.resource.data.empresaId
+      allow update: if empresaSeConserva()
         && (isDeveloperFor(resource.data.empresaId)
           || isCorreoAdmin(resource.data.empresaId)
           || (asignacionCorreoValida(docId, request.resource.data)
@@ -1608,7 +1445,7 @@ service cloud.firestore {
       allow list: if belongsToCompany(resource.data.empresaId);
       allow create: if asignacionComprasValida(docId,request.resource.data)
         && asignaEnTablaDeModulo(request.resource.data.empresaId, request.resource.data.userId, 'comprasdashboard');
-      allow update: if resource.data.empresaId == request.resource.data.empresaId
+      allow update: if empresaSeConserva()
         && asignacionComprasValida(docId,request.resource.data)
         && asignaEnTablaDeModulo(resource.data.empresaId, request.resource.data.userId, 'comprasdashboard');
       // Revocar escribe Consultas o retira app/habilitación; borrar resucita
@@ -1616,24 +1453,20 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // `matches` compara el nombre completo. Una expresión regular y no una
+    // lista con `in`: cada elemento de una lista cuenta como una expresión
+    // contra el tope de 1000, y la regla general mira este grupo.
     function esColeccionCompras(collection) {
-      return collection in ['TBL_COMPRAS_PRODUCTOS','TBL_COMPRAS_PROVEEDORES',
-        'TBL_COMPRAS_MARCAS','TBL_COMPRAS_RECEPCIONES','TBL_COMPRAS_APROBACIONES',
-        'TBL_COMPRAS_FICHAS_TECNICAS','TBL_COMPRAS_BODEGAS','TBL_COMPRAS_GRUPOS',
-        'TBL_COMPRAS_REQ_DOCUMENTOS','TBL_COMPRAS_ABASTECIMIENTO',
-        'TBL_COMPRAS_ABASTECIMIENTO_REPORTES','TBL_COMPRAS_AUDITORIA_DOCUMENTOS'];
+      return collection.matches('TBL_COMPRAS_(PRODUCTOS|PROVEEDORES|MARCAS'
+        + '|RECEPCIONES|APROBACIONES|FICHAS_TECNICAS|BODEGAS|GRUPOS'
+        + '|REQ_DOCUMENTOS|ABASTECIMIENTO|ABASTECIMIENTO_REPORTES'
+        + '|AUDITORIA_DOCUMENTOS)');
     }
     // Primera fase: aislamiento por empresa compatible con los niveles por
     // cargo pendientes de consolidación. La escritura por nivel se audita
-    // después de materializar todas las asignaciones anteriores.
-    match /{collection}/{docId} {
-      allow get: if esColeccionCompras(collection) && isSignedIn() && (resource == null || belongsToCompany(resource.data.empresaId));
-      allow list: if esColeccionCompras(collection) && belongsToCompany(resource.data.empresaId);
-      allow create: if esColeccionCompras(collection) && comprasEscrituraEn(request.resource.data.empresaId, ['admin','calidad','compras','bodega']);
-      allow update: if esColeccionCompras(collection) && resource.data.empresaId == request.resource.data.empresaId
-        && comprasEscrituraEn(resource.data.empresaId, ['admin','calidad','compras','bodega']);
-      allow delete: if esColeccionCompras(collection) && comprasEscrituraEn(resource.data.empresaId, ['admin','compras','bodega']);
-    }
+    // después de materializar todas las asignaciones anteriores. Su `match`
+    // está al final, con las colecciones agrupadas.
+
     // Período de consumo de Abastecimiento (30 sep 2026): configuración de
     // la empresa en Admin › Maestros por módulo › Compras. Espejo de
     // PeriodoConsumoConfig (lib/compras/abastecimiento_periodo.dart): un
@@ -1696,7 +1529,7 @@ service cloud.firestore {
       allow update: if (esRolDeModulo(resource.data)
           || esRolDeModulo(request.resource.data))
         ? (esRolDeModulo(resource.data) && esRolDeModulo(request.resource.data)
-          && resource.data.empresaId == request.resource.data.empresaId
+          && empresaSeConserva()
           && resource.data.moduleId == request.resource.data.moduleId
           && rolDeModuloValido(docId, request.resource.data)
           && gestionaRolesDeModulo(resource.data.empresaId, resource.data.moduleId))
@@ -1710,7 +1543,7 @@ service cloud.firestore {
       allow read: if belongsToCompany(resource.data.empresaId);
       allow create: if isDeveloperFor(request.resource.data.get('empresaId', null))
         || isCorreoAdmin(request.resource.data.empresaId);
-      allow update: if resource.data.empresaId == request.resource.data.empresaId
+      allow update: if empresaSeConserva()
         && (isDeveloperFor(resource.data.empresaId)
           || isCorreoAdmin(resource.data.empresaId));
       allow delete: if false;
@@ -1724,7 +1557,7 @@ service cloud.firestore {
         'respuestaExternaRegistrada', 'respuestaExternaRegistradaPor',
         'respuestaExternaRegistradaAt', 'soportesRespuestaExterna'
       ]);
-      allow update: if resource.data.empresaId == request.resource.data.empresaId
+      allow update: if empresaSeConserva()
         && belongsToCompany(resource.data.empresaId)
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'respuestaExternaRegistrada', 'respuestaExternaRegistradaPor',
@@ -1741,7 +1574,7 @@ service cloud.firestore {
     match /TBL_GD_COLABORACION/{docId} {
       allow read: if belongsToCompany(resource.data.empresaId);
       allow create: if belongsToCompany(request.resource.data.empresaId);
-      allow update: if resource.data.empresaId == request.resource.data.empresaId
+      allow update: if empresaSeConserva()
         && belongsToCompany(resource.data.empresaId);
       allow delete: if false;
     }
@@ -1749,27 +1582,27 @@ service cloud.firestore {
     match /TBL_GD_VINCULOS/{docId} {
       allow read: if belongsToCompany(resource.data.empresaId);
       allow create: if belongsToCompany(request.resource.data.empresaId);
-      allow update: if resource.data.empresaId == request.resource.data.empresaId
+      allow update: if empresaSeConserva()
         && belongsToCompany(resource.data.empresaId);
       allow delete: if belongsToCompany(resource.data.empresaId);
     }
 
     // Contadores y códigos internos se escriben exclusivamente en Functions.
-    match /TBL_GD_CONTADORES/{docId} {
-      allow read, write: if false;
-    }
+    // `TBL_GD_CONTADORES`: cerrada al cliente.
+    // Sin `match` propio: la regla general la excluye y ninguna otra la
+    // abre (6 oct 2026, tamaño máximo de las reglas).
 
     // Consecutivo de tareas por empresa: solo `tareasAsignarNumero` y la
     // incorporación de Admin › Migraciones (Functions) lo leen y escriben.
-    match /TBL_TAREAS_CONTADORES/{docId} {
-      allow read, write: if false;
-    }
+    // `TBL_TAREAS_CONTADORES`: cerrada al cliente.
+    // Sin `match` propio: la regla general la excluye y ninguna otra la
+    // abre (6 oct 2026, tamaño máximo de las reglas).
 
     // Consecutivo de visitas por empresa (5 oct 2026): solo
     // `visitasAsignarNumero` y la incorporación de Admin › Migraciones.
-    match /TBL_VISITAS_CONTADORES/{docId} {
-      allow read, write: if false;
-    }
+    // `TBL_VISITAS_CONTADORES`: cerrada al cliente.
+    // Sin `match` propio: la regla general la excluye y ninguna otra la
+    // abre (6 oct 2026, tamaño máximo de las reglas).
 
     // ── Facturación (29 sep 2026) ─────────────────────────────────────────
     // Estaba en la regla general: cualquiera con sesión, de cualquier
@@ -1782,26 +1615,15 @@ service cloud.firestore {
       allow read, write: if belongsToCompany(empresaId);
     }
 
-    match /TBL_FAC_OBLIGACIONES/{docId} {
-      allow get: if resource == null || documentoDeSuEmpresa();
-      allow list, create, update, delete: if documentoDeSuEmpresa();
+    // Las de Facturación y las evaluaciones diagnósticas de Nutrición: solo
+    // `documentoDeSuEmpresa`. Un solo `match` (6 oct 2026, tamaño máximo de
+    // las reglas al compilar).
+    function esColeccionDeSuEmpresa(collection) {
+      return collection.matches('TBL_(FAC_OBLIGACIONES|FAC_ESTABLECIMIENTOS'
+        + '|FAC_REVISIONES|FAC_OBSERVACIONES|FAC_AUTORIZACIONES'
+        + '|EVALUACIONES_DIAGNOSTICAS)');
     }
-    match /TBL_FAC_ESTABLECIMIENTOS/{docId} {
-      allow get: if resource == null || documentoDeSuEmpresa();
-      allow list, create, update, delete: if documentoDeSuEmpresa();
-    }
-    match /TBL_FAC_REVISIONES/{docId} {
-      allow get: if resource == null || documentoDeSuEmpresa();
-      allow list, create, update, delete: if documentoDeSuEmpresa();
-    }
-    match /TBL_FAC_OBSERVACIONES/{docId} {
-      allow get: if resource == null || documentoDeSuEmpresa();
-      allow list, create, update, delete: if documentoDeSuEmpresa();
-    }
-    match /TBL_FAC_AUTORIZACIONES/{docId} {
-      allow get: if resource == null || documentoDeSuEmpresa();
-      allow list, create, update, delete: if documentoDeSuEmpresa();
-    }
+    // Su `match` está al final, con las colecciones agrupadas.
 
     // ── Rutas (28 sep 2026) ───────────────────────────────────────────────
     // Estaba entero en la regla general: cualquiera con sesión, de cualquier
@@ -1867,10 +1689,6 @@ service cloud.firestore {
               || (userId != request.auth.token.userDocId
                 && rolRutas(empresaId) in ['admin', 'admin_calidad'])))
           || isDeveloper() || isDeveloperIn(empresaId));
-    }
-
-    function empresaSeConserva() {
-      return resource.data.empresaId == request.resource.data.empresaId;
     }
 
     match /TBL_RUTAS_ROLES/{docId} {
@@ -2053,30 +1871,15 @@ service cloud.firestore {
     // Las subcolecciones son una bitácora: solo se agregan eventos, nunca se
     // modifican ni se borran desde el cliente. El documento raíz conserva la
     // empresa y los participantes; un cambio de responsable valida el destino.
-    // "No opera en To-Do" (Talento Humano, 4 oct 2026): en esa empresa la
-    // persona no usa módulos aunque conserve alguno en la lista. Espejo de
-    // `soloTalentoHumanoEn` en lib/utils/user_company.dart.
-    function tieneAppDeListaEn(empresaId, apps) {
-      let u = currentUser();
-      let detalle = u.get('empresasDetalle', {});
-      let bloque = detalle is map ? detalle.get(empresaId, {}) : {};
-      let propias = bloque is map ? bloque.get('apps', null) : null;
-      let raiz = u.get('apps', []);
-      return !(bloque is map && bloque.get('soloTalentoHumano', false) == true)
-        && (u.get('appsPorEmpresa', false) == true
-          ? (propias is list ? propias.hasAny(apps)
-            : (raizEsDeEmpresa(u, empresaId) && raiz is list && raiz.hasAny(apps)))
-          : ((raiz is list && raiz.hasAny(apps))
-            || (propias is list && propias.hasAny(apps))));
-    }
-
+    // "No opera en To-Do" (Talento Humano, 4 oct 2026): `tieneAppsEn` con
+    // [tareas] en true.
     function tieneAppTareasEn(empresaId) {
-      return tieneAppDeListaEn(empresaId, ['tareasdashboard', 'tareas']);
+      return tieneAppsEn(empresaId, ['tareasdashboard', 'tareas'], true);
     }
 
     // Una sola consulta de apps con la lista del módulo de origen (antes
-    // cinco funciones casi iguales que se copiaban en cada regla de tareas al
-    // compilar; 6 oct 2026, tamaño máximo de las reglas). Compras y Correo
+    // cinco funciones casi iguales; 6 oct 2026, tamaño máximo de las
+    // reglas). Compras y Correo
     // usaban `tieneAppComprasEn`/`tieneAppCorreoEn`, de la misma forma.
     function appsDeOrigenTarea(modulo) {
       return modulo == 'interventoria' ? ['interventoriadashboard', 'interventoria']
@@ -2089,7 +1892,7 @@ service cloud.firestore {
 
     function tieneAppOrigenTareaEn(empresaId, modulo) {
       let apps = appsDeOrigenTarea(modulo);
-      return apps.size() > 0 && tieneAppDeListaEn(empresaId, apps);
+      return apps.size() > 0 && tieneAppsEn(empresaId, apps, true);
     }
 
     function puedeVerEquipoTareasEn(empresaId) {
@@ -2161,7 +1964,7 @@ service cloud.firestore {
               && tieneAppOrigenTareaEn(empresaId, modulo))
             || tieneAppAdminEn(empresaId)
             || isDeveloperIn(empresaId)
-            || (tieneAppDeListaEn(empresaId, ['gerenciadashboard', 'gerencia'])
+            || (tieneAppsEn(empresaId, ['gerenciadashboard', 'gerencia'], true)
               && esGerenciaPorFicha(empresaId))))
         || isDeveloper();
     }
@@ -2175,13 +1978,16 @@ service cloud.firestore {
       let modulo = data.get('sourceModule', '');
       return belongsToCompany(empresaId)
         && ((modulo != 'tareas' && tieneAppOrigenTareaEn(empresaId, modulo))
-          || tieneAppDeListaEn(empresaId,
-            ['tareasdashboard', 'tareas', 'admindashboard', 'admin'])
+          || tieneAppsEn(empresaId,
+            ['tareasdashboard', 'tareas', 'admindashboard', 'admin'], true)
           || isDeveloper() || isDeveloperIn(empresaId));
     }
 
     // `cambios` = claves que cambia la escritura. Se calcula una vez en
-    // `tareaActualizacionValida` y pasa a cada rama.
+    // `tareaActualizacionValida` y pasa a cada rama. Las ramas del flujo
+    // (operativo, reasignación directa y aprobador) reciben `propios`: los
+    // mismos cambios sin `updatedAt` ni `lastEvent*`, que todas permiten
+    // (6 oct 2026: listas más cortas, tamaño máximo de las reglas).
     // `numero` es el consecutivo por empresa que asigna el servidor
     // (`tareasAsignarNumero`, 3 oct 2026): la app no lo crea ni lo cambia.
     function tareaBaseConservada(antes, d, cambios) {
@@ -2231,8 +2037,17 @@ service cloud.firestore {
           d.get('asignado_uid', ''));
     }
 
+    function camposSolicitudReasignacion() {
+      return ['solicitud_reasignacion_estado', 'solicitud_reasignacion_at',
+        'solicitud_reasignacion_by_uid', 'solicitud_reasignacion_by_nombre',
+        'solicitud_reasignacion_to_uid', 'solicitud_reasignacion_to_nombre',
+        'solicitud_reasignacion_areaId', 'solicitud_reasignacion_areaNombre',
+        'solicitud_reasignacion_cargoId',
+        'solicitud_reasignacion_cargoNombre'];
+    }
+
     // Lo que registra el responsable sin cambiar de responsable.
-    function tareaCambioOperativo(antes, d, evento, cambios) {
+    function tareaCambioOperativo(antes, d, evento, propios) {
       let actual = antes.get('estado', antes.get('status', ''));
       return evento in ['task_avance', 'task_novedad',
           'solicitud_finalizacion', 'solicitud_reasignacion']
@@ -2245,26 +2060,23 @@ service cloud.firestore {
         && (
           (evento == 'task_avance'
             && d.get('estado', actual) in [actual, 'en_progreso']
-            && cambios.hasOnly(['estado', 'status', 'fecha_limite', 'dueDate',
-              'updatedAt', 'fecha_actualizacion', 'actualizada_en',
-              'lastEventType', 'lastEventAt', 'lastEventText']))
+            && propios.hasOnly(['estado', 'status', 'fecha_limite', 'dueDate',
+              'fecha_actualizacion', 'actualizada_en']))
           || (evento == 'task_novedad'
             && d.get('estado', actual) in [actual, 'en_progreso']
-            && cambios.hasOnly(['estado', 'status', 'updatedAt',
-              'fecha_actualizacion', 'actualizada_en', 'lastEventType',
-              'lastEventAt', 'lastEventText']))
+            && propios.hasOnly(['estado', 'status', 'fecha_actualizacion',
+              'actualizada_en']))
           || (evento == 'solicitud_finalizacion'
             && antes.get('solicitud_finalizacion_estado', '') != 'pendiente'
             && d.get('estado', '') == 'por_aprobar'
             && d.get('solicitud_finalizacion_estado', '') == 'pendiente'
             && d.get('solicitud_finalizacion_by_uid', '')
               == request.auth.token.userDocId
-            && cambios.hasOnly(['estado', 'status',
+            && propios.hasOnly(['estado', 'status',
               'solicitud_finalizacion_estado', 'solicitud_finalizacion_at',
               'solicitud_finalizacion_by_uid',
-              'solicitud_finalizacion_by_nombre', 'lastEventType',
-              'lastEventAt', 'lastEventText', 'fecha_actualizacion',
-              'updatedAt', 'actualizada_en', 'adjuntos', 'evidencias']))
+              'solicitud_finalizacion_by_nombre', 'fecha_actualizacion',
+              'actualizada_en', 'adjuntos', 'evidencias']))
           // Hacia cualquier área de la empresa: el destino se valida activo
           // en la empresa de la tarea, no en el área del responsable.
           || (evento == 'solicitud_reasignacion'
@@ -2274,16 +2086,7 @@ service cloud.firestore {
               == request.auth.token.userDocId
             && d.get('solicitud_reasignacion_to_uid', '')
               != antes.get('asignado_uid', '')
-            && cambios.hasOnly(['solicitud_reasignacion_estado',
-              'solicitud_reasignacion_at', 'solicitud_reasignacion_by_uid',
-              'solicitud_reasignacion_by_nombre',
-              'solicitud_reasignacion_to_uid',
-              'solicitud_reasignacion_to_nombre',
-              'solicitud_reasignacion_areaId',
-              'solicitud_reasignacion_areaNombre',
-              'solicitud_reasignacion_cargoId',
-              'solicitud_reasignacion_cargoNombre', 'updatedAt',
-              'lastEventType', 'lastEventAt', 'lastEventText'])
+            && propios.hasOnly(camposSolicitudReasignacion())
             && usuarioActivoParaTarea(antes.get('empresaId', ''),
               d.get('solicitud_reasignacion_to_uid', '')))
         );
@@ -2293,7 +2096,7 @@ service cloud.firestore {
     // el responsable la entrega a otra persona activa de la empresa, de
     // cualquier área. Estaba dentro de la rama que exige el mismo
     // responsable, así que nunca podía pasar.
-    function tareaReasignacionDirecta(antes, d, evento, cambios) {
+    function tareaReasignacionDirecta(antes, d, evento, propios) {
       let actual = antes.get('estado', antes.get('status', ''));
       return evento == 'reasignacion_directa'
         && (antes.get('sourceModule', '') == 'interventoria'
@@ -2304,26 +2107,16 @@ service cloud.firestore {
         && d.get('estado', '') == 'en_progreso'
         && d.get('reasignada_por_uid', '') == request.auth.token.userDocId
         && d.get('reasignada_desde_uid', '') == antes.get('asignado_uid', '')
-        && cambios.hasOnly(['asignado_uid', 'asignado_nombre',
-          'asignado_cargo_nombre', 'areaId', 'estado', 'status',
-          'reasignado', 'reasignada_en', 'reasignada_desde_uid',
-          'reasignada_desde_nombre', 'reasignada_por_uid',
-          'participantes_uid', 'reasignacion_pendiente',
-          'solicitud_reasignacion_estado', 'solicitud_reasignacion_at',
-          'solicitud_reasignacion_by_uid',
-          'solicitud_reasignacion_by_nombre',
-          'solicitud_reasignacion_to_uid',
-          'solicitud_reasignacion_to_nombre',
-          'solicitud_reasignacion_areaId',
-          'solicitud_reasignacion_areaNombre',
-          'solicitud_reasignacion_cargoId',
-          'solicitud_reasignacion_cargoNombre', 'updatedAt',
-          'fecha_actualizacion', 'actualizada_en', 'lastEventType',
-          'lastEventAt', 'lastEventText'])
+        && propios.hasOnly(camposSolicitudReasignacion().concat([
+          'asignado_uid', 'asignado_nombre', 'asignado_cargo_nombre',
+          'areaId', 'estado', 'status', 'reasignado', 'reasignada_en',
+          'reasignada_desde_uid', 'reasignada_desde_nombre',
+          'reasignada_por_uid', 'participantes_uid', 'reasignacion_pendiente',
+          'fecha_actualizacion', 'actualizada_en']))
         && tareaCambioResponsable(antes, d);
     }
 
-    function tareaCambioAprobador(antes, d, evento, cambios) {
+    function tareaCambioAprobador(antes, d, evento, propios) {
       return evento in ['aprobada', 'task_devuelta', 'reasignacion_aprobada',
           'reasignacion_rechazada', 'task_avance_gestionado']
         && esAprobadorTarea(antes)
@@ -2333,18 +2126,16 @@ service cloud.firestore {
             && d.get('estado', '') == 'finalizado'
             && d.get('solicitud_finalizacion_estado', '') == 'aprobado'
             && d.get('asignado_uid', '') == antes.get('asignado_uid', '')
-            && cambios.hasOnly(['estado', 'status', 'approved',
-              'approvedAt', 'solicitud_finalizacion_estado',
-              'updatedAt', 'lastEventType', 'lastEventAt', 'lastEventText']))
+            && propios.hasOnly(['estado', 'status', 'approved',
+              'approvedAt', 'solicitud_finalizacion_estado']))
           || (evento == 'task_devuelta'
             && antes.get('solicitud_finalizacion_estado', '') == 'pendiente'
             && d.get('estado', '') == 'devuelta'
             && d.get('asignado_uid', '') == antes.get('asignado_uid', '')
-            && cambios.hasOnly(['estado', 'status', 'fecha_limite',
+            && propios.hasOnly(['estado', 'status', 'fecha_limite',
               'approved', 'approvedAt', 'solicitud_finalizacion_estado',
               'solicitud_finalizacion_at', 'solicitud_finalizacion_by_uid',
-              'solicitud_finalizacion_by_nombre', 'updatedAt',
-              'lastEventType', 'lastEventAt', 'lastEventText']))
+              'solicitud_finalizacion_by_nombre']))
           || (evento == 'reasignacion_aprobada'
             && antes.get('solicitud_reasignacion_estado', '') == 'pendiente'
             && d.get('solicitud_reasignacion_estado', '') == 'aprobada'
@@ -2353,12 +2144,11 @@ service cloud.firestore {
             && d.get('estado', '') == 'en_progreso'
             // El aprobador pasa al jefe inmediato del nuevo responsable
             // (`taskAprobadorTrasReasignar`, 4 oct 2026).
-            && cambios.hasOnly(['asignado_uid', 'asignado_nombre',
+            && propios.hasOnly(['asignado_uid', 'asignado_nombre',
               'asignado_cargo_id', 'asignado_cargo_nombre', 'areaId',
               'estado', 'status', 'reasignado',
               'solicitud_reasignacion_estado', 'reasignacion_resuelta_at',
-              'participantes_uid', 'lastEventType', 'lastEventAt',
-              'updatedAt', 'lastEventText', 'jefe_uid', 'jefe_nombre',
+              'participantes_uid', 'jefe_uid', 'jefe_nombre',
               'aprobador_uid', 'aprobador_nombre', 'approverId',
               'approverName'])
             // El destino ya se validó activo al pedir la reasignación y la
@@ -2368,13 +2158,11 @@ service cloud.firestore {
             && antes.get('solicitud_reasignacion_estado', '') == 'pendiente'
             && d.get('solicitud_reasignacion_estado', '') == 'rechazada'
             && d.get('asignado_uid', '') == antes.get('asignado_uid', '')
-            && cambios.hasOnly(['solicitud_reasignacion_estado',
-              'reasignacion_resuelta_at', 'lastEventType',
-              'lastEventAt', 'updatedAt', 'lastEventText']))
+            && propios.hasOnly(['solicitud_reasignacion_estado',
+              'reasignacion_resuelta_at']))
           || (evento == 'task_avance_gestionado'
             && d.get('asignado_uid', '') == antes.get('asignado_uid', '')
-            && cambios.hasOnly(['fecha_limite', 'updatedAt',
-              'lastEventType', 'lastEventAt', 'lastEventText']))
+            && propios.hasOnly(['fecha_limite']))
         );
     }
 
@@ -2432,10 +2220,13 @@ service cloud.firestore {
       let d = request.resource.data;
       let evento = d.get('lastEventType', '');
       let cambios = d.diff(antes).affectedKeys();
+      // Sin la marca del último evento, que escribe toda acción del flujo.
+      let propios = cambios.difference(['updatedAt', 'lastEventType',
+        'lastEventAt', 'lastEventText'].toSet());
       return (tareaBaseConservada(antes, d, cambios)
-          && (tareaCambioOperativo(antes, d, evento, cambios)
-            || tareaReasignacionDirecta(antes, d, evento, cambios)
-            || tareaCambioAprobador(antes, d, evento, cambios)
+          && (tareaCambioOperativo(antes, d, evento, propios)
+            || tareaReasignacionDirecta(antes, d, evento, propios)
+            || tareaCambioAprobador(antes, d, evento, propios)
             || tareaCambioModulo(antes, d, cambios)
             || tareaVisto(antes, cambios))
           && puedeOperarTarea(antes))
@@ -2518,100 +2309,99 @@ service cloud.firestore {
       }
     }
 
+    // ── Colecciones agrupadas en un `match` con comodín ──────────────────
+    // Van al final, justo antes de la regla general (6 oct 2026). Firestore
+    // evalúa las reglas que coinciden en el orden del archivo y suma lo que
+    // cuesta cada una hasta que alguna permite: en medio del archivo, el
+    // filtro de cada comodín se le cobraba a toda colección con regla propia
+    // que estuviera debajo (Tareas, Rutas, Facturación) contra el tope de
+    // 1000 expresiones. Aquí solo lo pagan estas colecciones y las de la
+    // regla general.
+    // Compras: maestros y operación (`esColeccionCompras`).
+    match /{collection}/{docId} {
+      allow get: if esColeccionCompras(collection) && isSignedIn() && (resource == null || belongsToCompany(resource.data.empresaId));
+      allow list: if esColeccionCompras(collection) && belongsToCompany(resource.data.empresaId);
+      allow create: if esColeccionCompras(collection) && comprasEscrituraEn(request.resource.data.empresaId, ['admin','calidad','compras','bodega']);
+      allow update: if esColeccionCompras(collection) && empresaSeConserva()
+        && comprasEscrituraEn(resource.data.empresaId, ['admin','calidad','compras','bodega']);
+      allow delete: if esColeccionCompras(collection) && comprasEscrituraEn(resource.data.empresaId, ['admin','compras','bodega']);
+    }
+
+    // Nutrición: las quince colecciones con el mismo contrato
+    // (`esColeccionNutricion`).
+    match /{collection}/{docId} {
+      allow get: if esColeccionNutricion(collection) && (resource == null
+        || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId)));
+      allow list: if esColeccionNutricion(collection)
+        && documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId);
+      allow create: if esColeccionNutricion(collection) && documentoDeSuEmpresa()
+        && nutricionEscribe(collection, request.resource.data.empresaId);
+      allow update, delete: if esColeccionNutricion(collection)
+        && documentoDeSuEmpresa()
+        && nutricionEscribe(collection, resource.data.empresaId);
+    }
+
+    // Tablas de roles de Tokens DIAN, Talento Humano y Nutrición
+    // (`esTablaDeRoles`).
+    match /{collection}/{docId} {
+      allow get: if esTablaDeRoles(collection) && isSignedIn()
+        && (resource == null || belongsToCompany(resource.data.empresaId));
+      allow list: if esTablaDeRoles(collection)
+        && belongsToCompany(resource.data.empresaId);
+      allow create: if esTablaDeRoles(collection)
+        && asignacionDeTablaValida(docId, request.resource.data,
+          nivelesDeModulo(moduloDeTablaDeRoles(collection)))
+        && asignaEnTablaDeModulo(request.resource.data.empresaId,
+          request.resource.data.userId, moduloDeTablaDeRoles(collection));
+      allow update: if esTablaDeRoles(collection)
+        && empresaSeConserva()
+        && asignacionDeTablaValida(docId, request.resource.data,
+          nivelesDeModulo(moduloDeTablaDeRoles(collection)))
+        && asignaEnTablaDeModulo(resource.data.empresaId,
+          request.resource.data.userId, moduloDeTablaDeRoles(collection));
+      allow delete: if esTablaDeRoles(collection)
+        && asignaEnTablaDeModulo(resource.data.empresaId,
+          resource.data.userId, moduloDeTablaDeRoles(collection));
+    }
+
+    // Facturación y evaluaciones diagnósticas (`esColeccionDeSuEmpresa`).
+    match /{collection}/{docId} {
+      allow get: if esColeccionDeSuEmpresa(collection)
+        && (resource == null || documentoDeSuEmpresa());
+      allow list, create, update, delete: if esColeccionDeSuEmpresa(collection)
+        && documentoDeSuEmpresa();
+    }
+
     // Todo lo que no tiene regla propia. Las colecciones con regla propia se
     // excluyen aquí: si no, esta regla las volvería a abrir (Firestore deja
-    // pasar si CUALQUIER regla que coincide lo permite). Una lista con `in`
-    // y no una cadena de `!=`: cuesta una sola expresión.
+    // pasar si CUALQUIER regla que coincide lo permite). Una expresión
+    // regular (`matches` compara el nombre completo) y no una lista con `in`:
+    // cada elemento de una lista cuenta como una expresión contra el tope de
+    // 1000 (6 oct 2026: la lista de cien colecciones costaba cien).
     match /{collection}/{document=**} {
       allow read, write: if isSignedIn()
         && !esColeccionCompras(collection)
-        && !(collection in [
-          'TBL_TAREAS',
-          'TBL_TAREAS_CONTADORES',
-          'TBL_COMPRAS_ROLES','TBL_COMPRAS_CONFIG',
-          'TBL_WHATSAPP_CONFIG',
-          'TBL_WHATSAPP_AUDITORIA','TBL_WHATSAPP_META_ESTADOS',
-          'TBL_CORREO_ALERTAS',
-          'TBL_CORREO_LISTADOS',
-          'TBL_CORREO_REGLAS',
-          'TBL_GD_EXPEDIENTES',
-          'TBL_INTERVENTORIA_VISITAS',
-          'TBL_INTERVENTORIA_PLANES',
-          'TBL_INTERVENTORIA_PLAN_ITEMS',
-          'TBL_INTERVENTORIA_HALLAZGOS',
-          'TBL_INTERVENTORIA_ROLES',
-          'TBL_INTERVENTORIA_CONFIG',
-          'TBL_INTERVENTORIA_SOLICITUDES_ELIMINACION',
-          'TBL_INTERVENTORIA_CONCEPTOS_SANITARIOS',
-          'TBL_VISITAS',
-          'TBL_VISITAS_FORMATOS',
-          'TBL_VISITAS_ROLES',
-          'TBL_VISITAS_UBICACIONES',
-          'TBL_VISITAS_GRUPOS',
-          'TBL_VISITAS_ESTABLECIMIENTOS',
-          'TBL_VISITAS_CONTADORES',
-          'TBL_CORREO_ROLES',
-          'TBL_ROLES',
-          'TBL_MIGRATIONS_LOGS',
-          'TBL_GD_TIPOS_DOCUMENTALES',
-          'TBL_GD_EXPEDIENTES_EVENTOS',
-          'TBL_GD_COLABORACION',
-          'TBL_GD_VINCULOS',
-          'TBL_GD_CONTADORES',
-          'TBL_DIAN_TOKENS',
-          'TBL_DIAN_TOKEN_ACCESOS',
-          'TBL_DIAN_TOKEN_CONFIG',
-          'TBL_DIAN_TOKEN_ROLES',
-          'TBL_TALENTO_HUMANO_ROLES',
-          'TBL_NUTRICION_ROLES',
-          'TBL_TH_REQUERIMIENTOS_PERSONAL',
-          'TBL_LLAMADOS_ATENCION',
-          'TBL_HISTORIAL_LLAMADOS_ATENCION',
-          'TBL_AUTH_CREDENTIALS',
-          'TBL_AUTH_LOGIN_ATTEMPTS',
-          'TBL_AUTH_RECOVERY_CHALLENGES',
-          'TBL_AUTH_ADMIN_AUDIT',
-          'TBL_LOGIN_SESIONES',
-          'TBL_PAGOS_BENEFICIARIOS',
-          'TBL_PAGOS_BENEFICIARIOS_CUENTA',
-          'TBL_RUTAS',
-          'TBL_RUTAS_ROLES',
-          'TBL_RUTAS_ESTABLECIMIENTOS',
-          'TBL_RUTAS_PLACAS',
-          'TBL_RUTAS_CONFIG',
-          'TBL_RUTAS_ASIGNACIONES',
-          'TBL_RUTAS_EVIDENCIAS',
-          'TBL_RUTAS_RESUMEN_DIARIO',
-          'TBL_RUTAS_UBICACIONES',
-          'TBL_RUTAS_MOV_CONFIG',
-          'TBL_RUTAS_MOV_HORARIOS',
-          'TBL_RUTAS_MOV_MEDICIONES',
-          'TBL_RUTAS_MOV_RUNS',
-          'TBL_PACIENTES',
-          'TBL_VALORACIONES_NUTRICION',
-          'TBL_MEDICIONES_NUTRICION',
-          'TBL_PATOLOGIAS',
-          'TBL_DIETAS',
-          'TBL_ASIGNACIONES_DIETA',
-          'TBL_CARNETS_NUTRICION',
-          'TBL_MENUS',
-          'TBL_DERIVACIONES_NUTRICION',
-          'TBL_ALERTAS_NUTRICION',
-          'TBL_FIRMAS',
-          'TBL_EVIDENCIAS_NUTRICION',
-          'TBL_PLANTILLAS_MENUS',
-          'TBL_INGREDIENTES',
-          'TBL_DIRECTORIO_NUTRICION',
-          'TBL_CITAS_NUTRICION',
-          'TBL_EVALUACIONES_DIAGNOSTICAS',
-           'TBL_HISTORIAL_NUTRICION',
-          'TBL_FAC_CONFIG',
-          'TBL_FAC_OBLIGACIONES',
-          'TBL_FAC_ESTABLECIMIENTOS',
-          'TBL_FAC_REVISIONES',
-          'TBL_FAC_OBSERVACIONES',
-          'TBL_FAC_AUTORIZACIONES'
-        ]);
+        && !esColeccionNutricion(collection)
+        && !esColeccionDeSuEmpresa(collection)
+        && !esTablaDeRoles(collection)
+        && !collection.matches('TBL_(TAREAS|TAREAS_CONTADORES'
+          + '|COMPRAS_ROLES|COMPRAS_CONFIG'
+          + '|WHATSAPP_CONFIG|WHATSAPP_AUDITORIA|WHATSAPP_META_ESTADOS'
+          + '|CORREO_ALERTAS|CORREO_LISTADOS|CORREO_REGLAS|CORREO_ROLES'
+          + '|GD_EXPEDIENTES|GD_TIPOS_DOCUMENTALES|GD_EXPEDIENTES_EVENTOS|GD_COLABORACION|GD_VINCULOS|GD_CONTADORES'
+          + '|INTERVENTORIA_VISITAS|INTERVENTORIA_PLANES|INTERVENTORIA_PLAN_ITEMS|INTERVENTORIA_HALLAZGOS|INTERVENTORIA_ROLES|INTERVENTORIA_CONFIG|INTERVENTORIA_SOLICITUDES_ELIMINACION|INTERVENTORIA_CONCEPTOS_SANITARIOS'
+          + '|VISITAS|VISITAS_FORMATOS|VISITAS_ROLES|VISITAS_UBICACIONES|VISITAS_GRUPOS|VISITAS_ESTABLECIMIENTOS|VISITAS_CONTADORES'
+          + '|ROLES'
+          + '|MIGRATIONS_LOGS'
+          + '|DIAN_TOKENS|DIAN_TOKEN_ACCESOS|DIAN_TOKEN_CONFIG'
+          + '|TH_REQUERIMIENTOS_PERSONAL|LLAMADOS_ATENCION|HISTORIAL_LLAMADOS_ATENCION'
+          + '|AUTH_CREDENTIALS|AUTH_LOGIN_ATTEMPTS|AUTH_RECOVERY_CHALLENGES|AUTH_ADMIN_AUDIT'
+          + '|LOGIN_SESIONES'
+          + '|PAGOS_BENEFICIARIOS|PAGOS_BENEFICIARIOS_CUENTA'
+          + '|RUTAS|RUTAS_ROLES|RUTAS_ESTABLECIMIENTOS|RUTAS_PLACAS|RUTAS_CONFIG|RUTAS_ASIGNACIONES|RUTAS_EVIDENCIAS|RUTAS_RESUMEN_DIARIO|RUTAS_UBICACIONES|RUTAS_MOV_CONFIG|RUTAS_MOV_HORARIOS|RUTAS_MOV_MEDICIONES|RUTAS_MOV_RUNS'
+          + '|CITAS_NUTRICION|HISTORIAL_NUTRICION'
+          + '|FAC_CONFIG'
+          + ')');
     }
   }
 }

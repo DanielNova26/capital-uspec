@@ -8,34 +8,68 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ## 2026-10-06 — Reglas: por qué no se publicaban desde el 2 oct y arreglo (Claude)
 
-- **Causa.** `firebase deploy --only firestore:rules` daba 503 y la consola
-  "error desconocido" en todos los intentos. Compilación en seco
-  (`--dry-run`) de cuatro versiones desde el PC del usuario: la del 1 oct
-  (última publicada) y la actual **sin** el bloque de Tareas compilan; la
-  actual y la actual sin comentarios no. No es el texto ni una caída de
-  Google: Firebase copia cada función dentro de la que la llama al
-  compilar, y el bloque de Tareas (2 oct) llevó el tamaño expandido por
-  encima de lo que acepta. Medido con un expansor propio: 1 oct 2,25 M,
-  sin Tareas 2,33 M (compilan); 2 oct 2,43 M y actual 2,47 M (no).
-- **Arreglo, sin cambiar permisos** (`firestore.rules`, 2,08 M):
-  `belongsToCompany` ya no llama a `isDeveloper()` (repetía la sesión y la
-  cuenta apagada que la propia función comprueba) sino a `marcaDesarrollo(u)`;
-  `esRolDeDesarrollo` es una sola expresión regular; en Tareas, el acceso
-  por módulo de origen es una sola consulta de apps (`appsDeOrigenTarea`)
-  y `puedeLeerTarea` la evalúa una vez. Única diferencia: en tareas de
-  Compras y Correo también rige "No opera en To-Do".
-- Se conservaron las guardas `'campo' in u &&`: sin ellas la versión
-  compacta evaluaba más expresiones y una regla de Gerencia de Visitas
-  pasaba el tope de 1000 por petición.
+- **Síntoma.** Desde el 2 oct `firebase deploy --only firestore:rules` da
+  503 y la consola "Se produjo un error desconocido"; producción sigue con
+  las reglas del 1 oct. El emulador las compila sin problema.
+- **Causa: el tamaño total del archivo.** Tres rondas de `--dry-run` desde
+  el PC del usuario con catorce versiones recortadas (la del 1 oct, sin
+  Tareas, sin comentarios, cada regla de Tareas sola y combinadas):
+  compilaron todas las de hasta 75.678 caracteres de código (sin
+  comentarios ni espacios; 16.667 piezas) y fallaron todas las de 77.446
+  (17.126 piezas) o más. No falla una regla en particular: la de
+  actualizar tareas, sola con la de lectura, ya pasaba el umbral, y crear +
+  eventos + borrar juntas también. El bloque de Tareas del 2 oct llevó el
+  archivo de 65 mil a 84 mil caracteres. La primera explicación de esta
+  entrada (funciones copiadas al compilar) no cuadraba con esas mediciones
+  y se descartó; la compactación del 6 oct en la mañana no alcanzó.
+- **Arreglo, sin cambiar permisos** (86.416 → 72.874 caracteres; 18.765 →
+  15.642 piezas):
+  - Una sola `tieneAppsEn(empresaId, apps, tareas)` en lugar de siete
+    copias (Admin, Correo, Tokens DIAN, Talento, Nutrición, Compras y la de
+    Tareas). Con `tareas` en true rige "No opera en To-Do", solo donde ya
+    regía.
+  - Nutrición (15 colecciones), Facturación con evaluaciones diagnósticas
+    (6) y las tablas de roles de Tokens DIAN, Talento Humano y Nutrición
+    (3): un `match /{collection}/{docId}` por grupo, con la misma regla de
+    antes. `nivelesDeModulo` comparte las listas de niveles con
+    `rolDeModuloValido`.
+  - Las trece colecciones cerradas (`if false`) ya no tienen `match`: las
+    excluye la regla general y ninguna otra las abre.
+  - `empresaSeConserva()` en las 22 actualizaciones, `gestionaPagos` en
+    Pagos, y fuera dos funciones sin uso (`hasVisitasRole`,
+    `administraVisitas`).
+  - Tareas: las ramas del flujo reciben `propios` (los cambios sin
+    `updatedAt` ni `lastEvent*`, que todas permiten) y
+    `camposSolicitudReasignacion()`.
+- **Costo por petición (tope de 1000), medido en el emulador.** Cada
+  elemento de una lista literal cuenta como una expresión (`c in [50
+  nombres]` ≈ 53; `matches` con un literal ≈ 3). Y Firestore evalúa las
+  reglas que coinciden **en el orden del archivo**, sumando lo que cuestan
+  las que dan falso hasta que una permite. Por eso los grupos y la regla
+  general usan expresiones regulares (`matches` compara el nombre
+  completo), y los `match` con comodín van al final, justo antes de la
+  regla general: en medio del archivo le cobraban su filtro a Tareas,
+  Rutas y Facturación. Expresiones de margen de los flujos de Tareas
+  (antes → ahora): leer como líder 495 → 510, crear desde Interventoría
+  376 → 390, reasignación directa 184 → 191, aprobar la subsanación
+  347 → 349, pedir reasignación 248 → 257, aprobarla 400 → 410, solicitar
+  finalización 482 → 492. Ninguno pierde.
+- **Para Codex:** `functions/test/reglas_tamano.test.js` (corre con
+  `npm test`, sin emulador) falla si el código de las reglas pasa de 75.000
+  caracteres o 16.500 piezas. Si falla, compactar antes de agregar
+  (funciones compartidas, un `match` con comodín al final para colecciones
+  con la misma regla). Antes de publicar, siempre
+  `firebase deploy --only firestore:rules --dry-run`. Un `match` con
+  comodín nuevo va al final, no en medio del archivo.
 - **Pruebas:** todas las suites `functions/test/*.rules.js` en emulador:
-  171 aprobadas, 3 omitidas de antes y 1 falla **ajena y previa**:
-  `visitas_gerencia.rules.js` "Gerencia crea formatos y programa" fija la
-  visita el 5 oct 2026, que ya pasó, y reprogramar una visita vencida se
-  rechaza; falla igual con las reglas de `main`. Hay que fechar esa prueba
-  en relación con hoy.
-- **Al crecer las reglas**, medir antes de publicar: compilar en seco
-  (`firebase deploy --only firestore:rules --dry-run`). Lo que más pesa es
-  `belongsToCompany` (se copia unas 400 veces).
+  171 aprobadas (incluida la de margen de Tareas), 3 omitidas de antes y 1
+  falla **ajena y previa**: `visitas_gerencia.rules.js` "Gerencia crea
+  formatos y programa" fija la visita el 5 oct 2026, que ya pasó; falla
+  igual con las reglas de `main`. Hay que fechar esa prueba en relación con
+  hoy.
+- **Pendiente:** compilar en seco y publicar desde el PC del usuario. Las
+  carpetas de diagnóstico (`tool/reglas_diagnostico`) se quitaron de la
+  rama.
 
 ## 2026-10-05 — Planes de mejora: Desarrollo, número de acta y PDF (Codex)
 
