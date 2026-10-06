@@ -23,9 +23,7 @@ service cloud.firestore {
     // decía "permission-denied" al cambiar un rol (11 sep 2026).
     //
     // Una sola expresión regular (`matches` compara la cadena completa): la
-    // lista corta y el sufijo `_desarrollador`/`_developer`. Mientras más
-    // cortas las reglas, más margen para el tamaño máximo que Google compila
-    // (6 oct 2026; ver functions/test/reglas_tamano.test.js).
+    // lista corta y el sufijo `_desarrollador`/`_developer`.
     function esRolDeDesarrollo(valor) {
       return valor is string
         && valor.matches('desarrollador|developer|superadmin|administrador_sistema|.*_(desarrollador|developer)');
@@ -334,8 +332,8 @@ service cloud.firestore {
     // lib/utils/user_company.dart: con módulos por empresa solo cuenta la
     // lista de la empresa (o la raíz si es la principal y no hay lista
     // propia); sin esa marca, la raíz y la de la empresa.
-    // Una sola función para todas las apps (6 oct 2026): antes había una
-    // copia por app y las reglas pasaron el tamaño máximo que Google compila.
+    // Una sola función para todas las apps (6 oct 2026: antes había una
+    // copia por app; con esa versión Google dejó de compilar las reglas).
     // [tareas] es true en Tareas y sus módulos de origen, donde cuenta la
     // marca "No opera en To-Do" de Talento Humano (4 oct 2026; espejo de
     // `soloTalentoHumanoEn`): con ella la persona no usa esos módulos en la
@@ -528,7 +526,7 @@ service cloud.firestore {
     // `TBL_AUTH_RECOVERY_CHALLENGES`, `TBL_AUTH_ADMIN_AUDIT`: cerradas al
     // cliente.
     // Sin `match` propio: la regla general las excluye y ninguna otra las
-    // abre (6 oct 2026, tamaño máximo de las reglas).
+    // abre (6 oct 2026, reglas más compactas).
 
     // Registro de ingresos (29 sep 2026): cada quien agrega el suyo al
     // entrar, con su equipo; lo lee Admin de esa empresa o Desarrollo. Antes
@@ -557,7 +555,7 @@ service cloud.firestore {
     }
     // `TBL_WHATSAPP_META_ESTADOS`: cerrada al cliente.
     // Sin `match` propio: la regla general la excluye y ninguna otra la
-    // abre (6 oct 2026, tamaño máximo de las reglas).
+    // abre (6 oct 2026, reglas más compactas).
 
     // Contiene teléfonos, contenido del aviso y errores del proveedor. Correo
     // y Admin solo lo consultan en su empresa; Functions crea y actualiza.
@@ -593,8 +591,7 @@ service cloud.firestore {
     }
 
     // Las quince colecciones de Nutrición con el mismo contrato van en un
-    // solo `match` (6 oct 2026): quince copias de la misma regla ayudaban a
-    // pasar el tamaño máximo que Google acepta al compilar las reglas. Las
+    // solo `match` (6 oct 2026, antes quince copias de la misma regla). Las
     // lee quien tiene un nivel del módulo; las de menús las escribe el nivel
     // de menús y las demás (clínicas) el clínico.
     // `matches` compara el nombre completo (ver `esColeccionCompras`).
@@ -666,12 +663,11 @@ service cloud.firestore {
     // `TBL_DIAN_TOKENS`, `TBL_DIAN_TOKEN_ACCESOS`, `TBL_DIAN_TOKEN_CONFIG`:
     // cerradas al cliente.
     // Sin `match` propio: la regla general las excluye y ninguna otra las
-    // abre (6 oct 2026, tamaño máximo de las reglas).
+    // abre (6 oct 2026, reglas más compactas).
     // El nivel operativo de Tokens DIAN (fuera de los tokens cifrados),
     // Talento Humano y Nutrición vive en la tabla del módulo. Admin de la
     // empresa o del módulo lo asigna a otros; nunca se autoasigna. Las tres
-    // tablas tienen el mismo contrato y van en un solo `match` (6 oct 2026,
-    // tamaño máximo de las reglas al compilar).
+    // tablas tienen el mismo contrato y van en un solo `match` (6 oct 2026).
     function esTablaDeRoles(collection) {
       return collection.matches(
         'TBL_(DIAN_TOKEN_ROLES|TALENTO_HUMANO_ROLES|NUTRICION_ROLES)');
@@ -833,7 +829,7 @@ service cloud.firestore {
     // `TBL_INTERVENTORIA_PLANES`, `TBL_INTERVENTORIA_PLAN_ITEMS`: cerradas al
     // cliente.
     // Sin `match` propio: la regla general las excluye y ninguna otra las
-    // abre (6 oct 2026, tamaño máximo de las reglas).
+    // abre (6 oct 2026, reglas más compactas).
 
     // Concepto higiénico sanitario (28 sep 2026): el acta de la autoridad de
     // salud con establecimiento, fecha, puntaje y concepto. La ve la empresa;
@@ -1590,19 +1586,19 @@ service cloud.firestore {
     // Contadores y códigos internos se escriben exclusivamente en Functions.
     // `TBL_GD_CONTADORES`: cerrada al cliente.
     // Sin `match` propio: la regla general la excluye y ninguna otra la
-    // abre (6 oct 2026, tamaño máximo de las reglas).
+    // abre (6 oct 2026, reglas más compactas).
 
     // Consecutivo de tareas por empresa: solo `tareasAsignarNumero` y la
     // incorporación de Admin › Migraciones (Functions) lo leen y escriben.
     // `TBL_TAREAS_CONTADORES`: cerrada al cliente.
     // Sin `match` propio: la regla general la excluye y ninguna otra la
-    // abre (6 oct 2026, tamaño máximo de las reglas).
+    // abre (6 oct 2026, reglas más compactas).
 
     // Consecutivo de visitas por empresa (5 oct 2026): solo
     // `visitasAsignarNumero` y la incorporación de Admin › Migraciones.
     // `TBL_VISITAS_CONTADORES`: cerrada al cliente.
     // Sin `match` propio: la regla general la excluye y ninguna otra la
-    // abre (6 oct 2026, tamaño máximo de las reglas).
+    // abre (6 oct 2026, reglas más compactas).
 
     // ── Facturación (29 sep 2026) ─────────────────────────────────────────
     // Estaba en la regla general: cualquiera con sesión, de cualquier
@@ -1616,8 +1612,7 @@ service cloud.firestore {
     }
 
     // Las de Facturación y las evaluaciones diagnósticas de Nutrición: solo
-    // `documentoDeSuEmpresa`. Un solo `match` (6 oct 2026, tamaño máximo de
-    // las reglas al compilar).
+    // `documentoDeSuEmpresa`. Un solo `match` (6 oct 2026).
     function esColeccionDeSuEmpresa(collection) {
       return collection.matches('TBL_(FAC_OBLIGACIONES|FAC_ESTABLECIMIENTOS'
         + '|FAC_REVISIONES|FAC_OBSERVACIONES|FAC_AUTORIZACIONES'
@@ -1878,9 +1873,8 @@ service cloud.firestore {
     }
 
     // Una sola consulta de apps con la lista del módulo de origen (antes
-    // cinco funciones casi iguales; 6 oct 2026, tamaño máximo de las
-    // reglas). Compras y Correo
-    // usaban `tieneAppComprasEn`/`tieneAppCorreoEn`, de la misma forma.
+    // cinco funciones casi iguales; 6 oct 2026). Compras y Correo usaban
+    // `tieneAppComprasEn`/`tieneAppCorreoEn`, de la misma forma.
     function appsDeOrigenTarea(modulo) {
       return modulo == 'interventoria' ? ['interventoriadashboard', 'interventoria']
         : (modulo == 'compras' ? ['comprasdashboard', 'compras']
@@ -1987,7 +1981,7 @@ service cloud.firestore {
     // `tareaActualizacionValida` y pasa a cada rama. Las ramas del flujo
     // (operativo, reasignación directa y aprobador) reciben `propios`: los
     // mismos cambios sin `updatedAt` ni `lastEvent*`, que todas permiten
-    // (6 oct 2026: listas más cortas, tamaño máximo de las reglas).
+    // (6 oct 2026: listas más cortas).
     // `numero` es el consecutivo por empresa que asigna el servidor
     // (`tareasAsignarNumero`, 3 oct 2026): la app no lo crea ni lo cambia.
     function tareaBaseConservada(antes, d, cambios) {

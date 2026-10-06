@@ -8,22 +8,27 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ## 2026-10-06 — Reglas: por qué no se publicaban desde el 2 oct y arreglo (Claude)
 
-- **Síntoma.** Desde el 2 oct `firebase deploy --only firestore:rules` da
-  503 y la consola "Se produjo un error desconocido"; producción sigue con
-  las reglas del 1 oct. El emulador las compila sin problema.
-- **Causa: el tamaño total del archivo.** Tres rondas de `--dry-run` desde
-  el PC del usuario con catorce versiones recortadas (la del 1 oct, sin
-  Tareas, sin comentarios, cada regla de Tareas sola y combinadas):
-  compilaron todas las de hasta 75.678 caracteres de código (sin
-  comentarios ni espacios; 16.667 piezas) y fallaron todas las de 77.446
-  (17.126 piezas) o más. No falla una regla en particular: la de
-  actualizar tareas, sola con la de lectura, ya pasaba el umbral, y crear +
-  eventos + borrar juntas también. El bloque de Tareas del 2 oct llevó el
-  archivo de 65 mil a 84 mil caracteres. La primera explicación de esta
-  entrada (funciones copiadas al compilar) no cuadraba con esas mediciones
-  y se descartó; la compactación del 6 oct en la mañana no alcanzó.
-- **Arreglo, sin cambiar permisos** (86.416 → 72.874 caracteres; 18.765 →
-  15.642 piezas):
+- **Síntoma.** Desde el 2 oct `firebase deploy --only firestore:rules` daba
+  503 y la consola "Se produjo un error desconocido"; producción siguió con
+  las reglas del 1 oct. El emulador las compilaba sin problema.
+- **Qué se sabe**, por cuatro rondas de `--dry-run` desde el PC del usuario:
+  - Con el bloque de Tareas del 2 oct, ninguna versión compilaba: la regla
+    de actualizar tareas sola (con la de lectura) fallaba, y crear +
+    eventos + borrar juntas también; cada una de estas tres por separado
+    compilaba.
+  - **No es el tamaño del archivo.** Las reglas del 1 oct con 19 mil
+    caracteres de relleno (84,5 mil en total, más que las que fallaban)
+    compilaron. Tampoco es el número de funciones, de textos, de `.get()`
+    ni las construcciones nuevas (`toSet`, `difference`, `concat`,
+    comodines): cada una, agregada sola a la versión del 1 oct, compiló.
+    Las dos primeras explicaciones de esta entrada (funciones copiadas al
+    compilar; tamaño total) quedan descartadas.
+  - El 503 también aparece suelto: la versión nueva falló una vez y en la
+    ronda siguiente compiló al primer intento. Ante un 503, reintentar
+    antes de concluir nada.
+  - La causa exacta del lado de Google sigue sin identificarse. La versión
+    reorganizada **compila** (6 oct 2026).
+- **La versión que compila, sin cambiar permisos:**
   - Una sola `tieneAppsEn(empresaId, apps, tareas)` en lugar de siete
     copias (Admin, Correo, Tokens DIAN, Talento, Nutrición, Compras y la de
     Tareas). Con `tareas` en true rige "No opera en To-Do", solo donde ya
@@ -54,22 +59,20 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
   376 → 390, reasignación directa 184 → 191, aprobar la subsanación
   347 → 349, pedir reasignación 248 → 257, aprobarla 400 → 410, solicitar
   finalización 482 → 492. Ninguno pierde.
-- **Para Codex:** `functions/test/reglas_tamano.test.js` (corre con
-  `npm test`, sin emulador) falla si el código de las reglas pasa de 75.000
-  caracteres o 16.500 piezas. Si falla, compactar antes de agregar
-  (funciones compartidas, un `match` con comodín al final para colecciones
-  con la misma regla). Antes de publicar, siempre
-  `firebase deploy --only firestore:rules --dry-run`. Un `match` con
-  comodín nuevo va al final, no en medio del archivo.
+- **Para Codex:** antes de publicar reglas, siempre
+  `firebase deploy --only firestore:rules --dry-run`; si da 503,
+  reintentar dos o tres veces. Un `match` con comodín nuevo va al final del
+  archivo, no en medio. Para colecciones con la misma regla, un comodín con
+  `matches` en lugar de copias.
 - **Pruebas:** todas las suites `functions/test/*.rules.js` en emulador:
   171 aprobadas (incluida la de margen de Tareas), 3 omitidas de antes y 1
   falla **ajena y previa**: `visitas_gerencia.rules.js` "Gerencia crea
   formatos y programa" fija la visita el 5 oct 2026, que ya pasó; falla
   igual con las reglas de `main`. Hay que fechar esa prueba en relación con
   hoy.
-- **Pendiente:** compilar en seco y publicar desde el PC del usuario. Las
-  carpetas de diagnóstico (`tool/reglas_diagnostico`) se quitaron de la
-  rama.
+- **Pendiente:** publicar desde el PC del usuario (`firebase deploy --only
+  firestore:rules`) y subir `main`. Los archivos de diagnóstico
+  (`tool/reglas_diagnostico`) se quitaron de la rama.
 
 ## 2026-10-05 — Planes de mejora: Desarrollo, número de acta y PDF (Codex)
 
