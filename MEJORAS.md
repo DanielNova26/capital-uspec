@@ -71,7 +71,8 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
   igual con las reglas de `main`. Hay que fechar esa prueba en relación con
   hoy.
 - **Publicado** el 6 oct 2026 desde el PC del usuario (`Deploy complete!`;
-  el primer intento dio 503 y el siguiente pasó) y `main` en 7ca8e61. Los
+  varios intentos dieron 503 antes de que uno pasara) y `main` en 7ca8e61.
+  Ante un 503 al publicar reglas en este proyecto, reintentar. Los
   archivos de diagnóstico (`tool/reglas_diagnostico`) se quitaron.
 - **Pendientes reales:** en cada empresa, Admin › Migraciones › "Número
   interno de tareas" (Revisar y Numerar); las apps móviles anteriores a
