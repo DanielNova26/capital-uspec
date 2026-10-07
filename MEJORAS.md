@@ -6,6 +6,32 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## 2026-10-06 — Integración de Bodega en main y publicación 2.6.18 (Codex)
+
+- Integrado el commit `606a011` de `claude/amazing-cannon-yr7jc3` en `main`
+  mediante merge `18c3e71`, conservando su autoría y ambas entradas de esta
+  bitácora. Incluye presentaciones por UM y corrección de recepciones por Bodega.
+- Publicada Web **2.6.18+32** en `https://to-do-gestion.web.app`, junto con
+  la precarga de responsables/evidencias de K2 y el cronograma móvil.
+  `version.json` público confirma versión y compilación. Actualizadas las cinco
+  Functions de Interventoría indicadas abajo, todas con resultado satisfactorio.
+- Verificación adicional después de integrar: **183 pruebas de Compras**
+  correctas, análisis de los ocho archivos de producción de Compras sin errores
+  ni advertencias (27 recomendaciones de estilo), compilación Web correcta.
+- **Pendiente externo: reglas Firestore.** El dry-run había compilado, pero
+  la publicación devolvió HTTP 503 repetidamente desde la API de Google Rules.
+  No se afirma que las reglas nuevas estén activas: la configuración protegida
+  de Interventoría para Gerencia depende todavía de esa publicación.
+- No se editaron recepciones de producción. Bodega debe corregir la fécula desde
+  "Corregir recepción" o "Completar recepción". Sigue pendiente la prueba con
+  usuario Bodega real, navegador autenticado y Android/iPhone físicos, incluidos
+  los cuatro anchos del flujo de recepción. No se reintentó el acceso al navegador
+  previamente denegado. Las pruebas automatizadas de K2/Visitas sí cubren los
+  tamaños y temas móviles registrados en sus entradas.
+- Firebase advierte que el runtime Node.js 20 requiere actualización antes del
+  30 oct 2026; no impidió este despliegue. Su actualización queda fuera de esta
+  entrega y requiere validar las demás Functions.
+
 ## 2026-10-06 — K2: responsables y evidencias precargadas para seleccionar (Codex)
 
 - Al abrir un plan o volver de vincular hallazgos, se consultan automáticamente
@@ -40,8 +66,8 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
   en pruebas); ESLint sin errores al respetar los finales de línea Windows.
   Configuración temporal de despliegue comprueba ESLint sin `--fix`, desactiva
   solo `linebreak-style` y comprueba TypeScript sin modificar archivos ajenos.
-- Versión 2.6.18+32. Publicación de Web, cinco Functions de Interventoría y
-  reglas en curso; `firestore:rules --dry-run` correcto antes de publicar.
+- Versión 2.6.18+32. Web y cinco Functions de Interventoría publicadas;
+  reglas pendientes por HTTP 503, pese al dry-run correcto antes de publicar.
   No se ejecutan migraciones ni selecciones masivas sobre datos de producción.
   Pendiente validación autenticada y Android/iPhone reales: el acceso a la
   pestaña del navegador fue denegado; no se volvió a intentar por otro medio.
@@ -137,9 +163,10 @@ y una recepción finalizada era solo lectura.
   sin errores, con avisos preexistentes. Ocho pruebas del cronograma recorren
   días con/sin visitas a 390/768/1024/1366 y texto 1,5× con temas Android/iOS;
   los planes mantienen pruebas con texto 1×/1,6×.
-- Pendiente: publicación de Web, reglas y Functions `interventoriaPlanes`,
+- Publicado en 2.6.18: Web y Functions `interventoriaPlanes`,
   `interventoriaPlanesAvisos`, `interventoriaSolicitarEliminacion`,
-  `interventoriaResolverEliminacion`, `interventoriaEliminarActa`. El primer
+  `interventoriaResolverEliminacion`, `interventoriaEliminarActa`.
+  Las reglas siguen pendientes por HTTP 503 (ver entrada de publicación). El primer
   `firestore:rules --dry-run` respondió 503; el segundo compiló correctamente,
   sin publicar (con aviso previo de tipo nullable en la línea 345).
   No se verificaron navegador autenticado ni Android/iPhone físicos; las
