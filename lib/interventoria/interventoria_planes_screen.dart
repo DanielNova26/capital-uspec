@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'interventoria_planes_service.dart';
+import 'interventoria_planes_fuentes.dart';
 import '../state/empresa_scope.dart';
 
 PlanRequest _scopedRequest(BuildContext context, String empresaId) => (input) {
@@ -506,28 +507,25 @@ class _PlanDetalleState extends State<PlanDetalle> {
             padding: EdgeInsets.all(16),
             child: Text('No hay hallazgos con estos filtros.'),
           ),
-        for (final item in list)
-          Card(
-            child: ListTile(
-              title: Text('${item['establecimiento']} · ${item['numeral']}'),
-              subtitle: Text(
-                'Acta ${item['idVisitaK2']} · Tarea ${item['numeroTarea']}\n${item['responsableNombre']}\nRespuesta: ${planEstado(item, 'respuesta')}\nSoportes: ${planEstado(item, 'soportes')}',
-              ),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () async {
-                await Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => PlanItemScreen(
-                      item: item,
-                      plan: _plan,
-                      request: widget.request,
-                      calidad: true,
-                    ),
+        if (list.isNotEmpty)
+          PlanFuentesPanel(
+            items: list,
+            request: widget.request,
+            onChanged: _load,
+            enabled: !_busy,
+            onOpen: (item) async {
+              await Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => PlanItemScreen(
+                    item: item,
+                    plan: _plan,
+                    request: widget.request,
+                    calidad: true,
                   ),
-                );
-                await _load();
-              },
-            ),
+                ),
+              );
+              await _load();
+            },
           ),
       ],
     );
@@ -955,72 +953,6 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
     }
   }
 
-  Future<void> _fuentes() async {
-    await _run(() async {
-      final data = await widget.request({
-        'accion': 'fuentes',
-        'itemId': _item['id'],
-      });
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Respuestas y evidencias de la tarea'),
-          content: SizedBox(
-            width: 640,
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (final avance in planList(data['avances'])) ...[
-                    Text(
-                      '${avance['byName'] ?? ''} · ${avance['createdAt'] ?? ''}',
-                    ),
-                    SelectableText(planText(avance, 'message')),
-                    TextButton(
-                      onPressed: () {
-                        _soportes.text = planText(avance, 'message');
-                        Navigator.pop(ctx);
-                      },
-                      child: const Text('Usar texto en subsanación'),
-                    ),
-                    for (final file in planList(avance['attachments']))
-                      TextButton.icon(
-                        icon: const Icon(Icons.attach_file),
-                        label: Text('Usar ${file['name']}'),
-                        onPressed: () async {
-                          try {
-                            await widget.request({
-                              'accion': 'usarFuente',
-                              'itemId': _item['id'],
-                              'path': file['path'],
-                            });
-                            if (ctx.mounted) Navigator.pop(ctx);
-                          } catch (e) {
-                            if (ctx.mounted) _showError(ctx, e);
-                          }
-                        },
-                      ),
-                    const Divider(),
-                  ],
-                  if (planList(data['avances']).isEmpty)
-                    const Text('No hay avances ni finalizaciones disponibles.'),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cerrar'),
-            ),
-          ],
-        ),
-      );
-    });
-  }
-
   Widget _estadoEtapa(String etapa) {
     final revision = planMap(_item['${etapa}Revision']);
     final presentado = planMap(_item['${etapa}Presentado']);
@@ -1177,6 +1109,14 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
               ),
               Text(planVencimiento(planText(_plan, 'limiteSoportes'))),
               _estadoEtapa('soportes'),
+              PlanFuentesPanel(
+                items: [_item],
+                request: widget.request,
+                onChanged: _refresh,
+                enabled: !_busy,
+                onUseText: (texto) => setState(() => _soportes.text = texto),
+              ),
+              const SizedBox(height: 12),
               TextField(
                 controller: _soportes,
                 enabled: !_busy && _item['soportesPresentado'] == null,
@@ -1204,12 +1144,6 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                         : () => _archivo(camera: true),
                     icon: const Icon(Icons.camera_alt_outlined),
                     label: const Text('Tomar foto'),
-                  ),
-                  TextButton(
-                    onPressed: _busy || _item['soportesPresentado'] != null
-                        ? null
-                        : _fuentes,
-                    child: const Text('Traer respuesta y soportes de la tarea'),
                   ),
                 ],
               ),

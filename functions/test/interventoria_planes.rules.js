@@ -215,3 +215,79 @@ test('avisos diarios no se duplican ni vuelven a marcar como no leído', async (
   assert.equal(first.size, second.size);
   assert.ok(second.docs.every((d) => d.data().read));
 });
+
+test('fuentes reúne acta, hallazgo y tarea; selección idempotente conserva originales y revisión pendiente', {skip: !process.env.FIREBASE_STORAGE_EMULATOR_HOST}, async () => {
+  const {PDFDocument} = require('pdf-lib');
+  const pdf = await PDFDocument.create(); pdf.addPage();
+  const bytes = Buffer.from(await pdf.save());
+  const paths = ['interventoria/A/visitas/v/acta.pdf', 'interventoria/A/visitas/v/seguimiento.pdf', 'tareas/t/cierre.pdf'];
+  for (const path of paths) await admin.storage().bucket().file(path).save(bytes);
+  const bucket = admin.storage().bucket().name;
+  const url = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(paths[0])}?alt=media`;
+  await db.doc('TBL_INTERVENTORIA_VISITAS/v').update({imagenesActa: [{path: paths[0], nombre: 'acta.pdf', url}], actaOriginalUrl: url});
+  await db.doc('TBL_INTERVENTORIA_HALLAZGOS/h').update({
+    responsableNombre: 'Nombre viejo', adjuntosSubsanacion: [{path: paths[1], nombre: 'seguimiento.pdf'}],
+    seguimientos: [{id: 's', texto: 'Ya fue ajustado el rotulado.', adjuntos: [{path: paths[1], nombre: 'seguimiento.pdf'}]}],
+  });
+  await db.doc('TBL_TAREAS/t').update({adjuntos: [{path: paths[2], name: 'cierre.pdf'}], asignado_nombre: 'Responsable vigente'});
+  assert.equal((await call('calidad', {accion: 'candidatos'})).candidatos[0].responsable, 'Responsable vigente');
+  await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']});
+  const source = await call('calidad', {accion: 'fuentes', itemId: itemId()});
+  assert.equal(source.responsableNombre, 'Responsable vigente');
+  assert.equal(source.archivos.length, 3);
+  assert.ok(source.archivos.every((f) => f.disponible && !f.incluido && !f.url));
+  assert.equal((await itemRef().get()).data().evidencias.length, 0);
+  const file = source.archivos.find((f) => f.path === paths[1]);
+  const preview = await call('responsable', {accion: 'verFuente', itemId: itemId(), fuenteKey: file.key});
+  assert.deepEqual(Buffer.from(preview.base64, 'base64'), bytes);
+  await Promise.all([1, 2].map(() => call('responsable', {accion: 'usarFuente', itemId: itemId(), fuenteKey: file.key})));
+  let item = (await itemRef().get()).data();
+  assert.equal(item.evidencias.length, 1);
+  assert.equal(item.soportesVersion, 1);
+  assert.equal(item.soportesRevision.estado, 'pendiente');
+  assert.equal(item.evidencias[0].fuenteKey, file.key);
+  assert.deepEqual((await admin.storage().bucket().file(paths[1]).download())[0], bytes);
+  assert.equal((await call('calidad', {accion: 'fuentes', itemId: itemId()})).archivos.find((f) => f.key === file.key).incluido, true);
+  await call('calidad', {accion: 'retirarSoporte', itemId: itemId(), path: item.evidencias[0].path});
+  await call('calidad', {accion: 'usarFuente', itemId: itemId(), fuenteKey: file.key});
+  item = (await itemRef().get()).data();
+  assert.equal(item.evidencias.length, 1);
+  await itemRef().update({soportesPresentado: {version: item.soportesVersion}});
+  await assert.rejects(call('calidad', {accion: 'usarFuente', itemId: itemId(), fuenteKey: file.key}));
+  await assert.rejects(call('otro', {accion: 'fuentes', itemId: itemId()}), {code: 'permission-denied'});
+  await db.doc('TBL_TAREAS/t').update({asignado_uid: 'otro', asignado_nombre: 'Nuevo responsable'});
+  await assert.rejects(call('responsable', {accion: 'verFuente', itemId: itemId(), fuenteKey: file.key}), {code: 'permission-denied'});
+  assert.equal((await call('otro', {accion: 'fuentes', itemId: itemId()})).responsableNombre, 'Nuevo responsable');
+});
+
+test('fuentes rechaza rutas ajenas, URL externa, empresa cruzada y vínculos cambiados', async () => {
+  await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']});
+  await db.doc('TBL_INTERVENTORIA_HALLAZGOS/h').update({adjuntosSubsanacion: [
+    {path: 'interventoria/B/visitas/v/secreto.pdf', nombre: 'otra-empresa.pdf'},
+    {path: 'interventoria/A/visitas/otra/archivo.pdf', nombre: 'otra-acta.pdf'},
+    {path: 'interventoria/A/visitas/v/../otro.pdf', nombre: 'ruta-forjada.pdf'},
+    {url: 'https://example.com/secreto.pdf', nombre: 'externo.pdf'},
+  ]});
+  const result = await call('calidad', {accion: 'fuentes', itemId: itemId()});
+  assert.equal(result.archivos.length, 4);
+  for (const file of result.archivos) {
+    assert.equal(file.disponible, false);
+    await assert.rejects(call('calidad', {accion: 'verFuente', itemId: itemId(), fuenteKey: file.key}));
+    await assert.rejects(call('calidad', {accion: 'usarFuente', itemId: itemId(), fuenteKey: file.key}));
+  }
+  await db.doc('TBL_INTERVENTORIA_VISITAS/v').update({empresaId: 'B'});
+  await assert.rejects(call('calidad', {accion: 'fuentes', itemId: itemId()}), {code: 'permission-denied'});
+  await db.doc('TBL_INTERVENTORIA_VISITAS/v').update({empresaId: 'A'});
+  await db.doc('TBL_INTERVENTORIA_HALLAZGOS/h').update({visitaId: 'otra'});
+  await assert.rejects(call('calidad', {accion: 'fuentes', itemId: itemId()}));
+});
+
+test('fuentes conserva registros antiguos y sin fecha y no corta a los 50 primeros', async () => {
+  await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']});
+  const batch = db.batch();
+  for (let i = 0; i < 53; i++) batch.set(db.doc(`TBL_TAREAS/t/avances/a${i}`), {message: `Avance ${i}`, attachments: [{path: `tareas/t/a${i}.pdf`, name: `a${i}.pdf`}]});
+  await batch.commit();
+  const result = await call('calidad', {accion: 'fuentes', itemId: itemId()});
+  assert.equal(result.archivos.length, 53);
+  assert.equal(result.avances.length, 53);
+});

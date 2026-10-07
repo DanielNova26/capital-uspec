@@ -107,10 +107,17 @@ export async function consultarPlanes(input: DatosPlan, a: Actor): Promise<Datos
     const snap = await q.get(); const docs = snap.docs.slice(0, 100);
     const candidatos = await Promise.all(docs.map(async (h) => {
       const d = h.data();
-      const visita = d.visitaId ? (await db().collection("TBL_INTERVENTORIA_VISITAS").doc(id(d.visitaId)).get()).data() : null;
+      const [visitaDoc, tareaDoc] = await Promise.all([
+        d.visitaId ? db().collection("TBL_INTERVENTORIA_VISITAS").doc(id(d.visitaId)).get() : null,
+        d.tareaId ? db().collection("TBL_TAREAS").doc(id(d.tareaId)).get() : null,
+      ]);
+      const visita = visitaDoc?.data(); const tarea = tareaDoc?.data();
+      const tareaValida = tarea?.empresaId === a.empresaId &&
+        s(tarea.hallazgoId || tarea.sourceEntityId) === h.id && s(tarea.sourceModule || tarea.origen) === "interventoria";
       return {id: h.id, establecimiento: s(d.subcentroNombre || d.centroCostoNombre),
         numeral: s(d.numeralActa || d.numeroHallazgo), descripcion: s(d.descripcion),
-        responsable: s(d.responsableNombre), tareaId: s(d.tareaId), visitaId: s(d.visitaId),
+        responsable: tareaValida ? s(tarea.asignado_nombre || tarea.assignedToName) : "Sin tarea asignada vigente",
+        tareaId: tareaValida ? s(d.tareaId) : "", visitaId: s(d.visitaId),
         idVisitaK2: visita?.empresaId === a.empresaId ? s(visita.idVisitaK2) : "",
         fechaActa: plain(d.fechaHallazgo)};
     }));
@@ -287,12 +294,20 @@ async function adjuntar(input: DatosPlan, a: Actor) {
   const cipher = createCipheriv("aes-256-gcm", key, iv);
   const encrypted = Buffer.concat([cipher.update(bytes), cipher.final()]);
   await file.save(encrypted, {metadata: {contentType: "application/octet-stream"}, resumable: false});
+  let duplicado = false;
   try {
     await db().runTransaction(async (tx) => {
       const current = (await tx.get(ref)).data(); empresa(current, a); await tareaItem(current, a, tx);
       if (current.soportesPresentado) err("Calidad debe reabrir los soportes ya presentados.");
+      // Only usarFuente supplies this server-owned marker. Retries/concurrent
+      // selections preserve the version and never attach the same source twice.
+      if (input._fuenteKey && current.evidencias?.some((ev: DatosPlan) => ev.fuenteKey === input._fuenteKey)) {
+        duplicado = true; return;
+      }
+      duplicado = false;
       if ((current.evidencias?.length || 0) >= 12) err("Máximo 12 archivos por hallazgo.");
       const evidencia = {path, nombre, contentType: types[ext], size: bytes.length, porId: a.id, fecha: admin.firestore.Timestamp.now(),
+        ...(input._fuenteKey ? {fuenteKey: input._fuenteKey, fuenteOrigen: input._fuenteOrigen} : {}),
         _cryptoKey: key.toString("base64"), _cryptoIv: iv.toString("base64"), _cryptoTag: cipher.getAuthTag().toString("base64")};
       tx.update(ref, {evidencias: [...(current.evidencias || []), evidencia],
         soportesVersion: current.soportesVersion + 1, soportesRevision: {estado: "pendiente"}});
@@ -301,32 +316,92 @@ async function adjuntar(input: DatosPlan, a: Actor) {
   } catch (e) {
     await file.delete().catch(() => undefined); throw e;
   }
+  if (duplicado) await file.delete().catch(() => undefined);
   return {ok: true};
 }
 
-async function fuentesTarea(input: DatosPlan, a: Actor) {
-  const item = (await db().collection(ITEMS_COL).doc(id(input.itemId)).get()).data(); empresa(item, a);
-  const tarea = await tareaItem(item, a);
-  const avances = await tarea.ref.collection("avances").orderBy("createdAt", "desc").limit(50).get();
-  const finalizacion = await tarea.ref.collection("finalizacion").orderBy("createdAt", "desc").limit(50).get();
-  const registros = [...avances.docs, ...finalizacion.docs].map((d) => {
-    const v = plain(d.data());
-    return {id: d.id, ...v, message: s(v.comment || v.message), byName: s(v.byName || v.createdByName)};
-  });
-  const adjuntos = plain(tarea.data.adjuntos || []);
-  return {avances: [...registros, ...(adjuntos.length ? [{message: "Adjuntos registrados en la tarea", attachments: adjuntos}] : [])],
-    adjuntos};
+// URLs are used only to recover a path in OUR bucket, never fetched over HTTP.
+function rutaFuente(raw: DatosPlan): string {
+  if (s(raw.path)) return s(raw.path);
+  try {
+    const u = new URL(s(raw.url));
+    const match = u.pathname.match(/^\/v0\/b\/([^/]+)\/o\/(.+)$/);
+    if (u.protocol === "https:" && u.hostname === "firebasestorage.googleapis.com" &&
+        match && decodeURIComponent(match[1]) === admin.storage().bucket().name) return decodeURIComponent(match[2]);
+  } catch {/* Legacy/missing URL remains visible as unavailable. */}
+  return "";
 }
 
-async function usarFuente(input: DatosPlan, a: Actor) {
+async function fuentesTarea(input: DatosPlan, a: Actor, internas = false) {
   const item = (await db().collection(ITEMS_COL).doc(id(input.itemId)).get()).data(); empresa(item, a);
-  const fuente = await fuentesTarea(input, a);
-  const archivos = [...fuente.adjuntos, ...fuente.avances.flatMap((v: DatosPlan) => Array.isArray(v.attachments) ? v.attachments : [])];
-  const ev = archivos.find((v: DatosPlan) => v.path === input.path);
-  if (!ev || !s(ev.path).startsWith("tareas/")) err("El archivo no pertenece a esta tarea.");
+  const tarea = await tareaItem(item, a);
+  const [avances, finalizacion, hallazgoDoc, visitaDoc] = await Promise.all([
+    tarea.ref.collection("avances").get(), tarea.ref.collection("finalizacion").get(),
+    db().collection("TBL_INTERVENTORIA_HALLAZGOS").doc(id(item.hallazgoId)).get(),
+    db().collection("TBL_INTERVENTORIA_VISITAS").doc(id(item.visitaId)).get(),
+  ]);
+  const hallazgo = hallazgoDoc.data(); const visita = visitaDoc.data();
+  empresa(hallazgo, a); empresa(visita, a);
+  if (hallazgo.visitaId !== item.visitaId || hallazgo.tareaId !== item.tareaId) err("Cambió la vinculación del hallazgo. Actualiza el plan.");
+  const archivos = new Map<string, DatosPlan>();
+  const registros: DatosPlan[] = [];
+  const incluidos = new Set((item.evidencias || []).map((ev: DatosPlan) => ev.fuenteKey));
+  const agregar = (lista: unknown, origen: string, tipo: string): DatosPlan[] => {
+    if (!Array.isArray(lista)) return [];
+    return lista.filter((f) => f && typeof f === "object").map((raw) => {
+      const path = rutaFuente(raw);
+      const key = hash(path || `${origen}|${s(raw.url)}|${s(raw.nombre || raw.name)}`);
+      const name = s(raw.nombre || raw.name) || path.split("/").pop() || "Archivo sin nombre";
+      const extension = name.split(".").pop()?.toLowerCase();
+      const segura = path && !path.split("/").some((p) => [".", ".."].includes(p)) && !path.includes("\\") &&
+        (tipo === "tarea" ? path.startsWith(`tareas/${item.tareaId}/`) || /^tareas\/\d{4}\/\d{1,2}\/\d{1,2}\/[^/]+$/.test(path) :
+          path.startsWith(`interventoria/${a.empresaId}/visitas/${item.visitaId}/`));
+      const motivo = !segura ? "Archivo sin ruta válida para este hallazgo; vuelve a adjuntarlo." :
+        !["pdf", "jpg", "jpeg", "png"].includes(extension || "") ? "Formato no admitido en K2: usa PDF, JPG o PNG." : "";
+      const nuevo = {key, path, name, origen, tipo, disponible: !motivo, motivo,
+        incluido: incluidos.has(key), ...(internas ? {url: s(raw.url)} : {})};
+      if (!archivos.has(key) || (!archivos.get(key)!.disponible && nuevo.disponible)) archivos.set(key, nuevo);
+      return archivos.get(key)!;
+    });
+  };
+  for (const [snap, origen] of [[avances, "Avance de tarea"], [finalizacion, "Finalización de tarea"]] as const) {
+    for (const d of snap.docs) {
+      const v = d.data();
+      registros.push({id: `${origen}:${d.id}`, origen, message: s(v.comment || v.message),
+        byName: s(v.byName || v.createdByName), createdAt: plain(v.createdAt) || null,
+        attachments: agregar(v.attachments, origen, "tarea")});
+    }
+  }
+  const adjuntosTarea = agregar(tarea.data.adjuntos, "Adjunto de tarea", "tarea");
+  // Keep attachments discoverable by installed clients using avances[].
+  if (adjuntosTarea.length) {
+    registros.push({id: "adjuntos_tarea", origen: "Adjunto de tarea",
+      message: "Adjuntos registrados en la tarea", attachments: adjuntosTarea});
+  }
+  agregar(hallazgo.adjuntosSubsanacion, "Subsanación del hallazgo", "hallazgo");
+  for (const v of Array.isArray(hallazgo.seguimientos) ? hallazgo.seguimientos : []) {
+    registros.push({id: `seguimiento:${s(v.id)}`, origen: "Seguimiento del hallazgo", message: s(v.texto),
+      byName: s(v.autorNombre), createdAt: plain(v.fecha) || null, attachments: agregar(v.adjuntos, "Seguimiento del hallazgo", "hallazgo")});
+  }
+  if (s(hallazgo.seguimiento) && !registros.some((r) => r.message === s(hallazgo.seguimiento))) {
+    registros.push({id: "seguimiento", origen: "Seguimiento del hallazgo", message: s(hallazgo.seguimiento), attachments: []});
+  }
+  agregar(visita.imagenesActa, "Acta original · contexto", "acta");
+  if (s(visita.actaOriginalUrl)) agregar([{url: visita.actaOriginalUrl}], "Acta original · contexto", "acta");
+  registros.sort((x, y) => s(y.createdAt).localeCompare(s(x.createdAt)));
+  return {archivos: [...archivos.values()], avances: registros, adjuntos: [...archivos.values()],
+    responsableNombre: s(tarea.data.asignado_nombre || tarea.data.assignedToName),
+    responsableId: s(tarea.data.asignado_uid || tarea.data.assignedTo)};
+}
+
+async function leerFuente(input: DatosPlan, a: Actor) {
+  const item = (await db().collection(ITEMS_COL).doc(id(input.itemId)).get()).data(); empresa(item, a);
+  const fuente = await fuentesTarea(input, a, true);
+  const ev = fuente.archivos.find((v: DatosPlan) => input.fuenteKey ? v.key === input.fuenteKey : v.path === input.path);
+  if (!ev || !ev.disponible) return err(ev?.motivo || "El archivo no pertenece a este hallazgo.");
   const file = admin.storage().bucket().file(ev.path);
   const [meta] = await file.getMetadata();
-  if (!s(ev.path).startsWith(`tareas/${item.tareaId}/`)) {
+  if (ev.tipo === "tarea" && !s(ev.path).startsWith(`tareas/${item.tareaId}/`)) {
     // Historical completion uploads used tareas/year/month/day, without a task
     // prefix. Require the recorded bearer token too; a forged path is not enough.
     let token = "";
@@ -339,7 +414,18 @@ async function usarFuente(input: DatosPlan, a: Actor) {
   }
   if (Number(meta.size) > 5 * 1024 * 1024) err("El soporte supera 5 MB. Prepara una versión más liviana.");
   const [bytes] = await file.download();
-  return adjuntar({...input, nombre: ev.name, base64: bytes.toString("base64")}, a);
+  return {ev, bytes};
+}
+
+async function usarFuente(input: DatosPlan, a: Actor) {
+  const {ev, bytes} = await leerFuente(input, a);
+  return adjuntar({itemId: input.itemId, nombre: ev.name, base64: bytes.toString("base64"),
+    _fuenteKey: ev.key, _fuenteOrigen: ev.origen}, a);
+}
+
+async function verFuente(input: DatosPlan, a: Actor) {
+  const {ev, bytes} = await leerFuente(input, a);
+  return {nombre: ev.name, base64: bytes.toString("base64")};
 }
 
 async function retirarSoporte(input: DatosPlan, a: Actor) {
@@ -502,9 +588,10 @@ export const interventoriaPlanes = functions.region("us-central1").runWith({time
         case "crear": return await crearPlan(input, a);
         case "vincular": return await vincularHallazgos(input, a);
         case "responder": case "soportes": case "revisar": case "presentar": case "reabrir": return await cambiarItem(input, a);
-        case "adjuntar": return await adjuntar(input, a);
+        case "adjuntar": return await adjuntar({itemId: input.itemId, nombre: input.nombre, base64: input.base64}, a);
         case "fuentes": return await fuentesTarea(input, a);
         case "usarFuente": return await usarFuente(input, a);
+        case "verFuente": return await verFuente(input, a);
         case "retirarSoporte": return await retirarSoporte(input, a);
         case "fechas": return await editarFechas(input, a);
         case "identificarVisita": return await identificarVisita(input, a);

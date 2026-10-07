@@ -6,6 +6,46 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## 2026-10-06 — K2: responsables y evidencias precargadas para seleccionar (Codex)
+
+- Al abrir un plan o volver de vincular hallazgos, se consultan automáticamente
+  sus fuentes y responsables actuales. La selección de hallazgos también toma
+  el responsable de la tarea vigente, en vez de un nombre antiguo del hallazgo.
+  La revisión de archivos queda reunida en el plan, cinco hallazgos por página,
+  con selección múltiple; no hay que abrir cada hallazgo para traer sus archivos.
+- Fuentes: adjuntos, avances y finalización de la tarea; adjuntos de subsanación
+  y seguimientos del hallazgo; imágenes/PDF del acta original. Incluye registros
+  antiguos sin fecha y más de 50 avances, sin ocultarlos por `orderBy`/`limit`.
+  Un archivo repetido en varias fuentes aparece una sola vez. Los textos se
+  pueden revisar y elegir como subsanación desde el detalle del hallazgo.
+- Cada archivo muestra su origen, permite descargarlo para revisar y marcarlo
+  para incorporarlo. El acta original se identifica como contexto, no prueba de
+  corrección. Incorporar conserva el original, crea una copia cifrada del soporte
+  seleccionado e invalida la revisión anterior; no aprueba ni presenta en K2.
+  Los reintentos y selecciones simultáneas no duplican archivos ni versiones.
+  Si alguno falla, se informa cuál y se conservan los que sí se incorporaron.
+- Web amplia: tabla de archivos/origen/estado; pantalla estrecha: lista con
+  casillas y texto adaptable. Las fuentes se cargan también en el detalle de la
+  tarea del responsable. Mantiene acceso por empresa, rol y asignación actual.
+  No descarga URLs externas: resuelve solamente objetos del bucket configurado,
+  con rutas de la tarea o el acta vinculadas; conserva validación del token para
+  archivos históricos de Tareas. Archivos sin ruta válida o con formato no
+  admitido quedan visibles con explicación. Límite existente: 12 soportes por
+  hallazgo, PDF/JPG/PNG de hasta 5 MB cada uno.
+- Validación: 431 pruebas Flutter de Interventoría, Visitas y catálogo; 23 de
+  integración Firestore/Storage y roles; 14 Node de políticas y eliminación,
+  todas correctas. Diez pruebas nuevas de interfaz incluyen 390/768/1024/1366,
+  texto 1,6× y temas Android/iOS, paginación, fallos parciales y respuesta tardía.
+  TypeScript compilado; análisis Dart sin errores (dos recomendaciones de estilo
+  en pruebas); ESLint sin errores al respetar los finales de línea Windows.
+  Configuración temporal de despliegue comprueba ESLint sin `--fix`, desactiva
+  solo `linebreak-style` y comprueba TypeScript sin modificar archivos ajenos.
+- Versión 2.6.18+32. Publicación de Web, cinco Functions de Interventoría y
+  reglas en curso; `firestore:rules --dry-run` correcto antes de publicar.
+  No se ejecutan migraciones ni selecciones masivas sobre datos de producción.
+  Pendiente validación autenticada y Android/iPhone reales: el acceso a la
+  pestaña del navegador fue denegado; no se volvió a intentar por otro medio.
+
 ## 2026-10-06 — Cronograma móvil y gestión completa de Gerencia Interventoría (Codex)
 
 - Retomado K2 desde las entregas del 5 oct: los planes ya existían; faltaba
