@@ -4529,19 +4529,14 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
               ),
             ),
           if (widget.onWebUpload != null && !doc.aprobadoConRequerimientos)
-            // Sobre un documento rechazado la acción es reemplazarlo; decir
-            // "Agregar" hacía pensar que no se podía volver a subir.
+            // Subir otro archivo reemplaza el adjunto: decir "Agregar" hacía
+            // pensar que no se podía cambiar uno mal cargado (6 oct 2026).
             TextButton.icon(
               onPressed: _isUploading ? null : _handleWebFilePick,
-              icon: Icon(
-                doc.rechazado
-                    ? Icons.published_with_changes
-                    : Icons.add_circle_outline,
-                size: 14,
-              ),
-              label: Text(
-                doc.rechazado ? 'Reemplazar' : 'Agregar',
-                style: const TextStyle(fontFamily: _kFont, fontSize: 11),
+              icon: const Icon(Icons.published_with_changes, size: 14),
+              label: const Text(
+                'Reemplazar',
+                style: TextStyle(fontFamily: _kFont, fontSize: 11),
               ),
               style: TextButton.styleFrom(
                 foregroundColor: doc.rechazado
@@ -9820,6 +9815,8 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
                     Icon(
                       estado == EstadoRecepcionCompras.rechazada
                           ? Icons.build_circle_outlined
+                          : widget.puedeEditarPendientes
+                          ? Icons.edit_note_rounded
                           : Icons.lock_outline,
                       size: 16,
                       color: estadoColor,
@@ -9831,6 +9828,9 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
                           : estado == EstadoRecepcionCompras.pendiente &&
                                 widget.puedeEditarPendientes
                           ? 'Completar recepción'
+                          : estado == EstadoRecepcionCompras.historico &&
+                                widget.puedeEditarPendientes
+                          ? 'Corregir recepción'
                           : 'Ver detalle',
                       style: TextStyle(
                         fontFamily: _kFont,
@@ -10005,15 +10005,24 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
           EstadoRecepcionCompras.pendiente;
   bool get _modoCorreccion =>
       !isNew && (_esRecepcionRechazada || _esCorreccionDirigida);
-  bool get _modoEdicionPendiente =>
+  bool get _esRecepcionFinalizada =>
+      widget.existing != null &&
+      estadoRecepcionCompras(widget.existing!) ==
+          EstadoRecepcionCompras.historico;
+
+  /// Bodega (o Admin Documental) completa o corrige lo que registró, con
+  /// motivo: en revisión de Calidad y, desde el 6 oct 2026, también
+  /// finalizada. Una fecha de vencimiento mal registrada no se podía
+  /// cambiar. Las rechazadas siguen su propio flujo de corrección.
+  bool get _modoEdicionBodega =>
       !isNew &&
       !_esCorreccionDirigida &&
       widget.puedeEditarPendiente &&
-      _esRecepcionPendiente;
-  bool get _modoLectura => !isNew && !_modoCorreccion && !_modoEdicionPendiente;
+      (_esRecepcionPendiente || _esRecepcionFinalizada);
+  bool get _modoLectura => !isNew && !_modoCorreccion && !_modoEdicionBodega;
   bool get _mostrarAccionGuardar =>
       isNew ||
-      _modoEdicionPendiente ||
+      _modoEdicionBodega ||
       (!_esCorreccionDirigida && _modoCorreccion);
 
   bool _esDocumentoCorreccion(int idx, String key) {
@@ -10026,7 +10035,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
 
   bool _puedeEditarDocumento(int idx, String key) {
     if (isNew) return true;
-    if (_modoEdicionPendiente) return true;
+    if (_modoEdicionBodega) return true;
     if (!_modoCorreccion || idx < 0 || idx >= _entries.length) return false;
     final productoId =
         _entries[idx].producto?.id ??
@@ -10036,6 +10045,30 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
     final clave = claveDocumentoRecepcion(productoId, key);
     if (!_documentosCorregibles.contains(clave)) return false;
     return !_esCorreccionDirigida || _esDocumentoCorreccion(idx, key);
+  }
+
+  /// Lo que estaba guardado para el documento de un producto ya registrado.
+  DocAdjunto? _docGuardado(int idx, String key) {
+    final productos = widget.existing?.productos ?? const [];
+    return idx >= 0 && idx < productos.length
+        ? productos[idx].documentos[key]
+        : null;
+  }
+
+  /// Lo que Calidad aprobó no se quita al corregir: se reemplaza y vuelve a
+  /// su revisión. Sí se puede deshacer ese reemplazo.
+  bool _esAprobadoGuardado(int idx, String key) {
+    final guardado = _docGuardado(idx, key);
+    return _modoEdicionBodega &&
+        guardado != null &&
+        guardado.tieneDoc &&
+        guardado.aprobado;
+  }
+
+  bool _puedeEliminarDocumento(int idx, String key) {
+    if (!_puedeEditarDocumento(idx, key)) return false;
+    if (!_esAprobadoGuardado(idx, key)) return true;
+    return _entries[idx].documentos[key]?.url != _docGuardado(idx, key)!.url;
   }
 
   Future<void> _enviarCorreccionARevision(RecepcionDoc recepcion) async {
@@ -10405,7 +10438,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
       );
       return;
     }
-    if (_modoEdicionPendiente && _motivoEdicionCtrl.text.trim().isEmpty) {
+    if (_modoEdicionBodega && _motivoEdicionCtrl.text.trim().isEmpty) {
       // El campo está arriba del formulario y el botón abajo, después de
       // todos los productos: el aviso decía "indica el motivo" y nadie veía
       // dónde. Se pide aquí mismo y se sigue guardando.
@@ -10545,7 +10578,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
       );
       if (isNew) {
         await widget.svc.guardarRecepcion(r);
-      } else if (_modoEdicionPendiente) {
+      } else if (_modoEdicionBodega) {
         await widget.svc.completarRecepcionEnRevision(
           recepcion: r,
           userId: widget.userId,
@@ -10584,7 +10617,9 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
             content: Text(
               isNew
                   ? 'Recepción guardada y cerrada. Quedó enviada a Calidad.'
-                  : _modoEdicionPendiente
+                  : _modoEdicionBodega && _esRecepcionFinalizada
+                  ? 'Recepción corregida. Lo que reemplazaste volvió a revisión de Calidad.'
+                  : _modoEdicionBodega
                   ? 'Recepción completada. Los cambios quedaron en revisión de Calidad.'
                   : 'Correcciones disponibles enviadas. Los documentos pendientes conservan su rechazo.',
             ),
@@ -10999,12 +11034,17 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
   /// Los demás documentos rechazados pueden enviarse posteriormente. El archivo en Storage
   /// no se toca: es la política del módulo.
   void _eliminarDocProducto(int idx, String key) {
-    if (idx < 0 || idx >= _entries.length || !_puedeEditarDocumento(idx, key)) {
+    if (idx < 0 ||
+        idx >= _entries.length ||
+        !_puedeEliminarDocumento(idx, key)) {
       return;
     }
     setState(() {
       final actual = _entries[idx].documentos[key];
-      if (_modoCorreccion && actual?.rechazado == true) {
+      if (_esAprobadoGuardado(idx, key)) {
+        // Deshace el reemplazo: vuelve el documento que Calidad aprobó.
+        _entries[idx].documentos[key] = _docGuardado(idx, key)!;
+      } else if (_modoCorreccion && actual?.rechazado == true) {
         _entries[idx].documentos[key] = DocAdjunto(
           estadoCalidad: actual!.estadoCalidad,
           observacionCalidad: actual.observacionCalidad,
@@ -11060,13 +11100,24 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
         activeStep: 1,
       );
     }
-    if (_modoEdicionPendiente) {
+    if (_modoEdicionBodega && _esRecepcionFinalizada) {
+      return _RecepcionFlowBanner(
+        icon: Icons.edit_note_rounded,
+        color: kComprasPrimary,
+        title: 'Recepción finalizada · Bodega puede corregirla',
+        message:
+            'Corrige lotes, fechas de vencimiento o documentos que quedaron mal registrados e indica el motivo. Lo que reemplaces vuelve a revisión de Calidad; lo aprobado no se quita y los productos no se retiran.',
+        steps: const ['Captura cerrada', 'Revisión de Calidad', 'Finalizada'],
+        activeStep: 2,
+      );
+    }
+    if (_modoEdicionBodega) {
       return _RecepcionFlowBanner(
         icon: Icons.playlist_add_rounded,
         color: const Color(0xFFB45309),
-        title: 'Recepción en revisión · se puede completar',
+        title: 'Recepción en revisión · se puede completar o corregir',
         message:
-            'Agrega los productos que hayan faltado y completa sus soportes. Los productos ya registrados no se pueden retirar.',
+            'Agrega los productos que hayan faltado y corrige lotes, fechas de vencimiento o documentos mal cargados. Los productos ya registrados no se pueden retirar.',
         steps: const ['Captura cerrada', 'Revisión de Calidad', 'Finalizada'],
         activeStep: 1,
       );
@@ -11199,7 +11250,9 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
         title: Text(
           isNew
               ? 'Nueva recepción'
-              : _modoEdicionPendiente
+              : _modoEdicionBodega && _esRecepcionFinalizada
+              ? 'Corregir recepción'
+              : _modoEdicionBodega
               ? 'Completar recepción'
               : _modoCorreccion
               ? 'Corregir recepción'
@@ -11230,7 +11283,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
               child: Text(
                 isNew
                     ? 'Guardar y cerrar'
-                    : _modoEdicionPendiente
+                    : _modoEdicionBodega
                     ? 'Guardar cambios'
                     : 'Enviar disponibles',
                 style: const TextStyle(
@@ -11486,7 +11539,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                     final idx = entry.key;
                     final e = entry.value;
                     final esProductoAgregado =
-                        _modoEdicionPendiente &&
+                        _modoEdicionBodega &&
                         idx >= (widget.existing?.productos.length ?? 0);
                     return _ProductoEntryCard(
                       idx: idx,
@@ -11623,16 +11676,25 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                             }
                           : null,
                       onDeleteDoc:
-                          isNew || esProductoAgregado || _modoCorreccion
+                          isNew ||
+                              esProductoAgregado ||
+                              _modoCorreccion ||
+                              _modoEdicionBodega
                           ? (key) => _eliminarDocProducto(idx, key)
                           : null,
                       onDateChangedDoc: (key, date) =>
                           _onDateChangedDoc(idx, key, date),
                       readOnlyStructure: !isNew && !esProductoAgregado,
+                      // Producto y marca quedan fijos, pero Bodega corrige
+                      // los lotes y su fecha (6 oct 2026).
+                      readOnlyLotes:
+                          !isNew && !esProductoAgregado && !_modoEdicionBodega,
                       canEditDocument: (key) => _puedeEditarDocumento(idx, key),
+                      canDeleteDocument: (key) =>
+                          _puedeEliminarDocumento(idx, key),
                     );
                   }),
-                  if (isNew || _modoEdicionPendiente) ...[
+                  if (isNew || _modoEdicionBodega) ...[
                     const SizedBox(height: 10),
                     SizedBox(
                       width: double.infinity,
@@ -11657,7 +11719,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                   // arriba del formulario: la persona baja por todos los
                   // productos, guarda, y el aviso le decía "indica el motivo"
                   // sin que viera dónde (14 sep 2026).
-                  if (_modoEdicionPendiente) ...[
+                  if (_modoEdicionBodega) ...[
                     const SizedBox(height: 24),
                     TextField(
                       controller: _motivoEdicionCtrl,
@@ -11696,7 +11758,9 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                               ? 'Procesando...'
                               : isNew
                               ? 'Guardar, cerrar y enviar a Calidad'
-                              : _modoEdicionPendiente
+                              : _modoEdicionBodega && _esRecepcionFinalizada
+                              ? 'Guardar corrección'
+                              : _modoEdicionBodega
                               ? 'Guardar cambios y mantener en revisión'
                               : 'Enviar correcciones disponibles a Calidad',
                           style: const TextStyle(fontFamily: _kFont),
@@ -11895,7 +11959,15 @@ class _ProductoEntryCard extends StatelessWidget {
   final void Function(int loteIdx) onEditarLote;
   final void Function(int loteIdx) onEliminarLote;
   final bool readOnlyStructure;
+
+  /// Lotes y su fecha; Bodega los corrige aunque el producto quede fijo.
+  /// Null: igual que [readOnlyStructure].
+  final bool? readOnlyLotes;
   final bool Function(String key)? canEditDocument;
+
+  /// Si se puede quitar el documento adjunto (lo aprobado no se quita al
+  /// corregir una recepción). Null: siempre que haya [onDeleteDoc].
+  final bool Function(String key)? canDeleteDocument;
 
   /// Ficha técnica encontrada en la colección TBL_COMPRAS_FICHAS_TECNICAS para
   /// este proveedor + producto + marca. Null si no existe todavía.
@@ -11932,7 +12004,9 @@ class _ProductoEntryCard extends StatelessWidget {
     this.onDeleteDoc,
     this.onDateChangedDoc,
     this.readOnlyStructure = false,
+    this.readOnlyLotes,
     this.canEditDocument,
+    this.canDeleteDocument,
   });
 
   @override
@@ -12475,7 +12549,11 @@ class _ProductoEntryCard extends StatelessWidget {
                                                 .documentos['fichaTecnica']
                                                 ?.tieneDoc ==
                                             true &&
-                                        onDeleteDoc != null
+                                        onDeleteDoc != null &&
+                                        (canDeleteDocument?.call(
+                                              'fichaTecnica',
+                                            ) ??
+                                            true)
                                     ? () => onDeleteDoc!('fichaTecnica')
                                     : null,
                                 showCalendar: false,
@@ -12657,7 +12735,7 @@ class _ProductoEntryCard extends StatelessWidget {
                           ),
                         ),
                       ),
-                      if (!readOnlyStructure)
+                      if (!(readOnlyLotes ?? readOnlyStructure))
                         TextButton.icon(
                           onPressed: onAgregarLote,
                           icon: const Icon(Icons.add, size: 16),
@@ -12708,10 +12786,10 @@ class _ProductoEntryCard extends StatelessWidget {
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
-                              onPressed: readOnlyStructure
+                              onPressed: readOnlyLotes ?? readOnlyStructure
                                   ? null
                                   : () => onEditarLote(loteIdx),
-                              onDeleted: readOnlyStructure
+                              onDeleted: readOnlyLotes ?? readOnlyStructure
                                   ? null
                                   : () => onEliminarLote(loteIdx),
                               deleteIcon: const Icon(Icons.close, size: 15),
@@ -12770,7 +12848,8 @@ class _ProductoEntryCard extends StatelessWidget {
                         onDelete:
                             editable &&
                                 entry.documentos[key]?.tieneDoc == true &&
-                                onDeleteDoc != null
+                                onDeleteDoc != null &&
+                                (canDeleteDocument?.call(key) ?? true)
                             ? () => onDeleteDoc!(key)
                             : null,
                         onWebUpload: editable && onWebUploadDoc != null

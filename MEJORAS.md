@@ -46,6 +46,65 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
   Pendiente validación autenticada y Android/iPhone reales: el acceso a la
   pestaña del navegador fue denegado; no se volvió a intentar por otro medio.
 
+## 2026-10-06 — Compras: presentaciones por UM en Abastecimiento y corrección de recepciones por Bodega (Claude)
+
+**1. "Existen registros duplicados" con el mismo producto en BULTO y en LB.**
+El archivo `modelo_compras_abastecimiento` traía la OC-2-2206 con ARROZ en
+BULTO y en LB, la OC-2-2186 y la OC-1-3652 con ACEITE en L y en CAJA, y
+AZÚCAR en BULTO y en LB. La carga identificaba la línea solo por OC +
+producto, así que las dos presentaciones salían como duplicado y ninguna se
+cargaba.
+- `abastecimiento_import_rules.dart`: la UM forma parte de la línea cuando el
+  producto se repite en la OC (`claveLineaAbastecimiento(oc, producto, um)`,
+  `claveUnidadAbastecimiento` con equivalencias LB/LIBRA, G/GR, PAQ/PAQUETE,
+  UND/UNIDAD…). Sigue siendo duplicado la misma OC + producto + UM, o el
+  producto repetido con una fila sin UM (se pide indicarla).
+- Con una sola presentación nada cambia: OC + producto identifican la
+  entrega aunque la UM cambie o venga vacía. Con varias, cada fila actualiza
+  la de su UM y una UM nueva crea la entrega. Si el archivo separa por UM un
+  producto guardado sin UM, o una fila sin UM llega a una OC con varias
+  presentaciones guardadas, la fila no se carga y el aviso dice qué hacer.
+- `abastecimiento_service.dart` usa la misma clave con UM; el lector del
+  Excel toma la UM aunque la cantidad venga vacía; la plantilla explica que
+  cada presentación va en su fila con su UM.
+- Con el archivo real: 88 filas, 0 duplicados, 0 incidencias (prueba local,
+  el archivo no se sube al repositorio).
+
+**2. Bodega no podía corregir una fecha de vencimiento mal registrada.**
+En una recepción ya guardada, los lotes (y su fecha) de los productos
+registrados quedaban bloqueados, no se podía quitar un soporte mal cargado
+y una recepción finalizada era solo lectura.
+- Bodega (y Admin Documental, igual que "Completar recepción") corrige con
+  motivo los productos ya registrados en revisión de Calidad y también en
+  una recepción **finalizada** ("Corregir recepción"): agrega, edita o quita
+  lotes y su fecha, reemplaza o quita documentos. Producto, marca y
+  encabezado siguen fijos y no se retiran productos. Las rechazadas siguen
+  su flujo propio.
+- Lo que Calidad aprobó no se quita: se reemplaza, vuelve a revisión, y
+  también se puede deshacer el reemplazo. En Web el botón sobre un archivo
+  cargado dice "Reemplazar" (antes "Agregar", aunque reemplazaba).
+- `compras_recepcion_logic.dart`: `validarEdicionRecepcionBodega` (antes
+  `validarAmpliacionRecepcionPendiente`) y `fusionarEdicionRecepcion`. La
+  transacción de `completarRecepcionEnRevision` toma producto, marca y
+  origen de lo guardado, conserva la decisión de Calidad sobre los archivos
+  que no cambiaron (una pantalla abierta no la pisa) y deja lo reemplazado
+  en su estado inicial (`consulta_calidad` / `pendiente_revision_calidad`),
+  así la recepción vuelve a Calidad. El motivo queda en el histórico de
+  ediciones.
+- Reglas Firestore sin cambios: `TBL_COMPRAS_RECEPCIONES` ya admite la
+  escritura de Bodega; la restricción vive en el servicio, como antes.
+- Validación: `flutter test test/compras` (todas correctas, con 9 casos
+  nuevos de UM y 5 de corrección/fusión) y `flutter analyze` sin errores en
+  Compras.
+- Pendiente para Codex: verificar en Web (390/768/1024/1366), Android e
+  iPhone el flujo "Corregir recepción" con un usuario Bodega real (editar el
+  lote y su fecha, reemplazar la foto del vencimiento, intentar quitar un
+  documento aprobado) y la carga del modelo con dos UM. No se verificó en
+  dispositivo ni en navegador autenticado. No se tocaron datos de producción;
+  la recepción de la fécula la corrige Bodega desde la app.
+
+---
+
 ## 2026-10-06 — Cronograma móvil y gestión completa de Gerencia Interventoría (Codex)
 
 - Retomado K2 desde las entregas del 5 oct: los planes ya existían; faltaba

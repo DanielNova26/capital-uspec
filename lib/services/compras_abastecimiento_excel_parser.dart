@@ -181,8 +181,11 @@ class ComprasAbastecimientoExcelParser {
           'cantidades',
         ]);
         final cantidad = cantidadGeneral ?? kg ?? und;
-        final unidad = cantidadGeneral != null
-            ? _value(row, headers, const ['um', 'unidadmedida'])
+        // La UM distingue presentaciones del mismo producto en una OC: se
+        // lee aunque la cantidad venga vacía.
+        final um = _value(row, headers, const ['um', 'unidadmedida']);
+        final unidad = cantidadGeneral != null || um.isNotEmpty
+            ? um
             : kg != null
             ? 'KG'
             : und != null

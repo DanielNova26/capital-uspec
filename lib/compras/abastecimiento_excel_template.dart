@@ -91,7 +91,7 @@ Uint8List construirPlantillaAbastecimiento({
   );
   final note = sheet.cell(xl.CellIndex.indexByString('A2'));
   note.value = xl.TextCellValue(
-    'Diligencie una fila por producto. El periodo de consumo se selecciona en la aplicación al cargar este archivo.',
+    'Diligencie una fila por producto. Si un producto llega en dos presentaciones en la misma OC, use una fila por UM. El periodo de consumo se selecciona en la aplicación al cargar este archivo.',
   );
   note.cellStyle = xl.CellStyle(
     italic: true,
@@ -204,7 +204,13 @@ Uint8List construirPlantillaAbastecimiento({
       'Sugiere las bodegas de la empresa; puede escribir otro destino.',
     ],
     ['CANTIDAD', 'No', 'Valor numérico mayor o igual a cero.'],
-    ['UM', 'No', 'Sugiere unidades como KG o UND; puede escribir otra.'],
+    [
+      'UM',
+      'No',
+      'Sugiere unidades como KG o UND; puede escribir otra. Si el mismo '
+          'producto va en varias filas de la misma OC (p. ej. BULTO y LB), '
+          'indique la UM de cada una.',
+    ],
     ['FECHA ENTREGA', 'Sí', 'Fecha válida de Excel en formato día/mes/año.'],
     [
       'OC',

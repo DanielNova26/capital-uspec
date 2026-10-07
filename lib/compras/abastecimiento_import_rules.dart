@@ -4,15 +4,19 @@
 // La orden de compra identifica la entrega: una fila del Excel es la misma
 // entrega que ya existe cuando coinciden su OC y su producto, sin importar la
 // hoja, el grupo o el destino con que se cargó antes (antes cada variación
-// creaba otro registro y aparecían duplicados). Además:
+// creaba otro registro y aparecían duplicados). Si la misma OC trae el
+// producto en varias presentaciones (ARROZ en BULTO y en LB, 6 oct 2026),
+// cada UM es una entrega distinta y no un duplicado. Además:
 // - Una OC pertenece a un solo proveedor. Si ya está relacionada con otro
 //   (en Abastecimiento o en Recepción), la fila se rechaza y se dice con cuál.
 // - Solo se cambia por Excel una entrega en estado Programado. Si pasó a otro
 //   estado y el archivo trae algo distinto, la fila se rechaza con el aviso
 //   del usuario: "No se puede subir la OC-XXXX porque pasó a un estado
 //   posterior a programado".
-// - Las filas repetidas en el archivo o que coinciden con varios registros
-//   del sistema no se cargan y se avisa "Existen registros duplicados".
+// - Las filas repetidas en el archivo (misma OC, producto y UM, o el mismo
+//   producto varias veces sin UM que las distinga) o que coinciden con varios
+//   registros del sistema no se cargan y se avisa "Existen registros
+//   duplicados".
 //
 // Es lógica pura para poder probarla; la usa [AbastecimientoService].
 import '../services/compras_abastecimiento_excel_parser.dart';
@@ -25,9 +29,64 @@ export 'abastecimiento_recepcion_sync.dart' show normalizarClaveAbastecimiento;
 String claveOrdenCompra(String ordenCompra) =>
     normalizarClaveAbastecimiento(ordenCompra);
 
-String claveLineaAbastecimiento(String ordenCompra, String producto) =>
-    '${claveOrdenCompra(ordenCompra)}|'
-    '${normalizarClaveAbastecimiento(producto)}';
+/// OC + producto y, si la fila la trae, la UM: la misma OC puede traer el
+/// producto en varias presentaciones y cada una es una entrega aparte.
+String claveLineaAbastecimiento(
+  String ordenCompra,
+  String producto, [
+  String unidad = '',
+]) {
+  final base =
+      '${claveOrdenCompra(ordenCompra)}|'
+      '${normalizarClaveAbastecimiento(producto)}';
+  final um = claveUnidadAbastecimiento(unidad);
+  return um.isEmpty ? base : '$base|$um';
+}
+
+/// "LB", "Libra" y "libras" son la misma UM; igual "G" y "GR" o "PAQ" y
+/// "PAQUETE", que la plantilla sugiere por separado.
+String claveUnidadAbastecimiento(String unidad) {
+  final key = normalizarClaveAbastecimiento(unidad);
+  return _kAliasUnidades[key] ?? key;
+}
+
+const _kAliasUnidades = <String, String>{
+  'libra': 'lb',
+  'libras': 'lb',
+  'lbs': 'lb',
+  'gr': 'g',
+  'grs': 'g',
+  'gramo': 'g',
+  'gramos': 'g',
+  'kilo': 'kg',
+  'kilos': 'kg',
+  'kgs': 'kg',
+  'kilogramo': 'kg',
+  'kilogramos': 'kg',
+  'lt': 'l',
+  'lts': 'l',
+  'litro': 'l',
+  'litros': 'l',
+  'mililitro': 'ml',
+  'mililitros': 'ml',
+  'un': 'und',
+  'unid': 'und',
+  'unidad': 'und',
+  'unidades': 'und',
+  'paquete': 'paq',
+  'paquetes': 'paq',
+  'bultos': 'bulto',
+  'cajas': 'caja',
+  'canastas': 'canasta',
+  'pares': 'par',
+};
+
+/// "OC-2-2206 · ARROZ (BULTO)" para los avisos.
+String _etiquetaLinea(String ordenCompra, String producto, String unidad) {
+  final um = unidad.trim();
+  return '${etiquetaOrdenCompra(ordenCompra)} · $producto'
+      '${um.isEmpty ? '' : ' ($um)'}';
+}
 
 /// "OC-2160" se muestra igual; "2160" se muestra como "OC 2160".
 String etiquetaOrdenCompra(String ordenCompra) {
@@ -61,7 +120,8 @@ class AbastecimientoPlanCarga {
   /// Filas que se pueden cargar (nuevas, cambios o sin cambios).
   final List<AbastecimientoImportRow> filas;
 
-  /// Línea (OC + producto) → id de la entrega existente que se actualiza.
+  /// Línea ([claveLineaAbastecimiento] con la UM de la fila) → id de la
+  /// entrega existente que se actualiza.
   final Map<String, String> existentePorLinea;
   final List<AbastecimientoExcelIssue> incidencias;
 
@@ -95,10 +155,12 @@ AbastecimientoPlanCarga planearCargaAbastecimiento({
     AbastecimientoExcelIssue(hoja: row.hoja, fila: row.fila, mensaje: mensaje),
   );
 
-  // 1. Filas repetidas dentro del archivo: no se adivina cuál vale.
-  final porLinea = <String, List<AbastecimientoImportRow>>{};
+  // 1. Filas repetidas dentro del archivo: no se adivina cuál vale. El mismo
+  //    producto puede repetirse en la OC solo si cada fila trae una UM
+  //    distinta (BULTO y LB son dos presentaciones, no un duplicado).
+  final porProducto = <String, List<AbastecimientoImportRow>>{};
   for (final row in filas) {
-    porLinea
+    porProducto
         .putIfAbsent(
           claveLineaAbastecimiento(row.ordenCompra, row.producto),
           () => [],
@@ -106,24 +168,60 @@ AbastecimientoPlanCarga planearCargaAbastecimiento({
         .add(row);
   }
   var pendientes = <AbastecimientoImportRow>[];
-  for (final grupo in porLinea.values) {
+  for (final grupo in porProducto.values) {
     if (grupo.length == 1) {
       pendientes.add(grupo.first);
       continue;
     }
-    final ubicaciones = grupo.map((row) => '${row.hoja} fila ${row.fila}');
-    final first = grupo.first;
-    duplicados.add(
-      '${etiquetaOrdenCompra(first.ordenCompra)} · ${first.producto}: '
-      'se repite en el archivo (${ubicaciones.join(', ')}).',
-    );
+    final porUnidad = <String, List<AbastecimientoImportRow>>{};
     for (final row in grupo) {
-      rechazar(
-        row,
-        'Registro duplicado en el archivo: la '
-        '${etiquetaOrdenCompra(row.ordenCompra)} con "${row.producto}" '
-        'aparece ${grupo.length} veces.',
+      porUnidad
+          .putIfAbsent(claveUnidadAbastecimiento(row.unidad), () => [])
+          .add(row);
+    }
+    for (final entry in porUnidad.entries) {
+      final filasUnidad = entry.value;
+      if (entry.key.isNotEmpty && filasUnidad.length == 1) {
+        pendientes.add(filasUnidad.first);
+        continue;
+      }
+      final first = filasUnidad.first;
+      if (entry.key.isEmpty) {
+        // Sin UM no se sabe si es otra presentación o la misma fila repetida.
+        final todas = grupo.map((row) => '${row.hoja} fila ${row.fila}');
+        final sinUm = filasUnidad.map((row) => 'fila ${row.fila}');
+        duplicados.add(
+          '${etiquetaOrdenCompra(first.ordenCompra)} · ${first.producto}: '
+          'se repite en el archivo (${todas.join(', ')}) y '
+          '${sinUm.length == 1 ? 'la ${sinUm.first} no tiene' : 'las ${sinUm.join(', ')} no tienen'} '
+          'UM. Si son presentaciones distintas, indica la UM de cada fila.',
+        );
+        for (final row in filasUnidad) {
+          rechazar(
+            row,
+            'Registro duplicado en el archivo: la '
+            '${etiquetaOrdenCompra(row.ordenCompra)} con "${row.producto}" '
+            'aparece ${grupo.length} veces y esta fila no tiene UM. Si son '
+            'presentaciones distintas, indica la UM de cada fila.',
+          );
+        }
+        continue;
+      }
+      final ubicaciones = filasUnidad.map(
+        (row) => '${row.hoja} fila ${row.fila}',
       );
+      duplicados.add(
+        '${_etiquetaLinea(first.ordenCompra, first.producto, first.unidad)}: '
+        'se repite en el archivo (${ubicaciones.join(', ')}).',
+      );
+      for (final row in filasUnidad) {
+        rechazar(
+          row,
+          'Registro duplicado en el archivo: la '
+          '${etiquetaOrdenCompra(row.ordenCompra)} con "${row.producto}" en '
+          '${row.unidad.trim()} aparece ${filasUnidad.length} veces.',
+        );
+      }
     }
   }
 
@@ -180,22 +278,87 @@ AbastecimientoPlanCarga planearCargaAbastecimiento({
     }
   }
 
-  // 3. La entrega existente es la de la misma OC y producto.
-  final existentesPorLinea = <String, List<AbastecimientoDoc>>{};
+  // 3. La entrega existente es la de la misma OC y producto; si hay varias
+  //    presentaciones, la de la misma UM.
+  final existentesPorProducto = <String, List<AbastecimientoDoc>>{};
   for (final doc in existentes) {
     if (claveOrdenCompra(doc.ordenCompra).isEmpty) continue;
-    existentesPorLinea
+    existentesPorProducto
         .putIfAbsent(
           claveLineaAbastecimiento(doc.ordenCompra, doc.producto),
           () => [],
         )
         .add(doc);
   }
+  final filasPorProducto = <String, int>{};
+  for (final row in pendientes) {
+    final key = claveLineaAbastecimiento(row.ordenCompra, row.producto);
+    filasPorProducto[key] = (filasPorProducto[key] ?? 0) + 1;
+  }
   final aptas = <AbastecimientoImportRow>[];
   final existentePorLinea = <String, String>{};
   for (final row in pendientes) {
-    final linea = claveLineaAbastecimiento(row.ordenCompra, row.producto);
-    final candidatos = existentesPorLinea[linea] ?? const [];
+    final producto = claveLineaAbastecimiento(row.ordenCompra, row.producto);
+    final linea = claveLineaAbastecimiento(
+      row.ordenCompra,
+      row.producto,
+      row.unidad,
+    );
+    final todos = existentesPorProducto[producto] ?? const [];
+    final varias = (filasPorProducto[producto] ?? 0) > 1;
+    final um = claveUnidadAbastecimiento(row.unidad);
+    final mismaUm = um.isEmpty
+        ? const <AbastecimientoDoc>[]
+        : todos
+              .where((doc) => claveUnidadAbastecimiento(doc.unidad) == um)
+              .toList();
+    final sinUm = todos
+        .where((doc) => claveUnidadAbastecimiento(doc.unidad).isEmpty)
+        .toList();
+    final List<AbastecimientoDoc> candidatos;
+    if (mismaUm.isNotEmpty) {
+      candidatos = mismaUm;
+    } else if (!varias && todos.length <= 1) {
+      // Una sola presentación en el archivo y en el sistema: es la misma
+      // entrega aunque la UM cambie o venga vacía (como hasta ahora).
+      candidatos = todos;
+    } else if (sinUm.isNotEmpty) {
+      if (varias) {
+        // El archivo separa el producto por UM, pero en el sistema está sin
+        // UM: no se adivina a cuál de las presentaciones corresponde.
+        duplicados.add(
+          '${_etiquetaLinea(row.ordenCompra, row.producto, row.unidad)}: '
+          'en Abastecimiento ya está sin UM.',
+        );
+        rechazar(
+          row,
+          'La ${etiquetaOrdenCompra(row.ordenCompra)} ya tiene '
+          '"${row.producto}" sin UM en Abastecimiento. Indica su UM en el '
+          'detalle de la entrega (o elimínala si sobra) y vuelve a cargar.',
+        );
+        continue;
+      }
+      candidatos = sinUm;
+    } else if (um.isEmpty && _unaPorUnidad(todos)) {
+      // Ya hay varias presentaciones guardadas y la fila no dice cuál es.
+      final unidades = todos.map((doc) => doc.unidad.trim()).join(', ');
+      duplicados.add(
+        '${etiquetaOrdenCompra(row.ordenCompra)} · ${row.producto}: en '
+        'Abastecimiento está en varias presentaciones ($unidades).',
+      );
+      rechazar(
+        row,
+        'La ${etiquetaOrdenCompra(row.ordenCompra)} ya tiene "${row.producto}" '
+        'en varias presentaciones ($unidades). Indica la UM de la fila.',
+      );
+      continue;
+    } else if (um.isEmpty) {
+      candidatos = todos;
+    } else {
+      // Otra presentación del producto en la misma OC: entrega nueva.
+      candidatos = const [];
+    }
+
     AbastecimientoDoc? actual;
     if (candidatos.length == 1) {
       actual = candidatos.first;
@@ -205,7 +368,7 @@ AbastecimientoPlanCarga planearCargaAbastecimiento({
           .where((doc) => normalizarClaveAbastecimiento(doc.destino) == destino)
           .toList();
       duplicados.add(
-        '${etiquetaOrdenCompra(row.ordenCompra)} · ${row.producto}: '
+        '${_etiquetaLinea(row.ordenCompra, row.producto, row.unidad)}: '
         '${candidatos.length} registros en Abastecimiento.',
       );
       if (mismoDestino.length != 1) {
@@ -245,6 +408,14 @@ AbastecimientoPlanCarga planearCargaAbastecimiento({
   );
 }
 
+/// Cada entrega tiene una UM propia: son presentaciones, no duplicados.
+bool _unaPorUnidad(List<AbastecimientoDoc> entregas) {
+  final unidades = entregas
+      .map((doc) => claveUnidadAbastecimiento(doc.unidad))
+      .toSet();
+  return unidades.length == entregas.length && !unidades.contains('');
+}
+
 /// Si cargar la fila cambiaría la entrega. Sigue la misma regla de la carga:
 /// una celda vacía no borra lo guardado; mayúsculas, tildes y espacios no
 /// cuentan como cambio. El período de consumo no se compara porque una
@@ -272,10 +443,14 @@ bool filaDifiereDeEntrega(AbastecimientoImportRow row, AbastecimientoDoc doc) {
   if (row.estadoExplicito != null && row.estadoExplicito != doc.estado) {
     return true;
   }
+  final unidadCambia =
+      row.unidad.trim().isNotEmpty &&
+      claveUnidadAbastecimiento(row.unidad) !=
+          claveUnidadAbastecimiento(doc.unidad);
   return texto(row.categoria, doc.categoria) ||
       texto(row.destino, doc.destino) ||
       texto(row.condicion, doc.condicion) ||
-      texto(row.unidad, doc.unidad) ||
+      unidadCambia ||
       texto(row.numeroEntrada, doc.numeroEntrada) ||
       texto(row.observaciones, doc.observaciones) ||
       numero(row.cantidad, doc.cantidad) ||

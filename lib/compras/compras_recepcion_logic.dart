@@ -93,18 +93,26 @@ EstadoRecepcionCompras estadoRecepcionCompras(RecepcionDoc recepcion) {
       : EstadoRecepcionCompras.historico;
 }
 
-/// Valida una ampliación operativa mientras la recepción sigue en revisión.
+/// Valida lo que Bodega cambia en una recepción ya guardada.
 ///
 /// El bloqueo anterior impedía corregir una captura incompleta después de
 /// cerrarla. Se permite agregar productos y completar sus soportes, pero no
 /// retirar silenciosamente productos que ya formaban parte de la recepción.
-String? validarAmpliacionRecepcionPendiente({
+///
+/// Desde el 6 oct 2026 también se corrige lo capturado de los productos ya
+/// registrados (lotes con su fecha y documentos mal cargados), en revisión
+/// de Calidad o ya finalizada: Bodega registró mal la fecha de vencimiento
+/// de una fécula y no tenía cómo cambiarla. Lo que Calidad aprobó no se
+/// quita: se reemplaza y vuelve a su revisión ([fusionarEdicionRecepcion]).
+/// Una recepción rechazada sigue su propio flujo de corrección.
+String? validarEdicionRecepcionBodega({
   required RecepcionDoc original,
   required List<RecepcionProducto> productosActualizados,
   required String motivo,
 }) {
-  if (estadoRecepcionCompras(original) != EstadoRecepcionCompras.pendiente) {
-    return 'Solo se puede completar una recepción mientras está en revisión de Calidad.';
+  if (estadoRecepcionCompras(original) == EstadoRecepcionCompras.rechazada) {
+    return 'La recepción tiene documentos rechazados: corrígelos primero '
+        'desde "Corregir documentos".';
   }
   if (productosActualizados.isEmpty) {
     return 'La recepción debe conservar al menos un producto.';
@@ -129,7 +137,71 @@ String? validarAmpliacionRecepcionPendiente({
       return 'No se pueden retirar productos que ya estaban registrados en la recepción.';
     }
   }
+  for (var i = 0; i < original.productos.length; i++) {
+    final antes = original.productos[i];
+    final despues = productosActualizados[i];
+    for (final entry in antes.documentos.entries) {
+      if (!entry.value.tieneDoc || !entry.value.aprobado) continue;
+      if (despues.documentos[entry.key]?.tieneDoc == true) continue;
+      return 'No se puede quitar "${kDocRecepcionLabels[entry.key] ?? entry.key}" '
+          'de ${antes.nombre}: Calidad ya lo aprobó. Si está mal, reemplázalo '
+          'y volverá a su revisión.';
+    }
+  }
   return null;
+}
+
+/// Une lo guardado con la edición de Bodega ya validada.
+///
+/// De un producto ya registrado solo cambian sus lotes, sus observaciones y
+/// los archivos. Producto, marca y origen se conservan. Un archivo que no
+/// cambió conserva lo guardado, así una pantalla abierta mientras Calidad
+/// revisaba no pisa su decisión. Un archivo nuevo o reemplazado entra a
+/// revisión de Calidad. Los productos agregados pasan como llegan.
+List<RecepcionProducto> fusionarEdicionRecepcion({
+  required RecepcionDoc original,
+  required List<RecepcionProducto> productosActualizados,
+}) => [
+  for (var i = 0; i < productosActualizados.length; i++)
+    if (i < original.productos.length)
+      _fusionarProductoRecepcion(
+        original.productos[i],
+        productosActualizados[i],
+      )
+    else
+      productosActualizados[i],
+];
+
+RecepcionProducto _fusionarProductoRecepcion(
+  RecepcionProducto antes,
+  RecepcionProducto despues,
+) {
+  final documentos = <String, DocAdjunto>{};
+  for (final entry in despues.documentos.entries) {
+    final guardado = antes.documentos[entry.key];
+    final nuevo = entry.value;
+    if (guardado != null && (guardado.url ?? '') == (nuevo.url ?? '')) {
+      documentos[entry.key] = guardado;
+    } else if (nuevo.tieneDoc) {
+      documentos[entry.key] = nuevo.copyWith(
+        estadoCalidad: estadoInicialDocumentoRecepcion(entry.key),
+      );
+    } else {
+      documentos[entry.key] = nuevo;
+    }
+  }
+  // Un registro histórico sin producto identificado toma el que se eligió.
+  final base = antes.productoId.trim().isEmpty ? despues : antes;
+  final sinMarca = base.marcaId.trim().isEmpty;
+  return despues.copyWith(
+    productoId: base.productoId,
+    nombre: base.nombre,
+    categoria: base.categoria,
+    marcaId: sinMarca ? despues.marcaId : base.marcaId,
+    marca: sinMarca ? despues.marca : base.marca,
+    origen: base.origen,
+    documentos: documentos,
+  );
 }
 
 /// Documentos de uso permanente que pertenecen al expediente del producto y
