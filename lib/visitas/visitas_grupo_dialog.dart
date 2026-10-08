@@ -20,8 +20,6 @@ const Color _kRojo = Color(0xFFDC2626);
 class GrupoTrabajoDialog extends StatefulWidget {
   final VisitasService svc;
   final VisitaGrupo grupo;
-  final Map<String, String> areas;
-  final bool areaEditable;
   final List<VisitaPersona> equipo;
 
   /// Los demás grupos de la empresa: un establecimiento va en un solo grupo
@@ -31,8 +29,6 @@ class GrupoTrabajoDialog extends StatefulWidget {
   const GrupoTrabajoDialog({
     required this.svc,
     required this.grupo,
-    required this.areas,
-    required this.areaEditable,
     required this.equipo,
     this.otrosGrupos = const [],
   });
@@ -43,7 +39,6 @@ class GrupoTrabajoDialog extends StatefulWidget {
 
 class GrupoTrabajoDialogState extends State<GrupoTrabajoDialog> {
   late final TextEditingController _nombre;
-  late String _area;
   late Set<String> _centros;
   late Set<String> _profesionales;
   late Set<String> _coordinadores;
@@ -59,9 +54,6 @@ class GrupoTrabajoDialogState extends State<GrupoTrabajoDialog> {
     super.initState();
     final g = widget.grupo;
     _nombre = TextEditingController(text: g.nombre);
-    _area = g.areaId.isNotEmpty
-        ? g.areaId
-        : (widget.areas.length == 1 ? widget.areas.keys.first : '');
     _centros = {...g.centroIds};
     _profesionales = {...g.profesionalIds};
     _coordinadores = {...g.coordinadorIds};
@@ -86,18 +78,17 @@ class GrupoTrabajoDialogState extends State<GrupoTrabajoDialog> {
     super.dispose();
   }
 
-  /// Profesionales de visita del departamento.
-  List<VisitaPersona> get _profesionalesDelArea => [
+  /// Profesionales de visita de la empresa (el grupo no es de un
+  /// departamento: reúne establecimientos y personas de toda la empresa).
+  List<VisitaPersona> get _profesionalesDisponibles => [
     for (final p in widget.equipo)
-      if (p.rol == kVisitasRolProfesional &&
-          mismaAreaVisitas(p.rolAreaId, _area))
-        p,
+      if (p.rol == kVisitasRolProfesional) p,
   ];
 
-  /// Nombre del otro grupo del mismo departamento que ya tiene el centro.
+  /// Nombre del otro grupo de la empresa que ya tiene el centro.
   String? _enOtroGrupo(String centroId) {
     for (final o in widget.otrosGrupos) {
-      if (o.id == widget.grupo.id || !mismaAreaVisitas(o.areaId, _area)) {
+      if (o.id == widget.grupo.id) {
         continue;
       }
       if (o.centroIds.any((c) => centroIdDeClaveGrupo(c) == centroId)) {
@@ -107,8 +98,8 @@ class GrupoTrabajoDialogState extends State<GrupoTrabajoDialog> {
     return null;
   }
 
-  /// "Los demás": todos los establecimientos que ningún otro grupo del
-  /// departamento tiene (ej. el Grupo 7 son los que no están en el 6).
+  /// "Los demás": todos los establecimientos que ningún otro grupo
+  /// tiene (ej. el Grupo 7 son los que no están en el 6).
   void _incluirLosDemas() {
     final todos = _todos ?? const <VisitaCentro>[];
     setState(() {
@@ -248,9 +239,8 @@ class GrupoTrabajoDialogState extends State<GrupoTrabajoDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final profesionales = _profesionalesDelArea;
+    final profesionales = _profesionalesDisponibles;
     final faltaNombre = _nombre.text.trim().isEmpty;
-    final faltaArea = _area.isEmpty;
     final todos = _todos ?? const <VisitaCentro>[];
     final vigentes = [for (final e in establecimientosDe(todos)) e.clave];
     return AlertDialog(
@@ -277,39 +267,6 @@ class GrupoTrabajoDialogState extends State<GrupoTrabajoDialog> {
                 ),
               ),
               const SizedBox(height: 12),
-              if (widget.areaEditable)
-                DropdownButtonFormField<String>(
-                  initialValue: _area.isEmpty ? null : _area,
-                  isExpanded: true,
-                  decoration: InputDecoration(
-                    labelText: 'Departamento',
-                    border: const OutlineInputBorder(),
-                    enabledBorder: OutlineInputBorder(
-                      borderSide: BorderSide(
-                        color: faltaArea ? _kRojo : Colors.black87,
-                      ),
-                    ),
-                  ),
-                  items: [
-                    for (final e in widget.areas.entries)
-                      DropdownMenuItem(value: e.key, child: Text(e.value)),
-                  ],
-                  onChanged: (v) => setState(() {
-                    _area = v ?? '';
-                    _profesionales.clear();
-                  }),
-                )
-              else
-                // El jefe arma grupos de su departamento: no se vuelve a
-                // escoger (28 sep 2026).
-                Text(
-                  'Departamento: ${widget.areas[_area] ?? (widget.grupo.areaNombre.isEmpty ? 'sin departamento' : widget.grupo.areaNombre)}',
-                  style: TextStyle(
-                    fontFamily: _kFont,
-                    fontWeight: FontWeight.w700,
-                    color: faltaArea ? _kRojo : Colors.black87,
-                  ),
-                ),
               const SizedBox(height: 14),
               Text(
                 'Establecimientos (${_centros.length})',
@@ -334,9 +291,7 @@ class GrupoTrabajoDialogState extends State<GrupoTrabajoDialog> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton.icon(
-                  onPressed: _todos == null || _area.isEmpty
-                      ? null
-                      : _incluirLosDemas,
+                  onPressed: _todos == null ? null : _incluirLosDemas,
                   icon: const Icon(Icons.playlist_add_check, size: 18),
                   label: const Text(
                     'Incluir los demás (los que no están en otro grupo)',
@@ -349,14 +304,9 @@ class GrupoTrabajoDialogState extends State<GrupoTrabajoDialog> {
                 style: const TextStyle(fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 6),
-              if (faltaArea)
+              if (profesionales.isEmpty)
                 const Text(
-                  'Elige primero el departamento.',
-                  style: TextStyle(fontSize: 12, color: Colors.black54),
-                )
-              else if (profesionales.isEmpty)
-                const Text(
-                  'El departamento no tiene profesionales de visita. El rol '
+                  'No hay profesionales de visita en la empresa. El rol '
                   'Profesional se asigna en Administración > Roles y '
                   'permisos > Visitas.',
                   style: TextStyle(fontSize: 12, color: Colors.black54),
@@ -390,7 +340,7 @@ class GrupoTrabajoDialogState extends State<GrupoTrabajoDialog> {
                 ),
               const SizedBox(height: 6),
               const Text(
-                'Un profesional queda en un solo grupo de su departamento: si '
+                'Un profesional queda en un solo grupo: si '
                 'ya estaba en otro, sale de ese al guardar.',
                 style: TextStyle(fontSize: 11, color: Colors.black54),
               ),
@@ -450,14 +400,12 @@ class GrupoTrabajoDialogState extends State<GrupoTrabajoDialog> {
         ),
         FilledButton(
           style: FilledButton.styleFrom(backgroundColor: _kColor),
-          onPressed: faltaNombre || faltaArea || _todos == null
+          onPressed: faltaNombre || _todos == null
               ? null
               : () => Navigator.pop(
                   context,
                   widget.grupo.copyWith(
                     nombre: _nombre.text.trim(),
-                    areaId: _area,
-                    areaNombre: widget.areas[_area] ?? widget.grupo.areaNombre,
                     centroIds: [
                       for (final k in vigentes)
                         if (_centros.contains(k)) k,

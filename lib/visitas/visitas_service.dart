@@ -369,7 +369,7 @@ class VisitasService {
     final ref = g.id.isEmpty ? _grupos.doc() : _grupos.doc(g.id);
     final batch = _db.batch();
     for (final o in otros) {
-      if (o.id == ref.id || o.id.isEmpty || o.areaId != g.areaId) continue;
+      if (o.id == ref.id || o.id.isEmpty) continue;
       final quedan = o.profesionalIds
           .where((p) => !g.profesionalIds.contains(p))
           .toList();

@@ -10221,3 +10221,16 @@ establecimiento va en **un solo grupo**.
   migraron datos), y si el grupo debe ser independiente del departamento
   (hoy cada grupo pertenece a un departamento).
 - Sin verificar: compilación y tests (sin Flutter/Node).
+
+### Corrección: el grupo es de la EMPRESA, no de un departamento (8 oct 2026)
+Se quitó el departamento de los grupos. `VisitaGrupo.areaId` queda opcional
+(vacío en los nuevos; los antiguos lo conservan y siguen funcionando).
+- Un establecimiento y un profesional van en un solo grupo de toda la empresa
+  (`guardarGrupo` ya no filtra por área); "Incluir los demás" mira todos los
+  grupos.
+- Visitas (Programar y Equipo) leen todos los grupos de la empresa.
+- Reglas `TBL_VISITAS_GRUPOS`: `areaId` opcional; escriben Admin de la
+  empresa, Gerencia y Desarrollo (el jefe solo los antiguos de su área).
+- Grupos antiguos por departamento: revisar en Admin › Grupos de trabajo y
+  consolidarlos en Grupo 6 / Grupo 7 (no se migró automáticamente).
+- Sin verificar: compilación y tests (sin Flutter/Node).

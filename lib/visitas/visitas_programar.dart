@@ -139,10 +139,8 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
           ? ''
           : await widget.svc.areaDeUsuario(widget.empresaId, widget.jefeId);
       final centros = await widget.svc.centrosDeEmpresa(widget.empresaId);
-      final grupos = await widget.svc.gruposDeEmpresa(
-        widget.empresaId,
-        areaId: widget.esDesarrollador ? null : areaJefe,
-      );
+      // Los grupos son de toda la empresa, no de un departamento.
+      final grupos = await widget.svc.gruposDeEmpresa(widget.empresaId);
       final areas = await widget.svc.areasDeEmpresa(widget.empresaId);
       List<VisitaUbicacion>? ubicaciones;
       try {

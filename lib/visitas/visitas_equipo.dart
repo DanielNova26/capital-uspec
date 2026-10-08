@@ -178,10 +178,8 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
             ),
           );
         }
-        final grupos = [
-          for (final g in gruposSnap.data ?? const <VisitaGrupo>[])
-            if (_enMiArea(g.areaId)) g,
-        ];
+        // Los grupos son de la empresa: los ven todos, sin filtrar por área.
+        final grupos = gruposSnap.data ?? const <VisitaGrupo>[];
         final errorGrupos = gruposSnap.hasError
             ? 'No se pudieron leer los grupos: ${gruposSnap.error}'
             : null;
@@ -260,11 +258,8 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
     final profesionales = delArea
         .where((p) => p.rol == kVisitasRolProfesional)
         .toList();
-    final gruposArea = grupos
-        .where((g) => mismaAreaVisitas(g.areaId, area))
-        .toList();
     final sinGrupo = profesionales
-        .where((p) => gruposDe(p.id, gruposArea).isEmpty)
+        .where((p) => gruposDe(p.id, grupos).isEmpty)
         .toList();
     Widget etiqueta(String t) => Padding(
       padding: const EdgeInsets.only(top: 8, bottom: 2),
@@ -304,7 +299,7 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
               Wrap(children: [for (final p in directores) _persona(p)]),
             etiqueta(
               'PROFESIONALES DE VISITA (${profesionales.length}) · '
-              '${gruposArea.length} GRUPO${gruposArea.length == 1 ? '' : 'S'}',
+              '${grupos.where((g) => g.profesionalIds.any(profesionales.map((p) => p.id).contains)).length} GRUPO(S)',
             ),
             if (profesionales.isEmpty)
               const Text(
@@ -561,7 +556,7 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
                       children: [
                         Expanded(
                           child: Text(
-                            '${g.nombre} · ${_nombreArea(g.areaId)}',
+                            g.nombre,
                             style: const TextStyle(
                               fontFamily: _kFont,
                               fontWeight: FontWeight.w800,

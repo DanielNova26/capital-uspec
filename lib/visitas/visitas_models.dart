@@ -2992,7 +2992,7 @@ class VisitaGrupo {
     this.id = '',
     required this.empresaId,
     required this.nombre,
-    required this.areaId,
+    this.areaId = '',
     this.areaNombre = '',
     this.centroIds = const [],
     this.profesionalIds = const [],
@@ -3051,7 +3051,6 @@ bool visitasPuedeVerComoCoordinador(String? rol) =>
 
 List<String> validarGrupo(VisitaGrupo g) => [
   if (g.nombre.trim().isEmpty) 'El grupo necesita un nombre.',
-  if (g.areaId.trim().isEmpty) 'El grupo necesita un área.',
 ];
 
 /// Grupos a los que pertenece un profesional.

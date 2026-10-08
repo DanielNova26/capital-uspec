@@ -294,14 +294,7 @@ void main() {
                     context: context,
                     builder: (_) => GrupoTrabajoDialog(
                       svc: svc,
-                      grupo: const VisitaGrupo(
-                        empresaId: 'e',
-                        nombre: '',
-                        areaId: _area,
-                        areaNombre: 'Talento Humano',
-                      ),
-                      areas: const {_area: 'Talento Humano'},
-                      areaEditable: false,
+                      grupo: const VisitaGrupo(empresaId: 'e', nombre: ''),
                       equipo: equipo,
                     ),
                   );
@@ -317,7 +310,7 @@ void main() {
     await tester.pumpAndSettle();
     // El departamento no se vuelve a escoger y los establecimientos están,
     // con sus subcentros activos debajo.
-    expect(find.text('Departamento: Talento Humano'), findsOneWidget);
+    expect(find.textContaining('Departamento'), findsNothing);
     expect(find.widgetWithText(CheckboxListTile, 'Ipiales'), findsOneWidget);
     expect(find.widgetWithText(CheckboxListTile, 'Pabellón A'), findsOneWidget);
     expect(find.widgetWithText(CheckboxListTile, 'Viejo'), findsNothing);

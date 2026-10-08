@@ -55,11 +55,8 @@ class _AdminGruposTrabajoPanelState extends State<AdminGruposTrabajoPanel> {
 
   bool _cargando = true;
   String? _error;
-  Map<String, String> _areasMapa = const {};
-  AreaCatalogo _areas = const AreaCatalogo.vacio();
   List<VisitaPersona> _equipo = const [];
   List<VisitaCentro> _centros = const [];
-  String _areaFiltro = '';
   String _busqueda = '';
 
   @override
@@ -70,15 +67,10 @@ class _AdminGruposTrabajoPanelState extends State<AdminGruposTrabajoPanel> {
 
   Future<void> _cargar() async {
     try {
-      final areas = await _svc.areasDeEmpresa(widget.empresaId);
       final equipo = await _svc.equipoVisitas(widget.empresaId);
       final centros = await _svc.centrosDeEmpresa(widget.empresaId);
       if (!mounted) return;
       setState(() {
-        _areasMapa = areas;
-        _areas = AreaCatalogo.desde(
-          areas.entries.map((e) => (id: e.key, nombre: e.value)),
-        );
         _equipo = equipo;
         _centros = centros;
         _cargando = false;
@@ -93,9 +85,6 @@ class _AdminGruposTrabajoPanelState extends State<AdminGruposTrabajoPanel> {
       }
     }
   }
-
-  String _nombreArea(String ref) =>
-      ref.trim().isEmpty ? 'Sin departamento' : _areas.nombreDe(ref);
 
   void _aviso(String msg, {bool error = false}) {
     if (!mounted) return;
@@ -117,13 +106,7 @@ class _AdminGruposTrabajoPanelState extends State<AdminGruposTrabajoPanel> {
             VisitaGrupo(
               empresaId: widget.empresaId,
               nombre: '',
-              areaId: _areaFiltro,
-              areaNombre: _areasMapa[_areaFiltro] ?? '',
             ),
-        areas: _areasMapa,
-        // El departamento de un grupo existente no cambia: las reglas no lo
-        // permiten (se borra y se crea otro).
-        areaEditable: g == null,
         equipo: _equipo,
         otrosGrupos: todos,
       ),
@@ -214,9 +197,7 @@ class _AdminGruposTrabajoPanelState extends State<AdminGruposTrabajoPanel> {
         final q = areaClave(_busqueda);
         final visibles = [
           for (final g in todos)
-            if ((_areaFiltro.isEmpty ||
-                    mismaAreaVisitas(g.areaId, _areaFiltro)) &&
-                (q.isEmpty ||
+            if ((q.isEmpty ||
                     areaClave(
                       '${g.nombre} ${g.centroIds.map((c) => nombreCentro[c] ?? '').join(' ')}',
                     ).contains(q)))
@@ -256,8 +237,9 @@ class _AdminGruposTrabajoPanelState extends State<AdminGruposTrabajoPanel> {
             ),
             const SizedBox(height: 6),
             const Text(
-              'Cada grupo reúne un departamento, los establecimientos que '
-              'atiende, sus profesionales y sus coordinadores. Visitas '
+              'Los grupos son de toda la empresa (Grupo 6, Grupo 7…): cada '
+              'establecimiento va en un solo grupo, con sus profesionales y '
+              'coordinadores. Visitas '
               'programa con ellos y el coordinador ve las visitas de sus '
               'grupos; Interventoría asigna primero a quien trabaja en el '
               'grupo del establecimiento del hallazgo.',
@@ -278,27 +260,6 @@ class _AdminGruposTrabajoPanelState extends State<AdminGruposTrabajoPanel> {
                       isDense: true,
                     ),
                     onChanged: (v) => setState(() => _busqueda = v),
-                  ),
-                ),
-                SizedBox(
-                  width: 260,
-                  child: DropdownButtonFormField<String>(
-                    initialValue: _areaFiltro,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Departamento',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    items: [
-                      const DropdownMenuItem(value: '', child: Text('Todos')),
-                      for (final e in _areasMapa.entries)
-                        DropdownMenuItem(
-                          value: e.key,
-                          child: Text(e.value, overflow: TextOverflow.ellipsis),
-                        ),
-                    ],
-                    onChanged: (v) => setState(() => _areaFiltro = v ?? ''),
                   ),
                 ),
               ],
@@ -396,7 +357,7 @@ class _AdminGruposTrabajoPanelState extends State<AdminGruposTrabajoPanel> {
               children: [
                 Expanded(
                   child: Text(
-                    '${g.nombre} · ${_nombreArea(g.areaId)}',
+                    g.nombre,
                     style: const TextStyle(
                       fontFamily: _kFont,
                       fontWeight: FontWeight.w800,
