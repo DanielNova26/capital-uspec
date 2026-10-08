@@ -74,7 +74,7 @@ function visita(extra = {}) {
     profesionalNombre: "Profesional",
     asignadoPorId: "jefe",
     asignadoPorNombre: "Jefe",
-    fechaProgramada: new Date(2026, 9, 5),
+    fechaProgramada: new Date(Date.now() + 86400000),
     estado: "programada",
     ...extra,
   };
@@ -171,7 +171,7 @@ test("Gerencia crea formatos y programa en cualquier área", async () => {
     asignadoPorId: "ger", asignadoPorNombre: "Oscar",
   })));
   await assertSucceeds(updateDoc(doc(db, "TBL_VISITAS/prog"), {
-    fechaProgramada: new Date(2026, 9, 9),
+    fechaProgramada: new Date(Date.now() + 3 * 86400000),
     reprogramaciones: [{motivo: "Festivo"}],
   }));
 });

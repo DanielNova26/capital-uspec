@@ -5,6 +5,14 @@
       "queryScope": "COLLECTION",
       "fields": [
         {"fieldPath": "empresaId", "order": "ASCENDING"},
+        {"fieldPath": "coordinadorIds", "arrayConfig": "CONTAINS"}
+      ]
+    },
+    {
+      "collectionGroup": "TBL_VISITAS",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "empresaId", "order": "ASCENDING"},
         {"fieldPath": "areaId", "order": "ASCENDING"}
       ]
     },

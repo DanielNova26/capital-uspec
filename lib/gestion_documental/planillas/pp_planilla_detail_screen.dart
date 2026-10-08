@@ -1092,9 +1092,9 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
         width: double.infinity,
         child: OutlinedButton.icon(
           icon: const Icon(Icons.table_view_outlined, size: 18),
-          label: const Text(
+          label: Text(
             _generandoPlano ? 'Generando…' : 'Descargar archivo plano (CSV)',
-            style: TextStyle(fontFamily: 'Arial', fontWeight: FontWeight.w700),
+            style: const TextStyle(fontFamily: 'Arial', fontWeight: FontWeight.w700),
           ),
           style: OutlinedButton.styleFrom(
             foregroundColor: GdPalette.primary,

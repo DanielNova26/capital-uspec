@@ -14,6 +14,7 @@ class _Agenda extends Fake implements VisitasService {
     String empresaId, {
     String? profesionalId,
     String? areaId,
+    String? coordinadorId,
   }) => Stream.value([
     VisitaProfesional(
       id: 'visita',

@@ -1006,7 +1006,7 @@ service cloud.firestore {
       // `numero` es el consecutivo por empresa que asigna el servidor
       // (`visitasAsignarNumero`, 5 oct 2026): la app no lo trae al crear y
       // ninguna actualización de abajo lo deja tocar.
-      allow create: if !request.resource.data.keys().hasAny(['numero'])
+      allow create: if !request.resource.data.keys().hasAny(['numero', 'coordinadorIds'])
         && administraVisitasArea(request.resource.data.empresaId,
           request.resource.data.areaId)
         && request.resource.data.asignadoPorId == request.auth.token.userDocId
@@ -1103,7 +1103,8 @@ service cloud.firestore {
     function esCoordinadorDeVisita() {
       return request.auth.token.userDocId
           in resource.data.get('coordinadorIds', [])
-        && rolVisitasEn(resource.data.empresaId, ['coordinador']);
+        && rolVisitasEn(resource.data.empresaId, ['coordinador'])
+        && tieneAppsEn(resource.data.empresaId, ['visitasdashboard', 'visitas'], false);
     }
 
     // La visita es del profesional que la pide y él tiene el rol en la

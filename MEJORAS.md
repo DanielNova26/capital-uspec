@@ -6,6 +6,39 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## 2026-10-08 — Integración de elegant-goldberg en main (Codex)
+
+- Integrada por petición expresa `claude/elegant-goldberg-axhzwp`
+  (`f83f00c`) mediante merge `758ada3`, preservando la autoría de Claude y
+  los cambios de planes de mejora. Incluye Coordinador de Visitas y las
+  mejoras del modelo Excel de beneficiarios y descarga del plano de Planillas.
+- Corregido el `const Text` que impedía compilar el botón de descarga del
+  plano. Actualizado el doble de pruebas del cronograma para el nuevo filtro
+  de coordinador. La prueba de reprogramación usa fechas relativas: su fecha
+  fija anterior ya estaba vencida y exigía solicitud de cambio por diseño.
+- Cerrada la escritura de `coordinadorIds` desde el cliente también al crear
+  visitas. La consulta del coordinador exige la app vigente en su empresa,
+  además de rol y asignación. Agregado índice empresa/coordinador y compilados
+  los dos disparadores nuevos para que formen parte del despliegue.
+- Publicadas las reglas Firestore y los índices en producción. El primer
+  intento de validación devolvió 503; el segundo compiló y la publicación
+  posterior terminó correctamente. Resuelve también el pendiente de reglas
+  registrado en la publicación del 6 de octubre.
+- Visitas anteriores se recalculan al asignar o cambiar coordinadores o
+  profesionales del grupo; guardar sin cambiar esas listas no las recalcula.
+  No se ejecutó ninguna migración ni cambio de asignaciones de producción.
+- Verificación adicional del modelo de beneficiarios: no importa filas de
+  ejemplo, conserva ceros de documento/cuenta y convierte las opciones de
+  los desplegables en los códigos esperados. Continúa pendiente validar los
+  flujos autenticados y dispositivos Android/iPhone físicos.
+- Versión conjunta 2.6.20+34 compilada para Web. Pruebas: 1.595 Flutter,
+  183 Node y 40 de integración Firestore/Storage aprobadas, sin omitidas.
+  Análisis de los archivos Dart integrados sin errores ni advertencias
+  (11 recomendaciones de estilo); TypeScript y lint sin errores.
+  Publicados los cuatro servicios: interventoriaPlanes,
+  interventoriaPlanesAvisos, visitasCoordinadoresAlCrear y
+  visitasCoordinadoresAlCambiarGrupo. Publicación de Hosting en curso.
+
 ## 2026-10-08 — Planes de mejora: calendario, seguimiento y preparación para K2 (Codex)
 
 - Implementado el alcance de planes de mejora de la reunión del 6 de octubre:
