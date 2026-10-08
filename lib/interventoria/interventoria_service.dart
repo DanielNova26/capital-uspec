@@ -2780,6 +2780,17 @@ class InterventoriaService {
           .where('empresaId', isEqualTo: empresaId)
           .get();
       gruposTrabajo = [for (final d in gruposSnap.docs) d.data()];
+      // Un grupo de trabajo llamado "Grupo 6" es el G6 del contrato: quien
+      // tenga G6 en Talento Humano cubre también sus establecimientos.
+      for (final g in gruposTrabajo) {
+        final nombre = normalizarGrupoCentroCosto(g['nombre']);
+        if (!RegExp(r'^G\d+$').hasMatch(nombre)) continue;
+        final claves = g['centroIds'];
+        if (claves is! Iterable) continue;
+        centrosPorGrupo
+            .putIfAbsent(nombre, () => <String>{})
+            .addAll(claves.map((c) => centroIdDeClaveGrupo(c.toString())));
+      }
     } catch (_) {
       // Sin permiso o sin red se sigue con la cobertura de cada persona.
     }

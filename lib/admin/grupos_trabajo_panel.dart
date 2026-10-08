@@ -125,6 +125,7 @@ class _AdminGruposTrabajoPanelState extends State<AdminGruposTrabajoPanel> {
         // permiten (se borra y se crea otro).
         areaEditable: g == null,
         equipo: _equipo,
+        otrosGrupos: todos,
       ),
     );
     if (resultado == null || !mounted) return;

@@ -822,22 +822,9 @@ String normalizarGrupoCentroCosto(Object? raw) {
   final value = (raw ?? '').toString().trim();
   if (value.isEmpty) return '';
   final compact = value.toUpperCase().replaceAll(RegExp(r'[\s_-]+'), '');
-  if (compact == '1' ||
-      compact == '01' ||
-      compact == 'G1' ||
-      compact == 'G01' ||
-      compact == 'GRUPO1' ||
-      compact == 'GRUPO01') {
-    return 'G1';
-  }
-  if (compact == '9' ||
-      compact == '09' ||
-      compact == 'G9' ||
-      compact == 'G09' ||
-      compact == 'GRUPO9' ||
-      compact == 'GRUPO09') {
-    return 'G9';
-  }
+  // Cualquier número de grupo: 6, 06, G6, Grupo 6 → G6 (antes solo G1 y G9).
+  final numero = RegExp(r'^(?:G|GRUPO)?0*(\d+)$').firstMatch(compact);
+  if (numero != null) return 'G${numero.group(1)}';
   return value;
 }
 

@@ -10204,3 +10204,20 @@ coordinadores. Misma colección `TBL_VISITAS_GRUPOS`, sin duplicar fuentes.
 - Sin verificar (sin Flutter/Node): compilación, tests (`grupos_trabajo_test`,
   `visitas_programar_equipo_test`, `admin_internal_workspace_test`), reglas.
   Web ancho/estrecho, Android e iOS sin probar.
+
+### Grupos contractuales (Grupo 6, Grupo 7…) — ajuste (8 oct 2026)
+Modelo aclarado por el usuario: la empresa tiene grupos (p. ej. Grupo 6 =
+Picota, Landázuri y Tomás Cipriano; Grupo 7 = los demás) y cada
+establecimiento va en **un solo grupo**.
+- `normalizarGrupoCentroCosto` reconoce cualquier número (antes solo G1/G9).
+- Admin › Grupos de trabajo: al guardar, un establecimiento sale de otro grupo
+  del mismo departamento (`guardarGrupo`); el diálogo avisa dónde está hoy y
+  trae "Incluir los demás" para armar el Grupo 7 en un clic.
+- Interventoría: un grupo de trabajo llamado "Grupo N" alimenta el G*N* del
+  contrato: quien tenga G*N* en Talento Humano (`gruposInterventoria`) cubre
+  sus establecimientos, además de lo ya existente por personas del grupo.
+- Pendiente de confirmar con el usuario: nombres exactos de los
+  establecimientos de cada grupo (se cargan a mano en el panel, no se
+  migraron datos), y si el grupo debe ser independiente del departamento
+  (hoy cada grupo pertenece a un departamento).
+- Sin verificar: compilación y tests (sin Flutter/Node).

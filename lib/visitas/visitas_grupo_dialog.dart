@@ -8,6 +8,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/area_directory.dart';
+import '../core/grupos_trabajo.dart';
 import '../widgets/user_avatar.dart';
 import 'visitas_models.dart';
 import 'visitas_service.dart';
@@ -23,12 +24,17 @@ class GrupoTrabajoDialog extends StatefulWidget {
   final bool areaEditable;
   final List<VisitaPersona> equipo;
 
+  /// Los demás grupos de la empresa: un establecimiento va en un solo grupo
+  /// de su departamento (Grupo 6, Grupo 7…).
+  final List<VisitaGrupo> otrosGrupos;
+
   const GrupoTrabajoDialog({
     required this.svc,
     required this.grupo,
     required this.areas,
     required this.areaEditable,
     required this.equipo,
+    this.otrosGrupos = const [],
   });
 
   @override
@@ -87,6 +93,32 @@ class GrupoTrabajoDialogState extends State<GrupoTrabajoDialog> {
           mismaAreaVisitas(p.rolAreaId, _area))
         p,
   ];
+
+  /// Nombre del otro grupo del mismo departamento que ya tiene el centro.
+  String? _enOtroGrupo(String centroId) {
+    for (final o in widget.otrosGrupos) {
+      if (o.id == widget.grupo.id || !mismaAreaVisitas(o.areaId, _area)) {
+        continue;
+      }
+      if (o.centroIds.any((c) => centroIdDeClaveGrupo(c) == centroId)) {
+        return o.nombre;
+      }
+    }
+    return null;
+  }
+
+  /// "Los demás": todos los establecimientos que ningún otro grupo del
+  /// departamento tiene (ej. el Grupo 7 son los que no están en el 6).
+  void _incluirLosDemas() {
+    final todos = _todos ?? const <VisitaCentro>[];
+    setState(() {
+      for (final e in establecimientosDe(todos)) {
+        final centro = centroIdDeClaveGrupo(e.clave);
+        if (e.clave.contains('|')) continue;
+        if (_enOtroGrupo(centro) == null) _centros.add(centro);
+      }
+    });
+  }
 
   /// Personas con rol Coordinador en Visitas (de cualquier departamento).
   List<VisitaPersona> get _coordinadoresDisponibles => [
@@ -154,7 +186,12 @@ class GrupoTrabajoDialogState extends State<GrupoTrabajoDialog> {
           dense: true,
           value: entero,
           title: Text(c.nombre),
-          subtitle: subs.isEmpty
+          subtitle: _enOtroGrupo(c.id) != null && !entero
+              ? Text(
+                  'Hoy en ${_enOtroGrupo(c.id)}: pasa a este grupo al guardar',
+                  style: const TextStyle(fontSize: 11, color: Color(0xFFB45309)),
+                )
+              : subs.isEmpty
               ? (c.propio
                     ? const Text('Solo Visitas', style: TextStyle(fontSize: 11))
                     : null)
@@ -230,6 +267,7 @@ class GrupoTrabajoDialogState extends State<GrupoTrabajoDialog> {
                 onChanged: (_) => setState(() {}),
                 decoration: InputDecoration(
                   labelText: 'Nombre del grupo',
+                  hintText: 'Ej. Grupo 6',
                   border: const OutlineInputBorder(),
                   enabledBorder: OutlineInputBorder(
                     borderSide: BorderSide(
@@ -292,6 +330,18 @@ class GrupoTrabajoDialogState extends State<GrupoTrabajoDialog> {
                 height: 220,
                 decoration: _marco(_centros.isEmpty),
                 child: _listaCentros(),
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: _todos == null || _area.isEmpty
+                      ? null
+                      : _incluirLosDemas,
+                  icon: const Icon(Icons.playlist_add_check, size: 18),
+                  label: const Text(
+                    'Incluir los demás (los que no están en otro grupo)',
+                  ),
+                ),
               ),
               const SizedBox(height: 14),
               Text(

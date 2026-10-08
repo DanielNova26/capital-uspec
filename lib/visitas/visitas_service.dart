@@ -16,6 +16,7 @@ import 'package:flutter/foundation.dart'
 import 'package:geolocator/geolocator.dart';
 
 import '../core/area_directory.dart' show areaClave, areasUnicas;
+import '../core/grupos_trabajo.dart';
 import '../core/subcentros_costo.dart';
 import '../core/user_directory.dart';
 import '../gestion_documental/gd_service.dart';
@@ -372,9 +373,23 @@ class VisitasService {
       final quedan = o.profesionalIds
           .where((p) => !g.profesionalIds.contains(p))
           .toList();
-      if (quedan.length != o.profesionalIds.length) {
+      // Un establecimiento está en un solo grupo del departamento (Grupo 6,
+      // Grupo 7…): al pasarlo a este, sale del otro. Un centro entero también
+      // saca sus subcentros.
+      final propios = {for (final c in g.centroIds) centroIdDeClaveGrupo(c)};
+      final centrosQuedan = o.centroIds
+          .where(
+            (c) =>
+                !g.centroIds.contains(c) &&
+                !(c.contains('|') && g.centroIds.contains(centroIdDeClaveGrupo(c))) &&
+                !(!c.contains('|') && propios.contains(c)),
+          )
+          .toList();
+      if (quedan.length != o.profesionalIds.length ||
+          centrosQuedan.length != o.centroIds.length) {
         batch.update(_grupos.doc(o.id), {
           'profesionalIds': quedan,
+          'centroIds': centrosQuedan,
           'actualizadoPor': actorId,
           'updatedAt': FieldValue.serverTimestamp(),
         });
