@@ -238,9 +238,16 @@ y una recepción finalizada era solo lectura.
   formatos y programa" fija la visita el 5 oct 2026, que ya pasó; falla
   igual con las reglas de `main`. Hay que fechar esa prueba en relación con
   hoy.
-- **Pendiente:** publicar desde el PC del usuario (`firebase deploy --only
-  firestore:rules`) y subir `main`. Los archivos de diagnóstico
-  (`tool/reglas_diagnostico`) se quitaron de la rama.
+- **Publicado** el 6 oct 2026 desde el PC del usuario (`Deploy complete!`;
+  varios intentos dieron 503 antes de que uno pasara) y `main` en 7ca8e61.
+  Ante un 503 al publicar reglas en este proyecto, reintentar. Los
+  archivos de diagnóstico (`tool/reglas_diagnostico`) se quitaron.
+- **Pendientes reales:** en cada empresa, Admin › Migraciones › "Número
+  interno de tareas" (Revisar y Numerar); las apps móviles anteriores a
+  2.6.17 dejan de ver las tareas de Inicio hasta actualizarse;
+  `TBL_USUARIOS` no tiene regla propia, así que la marca "No opera en
+  To-Do" no está protegida en el servidor; fechar la prueba de Visitas;
+  Web, Android e iOS sin verificar en pantalla.
 
 ## 2026-10-05 — Planes de mejora: Desarrollo, número de acta y PDF (Codex)
 
