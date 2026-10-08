@@ -1,7 +1,8 @@
 // lib/admin/grupos_trabajo_panel.dart
 //
-// Admin › Grupos de trabajo (8 oct 2026): el único lugar donde se arman los
-// grupos de la empresa. Cada grupo reúne un departamento, los establecimientos
+// Admin › Gestión interna › Grupos (8 oct 2026): el único lugar donde se arman
+// los grupos de la empresa. Es la misma lista de Compras (Grupo 1, Grupo 9…):
+// a cada grupo se le agregan establecimientos y coordinadores. Cada grupo reúne un departamento, los establecimientos
 // que atiende, sus profesionales y sus coordinadores.
 //
 // Quién los consume (sin copiarlos):
@@ -16,7 +17,9 @@
 
 import 'package:flutter/material.dart';
 
+import '../compras/compras_models.dart' show ComprasGrupoDoc;
 import '../core/area_directory.dart';
+import '../core/grupos_trabajo.dart';
 import '../visitas/visitas_grupo_dialog.dart';
 import '../visitas/visitas_models.dart';
 import '../visitas/visitas_service.dart';
@@ -32,6 +35,18 @@ class AdminGruposTrabajoPanel extends StatefulWidget {
   final String userId;
   final String empresaId;
 
+  /// Los grupos que ya usa Compras (Grupo 1, Grupo 9…): son los mismos del
+  /// contrato, así que aquí se les agregan establecimientos y coordinadores.
+  final List<ComprasGrupoDoc> gruposCompras;
+
+  /// Crea o actualiza el grupo en el catálogo de Compras.
+  final Future<void> Function({
+    String? id,
+    required String nombre,
+    required bool activo,
+  })
+  guardarCompras;
+
   /// Para pruebas; por defecto usa Firestore.
   final VisitasService? servicio;
 
@@ -39,6 +54,8 @@ class AdminGruposTrabajoPanel extends StatefulWidget {
     super.key,
     required this.userId,
     required this.empresaId,
+    required this.gruposCompras,
+    required this.guardarCompras,
     this.servicio,
   });
 
@@ -96,7 +113,43 @@ class _AdminGruposTrabajoPanelState extends State<AdminGruposTrabajoPanel> {
     );
   }
 
-  Future<void> _editar(VisitaGrupo? g, List<VisitaGrupo> todos) async {
+  /// Una fila por grupo: junta el de Compras y el de trabajo que se llaman
+  /// igual ("Grupo 6" = G6).
+  List<_Fila> _filas(List<VisitaGrupo> trabajo) {
+    final porClave = <String, _Fila>{};
+    for (final c in widget.gruposCompras) {
+      final k = claveGrupoTrabajo(c.nombre);
+      porClave[k] = _Fila(c.nombre, compras: c);
+    }
+    for (final g in trabajo) {
+      final k = claveGrupoTrabajo(g.nombre);
+      final previa = porClave[k];
+      porClave[k] = _Fila(
+        previa?.nombre ?? g.nombre,
+        compras: previa?.compras,
+        trabajo: g,
+      );
+    }
+    int numero(String n) =>
+        int.tryParse(n.replaceAll(RegExp(r'\D'), '')) ?? 1 << 30;
+    return porClave.values.toList()..sort((a, b) {
+      final c = numero(a.nombre).compareTo(numero(b.nombre));
+      return c != 0 ? c : a.nombre.compareTo(b.nombre);
+    });
+  }
+
+  Future<void> _alternarActivo(_Fila f, bool activo) async {
+    final c = f.compras;
+    if (c == null) return;
+    try {
+      await widget.guardarCompras(id: c.id, nombre: c.nombre, activo: activo);
+    } catch (e) {
+      _aviso('No se pudo actualizar el grupo: $e', error: true);
+    }
+  }
+
+  Future<void> _editar(_Fila? fila, List<VisitaGrupo> todos) async {
+    final g = fila?.trabajo;
     final resultado = await showDialog<VisitaGrupo>(
       context: context,
       builder: (_) => GrupoTrabajoDialog(
@@ -105,7 +158,7 @@ class _AdminGruposTrabajoPanelState extends State<AdminGruposTrabajoPanel> {
             g ??
             VisitaGrupo(
               empresaId: widget.empresaId,
-              nombre: '',
+              nombre: fila?.nombre ?? '',
             ),
         equipo: _equipo,
         otrosGrupos: todos,
@@ -113,6 +166,18 @@ class _AdminGruposTrabajoPanelState extends State<AdminGruposTrabajoPanel> {
     );
     if (resultado == null || !mounted) return;
     try {
+      // El grupo de Compras y el de trabajo son uno solo para la persona:
+      // si el grupo es nuevo o cambió de nombre, se actualiza también el de
+      // Compras para que no queden dos listas distintas.
+      final compras = fila?.compras;
+      if (compras == null ||
+          compras.nombre.trim() != resultado.nombre.trim()) {
+        await widget.guardarCompras(
+          id: compras?.id,
+          nombre: resultado.nombre.trim(),
+          activo: compras?.activo ?? true,
+        );
+      }
       await _svc.guardarGrupo(resultado, actorId: widget.userId, otros: todos);
       _aviso('Grupo guardado.');
     } catch (e) {
@@ -196,12 +261,12 @@ class _AdminGruposTrabajoPanelState extends State<AdminGruposTrabajoPanel> {
         final todos = snap.data!;
         final q = areaClave(_busqueda);
         final visibles = [
-          for (final g in todos)
-            if ((q.isEmpty ||
-                    areaClave(
-                      '${g.nombre} ${g.centroIds.map((c) => nombreCentro[c] ?? '').join(' ')}',
-                    ).contains(q)))
-              g,
+          for (final f in _filas(todos))
+            if (q.isEmpty ||
+                areaClave(
+                  '${f.nombre} ${(f.trabajo?.centroIds ?? const <String>[]).map((c) => nombreCentro[c] ?? '').join(' ')}',
+                ).contains(q))
+              f,
         ];
         final conGrupo = {
           for (final g in todos)
@@ -219,7 +284,7 @@ class _AdminGruposTrabajoPanelState extends State<AdminGruposTrabajoPanel> {
               children: [
                 const Expanded(
                   child: Text(
-                    'Grupos de trabajo',
+                    'Grupos de la empresa',
                     style: TextStyle(
                       fontFamily: _kFont,
                       fontSize: 18,
@@ -296,11 +361,11 @@ class _AdminGruposTrabajoPanelState extends State<AdminGruposTrabajoPanel> {
                 ),
               )
             else
-              PagedListSection<VisitaGrupo>(
+              PagedListSection<_Fila>(
                 items: visibles,
                 etiqueta: 'grupos',
-                itemBuilder: (context, g, _) =>
-                    _tarjeta(g, todos, nombreCentro),
+                itemBuilder: (context, f, _) =>
+                    _tarjeta(f, todos, nombreCentro),
               ),
           ],
         );
@@ -349,10 +414,13 @@ class _AdminGruposTrabajoPanelState extends State<AdminGruposTrabajoPanel> {
   }
 
   Widget _tarjeta(
-    VisitaGrupo g,
+    _Fila f,
     List<VisitaGrupo> todos,
     Map<String, String> nombreCentro,
   ) {
+    final g = f.trabajo;
+    final centros = g?.centroIds ?? const <String>[];
+    final compras = f.compras;
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: Padding(
@@ -364,51 +432,71 @@ class _AdminGruposTrabajoPanelState extends State<AdminGruposTrabajoPanel> {
               children: [
                 Expanded(
                   child: Text(
-                    g.nombre,
+                    f.nombre,
                     style: const TextStyle(
                       fontFamily: _kFont,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
+                if (compras != null)
+                  Tooltip(
+                    message: compras.activo
+                        ? 'Activo en Compras'
+                        : 'Inactivo en Compras',
+                    child: Switch(
+                      value: compras.activo,
+                      onChanged: (v) => _alternarActivo(f, v),
+                    ),
+                  ),
                 IconButton(
-                  tooltip: 'Editar grupo',
+                  tooltip: 'Editar grupo y establecimientos',
                   icon: const Icon(Icons.edit_outlined),
-                  onPressed: () => _editar(g, todos),
+                  onPressed: () => _editar(f, todos),
                 ),
-                IconButton(
-                  tooltip: 'Eliminar grupo',
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: () => _eliminar(g),
-                ),
+                // Un grupo de Compras no se borra (se desactiva); solo los
+                // que existen únicamente como grupo de trabajo.
+                if (compras == null && g != null)
+                  IconButton(
+                    tooltip: 'Eliminar grupo',
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: () => _eliminar(g),
+                  ),
               ],
             ),
             Text(
-              g.centroIds.isEmpty
-                  ? 'Sin establecimientos'
-                  : '${g.centroIds.length} establecimiento'
-                        '${g.centroIds.length == 1 ? '' : 's'}: '
-                        '${g.centroIds.map((c) => nombreCentro[c] ?? 'Establecimiento retirado').join(', ')}',
+              centros.isEmpty
+                  ? 'Sin establecimientos: edítalo para agregarlos'
+                  : '${centros.length} establecimiento'
+                        '${centros.length == 1 ? '' : 's'}: '
+                        '${centros.map((c) => nombreCentro[c] ?? 'Establecimiento retirado').join(', ')}',
               style: TextStyle(
                 fontFamily: _kFont,
                 fontSize: 12,
-                color: g.centroIds.isEmpty ? _kRojo : Colors.black87,
+                color: centros.isEmpty ? _kRojo : Colors.black87,
               ),
             ),
-            if (_miembros(g).isEmpty)
+            if (g != null && _miembros(g).isEmpty)
               const Padding(
                 padding: EdgeInsets.only(top: 6),
                 child: Text(
                   'Sin personas: asígnales el grupo en Talento Humano',
-                  style: TextStyle(fontSize: 12, color: _kRojo),
+                  style: TextStyle(fontSize: 12, color: _kMuted),
                 ),
               )
-            else
+            else if (g != null)
               _personas('Personas:', _miembros(g)),
-            _personas('Coordina:', g.coordinadorIds),
+            if (g != null) _personas('Coordina:', g.coordinadorIds),
           ],
         ),
       ),
     );
   }
+}
+
+class _Fila {
+  final String nombre;
+  final ComprasGrupoDoc? compras;
+  final VisitaGrupo? trabajo;
+  const _Fila(this.nombre, {this.compras, this.trabajo});
 }

@@ -9588,11 +9588,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       AdminInternalSection.catalogos => _tabCatalogos(),
       AdminInternalSection.grupos => _tabGruposInternos(),
       AdminInternalSection.membresia => _tabMembresia(),
-      AdminInternalSection.gruposTrabajo => AdminGruposTrabajoPanel(
-        key: ValueKey('grupos_trabajo_${_empresaId ?? widget.empresaId}'),
-        userId: widget.userId,
-        empresaId: _empresaId ?? widget.empresaId,
-      ),
       AdminInternalSection.multiempresa => AdminMultiempresaPanel(
         key: ValueKey('multiempresa_${_empresaId ?? widget.empresaId}'),
         userId: widget.userId,
@@ -9605,50 +9600,33 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   // ---------------- CATÁLOGOS COMPARTIDOS ----------------
   Widget _tabGruposInternos() {
     final empresa = _empresaActual;
-    final isMobile = MediaQuery.sizeOf(context).width < 900;
-    return ListView(
-      padding: EdgeInsets.all(isMobile ? 12 : 24),
-      children: [
-        _sectionHeader(
-          title: 'Grupos de la empresa',
-          subtitle: empresa == null
-              ? 'Selecciona una empresa'
-              : '${empresa.nombre} · Compras y Membresía',
-          onAdd: empresa == null ? null : () => _dialogGrupoCompras(),
-        ),
-        const SizedBox(height: 12),
-        const Text(
-          'Crea o actualiza aquí los grupos. Compras los usa para recepciones y Abastecimiento; las personas se vinculan desde Membresía.',
-          style: TextStyle(color: kAdminMuted),
-        ),
-        const SizedBox(height: 16),
-        if (_catalogoGrupos.isEmpty)
-          const Text('No hay grupos registrados para esta empresa.')
-        else
-          for (final grupo in _catalogoGrupos) ...[
-            _catalogTile(
-              title: grupo.nombre,
-              subtitle: grupo.activo ? 'Disponible en Compras' : 'Inactivo',
-              enabled: grupo.activo,
-              onEdit: () => _dialogGrupoCompras(existing: grupo),
-              onToggle: (activo) async {
-                try {
-                  if (_empresaId != grupo.empresaId) return;
-                  await _repo.saveGrupoCompras(
-                    grupoId: grupo.id,
-                    empresaId: grupo.empresaId,
-                    nombre: grupo.nombre,
-                    activo: activo,
-                  );
-                  await _refreshGruposInternos();
-                } catch (error) {
-                  _snack('No se pudo actualizar el grupo: $error');
-                }
-              },
-            ),
-            const SizedBox(height: 8),
-          ],
-      ],
+    if (empresa == null) {
+      return const Center(child: Text('Selecciona una empresa'));
+    }
+    // Un solo editor de grupos (8 oct 2026): los de Compras son los mismos del
+    // contrato (Grupo 1, Grupo 9…), y aquí se les agregan los
+    // establecimientos y los coordinadores que usan Visitas e Interventoría.
+    return AdminGruposTrabajoPanel(
+      key: ValueKey('grupos_${_empresaId ?? widget.empresaId}'),
+      userId: widget.userId,
+      empresaId: _empresaId ?? widget.empresaId,
+      gruposCompras: _catalogoGrupos,
+      guardarCompras:
+          ({String? id, required String nombre, required bool activo}) async {
+        final repetido = _catalogoGrupos.any(
+          (g) =>
+              g.id != id &&
+              g.nombre.trim().toLowerCase() == nombre.trim().toLowerCase(),
+        );
+        if (repetido) throw StateError('Ya existe un grupo con ese nombre.');
+        await _repo.saveGrupoCompras(
+          grupoId: id,
+          empresaId: _empresaId ?? widget.empresaId,
+          nombre: nombre,
+          activo: activo,
+        );
+        await _refreshGruposInternos();
+      },
     );
   }
 
@@ -14543,88 +14521,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       _catalogoGrupos = grupos;
       _membresiaGrupos = grupos.where((grupo) => grupo.activo).toList();
     });
-  }
-
-  Future<void> _dialogGrupoCompras({ComprasGrupoDoc? existing}) async {
-    final empresaId = _empresaId ?? '';
-    if (empresaId.isEmpty) {
-      _snack('Selecciona una empresa antes de crear el grupo.');
-      return;
-    }
-    var nombre = existing?.nombre ?? '';
-    var activo = existing?.activo ?? true;
-    final guardar = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text(
-            existing == null ? 'Nuevo grupo' : 'Editar grupo',
-            style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                initialValue: nombre,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: 'Nombre del grupo',
-                  hintText: 'Ej. Grupo 6, Planta Bogotá…',
-                  border: OutlineInputBorder(),
-                ),
-                onChanged: (value) => nombre = value.trim(),
-                onFieldSubmitted: (_) => Navigator.pop(dialogContext, true),
-              ),
-              SwitchListTile(
-                value: activo,
-                title: const Text('Grupo activo'),
-                subtitle: const Text(
-                  'Los grupos inactivos no se asignan a nuevas recepciones.',
-                ),
-                onChanged: (value) => setDialogState(() => activo = value),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Guardar grupo'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (guardar != true || nombre.trim().isEmpty) return;
-    if (_empresaId != empresaId) return;
-    final repetido = _catalogoGrupos.any(
-      (grupo) =>
-          grupo.id != existing?.id &&
-          grupo.nombre.trim().toLowerCase() == nombre.trim().toLowerCase(),
-    );
-    if (repetido) {
-      _snack('Ya existe un grupo con ese nombre.');
-      return;
-    }
-    try {
-      await _repo.saveGrupoCompras(
-        grupoId: existing?.id,
-        empresaId: empresaId,
-        nombre: nombre,
-        activo: activo,
-      );
-      _snack(
-        existing == null
-            ? 'Grupo "$nombre" creado.'
-            : 'Grupo "$nombre" actualizado.',
-      );
-      await _refreshGruposInternos();
-    } catch (e) {
-      _snack('No se pudo guardar el grupo: $e');
-    }
   }
 
   Future<void> _setComprasGroup({

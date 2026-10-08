@@ -10278,3 +10278,13 @@ cualquier número (`claveGrupoTrabajo`).
   establecimiento (y ahora por su grupo); no se exige elegir persona.
 - Sin verificar (sin Flutter/Node): compilación y
   `test/interventoria/interventoria_cierre_acta_test.dart`.
+
+### Un solo editor de grupos: Admin › Gestión interna › Grupos (8 oct 2026)
+Se quitó la sección aparte "Grupos de trabajo". La lista de **Grupos** (Grupo 1,
+Grupo 9… de Compras) ahora es el editor único: cada grupo muestra sus
+establecimientos, personas y coordinadores, y el lápiz abre el diálogo para
+agregar establecimientos (un grupo nuevo se crea también en Compras). Se unen
+por nombre ("Grupo 6" = G6): `TBL_COMPRAS_GRUPOS` (nombre, activo) +
+`TBL_VISITAS_GRUPOS` (establecimientos, coordinadores). Un grupo de Compras no
+se borra (se desactiva con el interruptor). Se eliminó `_dialogGrupoCompras`.
+Sin verificar: compilación/tests de Flutter.
