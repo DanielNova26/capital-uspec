@@ -82,6 +82,13 @@ const String kVisitasRolConsulta = 'consulta';
 /// quien le prestó el equipo.
 const String kVisitasRolFirmante = 'firmante';
 
+/// Coordinador (8 oct 2026): ve, solo para consulta, las visitas de los
+/// profesionales (supervisores) de los grupos que coordina, y de ningún otro
+/// grupo. Se nombra coordinador al armar el grupo (Equipo › Grupos y
+/// establecimientos); la visita lleva `coordinadorIds` y lo escribe el
+/// servidor, así que ver o no ver una visita lo deciden las reglas.
+const String kVisitasRolCoordinador = 'coordinador';
+
 /// Gerencia (26 sep 2026): "es el jefe de todos, así que él puede ver
 /// absolutamente todo y hacer todos los formatos". Ve y hace en Visitas lo
 /// mismo que Desarrollo: todas las áreas, formatos, cronograma, equipo,
@@ -93,6 +100,7 @@ const Map<String, String> kVisitasRolesLabel = {
   kVisitasRolProfesional: 'Profesional',
   kVisitasRolConsulta: 'Consulta',
   kVisitasRolFirmante: 'Firmante del establecimiento',
+  kVisitasRolCoordinador: 'Coordinador (ve los grupos que coordina)',
   kVisitasRolGerencia: 'Gerencia (ve y administra todo)',
 };
 
@@ -2977,6 +2985,9 @@ class VisitaGrupo {
   final List<String> centroIds;
   final List<String> profesionalIds;
 
+  /// Coordinadores del grupo: ven las visitas de sus profesionales.
+  final List<String> coordinadorIds;
+
   const VisitaGrupo({
     this.id = '',
     required this.empresaId,
@@ -2985,6 +2996,7 @@ class VisitaGrupo {
     this.areaNombre = '',
     this.centroIds = const [],
     this.profesionalIds = const [],
+    this.coordinadorIds = const [],
   });
 
   Map<String, dynamic> toMap() => {
@@ -2994,6 +3006,7 @@ class VisitaGrupo {
     'areaNombre': areaNombre,
     'centroIds': centroIds,
     'profesionalIds': profesionalIds,
+    'coordinadorIds': coordinadorIds,
   };
 
   factory VisitaGrupo.fromMap(String id, Map<String, dynamic> d) => VisitaGrupo(
@@ -3008,6 +3021,9 @@ class VisitaGrupo {
     profesionalIds: [
       for (final p in (d['profesionalIds'] as List? ?? const [])) p.toString(),
     ],
+    coordinadorIds: [
+      for (final p in (d['coordinadorIds'] as List? ?? const [])) p.toString(),
+    ],
   );
 
   VisitaGrupo copyWith({
@@ -3016,6 +3032,7 @@ class VisitaGrupo {
     String? areaNombre,
     List<String>? centroIds,
     List<String>? profesionalIds,
+    List<String>? coordinadorIds,
   }) => VisitaGrupo(
     id: id,
     empresaId: empresaId,
@@ -3024,8 +3041,13 @@ class VisitaGrupo {
     areaNombre: areaNombre ?? this.areaNombre,
     centroIds: centroIds ?? this.centroIds,
     profesionalIds: profesionalIds ?? this.profesionalIds,
+    coordinadorIds: coordinadorIds ?? this.coordinadorIds,
   );
 }
+
+/// El coordinador solo consulta: ni programa, ni diligencia, ni aprueba.
+bool visitasPuedeVerComoCoordinador(String? rol) =>
+    rol == kVisitasRolCoordinador;
 
 List<String> validarGrupo(VisitaGrupo g) => [
   if (g.nombre.trim().isEmpty) 'El grupo necesita un nombre.',

@@ -10209,3 +10209,35 @@ sabe poner filtros, así que se escriben en el XML del libro). Lógica en
   pruebas Android/iOS, no se hicieron en este equipo. La citación disciplinaria
   carece de plantilla y su módulo no está habilitado en el servicio central;
   requiere una configuración y aprobación de plantilla aparte.
+
+## Visitas: rol Coordinador · Planillas: plano y modelo de beneficiarios (8 oct 2026)
+
+**Visitas – Coordinador.** Nuevo rol `coordinador` (solo consulta). Se nombra
+al armar el grupo (Equipo › Grupos y establecimientos › "Coordinadores"; la
+lista sale de quienes tienen el rol en Admin › Roles y permisos › Visitas).
+Ve en Cronograma únicamente las visitas de los profesionales de sus grupos.
+- Dato: `TBL_VISITAS_GRUPOS.coordinadorIds` y `TBL_VISITAS.coordinadorIds`
+  (este último lo escribe solo el servidor: `functions/src/visitas_coordinadores.ts`,
+  al crear la visita y al editar un grupo, que recalcula las visitas existentes).
+- Reglas: `esCoordinadorDeVisita()` en get/list de `TBL_VISITAS`; el rol entra
+  en `participaEnVisitas`, roles permitidos y `leeEstablecimientosVisitas`.
+- Un profesional en varios grupos suma los coordinadores de todos.
+- **No verificado** (sin Flutter/Node en esta sesión): compilación Dart/TS,
+  `flutter test`, `npm test` y pruebas de reglas. Falta una prueba de reglas
+  (`functions/test/visitas_coordinador.rules.js`) y revisar el tope de 1000
+  expresiones en `TBL_VISITAS`. Despliegue: `firebase deploy --only
+  firestore:rules,functions:visitasCoordinadoresAlCrear,functions:visitasCoordinadoresAlCambiarGrupo`.
+  Visitas anteriores se completan al guardar de nuevo cada grupo.
+- Web/Android/iOS sin verificar (cambio de diálogo de grupo y rol).
+
+**Planillas – plano ("macro").** `_descargarPlano` corría casi todo fuera del
+`try`: un error al armar filas no mostraba nada. Ahora todo el flujo reporta
+error, muestra "Generando…" y bloquea el doble toque. Causa raíz exacta no
+reproducida (sin entorno): si persiste, revisar el mensaje que ahora aparece.
+Sin beneficiarios con cuenta, el plano sale con avisos de lo que falta.
+
+**Planillas – modelo de beneficiarios.** Botón "Descargar modelo de Excel" en
+Beneficiarios de pago (`pp_beneficiarios_plantilla.dart`): hoja CUENTAS con
+desplegables (Tipo Id, Forma Pago, Banco con código ACH, Tipo Cuenta),
+columnas de texto y hoja de instrucciones. El importador acepta "0013 - BBVA".
+Pendiente: modelo del Excel de "Generar desde Excel".

@@ -615,6 +615,39 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
                         color: g.centroIds.isEmpty ? _kRojo : Colors.black87,
                       ),
                     ),
+                    if (g.coordinadorIds.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          const Text(
+                            'Coordina:',
+                            style: TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          for (final id in g.coordinadorIds)
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                UserAvatar(userId: id, radius: 11),
+                                const SizedBox(width: 4),
+                                UserNameText(
+                                  id,
+                                  style: const TextStyle(
+                                    fontFamily: _kFont,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+                    ],
                     const SizedBox(height: 6),
                     if (g.profesionalIds.isEmpty)
                       const Text(
@@ -780,6 +813,7 @@ class _GrupoDialogState extends State<_GrupoDialog> {
   late String _area;
   late Set<String> _centros;
   late Set<String> _profesionales;
+  late Set<String> _coordinadores;
   String _buscarCentro = '';
 
   /// Los establecimientos se leen aquí mismo: si se pasaban desde la
@@ -797,6 +831,7 @@ class _GrupoDialogState extends State<_GrupoDialog> {
         : (widget.areas.length == 1 ? widget.areas.keys.first : '');
     _centros = {...g.centroIds};
     _profesionales = {...g.profesionalIds};
+    _coordinadores = {...g.coordinadorIds};
     _leerCentros();
   }
 
@@ -824,6 +859,12 @@ class _GrupoDialogState extends State<_GrupoDialog> {
       if (p.rol == kVisitasRolProfesional &&
           mismaAreaVisitas(p.rolAreaId, _area))
         p,
+  ];
+
+  /// Personas con rol Coordinador en Visitas (de cualquier departamento).
+  List<VisitaPersona> get _coordinadoresDisponibles => [
+    for (final p in widget.equipo)
+      if (p.rol == kVisitasRolCoordinador) p,
   ];
 
   BoxDecoration _marco(bool vacio) => BoxDecoration(
@@ -1076,6 +1117,51 @@ class _GrupoDialogState extends State<_GrupoDialog> {
                 'ya estaba en otro, sale de ese al guardar.',
                 style: TextStyle(fontSize: 11, color: Colors.black54),
               ),
+              const SizedBox(height: 14),
+              Text(
+                'Coordinadores (${_coordinadores.length})',
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 6),
+              if (_coordinadoresDisponibles.isEmpty)
+                const Text(
+                  'No hay personas con el rol Coordinador. Se asigna en '
+                  'Administración > Roles y permisos > Visitas.',
+                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                )
+              else
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 180),
+                  decoration: _marco(false),
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      for (final p in _coordinadoresDisponibles)
+                        CheckboxListTile(
+                          dense: true,
+                          value: _coordinadores.contains(p.id),
+                          secondary: UserAvatar(
+                            userId: p.id,
+                            nameHint: p.nombre,
+                            radius: 14,
+                          ),
+                          title: UserNameText(p.id, fallbackName: p.nombre),
+                          subtitle: p.cargo.isEmpty ? null : Text(p.cargo),
+                          onChanged: (v) => setState(
+                            () => v == true
+                                ? _coordinadores.add(p.id)
+                                : _coordinadores.remove(p.id),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 6),
+              const Text(
+                'El coordinador ve, solo para consulta, las visitas de los '
+                'profesionales de este grupo y de ningún otro.',
+                style: TextStyle(fontSize: 11, color: Colors.black54),
+              ),
             ],
           ),
         ),
@@ -1104,6 +1190,7 @@ class _GrupoDialogState extends State<_GrupoDialog> {
                         if (!vigentes.contains(k)) k,
                     ],
                     profesionalIds: _profesionales.toList(),
+                    coordinadorIds: _coordinadores.toList(),
                   ),
                 ),
           child: const Text('Guardar'),

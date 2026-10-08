@@ -911,7 +911,33 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
   /// sube al banco, y bajarlo antes de la firma de gerencia permitiría pagar
   /// algo que todavía no está aprobado.
   Future<void> _descargarPlano(PpPlanilla planilla) async {
+    if (_generandoPlano) return;
     final messenger = ScaffoldMessenger.of(context);
+    setState(() => _generandoPlano = true);
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Generando archivo plano…')),
+    );
+    try {
+      await _generarPlano(planilla, messenger);
+    } catch (error) {
+      // Antes un fallo al armar las filas salía sin avisar y el botón parecía
+      // muerto. Cualquier error llega ahora a pantalla.
+      if (mounted) {
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(content: Text('No se pudo generar el plano: $error')),
+          );
+      }
+    } finally {
+      if (mounted) setState(() => _generandoPlano = false);
+    }
+  }
+
+  Future<void> _generarPlano(
+    PpPlanilla planilla,
+    ScaffoldMessengerState messenger,
+  ) async {
     var filas = filasPlanoDesdePlanilla(
       _filasDePago(planilla),
       fechaLimite: planilla.firmadoEn?.toDate() ?? DateTime.now(),
@@ -935,6 +961,7 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
       // Sin maestro se sigue igual.
     }
     if (filas.isEmpty) {
+      messenger.hideCurrentSnackBar();
       messenger.showSnackBar(
         const SnackBar(
           content: Text('La planilla no tiene filas de pago guardadas.'),
@@ -946,7 +973,9 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
     // Se avisa ANTES de descargar, no después: un archivo plano con un dato
     // malo lo rechaza el banco entero, y enterarse allí cuesta un día de pagos.
     final errores = validarPlanoPagos(filas);
-    if (errores.isNotEmpty && mounted) {
+    messenger.hideCurrentSnackBar();
+    if (!mounted) return;
+    if (errores.isNotEmpty) {
       final seguir = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -1018,7 +1047,7 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
     } catch (error) {
       if (!mounted) return;
       messenger.showSnackBar(
-        SnackBar(content: Text('No se pudo generar el plano: $error')),
+        SnackBar(content: Text('No se pudo guardar el plano: $error')),
       );
     }
   }
@@ -1064,7 +1093,7 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
         child: OutlinedButton.icon(
           icon: const Icon(Icons.table_view_outlined, size: 18),
           label: const Text(
-            'Descargar archivo plano (CSV)',
+            _generandoPlano ? 'Generando…' : 'Descargar archivo plano (CSV)',
             style: TextStyle(fontFamily: 'Arial', fontWeight: FontWeight.w700),
           ),
           style: OutlinedButton.styleFrom(
@@ -1072,7 +1101,7 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
             side: const BorderSide(color: GdPalette.primary),
             padding: const EdgeInsets.symmetric(vertical: 12),
           ),
-          onPressed: () => _descargarPlano(planilla),
+          onPressed: _generandoPlano ? null : () => _descargarPlano(planilla),
         ),
       ),
     );
@@ -1126,6 +1155,7 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
   }
 
   bool _isDownloading = false;
+  bool _generandoPlano = false;
 
   Widget _buildInfoPanel(PpPlanilla planilla) {
     final acciones = _accionesDisponibles(planilla);

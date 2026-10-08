@@ -189,6 +189,7 @@ const visitasTableRoles = TableModuleRoleConfig(
   levels: {
     kVisitasRolConsulta: 'Consulta',
     kVisitasRolFirmante: 'Firmante del establecimiento',
+    kVisitasRolCoordinador: 'Coordinador',
     kVisitasRolProfesional: 'Profesional',
     kVisitasRolJefe: 'Jefe inmediato (director)',
   },
@@ -198,6 +199,9 @@ const visitasTableRoles = TableModuleRoleConfig(
     kVisitasRolFirmante:
         'Firma el acta desde su propio módulo cuando el profesional lo '
         'designa en la visita.',
+    kVisitasRolCoordinador:
+        'Consulta las visitas de los profesionales de los grupos que '
+        'coordina, sin programar ni diligenciar.',
     kVisitasRolProfesional:
         'Hace las visitas de su área: las inicia, diligencia el formato y la '
         'cierra el día programado.',

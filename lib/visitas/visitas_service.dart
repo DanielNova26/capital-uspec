@@ -1124,11 +1124,17 @@ class VisitasService {
     String empresaId, {
     String? profesionalId,
     String? areaId,
+    String? coordinadorId,
   }) {
     Query<Map<String, dynamic>> q = _visitas.where(
       'empresaId',
       isEqualTo: empresaId,
     );
+    // El coordinador pide solo las visitas que lo nombran: las reglas lo
+    // exigen igual (`coordinadorIds` lo escribe el servidor).
+    if (coordinadorId != null) {
+      q = q.where('coordinadorIds', arrayContains: coordinadorId);
+    }
     if (profesionalId != null) {
       q = q.where('profesionalId', isEqualTo: profesionalId);
     }
