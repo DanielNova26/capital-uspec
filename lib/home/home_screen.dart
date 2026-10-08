@@ -55,6 +55,8 @@ import '../core/access_guard.dart';
 import '../core/app_catalog.dart';
 import '../core/apps_empresa.dart';
 import '../core/task_calendar.dart';
+import '../interventoria/interventoria_planes_screen.dart';
+import '../interventoria/interventoria_planes_service.dart';
 import '../core/task_route_guard.dart';
 import '../facturacion/facturacion_navigation.dart';
 
@@ -83,6 +85,49 @@ class _HomeScreenState extends State<HomeScreen> {
   late DateTime _focusedDay;
   late DateTime _selectedDay;
   Map<String, List<Map<String, dynamic>>> _events = {};
+  Map<String, List<Map<String, dynamic>>> _planesEvents = {};
+  String? _planesKey;
+  Timer? _planesTimer;
+  String? _planesError;
+
+  void _restartPlanesAgenda(String cedula, String empresaId, bool enabled) {
+    final key = '$cedula:$empresaId:$enabled';
+    if (_planesKey == key) return;
+    _planesKey = key;
+    _planesTimer?.cancel();
+    _planesEvents = {};
+    _planesError = null;
+    if (!enabled) return;
+    Future<void> load() async {
+      try {
+        final data = await InterventoriaPlanesService(
+          empresaId,
+        ).call({'accion': 'agenda'});
+        if (!mounted || _planesKey != key) return;
+        final events = <String, List<Map<String, dynamic>>>{};
+        for (final e in planList(data['eventos'])) {
+          events.putIfAbsent(planText(e, 'fecha'), () => []).add({
+            ...e,
+            '_calType': 'plan_mejora',
+          });
+        }
+        setState(() {
+          _planesEvents = events;
+          _planesError = null;
+        });
+      } catch (_) {
+        if (mounted && _planesKey == key)
+          setState(() {
+            _planesEvents = {};
+            _planesError =
+                'No se pudo actualizar la agenda de planes de mejora.';
+          });
+      }
+    }
+
+    unawaited(load());
+    _planesTimer = Timer.periodic(const Duration(minutes: 5), (_) => load());
+  }
 
   bool _didRegisterToken = false;
   StreamSubscription<String>? _tokenSub;
@@ -422,7 +467,13 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     ];
-    return [...tasks, ...citas, ...abastecimiento, ...visitas];
+    return [
+      ...tasks,
+      ...citas,
+      ...abastecimiento,
+      ...visitas,
+      ...?_planesEvents[key],
+    ];
   }
 
   Map<String, List<Map<String, dynamic>>> _visitasAEventos(
@@ -984,6 +1035,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _tokenSub?.cancel();
     _notifSub?.cancel();
     _citasSub?.cancel();
+    _planesTimer?.cancel();
+    _planesKey = null;
     _abastecimientoSub?.cancel();
     _visitasMiasSub?.cancel();
     _visitasJefeSub?.cancel();
@@ -1027,6 +1080,16 @@ class _HomeScreenState extends State<HomeScreen> {
         final apps = !isDev && soloTalentoHumanoEn(userData, scopeEmpresa)
             ? const <String>[]
             : extractUserApps(userData, empresaId: scopeEmpresa);
+        _restartPlanesAgenda(
+          cedula,
+          scopeEmpresa,
+          isDev ||
+              apps.any(
+                (app) =>
+                    appIdsEquivalent(app, 'interventoriadashboard') ||
+                    appIdsEquivalent(app, 'tareasdashboard'),
+              ),
+        );
         final nombreUsuario =
             userData['primerNombre'] ?? userData['nombres'] ?? cedula;
         // Visitas en el calendario: solo si el módulo está en sus accesos
@@ -1304,6 +1367,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   children: [
                     const SectionHeader(title: 'Calendario de Actividades'),
+                    if (_planesError != null) Text(_planesError!),
                     const SizedBox(height: 12),
                     _buildCalendarCard(scheme),
                     const SizedBox(height: 24),
@@ -2125,6 +2189,35 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Column(
       children: tasks.map((t) {
+        if (t['_calType'] == 'plan_mejora') {
+          return Card(
+            color: scheme.tertiaryContainer,
+            child: ListTile(
+              leading: Icon(
+                Icons.assignment_turned_in_outlined,
+                color: scheme.onTertiaryContainer,
+              ),
+              title: Text(planText(t, 'titulo')),
+              subtitle: Text(planText(t, 'description')),
+              onTap: () async {
+                await abrirPlanesDesdeAviso(
+                  context,
+                  empresaId: planText(t, 'empresaId'),
+                  tareaId: planText(t, 'tareaId'),
+                  planId: planText(t, 'planId'),
+                );
+                if (mounted) {
+                  _planesKey = null;
+                  _restartPlanesAgenda(
+                    cedula,
+                    _currentEmpresaId ?? widget.empresaId,
+                    true,
+                  );
+                }
+              },
+            ),
+          );
+        }
         final esCita = t['_calType'] == 'cita_nutricion';
         final esAbastecimiento = t['_calType'] == 'abastecimiento';
         final esVisita = t['_calType'] == 'visita';

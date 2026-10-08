@@ -207,6 +207,16 @@ void main() {
           expect(tester.takeException(), isNull);
           await tester.tap(find.text('PM-4158'));
           await tester.pumpAndSettle();
+          await tester.scrollUntilVisible(
+            find.text('Vincular hallazgos'),
+            200,
+            scrollable: find
+                .descendant(
+                  of: find.byType(PlanDetalle),
+                  matching: find.byType(Scrollable),
+                )
+                .first,
+          );
           expect(find.text('Vincular hallazgos'), findsOneWidget);
           expect(tester.takeException(), isNull);
           await tester.pumpWidget(const SizedBox.shrink());

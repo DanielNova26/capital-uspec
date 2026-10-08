@@ -63,7 +63,7 @@ class InterventoriaPlanesService {
     return planMap(result.data);
   }
 
-  static Future<void> guardarArchivo(
+  static Future<Uint8List> leerArchivo(
     PlanData result, {
     PlanRequest? request,
   }) async {
@@ -84,12 +84,20 @@ class InterventoriaPlanesService {
     } else {
       builder.add(base64Decode(planText(result, 'base64')));
     }
+    return builder.takeBytes();
+  }
+
+  static Future<void> guardarArchivo(
+    PlanData result, {
+    PlanRequest? request,
+  }) async {
+    final bytes = await leerArchivo(result, request: request);
     final name = planText(result, 'nombre');
     final dot = name.lastIndexOf('.');
     await FileSaver.instance.saveFile(
       name: dot < 0 ? name : name.substring(0, dot),
       fileExtension: dot < 0 ? '' : name.substring(dot + 1),
-      bytes: builder.takeBytes(),
+      bytes: bytes,
       mimeType: MimeType.other,
     );
   }

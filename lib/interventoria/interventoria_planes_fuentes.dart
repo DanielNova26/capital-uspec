@@ -1,6 +1,10 @@
+import 'dart:convert';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 
 import 'interventoria_planes_service.dart';
+import 'interventoria_planes_widgets.dart';
+import 'interventoria_planes_archivos.dart';
 
 /// Reúne las fuentes de varios hallazgos sin abrirlos uno por uno.
 /// Consulta cinco expedientes por página y no copia archivos hasta seleccionarlos.
@@ -39,7 +43,7 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
   String _signature(List<PlanData> items) => items
       .map(
         (i) =>
-            '${i['id']}:${i['soportesVersion']}:${i['soportesPresentado']}:${i['responsableNombre']}',
+            '${i['id']}:${i['soportesVersion']}:${i['soportesPresentado']}:${i['responsableNombre']}:${i['tareaEstado']}:${i['tareaAprobada']}',
       )
       .join('|');
 
@@ -130,16 +134,33 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
     }
   }
 
-  Future<void> _download(String itemId, String key) async {
+  Future<void> _download(
+    String itemId,
+    String key, {
+    bool reducir = false,
+  }) async {
     setState(() => _busy = true);
     try {
-      await InterventoriaPlanesService.guardarArchivo(
-        await widget.request({
-          'accion': 'verFuente',
-          'itemId': itemId,
-          'fuenteKey': key,
-        }),
-      );
+      var data = await descargarFuentePlan(widget.request, itemId, key);
+      if (reducir) {
+        if (!mounted) return;
+        final reduced = await planOfrecerReducir(
+          context,
+          base64Decode(planText(data, 'base64')),
+          planText(data, 'nombre'),
+        );
+        if (reduced == null) return;
+        data = {
+          'nombre': reduced.nombre,
+          'base64': base64Encode(reduced.bytes),
+        };
+      }
+      await InterventoriaPlanesService.guardarArchivo(data);
+      if (mounted && reducir)
+        setState(
+          () => _result =
+              'Copia descargada de hasta 5 MB. Revisa su legibilidad y adjúntala como soporte.',
+        );
     } catch (e) {
       if (mounted) setState(() => _result = e.toString());
     } finally {
@@ -159,7 +180,7 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
           style: Theme.of(context).textTheme.titleMedium,
         ),
         const Text(
-          'Revisa los archivos del acta, hallazgo y tarea. Marca los que '
+          'Solo se muestran fuentes de tareas aprobadas. Marca los archivos que '
           'deben acompañar la subsanación. El acta original aporta contexto; '
           'no demuestra por sí sola que el hallazgo se corrigió. '
           'Máximo 12 soportes por hallazgo, de hasta 5 MB cada uno.',
@@ -244,12 +265,23 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
     String origin(PlanData file) =>
         '${file['origen']}${file['incluido'] == true ? ' · Ya incluido' : ''}'
         '${planText(file, 'motivo').isEmpty ? '' : '\n${file['motivo']}'}';
-    Widget download(PlanData file) => IconButton(
-      tooltip: 'Descargar para revisar',
-      onPressed: enabled && file['disponible'] == true
-          ? () => _download(id, planText(file, 'key'))
-          : null,
-      icon: const Icon(Icons.download_outlined),
+    Widget download(PlanData file) => Wrap(
+      children: [
+        IconButton(
+          tooltip: 'Descargar para revisar',
+          onPressed: enabled && file['disponible'] == true
+              ? () => _download(id, planText(file, 'key'))
+              : null,
+          icon: const Icon(Icons.download_outlined),
+        ),
+        IconButton(
+          tooltip: 'Reducir a 5 MB',
+          icon: const Icon(Icons.compress),
+          onPressed: enabled && file['disponible'] == true
+              ? () => _download(id, planText(file, 'key'), reducir: true)
+              : null,
+        ),
+      ],
     );
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -261,7 +293,7 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
               0: FixedColumnWidth(48),
               1: FlexColumnWidth(3),
               2: FlexColumnWidth(2),
-              3: FixedColumnWidth(48),
+              3: FixedColumnWidth(96),
             },
             defaultVerticalAlignment: TableCellVerticalAlignment.middle,
             children: [
@@ -316,6 +348,12 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
         ? planText(item, 'responsableNombre')
         : planText(source, 'responsableNombre');
     return Card(
+      margin: const EdgeInsets.symmetric(vertical: 10),
+      color: Theme.of(context).colorScheme.surfaceContainerLowest,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
@@ -325,7 +363,44 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
               '${item['establecimiento']} · Hallazgo ${item['numeral']}',
               style: Theme.of(context).textTheme.titleSmall,
             ),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                PlanEstadoChip(planSemaforo(item)),
+                Chip(
+                  avatar: const Icon(Icons.format_list_numbered, size: 16),
+                  label: Text('Numeral ${item['numeral']}'),
+                ),
+              ],
+            ),
+            SelectableText(planText(item, 'descripcion')),
             Text('Acta ${item['idVisitaK2']} · Tarea ${item['numeroTarea']}'),
+            Text(
+              'Estado de tarea: ${source?['tareaEstado'] ?? item['tareaEstado'] ?? 'Consultando'} · Aprueba: ${source?['aprobadorNombre'] ?? item['aprobadorNombre'] ?? 'Consultando'}',
+            ),
+            if (planText(source ?? {}, 'motivo').isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(planText(source!, 'motivo')),
+              ),
+            Wrap(
+              spacing: 8,
+              children: [
+                TextButton.icon(
+                  icon: const Icon(Icons.copy, size: 16),
+                  label: const Text('Copiar responsable'),
+                  onPressed: () => Clipboard.setData(ClipboardData(text: name)),
+                ),
+                TextButton.icon(
+                  icon: const Icon(Icons.copy, size: 16),
+                  label: const Text('Copiar hallazgo'),
+                  onPressed: () => Clipboard.setData(
+                    ClipboardData(text: planText(item, 'descripcion')),
+                  ),
+                ),
+              ],
+            ),
             Text(
               'Responsable actual: ${name.isEmpty ? 'Sin responsable' : name}',
             ),
@@ -361,6 +436,13 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
                         children: [
                           Text('${text['origen']} · ${text['byName'] ?? ''}'),
                           SelectableText(planText(text, 'message')),
+                          TextButton.icon(
+                            icon: const Icon(Icons.copy, size: 16),
+                            label: const Text('Copiar texto aprobado'),
+                            onPressed: () => Clipboard.setData(
+                              ClipboardData(text: planText(text, 'message')),
+                            ),
+                          ),
                           if (widget.onUseText != null &&
                               planText(text, 'message').isNotEmpty)
                             Align(

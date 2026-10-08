@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'interventoria_planes_service.dart';
 import 'interventoria_planes_fuentes.dart';
+import 'interventoria_planes_widgets.dart';
+import 'interventoria_planes_archivos.dart';
 import '../state/empresa_scope.dart';
 
 PlanRequest _scopedRequest(BuildContext context, String empresaId) => (input) {
@@ -24,8 +26,9 @@ Future<bool> abrirPlanesDesdeAviso(
   BuildContext context, {
   required String empresaId,
   required String tareaId,
+  String planId = '',
 }) async {
-  if (empresaId.isEmpty || tareaId.isEmpty) return false;
+  if (empresaId.isEmpty || (tareaId.isEmpty && planId.isEmpty)) return false;
   final scope =
       context.getElementForInheritedWidgetOfExactType<EmpresaScope>()?.widget
           as EmpresaScope?;
@@ -38,8 +41,17 @@ Future<bool> abrirPlanesDesdeAviso(
   }
   await Navigator.of(context).push(
     MaterialPageRoute<void>(
-      builder: (_) =>
-          PlanesDeTareaScreen(empresaId: empresaId, tareaId: tareaId),
+      builder: (_) => tareaId.isNotEmpty
+          ? PlanesDeTareaScreen(empresaId: empresaId, tareaId: tareaId)
+          : Scaffold(
+              appBar: AppBar(title: const Text('Plan de mejora')),
+              body: SafeArea(
+                child: PlanDetalle(
+                  planId: planId,
+                  request: _scopedRequest(context, empresaId),
+                ),
+              ),
+            ),
     ),
   );
   return true;
@@ -67,8 +79,14 @@ class _InterventoriaPlanesPanelState extends State<InterventoriaPlanesPanel> {
   late PlanRequest _request;
   List<PlanData> _planes = [];
   String? _cursor, _selected, _errorText;
-  String _filter = '';
+  String _filter = '',
+      _estadoPlan = 'activos',
+      _gestor = '',
+      _establecimiento = '';
+  String _grupoPlan = '';
+  DateTimeRange? _fechasPlan;
   bool _loading = true;
+  bool _wideLayout = false;
   @override
   void initState() {
     super.initState();
@@ -83,6 +101,8 @@ class _InterventoriaPlanesPanelState extends State<InterventoriaPlanesPanel> {
       _request = widget.request ?? _scopedRequest(context, widget.empresaId);
       _planes = [];
       _selected = null;
+      _gestor = _establecimiento = _grupoPlan = '';
+      _fechasPlan = null;
       _load();
     }
   }
@@ -152,7 +172,7 @@ class _InterventoriaPlanesPanelState extends State<InterventoriaPlanesPanel> {
   }
 
   void _open(String id) {
-    if (MediaQuery.sizeOf(context).width >= 1024) {
+    if (_wideLayout) {
       setState(() => _selected = id);
       return;
     }
@@ -175,86 +195,287 @@ class _InterventoriaPlanesPanelState extends State<InterventoriaPlanesPanel> {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      final visible = _planes
-          .where(
-            (p) => '${p['numero']} ${p['csc']}'.toLowerCase().contains(
-              _filter.toLowerCase(),
-            ),
-          )
-          .toList();
-      final lista = Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
+      _wideLayout = constraints.maxWidth >= 1024;
+      final visible =
+          _planes
+              .where(
+                (p) =>
+                    '${p['numero']} ${p['csc']} ${p['establecimientos'] ?? ''} ${p['responsableK2Nombre'] ?? ''}'
+                        .toLowerCase()
+                        .contains(_filter.toLowerCase()) &&
+                    (_estadoPlan == 'todos' ||
+                        (_estadoPlan == 'activos'
+                            ? ![
+                                'enviado',
+                                'mesa_descuentos',
+                              ].contains(p['estadoGestion'])
+                            : p['estadoGestion'] == _estadoPlan)) &&
+                    (_grupoPlan.isEmpty ||
+                        (p['grupos'] as List? ?? []).contains(_grupoPlan)) &&
+                    (_fechasPlan == null ||
+                        (planText(
+                                  p,
+                                  'fechaNotificacion',
+                                ).compareTo(planDia(_fechasPlan!.start)) >=
+                                0 &&
+                            planText(
+                                  p,
+                                  'fechaNotificacion',
+                                ).compareTo(planDia(_fechasPlan!.end)) <=
+                                0)) &&
+                    (_gestor.isEmpty ||
+                        (p['responsableK2Nombre'] ?? p['creadoPorNombre']) ==
+                            _gestor) &&
+                    (_establecimiento.isEmpty ||
+                        (p['establecimientos'] as List? ?? []).contains(
+                          _establecimiento,
+                        )),
+              )
+              .toList()
+            ..sort(
+              (a, b) => '${a['establecimientos'] ?? ''}${a['numero']}'
+                  .toLowerCase()
+                  .compareTo(
+                    '${b['establecimientos'] ?? ''}${b['numero']}'
+                        .toLowerCase(),
+                  ),
+            );
+      final lista = CustomScrollView(
+        slivers: [
+          SliverToBoxAdapter(
+            child: Column(
               children: [
-                FilledButton.icon(
-                  onPressed: _loading ? null : _crear,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Nuevo plan'),
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: _loading ? null : _crear,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Nuevo plan'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _loading ? null : _load,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Actualizar'),
+                      ),
+                    ],
+                  ),
                 ),
-                OutlinedButton.icon(
-                  onPressed: _loading ? null : _load,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Actualizar'),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: TextField(
+                    decoration: const InputDecoration(
+                      labelText: 'Buscar PM o notificación',
+                      prefixIcon: Icon(Icons.search),
+                    ),
+                    onChanged: (v) => setState(() => _filter = v),
+                  ),
                 ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: TextField(
-              decoration: const InputDecoration(
-                labelText: 'Buscar PM o notificación',
-                prefixIcon: Icon(Icons.search),
-              ),
-              onChanged: (v) => setState(() => _filter = v),
-            ),
-          ),
-          if (_loading) const LinearProgressIndicator(),
-          if (_errorText != null)
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text(
-                _errorText!,
-                style: const TextStyle(color: Colors.red),
-              ),
-            ),
-          Expanded(
-            child: ListView(
-              children: [
-                if (!_loading && visible.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(24),
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    title: const Text('Filtrar planes e historial'),
+                    leading: const Icon(Icons.filter_list),
+                    children: [
+                      DropdownButtonFormField<String>(
+                        initialValue: _estadoPlan,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Estado / historial',
+                        ),
+                        items:
+                            {
+                                  'activos': 'Planes activos',
+                                  'todos': 'Todos · historial',
+                                  ...planEstadosGestion,
+                                }.entries
+                                .map(
+                                  (e) => DropdownMenuItem(
+                                    value: e.key,
+                                    child: Text(e.value),
+                                  ),
+                                )
+                                .toList(),
+                        onChanged: (v) =>
+                            setState(() => _estadoPlan = v ?? 'activos'),
+                      ),
+                      DropdownButtonFormField<String>(
+                        key: ValueKey('gestor:$_gestor'),
+                        initialValue: _gestor,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Responsable de K2',
+                        ),
+                        items:
+                            [
+                                  '',
+                                  ..._planes
+                                      .map(
+                                        (p) => planText(
+                                          p,
+                                          p.containsKey('responsableK2Nombre')
+                                              ? 'responsableK2Nombre'
+                                              : 'creadoPorNombre',
+                                        ),
+                                      )
+                                      .where((v) => v.isNotEmpty)
+                                      .toSet(),
+                                ]
+                                .map(
+                                  (v) => DropdownMenuItem(
+                                    value: v,
+                                    child: Text(
+                                      v.isEmpty ? 'Todos' : v,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                        onChanged: (v) => setState(() => _gestor = v ?? ''),
+                      ),
+                      DropdownButtonFormField<String>(
+                        key: ValueKey('est:$_establecimiento'),
+                        initialValue: _establecimiento,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Establecimiento',
+                        ),
+                        items:
+                            [
+                                  '',
+                                  ..._planes
+                                      .expand(
+                                        (p) =>
+                                            (p['establecimientos'] as List? ??
+                                                    [])
+                                                .map((v) => v.toString()),
+                                      )
+                                      .where((v) => v.isNotEmpty)
+                                      .toSet(),
+                                ]
+                                .map(
+                                  (v) => DropdownMenuItem(
+                                    value: v,
+                                    child: Text(
+                                      v.isEmpty ? 'Todos' : v,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                        onChanged: (v) =>
+                            setState(() => _establecimiento = v ?? ''),
+                      ),
+                      DropdownButtonFormField<String>(
+                        key: ValueKey('grupo:$_grupoPlan'),
+                        initialValue: _grupoPlan,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Grupo de establecimientos',
+                        ),
+                        items:
+                            [
+                                  '',
+                                  ..._planes
+                                      .expand(
+                                        (p) => (p['grupos'] as List? ?? []).map(
+                                          (v) => v.toString(),
+                                        ),
+                                      )
+                                      .where((v) => v.isNotEmpty)
+                                      .toSet(),
+                                ]
+                                .map(
+                                  (v) => DropdownMenuItem(
+                                    value: v,
+                                    child: Text(
+                                      v.isEmpty ? 'Todos' : v,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                        onChanged: (v) => setState(() => _grupoPlan = v ?? ''),
+                      ),
+                      TextButton.icon(
+                        icon: const Icon(Icons.date_range),
+                        label: Text(
+                          _fechasPlan == null
+                              ? 'Fecha de notificación'
+                              : '${planDia(_fechasPlan!.start)} — ${planDia(_fechasPlan!.end)}',
+                        ),
+                        onPressed: () async {
+                          final range = await showDateRangePicker(
+                            context: context,
+                            firstDate: DateTime(2000),
+                            lastDate: DateTime(2100),
+                            initialDateRange: _fechasPlan,
+                          );
+                          if (range != null && mounted)
+                            setState(() => _fechasPlan = range);
+                        },
+                      ),
+                      TextButton(
+                        onPressed: () => setState(() {
+                          _fechasPlan = null;
+                          _grupoPlan = _establecimiento = _gestor = '';
+                        }),
+                        child: const Text('Limpiar filtros'),
+                      ),
+                      if (_cursor != null)
+                        const Text(
+                          'Hay más planes. Cárgalos para ampliar los resultados.',
+                        ),
+                    ],
+                  ),
+                ),
+                if (_loading) const LinearProgressIndicator(),
+                if (_errorText != null)
+                  Padding(
+                    padding: const EdgeInsets.all(12),
                     child: Text(
-                      'No hay planes para mostrar. Crea un plan con la notificación de K2.',
+                      _errorText!,
+                      style: const TextStyle(color: Colors.red),
                     ),
-                  ),
-                for (final p in visible)
-                  Card(
-                    child: ListTile(
-                      selected: _selected == p['id'],
-                      title: Text(
-                        planText(p, 'numero'),
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      subtitle: Text(
-                        '${p['csc']}\nRespuesta: ${p['limiteRespuesta']}\nSoportes: ${p['limiteSoportes']}\n${p['cantidad'] ?? 0} hallazgos',
-                      ),
-                      isThreeLine: true,
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => _open(planText(p, 'id')),
-                    ),
-                  ),
-                if (_cursor != null)
-                  TextButton(
-                    onPressed: _loading ? null : () => _load(more: true),
-                    child: const Text('Cargar más planes'),
                   ),
               ],
             ),
+          ),
+          SliverList.list(
+            children: [
+              if (!_loading && visible.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Text(
+                    'No hay planes para mostrar. Crea un plan con la notificación de K2.',
+                  ),
+                ),
+              for (final p in visible)
+                Card(
+                  child: ListTile(
+                    selected: _selected == p['id'],
+                    title: Text(
+                      planText(p, 'numero'),
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Text(
+                      '${planEstadosGestion[p['estadoGestion']] ?? 'Recibido'} · ${p['responsableK2Nombre'] ?? p['creadoPorNombre'] ?? ''}\n${(p['establecimientos'] as List? ?? []).join(', ')}\n${p['csc']}\nRespuesta: ${p['limiteRespuesta']}\nSoportes: ${p['limiteSoportes']}\n${p['cantidad'] ?? 0} hallazgos',
+                    ),
+                    isThreeLine: true,
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _open(planText(p, 'id')),
+                  ),
+                ),
+              if (_cursor != null)
+                TextButton(
+                  onPressed: _loading ? null : () => _load(more: true),
+                  child: const Text('Cargar más planes'),
+                ),
+            ],
           ),
         ],
       );
@@ -292,7 +513,8 @@ class PlanDetalle extends StatefulWidget {
 
 class _PlanDetalleState extends State<PlanDetalle> {
   PlanData _plan = {};
-  List<PlanData> _items = [];
+  List<PlanData> _items = [], _historial = [];
+  final _filtros = PlanFiltros();
   bool _loading = true, _busy = false;
   String? _errorText;
   String _filter = '', _estado = 'Todos';
@@ -312,6 +534,7 @@ class _PlanDetalleState extends State<PlanDetalle> {
         setState(() {
           _plan = planMap(d['plan']);
           _items = planList(d['items']);
+          _historial = planList(d['historial']);
           _errorText = null;
         });
       }
@@ -352,7 +575,7 @@ class _PlanDetalleState extends State<PlanDetalle> {
         'motivo': ('Motivo del cambio', ''),
       },
       description:
-          'Estas fechas aplican a todos los hallazgos. Se conserva el historial del cambio.',
+          'Estas fechas aplican a todos los hallazgos. Las alertas se envían a las 8:00 a. m. de Colombia desde tres días antes del vencimiento. Se conserva el historial del cambio.',
     );
     if (data == null) return;
     setState(() => _busy = true);
@@ -363,6 +586,115 @@ class _PlanDetalleState extends State<PlanDetalle> {
         ...data,
       });
       await _load();
+    } catch (e) {
+      if (mounted) _showError(context, e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _seguimientoPlan() async {
+    setState(() => _busy = true);
+    try {
+      final data = await widget.request({'accion': 'gestores'});
+      if (!mounted) return;
+      final gestores = planList(data['gestores']);
+      String estado = planText(_plan, 'estadoGestion');
+      if (!planEstadosGestion.containsKey(estado)) estado = 'recibido';
+      String responsable = planText(_plan, 'responsableK2Id');
+      if (!gestores.any((g) => g['id'] == responsable)) responsable = '';
+      final motivo = TextEditingController();
+      final result = await showDialog<PlanData>(
+        context: context,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, update) => AlertDialog(
+            title: const Text('Seguimiento del plan'),
+            content: SizedBox(
+              width: 520,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    DropdownButtonFormField<String>(
+                      initialValue: estado,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Estado del plan',
+                      ),
+                      items: planEstadosGestion.entries
+                          .map(
+                            (e) => DropdownMenuItem(
+                              value: e.key,
+                              child: Text(e.value),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (v) => update(() => estado = v!),
+                    ),
+                    DropdownButtonFormField<String>(
+                      initialValue: responsable.isEmpty ? null : responsable,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Responsable que responde en K2',
+                      ),
+                      items: gestores
+                          .map(
+                            (g) => DropdownMenuItem(
+                              value: planText(g, 'id'),
+                              child: Text(
+                                planText(g, 'nombre'),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (v) => update(() => responsable = v!),
+                    ),
+                    TextField(
+                      controller: motivo,
+                      maxLines: 3,
+                      maxLength: 2000,
+                      onChanged: (_) => update(() {}),
+                      decoration: const InputDecoration(
+                        labelText: 'Motivo / observación',
+                      ),
+                    ),
+                    const Text(
+                      'Enviado requiere registrar primero la presentación real en K2. Los cambios quedan en el historial.',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: responsable.isEmpty || motivo.text.trim().length < 8
+                    ? null
+                    : () => Navigator.pop(ctx, {
+                        'estadoGestion': estado,
+                        'responsableK2Id': responsable,
+                        'motivo': motivo.text.trim(),
+                      }),
+                child: const Text('Guardar'),
+              ),
+            ],
+          ),
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      motivo.dispose();
+      if (result != null) {
+        await widget.request({
+          'accion': 'seguimiento',
+          'planId': widget.planId,
+          ...result,
+        });
+        await _load();
+      }
     } catch (e) {
       if (mounted) _showError(context, e);
     } finally {
@@ -398,7 +730,7 @@ class _PlanDetalleState extends State<PlanDetalle> {
         ),
       );
     }
-    final list = _items.where((i) {
+    final list = _filtros.aplicar(_items).where((i) {
       final text =
           '${i['establecimiento']} ${i['idVisitaK2']} ${i['numeral']} ${i['responsableNombre']} ${i['fechaActa']}'
               .toLowerCase();
@@ -429,6 +761,43 @@ class _PlanDetalleState extends State<PlanDetalle> {
           style: Theme.of(context).textTheme.titleLarge,
         ),
         Text('Notificación: ${_plan['fechaNotificacion']}'),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            PlanEstadoChip(
+              planEstadosGestion[_plan['estadoGestion']] ?? 'Recibido',
+            ),
+            TextButton.icon(
+              onPressed: _busy ? null : _seguimientoPlan,
+              icon: const Icon(Icons.manage_accounts_outlined),
+              label: const Text('Estado y responsable de K2'),
+            ),
+          ],
+        ),
+        Text(
+          'Creado por: ${_plan['creadoPorNombre'] ?? ''} · Responde en K2: ${_plan['responsableK2Nombre'] ?? _plan['creadoPorNombre'] ?? ''}',
+        ),
+        const SizedBox(height: 12),
+        PlanResumen(items: _items),
+        ExpansionTile(
+          title: const Text('Historial del plan'),
+          leading: const Icon(Icons.history),
+          children: [
+            for (final h in _historial)
+              ListTile(
+                title: Text('${h['accion']} · ${h['porNombre']}'),
+                subtitle: Text(
+                  [
+                    planText(h, 'fecha'),
+                    planText(h, 'motivo'),
+                    planEstadosGestion[planMap(h['cambio'])['estadoGestion']] ??
+                        '',
+                  ].where((v) => v.isNotEmpty).join(' · '),
+                ),
+              ),
+          ],
+        ),
         const SizedBox(height: 12),
         Wrap(
           spacing: 8,
@@ -501,6 +870,11 @@ class _PlanDetalleState extends State<PlanDetalle> {
           ].map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
           onChanged: (v) => setState(() => _estado = v ?? 'Todos'),
         ),
+        PlanFiltrosBar(
+          rows: _items,
+          filtros: _filtros,
+          onChanged: () => setState(() {}),
+        ),
         const SizedBox(height: 12),
         if (list.isEmpty)
           const Padding(
@@ -546,6 +920,7 @@ class _SeleccionHallazgosState extends State<_SeleccionHallazgos> {
   String? _cursor, _errorText;
   bool _busy = false;
   String _query = '';
+  final _filtros = PlanFiltros();
   @override
   void initState() {
     super.initState();
@@ -604,17 +979,37 @@ class _SeleccionHallazgosState extends State<_SeleccionHallazgos> {
               onChanged: (v) => setState(() => _query = v.toLowerCase()),
             ),
           ),
+          Flexible(
+            flex: 1,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 240),
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: PlanFiltrosBar(
+                    rows: _rows,
+                    filtros: _filtros,
+                    onChanged: () => setState(() {}),
+                  ),
+                ),
+              ),
+            ),
+          ),
           if (_busy) const LinearProgressIndicator(),
           if (_errorText != null) Text(_errorText!),
           Expanded(
+            flex: 2,
             child: ListView(
               children: [
-                for (final row in _rows.where(
-                  (r) =>
-                      '${r['establecimiento']} ${r['idVisitaK2']} ${r['fechaActa']}'
-                          .toLowerCase()
-                          .contains(_query),
-                ))
+                for (final row
+                    in _filtros
+                        .aplicar(_rows)
+                        .where(
+                          (r) =>
+                              '${r['establecimiento']} ${r['idVisitaK2']} ${r['fechaActa']} ${r['numeral']} ${r['responsable']}'
+                                  .toLowerCase()
+                                  .contains(_query),
+                        ))
                   CheckboxListTile(
                     secondary: planText(row, 'idVisitaK2').isEmpty
                         ? IconButton(
@@ -941,14 +1336,23 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
       );
       if (result == null) return;
       final file = result.files.single;
-      if (file.bytes == null || file.size > 5 * 1024 * 1024) {
+      if (file.bytes == null) {
         if (mounted) _showError(context, 'Máximo 5 MB por archivo.');
         return;
       }
+      var bytes = file.bytes!;
+      var nombre = file.name;
+      if (bytes.length > planMaxArchivo) {
+        if (!mounted) return;
+        final reduced = await planOfrecerReducir(context, bytes, nombre);
+        if (reduced == null || !mounted) return;
+        bytes = reduced.bytes;
+        nombre = reduced.nombre;
+      }
       await _mutate({
         'accion': 'adjuntar',
-        'nombre': file.name,
-        'base64': base64Encode(file.bytes!),
+        'nombre': nombre,
+        'base64': base64Encode(bytes),
       });
     }
   }
@@ -1041,6 +1445,20 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
               ),
               const SizedBox(height: 8),
               SelectableText(planText(_item, 'descripcion')),
+              PlanEstadoChip(planSemaforo(_item)),
+              Text(
+                'Estado de tarea: ${_item['tareaEstado'] ?? 'Consultar'} · Aprueba: ${_item['aprobadorNombre'] ?? 'Sin información'}',
+              ),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _copy('responsable', planText(_item, 'responsableNombre')),
+                  _copy('hallazgo', planText(_item, 'descripcion')),
+                  if (widget.calidad && planAprobado(_item, 'soportes'))
+                    _copy('subsanación', planText(_item, 'respuestaSoportes')),
+                ],
+              ),
               const Divider(height: 32),
               Text(
                 '1. Compromiso · máximo ${_plan['limiteRespuesta']}',
@@ -1058,18 +1476,20 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                   labelText: 'Compromiso, acción de mejora u observación',
                 ),
               ),
-              TextField(
-                controller: _ejecucion,
-                enabled: !_busy && _item['respuestaPresentado'] == null,
-                decoration: const InputDecoration(
-                  labelText: 'Fecha propuesta de ejecución · AAAA-MM-DD',
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: PlanFechaCampo(
+                  controller: _ejecucion,
+                  enabled: !_busy && _item['respuestaPresentado'] == null,
+                  label: 'Fecha propuesta de ejecución',
                 ),
               ),
-              TextField(
-                controller: _seguimiento,
-                enabled: !_busy && _item['respuestaPresentado'] == null,
-                decoration: const InputDecoration(
-                  labelText: 'Fecha propuesta de seguimiento · AAAA-MM-DD',
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: PlanFechaCampo(
+                  controller: _seguimiento,
+                  enabled: !_busy && _item['respuestaPresentado'] == null,
+                  label: 'Fecha propuesta de seguimiento',
                 ),
               ),
               const SizedBox(height: 8),
@@ -1217,6 +1637,45 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                       icon: const Icon(Icons.picture_as_pdf),
                       label: const Text('Descargar PDF del hallazgo'),
                     ),
+                  if (widget.calidad &&
+                      planAprobado(_item, 'soportes') &&
+                      planAprobado(_item, 'respuesta')) ...[
+                    _copy(
+                      'respuesta para K2',
+                      '${_plan['numero']} · ${_item['establecimiento']}\nActa: ${_item['idVisitaK2']} · Numeral: ${_item['numeral']}\nResponsable: ${_item['responsableNombre']}\nHallazgo: ${_item['descripcion']}\nCompromiso: ${_item['compromiso']}\nEjecución: ${_item['fechaEjecucion']}\nSeguimiento: ${_item['fechaSeguimiento']}\nSubsanación: ${_item['respuestaSoportes']}',
+                    ),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.compress),
+                      label: const Text('Descargar PDF de hasta 5 MB'),
+                      onPressed: _busy
+                          ? null
+                          : () => _run(() async {
+                              final result = await widget.request({
+                                'accion': 'exportar',
+                                'planId': _item['planId'],
+                                'itemId': _item['id'],
+                              });
+                              final bytes =
+                                  await InterventoriaPlanesService.leerArchivo(
+                                    result,
+                                    request: widget.request,
+                                  );
+                              if (!context.mounted) return;
+                              final reduced = await planOfrecerReducir(
+                                context,
+                                bytes,
+                                planText(result, 'nombre'),
+                              );
+                              if (reduced != null)
+                                await InterventoriaPlanesService.guardarArchivo(
+                                  {
+                                    'nombre': reduced.nombre,
+                                    'base64': base64Encode(reduced.bytes),
+                                  },
+                                );
+                            }),
+                    ),
+                  ],
                 ],
               ),
               const SizedBox(height: 24),
@@ -1259,29 +1718,50 @@ Future<Map<String, String>?> _form(
               for (final entry in fields.entries)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),
-                  child: TextField(
-                    controller: controllers[entry.key],
-                    onChanged:
-                        entry.key == 'fechaNotificacion' &&
-                            !fields.containsKey('motivo')
-                        ? (value) {
-                            final d = DateTime.tryParse(value);
-                            if (d == null || value.length != 10) return;
-                            controllers['limiteRespuesta']?.text = planDia(
-                              d.add(const Duration(days: 5)),
-                            );
-                            controllers['limiteSoportes']?.text = planDia(
-                              d.add(const Duration(days: 20)),
-                            );
-                          }
-                        : null,
-                    decoration: InputDecoration(labelText: entry.value.$1),
-                    minLines: 1,
-                    maxLines:
-                        entry.key == 'motivo' || entry.key == 'comprobante'
-                        ? 4
-                        : 1,
-                  ),
+                  child:
+                      (entry.key.startsWith('fecha') ||
+                          entry.key.startsWith('limite'))
+                      ? PlanFechaCampo(
+                          controller: controllers[entry.key]!,
+                          label: entry.value.$1,
+                          onChanged: (value) {
+                            if (entry.key == 'fechaNotificacion' &&
+                                !fields.containsKey('motivo')) {
+                              final d = DateTime.parse(value);
+                              controllers['limiteRespuesta']?.text = planDia(
+                                d.add(const Duration(days: 5)),
+                              );
+                              controllers['limiteSoportes']?.text = planDia(
+                                d.add(const Duration(days: 20)),
+                              );
+                            }
+                          },
+                        )
+                      : TextField(
+                          controller: controllers[entry.key],
+                          onChanged:
+                              entry.key == 'fechaNotificacion' &&
+                                  !fields.containsKey('motivo')
+                              ? (value) {
+                                  final d = DateTime.tryParse(value);
+                                  if (d == null || value.length != 10) return;
+                                  controllers['limiteRespuesta']?.text =
+                                      planDia(d.add(const Duration(days: 5)));
+                                  controllers['limiteSoportes']?.text = planDia(
+                                    d.add(const Duration(days: 20)),
+                                  );
+                                }
+                              : null,
+                          decoration: InputDecoration(
+                            labelText: entry.value.$1,
+                          ),
+                          minLines: 1,
+                          maxLines:
+                              entry.key == 'motivo' ||
+                                  entry.key == 'comprobante'
+                              ? 4
+                              : 1,
+                        ),
                 ),
             ],
           ),

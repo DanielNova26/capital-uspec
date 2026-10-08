@@ -217,12 +217,15 @@ class NotificationsService {
     final body = n?.body ?? data['body'] ?? 'Tienes una notificación';
     final type = (data['type'] ?? '').toString().trim();
     final rawPayload =
-        (data['deepLink'] ??
-                data['taskId'] ??
-                (_isInterventoriaDeleteRequest(type)
-                    ? data['sourceEntityId']
-                    : null))
-            ?.toString();
+        type == 'interventoria_plan_mejora' &&
+            (data['taskId'] ?? '').toString().isEmpty
+        ? 'plan:${data['sourceEntityId'] ?? ''}'
+        : (data['deepLink'] ??
+                  data['taskId'] ??
+                  (_isInterventoriaDeleteRequest(type)
+                      ? data['sourceEntityId']
+                      : null))
+              ?.toString();
     final empresaId = (data['empresaId'] ?? '').toString().trim();
     final combinedPayload = jsonEncode({
       'type': type,
@@ -265,11 +268,14 @@ class NotificationsService {
     if (kDebugMode) print('[FCM TAP] data=$data');
     final type = (data['type'] ?? '').toString().trim();
     final rawPayload =
-        data['deepLink']?.toString() ??
-        data['taskId']?.toString() ??
-        (_isInterventoriaDeleteRequest(type)
-            ? data['sourceEntityId']?.toString()
-            : null);
+        type == 'interventoria_plan_mejora' &&
+            (data['taskId'] ?? '').toString().isEmpty
+        ? 'plan:${data['sourceEntityId'] ?? ''}'
+        : data['deepLink']?.toString() ??
+              data['taskId']?.toString() ??
+              (_isInterventoriaDeleteRequest(type)
+                  ? data['sourceEntityId']?.toString()
+                  : null);
     final empresaId = (data['empresaId'] ?? '').toString().trim();
     final combinedPayload = type.isNotEmpty
         ? '$type::${rawPayload ?? ''}'
@@ -347,7 +353,10 @@ class NotificationsService {
       await abrirPlanesDesdeAviso(
         context,
         empresaId: notifEmpresaId ?? '',
-        tareaId: taskId ?? '',
+        tareaId: (rawPayload ?? '').startsWith('plan:') ? '' : taskId ?? '',
+        planId: (rawPayload ?? '').startsWith('plan:')
+            ? rawPayload!.substring(5)
+            : '',
       );
       return;
     }

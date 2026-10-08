@@ -21,6 +21,93 @@ test.before(async () => {
   env = await initializeTestEnvironment({projectId, firestore: {rules: fs.readFileSync(path.resolve(__dirname, '../../firestore.rules'), 'utf8')}});
 });
 test.after(async () => { await env?.cleanup(); await admin.app().delete(); });
+
+test('grupo viene del establecimiento de su empresa y no del agrupador de observaciones', async () => {
+  await db.doc('TBL_CENTROS_COSTOS/A_c').set({empresaId: 'A', centroId: 'c', grupo: 'Grupo 01'});
+  await db.doc('TBL_CENTROS_COSTOS/B_c').set({empresaId: 'B', centroId: 'c', grupo: 'G9'});
+  await db.doc('TBL_INTERVENTORIA_VISITAS/v').update({centroCostoId: 'c'});
+  await db.doc('TBL_INTERVENTORIA_HALLAZGOS/h').update({centroCostoId: 'c', grupoId: 'locativas_obs0'});
+  assert.equal((await call('calidad', {accion: 'candidatos'})).candidatos[0].grupo, 'G1');
+  await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']});
+  assert.equal((await call('calidad', {accion: 'detalle', planId})).items[0].grupo, 'G1');
+  assert.deepEqual((await call('calidad', {accion: 'listar'})).planes[0].grupos, ['G1']);
+  await db.doc('TBL_CENTROS_COSTOS/A_c').update({grupo: 'G9'});
+  assert.equal((await call('calidad', {accion: 'detalle', planId})).items[0].grupo, 'G9');
+});
+
+test('seguimiento exige gestor vigente, conserva historial y no declara envío sin presentación', async () => {
+  await db.doc('TBL_INTERVENTORIA_ROLES/A_otro').set({empresaId: 'A', userId: 'otro', rol: 'calidad_interventoria'});
+  const input = {accion: 'seguimiento', planId, estadoGestion: 'en_gestion', responsableK2Id: 'otro', motivo: 'Calidad coordina esta respuesta.'};
+  await assert.rejects(call('responsable', input), {code: 'permission-denied'});
+  await assert.rejects(call('calidad', {...input, responsableK2Id: 'historico'}), {code: 'permission-denied'});
+  await call('calidad', input);
+  const detail = await call('calidad', {accion: 'detalle', planId});
+  assert.equal(detail.plan.responsableK2Id, 'otro');
+  assert.equal(detail.plan.estadoGestion, 'en_gestion');
+  assert.ok(detail.historial.some((h) => h.accion === 'seguimiento' && h.motivo === input.motivo));
+  await assert.rejects(call('calidad', {...input, estadoGestion: 'enviado'}));
+  await call('calidad', {...input, estadoGestion: 'mesa_descuentos'});
+  await db.doc('TBL_USUARIOS/otro').update({'empresasDetalle.A.activo': false});
+  await assert.rejects(call('calidad', input), {code: 'permission-denied'});
+});
+
+test('fuentes no expone textos ni soportes mientras la tarea espera aprobación', async () => {
+  await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']});
+  await db.doc('TBL_TAREAS/t/finalizacion/f').set({comment: 'Texto que aún no se aprobó', attachments: [{path: 'tareas/t/test.pdf', name: 'test.pdf'}]});
+  await db.doc('TBL_TAREAS/t').update({estado: 'por_aprobar', solicitud_finalizacion_estado: 'pendiente', aprobador_uid: 'otro'});
+  let sources = await call('calidad', {accion: 'fuentes', itemId: itemId()});
+  assert.deepEqual(sources.archivos, []); assert.deepEqual(sources.avances, []);
+  assert.equal(sources.tareaAprobada, false); assert.equal(sources.aprobadorNombre, 'otro');
+  assert.equal(sources.responsableNombre, 'Ana');
+  await assert.rejects(call('calidad', {accion: 'verFuente', itemId: itemId(), path: 'tareas/t/test.pdf'}));
+  await db.doc('TBL_TAREAS/t').update({estado: 'finalizado', solicitud_finalizacion_estado: 'aprobado'});
+  sources = await call('calidad', {accion: 'fuentes', itemId: itemId()});
+  assert.equal(sources.tareaAprobada, true); assert.equal(sources.archivos.length, 1);
+  assert.equal(sources.avances[0].message, 'Texto que aún no se aprobó');
+});
+
+test('agenda respeta empresa y responsable vigente, y elimina plazos presentados', async () => {
+  await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']});
+  assert.equal((await call('calidad', {accion: 'agenda'})).eventos.length, 2);
+  assert.equal((await call('responsable', {accion: 'agenda'})).eventos.length, 2);
+  assert.equal((await call('otro', {accion: 'agenda'})).eventos.length, 0);
+  assert.equal((await call('calidad', {accion: 'agenda', empresaId: 'B'})).eventos.length, 0);
+  await db.doc('TBL_TAREAS/t').update({asignado_uid: 'otro'});
+  assert.equal((await call('responsable', {accion: 'agenda'})).eventos.length, 0);
+  await itemRef().update({respuestaPresentado: {fecha: '2026-10-08'}});
+  const result = await call('otro', {accion: 'agenda'});
+  assert.equal(result.eventos.length, 1); assert.equal(result.eventos[0].etapa, 'soportes');
+});
+
+test('creador Desarrollo recibe entregas y vencimientos sin tener fila de Calidad', async () => {
+  await db.doc('TBL_USUARIOS/dev').set({activo: true, empresaId: 'A', empresas: ['A'], roleKey: 'desarrollador'});
+  const created = await call('dev', {accion: 'crear', numero: 'PM-DEV', csc: 'CRF-K2-DEV', fechaNotificacion: '2026-10-01'});
+  await call('dev', {accion: 'vincular', planId: created.id, hallazgoIds: ['h']});
+  const iid = createHash('sha256').update(`${created.id}|h`).digest('hex');
+  await call('responsable', {accion: 'responder', itemId: iid, version: 0, compromiso: 'Se corrige el rotulado de todos los productos.', fechaEjecucion: '2026-10-15', fechaSeguimiento: '2026-10-20'});
+  const notices = await db.collection('TBL_NOTIFICACIONES/dev/notifications').get();
+  assert.ok(notices.docs.some((d) => d.data().title.includes('entrega por revisar')));
+  await api.interventoriaPlanesAvisos.run({});
+  const alerts = await db.collection('TBL_NOTIFICACIONES/dev/notifications').get();
+  assert.ok(alerts.docs.some((d) => d.data().title.includes('respuesta vencidos')));
+});
+
+test('fuentes pesadas se descargan completas por partes sin permitir adjuntarlas sin reducir', {skip: !process.env.FIREBASE_STORAGE_EMULATOR_HOST}, async () => {
+  await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']});
+  const path = 'tareas/t/grande.pdf';
+  const bytes = Buffer.alloc(6 * 1024 * 1024 + 300, 65);
+  await admin.storage().bucket().file(path).save(bytes);
+  await db.doc('TBL_TAREAS/t').update({adjuntos: [{path, name: 'grande.pdf'}]});
+  const source = await call('calidad', {accion: 'fuentes', itemId: itemId()});
+  const input = {accion: 'verFuente', itemId: itemId(), fuenteKey: source.archivos[0].key};
+  const first = await call('calidad', input);
+  const parts = [Buffer.from(first.base64, 'base64')];
+  for (let i = 1; i < first.partes; i++) parts.push(Buffer.from((await call('calidad', {...input, parte: i})).base64, 'base64'));
+  assert.deepEqual(Buffer.concat(parts), bytes);
+  await assert.rejects(call('calidad', {...input, parte: -1}));
+  await assert.rejects(call('calidad', {...input, accion: 'usarFuente'}), /5 MB/);
+  await assert.rejects(call('otro', input), {code: 'permission-denied'});
+});
 test.beforeEach(async () => {
   await env.clearFirestore();
   const batch = db.batch();

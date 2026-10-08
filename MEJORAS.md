@@ -6,6 +6,60 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## 2026-10-08 — Planes de mejora: calendario, seguimiento y preparación para K2 (Codex)
+
+- Implementado el alcance de planes de mejora de la reunión del 6 de octubre:
+  fechas con calendario (notificación, máximas, ejecución y seguimiento),
+  manteniendo 5/20 días calendario propuestos y fechas comunes por plan.
+  Filtros combinables por establecimiento, grupo, responsable, numeral y rango
+  de fechas; orden por establecimiento/numeral natural o fecha reciente.
+  El grupo procede del catálogo común de centros de costos de la empresa,
+  nunca del identificador que agrupa observaciones del acta.
+- Estados de gestión separados de las entregas: Recibido, En gestión, Enviado
+  y Mesa de descuentos. Responsable de K2 seleccionable entre gestores con
+  acceso vigente. Historial de cambios y consulta de planes anteriores.
+  El servidor impide declarar Enviado sin presentación real de cada entrega;
+  reabrir un hallazgo o agregarlo vuelve un plan enviado a En gestión.
+- Tarjetas con semáforo por numeral, resumen en color sin barras y controles
+  adaptables. Web amplia conserva maestro/detalle; navegación independiente
+  cuando el espacio disponible es estrecho, aunque la ventana sea grande.
+  El selector distribuye filtros/lista sin taparlos al aparecer el teclado.
+- Fuentes precargadas únicamente cuando la tarea está finalizada y no tiene
+  aprobación pendiente/rechazada ni reasignación pendiente. Muestra estado,
+  responsable y aprobador actuales; tareas no aprobadas devuelven listas vacías
+  también desde el servidor. Copia de responsable, hallazgo, textos asociados
+  a la tarea aprobada y respuesta completa revisada para K2. Se conservan las
+  revisiones propias del plan: finalizar la tarea no presenta nada en K2.
+- Descarga de fuentes en partes verificadas (tamaño y SHA-256), hasta 40 MB,
+  y botón para obtener una copia de hasta 5 MB. JPG/PNG se recomprimen; PDF
+  se rasteriza conservando páginas y orientación. El original permanece.
+  Se avisa sobre firmas digitales/texto rasterizado y revisión de legibilidad;
+  si no alcanza el límite a calidad legible o supera 80 páginas, pide dividir.
+  Disponible también al adjuntar un archivo pesado y exportar un PDF de hallazgo.
+  El PDF del expediente incluye empresa, responsable, aprobador, observaciones
+  y nombres de anexos; continúa la descarga del ZIP del plan revisado.
+- Agenda de Inicio con los dos vencimientos y enlace al expediente. Para el
+  responsable solo consulta sus tareas actuales; Calidad consulta su empresa.
+  Actualiza cada cinco minutos y al regresar del plan. Alertas a las 08:00 de
+  Colombia, desde tres días antes del vencimiento, para Calidad, responsables
+  de tareas y creador/gestor vigente (incluido Desarrollo); también avisa si
+  el plan aún no tiene hallazgos. Bandeja y push abren avisos sin tarea asociada.
+- Validación: suite completa de 1.594 pruebas Flutter y 178 Node aprobadas;
+  22 pruebas de integración Firestore/Storage sin omitidas; 14 comprobaciones
+  nuevas de interfaz/archivos aprobadas después de los últimos ajustes.
+  Anchos 390/768/1024/1366, texto 1,6× y temas Android/iOS; teclado simulado.
+  PDF optimizado verificado con lector independiente: dos páginas y ambas
+  orientaciones. TypeScript y Web 2.6.19+33 compilados. Publicados Web y los
+  dos servicios del plan; en curso consolidación con la rama adicional de Claude.
+- Pendiente validación autenticada del flujo real y en Android/iPhone físicos,
+  incluida rasterización de PDF del dispositivo. No se publican aplicaciones
+  en tiendas. Análisis sin errores funcionales; permanecen advertencias previas
+  de Dart, estilo y dependencias Wasm (la compilación Web es JavaScript).
+  No se modificaron maestros, asignaciones de producción ni reglas Firestore.
+  Las notas de pagos/mantenimiento de la reunión no se ejecutaron: no forman
+  parte del pedido de planes de mejora. Continúa opcional el PDF del acta y no
+  se exige evidencia inicial al administrador.
+
 ## 2026-10-06 — Integración de Bodega en main y publicación 2.6.18 (Codex)
 
 - Integrado el commit `606a011` de `claude/amazing-cannon-yr7jc3` en `main`

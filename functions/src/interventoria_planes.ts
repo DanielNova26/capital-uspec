@@ -1,13 +1,14 @@
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
 import {createHash, randomUUID, randomBytes, createCipheriv, createDecipheriv} from "crypto";
+import {aprobadorDeTarea} from "./tareas_avisos";
 import {PDFDocument, StandardFonts} from "pdf-lib";
 import JSZip from "jszip";
 import {empresasSeleccionables} from "./acceso";
 import {appsDeEmpresa} from "./apps_por_empresa";
 import {isInterventoriaDeveloper} from "./interventoria_deletion";
 import {APP_PLANES, ROLES_GESTORES_PLANES, PLANES_COL, ITEMS_COL, DatosPlan,
-  fechasPlan, validarCompromiso, validarRevision, validarPresentacion,
+  ESTADOS_PLAN, grupoCentroPlan, tareaAprobadaParaPlan, fechasPlan, validarCompromiso, validarRevision, validarPresentacion,
   etapaAprobada, hoyColombia, diasRestantesPlan, diaValido} from "./interventoria_planes_policy";
 
 const db = () => admin.firestore();
@@ -75,7 +76,7 @@ function notice(tx: FirebaseFirestore.Transaction, destinatario: string, key: st
   if (!destinatario) return;
   tx.set(db().collection("TBL_NOTIFICACIONES").doc(destinatario).collection("notifications").doc(hash(key)), {
     title, description, empresaId: a.empresaId, type: "interventoria_plan_mejora",
-    module: "interventoria", taskId: item?.tareaId || "", planId: item?.planId || "",
+    module: "interventoria", taskId: item?.tareaId || "", planId: item?.planId || "", sourceEntityId: item?.planId || "",
     fromId: a.id, fromName: a.nombre, read: false, createdAt: admin.firestore.Timestamp.now(),
   });
 }
@@ -92,13 +93,138 @@ async function gestores(a: Actor): Promise<string[]> {
   return out;
 }
 
+async function resumenTarea(t: DatosPlan, a: Actor): Promise<DatosPlan> {
+  if (t.empresaId !== a.empresaId) return {tareaEstado: "No disponible"};
+  const aprobadorId = aprobadorDeTarea(t);
+  const u = aprobadorId ? (await db().collection("TBL_USUARIOS").doc(aprobadorId).get()).data() : null;
+  return {responsableNombre: s(t.asignado_nombre || t.assignedToName),
+    responsableId: s(t.asignado_uid || t.assignedTo), aprobadorId,
+    aprobadorNombre: s(u?.nombreCompleto || u?.nombre || `${u?.nombres || ""} ${u?.apellidos || ""}`) || "Sin aprobador",
+    tareaEstado: s(t.estado), tareaAprobada: tareaAprobadaParaPlan(t)};
+}
+
+async function destinatariosPlan(a: Actor, p: DatosPlan): Promise<string[]> {
+  const ids = new Set(await gestores(a));
+  for (const uid of [p.creadoPor, p.responsableK2Id]) {
+    if (!s(uid)) continue;
+    const u = (await db().collection("TBL_USUARIOS").doc(id(uid)).get()).data();
+    if (u && empresasSeleccionables(u).includes(a.empresaId) &&
+        isInterventoriaDeveloper(u, a.empresaId)) ids.add(uid);
+  }
+  return [...ids];
+}
+
+async function seguimientoPlan(input: DatosPlan, a: Actor) {
+  calidad(a);
+  const ref = db().collection(PLANES_COL).doc(id(input.planId));
+  const estado = s(input.estadoGestion);
+  if (!ESTADOS_PLAN.includes(estado)) err("Selecciona un estado del plan.");
+  const uid = id(input.responsableK2Id);
+  // Canonical role and active membership, including Desarrollo, checked anew.
+  const [user, role] = await Promise.all([db().collection("TBL_USUARIOS").doc(uid).get(),
+    db().collection("TBL_INTERVENTORIA_ROLES").doc(`${a.empresaId}_${uid}`).get()]);
+  const u = user.data();
+  if (!u || !empresasSeleccionables(u).includes(a.empresaId) ||
+      !(isInterventoriaDeveloper(u, a.empresaId) ||
+        (appsDeEmpresa(u, a.empresaId).some((x) => [APP_PLANES, "interventoria"].includes(x.toLowerCase())) &&
+        role.data()?.empresaId === a.empresaId && ROLES_GESTORES_PLANES.includes(role.data()?.rol)))) {
+    err("El responsable de K2 debe tener acceso vigente de gestión en esta empresa.", "permission-denied");
+  }
+  const responsible = {nombre: s(u?.nombreCompleto || u?.nombre || `${u?.nombres || ""} ${u?.apellidos || ""}`) || "Responsable"};
+  const motivo = s(input.motivo);
+  if (motivo.length < 8 || motivo.length > 2000) err("Escribe el motivo del cambio (8 a 2000 caracteres).");
+  await db().runTransaction(async (tx) => {
+    const p = (await tx.get(ref)).data(); empresa(p, a);
+    if (estado === "enviado") {
+      const items = await tx.get(db().collection(ITEMS_COL).where("planId", "==", ref.id));
+      if (items.empty || items.docs.some((d) => !d.data().respuestaPresentado || !d.data().soportesPresentado)) {
+        err("Registra primero la presentación real de respuestas y soportes de todos los hallazgos en K2.");
+      }
+    }
+    const cambio = {estadoGestion: estado, responsableK2Id: uid, responsableK2Nombre: responsible.nombre};
+    tx.update(ref, {...cambio, updatedAt: admin.firestore.Timestamp.now()});
+    audit(tx, ref, a, "seguimiento", {anterior: {estadoGestion: p.estadoGestion || "recibido",
+      responsableK2Id: p.responsableK2Id || p.creadoPor}, cambio, motivo});
+    notice(tx, uid, `gestor:${ref.id}:${randomUUID()}`, a, `${p.numero}: seguimiento del plan`, motivo, {planId: ref.id});
+  });
+  return {ok: true};
+}
+
+async function agendaPlanes(a: Actor) {
+  const ownItems = new Map<string, DatosPlan[]>();
+  let plans: FirebaseFirestore.DocumentSnapshot[];
+  if (a.calidad) {
+    plans = (await db().collection(PLANES_COL).where("empresaId", "==", a.empresaId).get()).docs;
+  } else {
+    const assigned = await Promise.all(["asignado_uid", "assignedTo"].map((field) =>
+      db().collection("TBL_TAREAS").where("empresaId", "==", a.empresaId).where(field, "==", a.id).get()));
+    const tasks = new Map(assigned.flatMap((snap) => snap.docs).filter((d) =>
+      s(d.data().asignado_uid || d.data().assignedTo) === a.id &&
+      s(d.data().sourceModule || d.data().origen) === "interventoria").map((d) => [d.id, d.data()]));
+    const ids = [...tasks.keys()];
+    for (let offset = 0; offset < ids.length; offset += 10) {
+      const snap = await db().collection(ITEMS_COL).where("tareaId", "in", ids.slice(offset, offset + 10)).get();
+      for (const doc of snap.docs) {
+        const i = doc.data(); const t = tasks.get(i.tareaId);
+        if (i.empresaId !== a.empresaId || !t || s(t.hallazgoId || t.sourceEntityId) !== i.hallazgoId) continue;
+        ownItems.set(i.planId, [...(ownItems.get(i.planId) || []), i]);
+      }
+    }
+    plans = await Promise.all([...ownItems.keys()].map((pid) => db().collection(PLANES_COL).doc(id(pid)).get()));
+  }
+  const eventos: DatosPlan[] = [];
+  for (const p of plans) {
+    const plan = p.data(); if (!plan || plan.empresaId !== a.empresaId) continue;
+    const items: DatosPlan[] = a.calidad ?
+      (await db().collection(ITEMS_COL).where("planId", "==", p.id).get()).docs
+        .map((d) => d.data()).filter((i) => i.empresaId === a.empresaId) : ownItems.get(p.id) || [];
+    if (!a.calidad && !items.length) continue;
+    for (const etapa of ["respuesta", "soportes"]) {
+      if (items.length && items.every((i) => i[`${etapa}Presentado`])) continue;
+      eventos.push({planId: p.id, empresaId: a.empresaId, calidad: a.calidad,
+        tareaId: a.calidad ? "" : items[0].tareaId, etapa,
+        fecha: etapa === "respuesta" ? plan.limiteRespuesta : plan.limiteSoportes,
+        titulo: `${plan.numero} · ${etapa === "respuesta" ? "Respuesta máxima" : "Soportes máximos"}`,
+        description: `${items.length} hallazgos · ${plan.responsableK2Nombre || plan.creadoPorNombre || "Calidad"}`});
+    }
+  }
+  return {eventos};
+}
+
+async function gruposDeEstablecimientos(a: Actor) {
+  const snap = await db().collection("TBL_CENTROS_COSTOS").where("empresaId", "==", a.empresaId).get();
+  const groups = new Map<string, string>();
+  for (const doc of snap.docs) {
+    groups.set(doc.id, grupoCentroPlan(doc.data()));
+    if (s(doc.data().centroId)) groups.set(s(doc.data().centroId), grupoCentroPlan(doc.data()));
+  }
+  const visits = new Map<string, Promise<string>>();
+  return async (d: DatosPlan): Promise<string> => {
+    if (s(d.centroCostoId)) return groups.get(s(d.centroCostoId)) || "";
+    if (!s(d.visitaId)) return "";
+    if (!visits.has(d.visitaId)) {
+      visits.set(d.visitaId, db().collection("TBL_INTERVENTORIA_VISITAS").doc(id(d.visitaId)).get()
+        .then((v) => v.data()?.empresaId === a.empresaId ? groups.get(s(v.data()?.centroCostoId)) || "" : ""));
+    }
+    return visits.get(d.visitaId)!;
+  };
+}
+
 export async function consultarPlanes(input: DatosPlan, a: Actor): Promise<DatosPlan> {
+  const grupo = a.calidad ? await gruposDeEstablecimientos(a) : async (_d: DatosPlan) => "";
   if (input.accion === "listar") {
     calidad(a);
     let q = db().collection(PLANES_COL).where("empresaId", "==", a.empresaId).orderBy(admin.firestore.FieldPath.documentId()).limit(51);
     if (input.cursor) q = q.startAfter(id(input.cursor));
     const snap = await q.get(); const docs = snap.docs.slice(0, 50);
-    return {planes: docs.map((d) => ({id: d.id, ...plain(d.data())})), cursor: snap.size > 50 ? docs[49].id : null};
+    const planes = await Promise.all(docs.map(async (d) => {
+      const p = d.data();
+      const items = await db().collection(ITEMS_COL).where("planId", "==", d.id).get();
+      const own = items.docs.map((i) => i.data()).filter((i) => i.empresaId === a.empresaId);
+      return {id: d.id, ...plain(p), establecimientos: [...new Set(own.map((i) => s(i.establecimiento)))],
+        grupos: [...new Set(await Promise.all(own.map(grupo)))]};
+    }));
+    return {planes, cursor: snap.size > 50 ? docs[49].id : null};
   }
   if (input.accion === "candidatos") {
     calidad(a);
@@ -119,7 +245,7 @@ export async function consultarPlanes(input: DatosPlan, a: Actor): Promise<Datos
         responsable: tareaValida ? s(tarea.asignado_nombre || tarea.assignedToName) : "Sin tarea asignada vigente",
         tareaId: tareaValida ? s(d.tareaId) : "", visitaId: s(d.visitaId),
         idVisitaK2: visita?.empresaId === a.empresaId ? s(visita.idVisitaK2) : "",
-        fechaActa: plain(d.fechaHallazgo)};
+        grupo: await grupo(d), fechaActa: plain(visita?.fechaVisita || d.fechaHallazgo)};
     }));
     return {candidatos, cursor: snap.size > 100 ? docs[99].id : null};
   }
@@ -131,7 +257,7 @@ export async function consultarPlanes(input: DatosPlan, a: Actor): Promise<Datos
       const d = doc.data(); if (d.empresaId !== a.empresaId) continue;
       const task = await tareaItem(d, a);
       const p = (await db().collection(PLANES_COL).doc(d.planId).get()).data(); empresa(p, a);
-      items.push({id: doc.id, ...plain(d), responsableNombre: s(task.data.asignado_nombre || task.data.assignedToName), plan: plain(p)});
+      items.push({id: doc.id, ...plain(d), ...await resumenTarea(task.data, a), plan: plain(p)});
     }
     return {items, calidad: a.calidad};
   }
@@ -142,10 +268,10 @@ export async function consultarPlanes(input: DatosPlan, a: Actor): Promise<Datos
   const items = await Promise.all(snap.docs.map(async (d) => {
     const item = d.data(); empresa(item, a);
     const t = (await db().collection("TBL_TAREAS").doc(id(item.tareaId)).get()).data();
-    return {id: d.id, ...plain(item), responsableNombre: t?.empresaId === a.empresaId ?
-      s(t.asignado_nombre || t.assignedToName) : "Tarea no disponible"};
+    return {id: d.id, ...plain(item), grupo: await grupo(item), ...await resumenTarea(t || {}, a)};
   }));
-  return {plan: {id: planId, ...plain(p)}, items};
+  const historial = await db().collection(PLANES_COL).doc(planId).collection("historial").orderBy("fecha", "desc").limit(100).get();
+  return {plan: {id: planId, ...plain(p)}, items, historial: historial.docs.map((d) => plain(d.data()))};
 }
 
 export async function crearPlan(input: DatosPlan, a: Actor) {
@@ -157,14 +283,17 @@ export async function crearPlan(input: DatosPlan, a: Actor) {
   await db().runTransaction(async (tx) => {
     if ((await tx.get(ref)).exists) err("Ya existe un plan para esa notificación.", "already-exists");
     tx.create(ref, {empresaId: a.empresaId, numero, csc, ...fechas, creadoPor: a.id,
-      creadoPorNombre: a.nombre, createdAt: admin.firestore.Timestamp.now(), estado: "abierto", cantidad: 0});
+      creadoPorNombre: a.nombre, responsableK2Id: a.id, responsableK2Nombre: a.nombre, estadoGestion: "recibido", createdAt: admin.firestore.Timestamp.now(), estado: "abierto", cantidad: 0});
     audit(tx, ref, a, "creado", fechas);
+    notice(tx, a.id, `plan-creado:${ref.id}`, a, `${numero}: plan recibido`,
+      `Respuesta máxima ${fechas.limiteRespuesta}. Soportes máximos ${fechas.limiteSoportes}. Alertas a las 8:00 a. m. de Colombia.`, {planId: ref.id});
   });
   return {id: ref.id};
 }
 
 export async function vincularHallazgos(input: DatosPlan, a: Actor) {
   calidad(a);
+  const grupo = await gruposDeEstablecimientos(a);
   const planId = id(input.planId); const ref = db().collection(PLANES_COL).doc(planId);
   const ids = [...new Set((Array.isArray(input.hallazgoIds) ? input.hallazgoIds : []).map(id))];
   if (!ids.length || ids.length > 40) err("Selecciona entre 1 y 40 hallazgos por vez.");
@@ -188,7 +317,7 @@ export async function vincularHallazgos(input: DatosPlan, a: Actor) {
         hallazgoId: hid, tareaId: h.tareaId, visitaId: h.visitaId, idVisitaK2: s(v.idVisitaK2),
         establecimiento: s(h.subcentroNombre || h.centroCostoNombre),
         numeral: s(h.numeralActa || h.numeroHallazgo), descripcion: s(h.descripcion),
-        fechaActa: v.fechaVisita, categoria: s(h.grupoId), numeroTarea: tarea.data.numero ?? tarea.data.numeroTarea ?? "",
+        fechaActa: v.fechaVisita, centroCostoId: s(h.centroCostoId || v.centroCostoId), grupo: await grupo(h), categoria: s(h.grupoId), numeroTarea: tarea.data.numero ?? tarea.data.numeroTarea ?? "",
         respuestaVersion: 0, soportesVersion: 0, evidencias: [],
         respuestaRevision: {estado: "pendiente"}, soportesRevision: {estado: "pendiente"},
         createdAt: admin.firestore.Timestamp.now()}});
@@ -199,7 +328,11 @@ export async function vincularHallazgos(input: DatosPlan, a: Actor) {
       notice(tx, n.responsable, `plan-asignado:${n.ref.id}`, a, `${p.numero}: respuesta y soportes`,
         `Respuesta hasta ${p.limiteRespuesta}. Soportes hasta ${p.limiteSoportes}. Abre Plan de mejora en tu tarea.`, n.data);
     }
-    tx.update(ref, {cantidad: (p.cantidad || 0) + nuevos.length, updatedAt: admin.firestore.Timestamp.now()});
+    tx.update(ref, {cantidad: (p.cantidad || 0) + nuevos.length,
+      ...(nuevos.length && p.estadoGestion === "enviado" ? {estadoGestion: "en_gestion"} : {}),
+      ...(nuevos.length ? {establecimientos: admin.firestore.FieldValue.arrayUnion(...nuevos.map((n) => n.data.establecimiento)),
+        grupos: admin.firestore.FieldValue.arrayUnion(...nuevos.map((n) => n.data.grupo))} : {}),
+      updatedAt: admin.firestore.Timestamp.now()});
     audit(tx, ref, a, "hallazgos_vinculados", {ids: nuevos.map((n) => n.data.hallazgoId)});
   });
   return {ok: true};
@@ -209,7 +342,9 @@ export async function vincularHallazgos(input: DatosPlan, a: Actor) {
 export async function cambiarItem(input: DatosPlan, a: Actor) {
   const ref = db().collection(ITEMS_COL).doc(id(input.itemId));
   const accion = s(input.accion); const etapa = s(input.etapa);
-  const calidadIds = accion === "responder" || accion === "soportes" ? await gestores(a) : [];
+  const previo = (await ref.get()).data(); empresa(previo, a);
+  const planPrevio = (await db().collection(PLANES_COL).doc(id(previo.planId)).get()).data(); empresa(planPrevio, a);
+  const calidadIds = accion === "responder" || accion === "soportes" ? await destinatariosPlan(a, planPrevio) : [];
   await db().runTransaction(async (tx) => {
     const item = (await tx.get(ref)).data(); empresa(item, a);
     const pr = db().collection(PLANES_COL).doc(id(item.planId));
@@ -263,6 +398,10 @@ export async function cambiarItem(input: DatosPlan, a: Actor) {
         update.soportesRevision = {estado: "pendiente", motivo: "Compromiso reabierto"};
       }
       notice(tx, responsable, `reabrir:${ref.id}:${randomUUID()}`, a, `${plan.numero}: entrega reabierta`, s(input.motivo), item);
+      if (plan.estadoGestion === "enviado") {
+        tx.update(pr, {estadoGestion: "en_gestion", updatedAt: admin.firestore.Timestamp.now()});
+        audit(tx, pr, a, "reabierto", {motivo: s(input.motivo).slice(0, 2000), itemId: ref.id});
+      }
     } else err("Acción inválida.", "invalid-argument");
     tx.update(ref, update);
     // Immutable before/after snapshot: later edits never rewrite submitted evidence.
@@ -335,6 +474,11 @@ function rutaFuente(raw: DatosPlan): string {
 async function fuentesTarea(input: DatosPlan, a: Actor, internas = false) {
   const item = (await db().collection(ITEMS_COL).doc(id(input.itemId)).get()).data(); empresa(item, a);
   const tarea = await tareaItem(item, a);
+  const resumen = await resumenTarea(tarea.data, a);
+  if (!resumen.tareaAprobada) {
+    return {...resumen, archivos: [], avances: [], adjuntos: [],
+      motivo: "La tarea aún no está aprobada. Sus textos y archivos estarán disponibles al aprobarla."};
+  }
   const [avances, finalizacion, hallazgoDoc, visitaDoc] = await Promise.all([
     tarea.ref.collection("avances").get(), tarea.ref.collection("finalizacion").get(),
     db().collection("TBL_INTERVENTORIA_HALLAZGOS").doc(id(item.hallazgoId)).get(),
@@ -389,12 +533,12 @@ async function fuentesTarea(input: DatosPlan, a: Actor, internas = false) {
   agregar(visita.imagenesActa, "Acta original · contexto", "acta");
   if (s(visita.actaOriginalUrl)) agregar([{url: visita.actaOriginalUrl}], "Acta original · contexto", "acta");
   registros.sort((x, y) => s(y.createdAt).localeCompare(s(x.createdAt)));
-  return {archivos: [...archivos.values()], avances: registros, adjuntos: [...archivos.values()],
+  return {...resumen, archivos: [...archivos.values()], avances: registros, adjuntos: [...archivos.values()],
     responsableNombre: s(tarea.data.asignado_nombre || tarea.data.assignedToName),
     responsableId: s(tarea.data.asignado_uid || tarea.data.assignedTo)};
 }
 
-async function leerFuente(input: DatosPlan, a: Actor) {
+async function leerFuente(input: DatosPlan, a: Actor, limite = 5 * 1024 * 1024) {
   const item = (await db().collection(ITEMS_COL).doc(id(input.itemId)).get()).data(); empresa(item, a);
   const fuente = await fuentesTarea(input, a, true);
   const ev = fuente.archivos.find((v: DatosPlan) => input.fuenteKey ? v.key === input.fuenteKey : v.path === input.path);
@@ -412,7 +556,7 @@ async function leerFuente(input: DatosPlan, a: Actor) {
     if (!/^tareas\/\d{4}\/\d{1,2}\/\d{1,2}\/[^/]+$/.test(ev.path) ||
         !token || !tokens.includes(token)) err("Este soporte histórico necesita adjuntarse de nuevo.");
   }
-  if (Number(meta.size) > 5 * 1024 * 1024) err("El soporte supera 5 MB. Prepara una versión más liviana.");
+  if (Number(meta.size) > limite) err(limite > 5 * 1024 * 1024 ? "El archivo supera 40 MB. Divide el documento antes de optimizarlo." : "El soporte supera 5 MB. Usa Reducir a 5 MB y adjunta la copia optimizada.");
   const [bytes] = await file.download();
   return {ev, bytes};
 }
@@ -424,8 +568,13 @@ async function usarFuente(input: DatosPlan, a: Actor) {
 }
 
 async function verFuente(input: DatosPlan, a: Actor) {
-  const {ev, bytes} = await leerFuente(input, a);
-  return {nombre: ev.name, base64: bytes.toString("base64")};
+  const {ev, bytes} = await leerFuente(input, a, 40 * 1024 * 1024);
+  const chunk = 3 * 1024 * 1024;
+  const parte = Number(input.parte || 0);
+  const partes = Math.max(1, Math.ceil(bytes.length / chunk));
+  if (!Number.isInteger(parte) || parte < 0 || parte >= partes) err("Parte inválida.");
+  return {nombre: ev.name, tamano: bytes.length, partes, sha256: createHash("sha256").update(bytes).digest("hex"),
+    base64: bytes.subarray(parte * chunk, (parte + 1) * chunk).toString("base64")};
 }
 
 async function retirarSoporte(input: DatosPlan, a: Actor) {
@@ -490,6 +639,8 @@ async function leerEvidencia(ev: DatosPlan): Promise<Buffer> {
 async function exportar(input: DatosPlan, a: Actor) {
   calidad(a);
   const detail = await consultarPlanes({...input, accion: "detalle"}, a);
+  const company = (await db().collection("TBL_EMPRESAS").doc(a.empresaId).get()).data();
+  const companyName = s(company?.nombre || company?.razonSocial) || a.empresaId;
   const items = (detail.items as DatosPlan[]).filter((i) => !input.itemId || i.id === input.itemId);
   if (!items.length || items.some((i) => !etapaAprobada(i, "respuesta") || !etapaAprobada(i, "soportes"))) err("Todos los hallazgos seleccionados deben tener compromiso y soportes satisfactorios.");
   const zip = new JSZip(); let total = 0;
@@ -500,11 +651,13 @@ async function exportar(input: DatosPlan, a: Actor) {
         !etapaAprobada(original, "respuesta") || !etapaAprobada(original, "soportes")) err("La entrega cambió. Actualiza antes de exportar.");
     const pdf = await PDFDocument.create(); const font = await pdf.embedFont(StandardFonts.Helvetica);
     let page = pdf.addPage(); let y = page.getHeight() - 45;
-    const text = `${detail.plan.numero} · ${detail.plan.csc}\nNotificación: ${detail.plan.fechaNotificacion}\n` +
+    const text = `PLAN DE MEJORA · ${companyName}\n${detail.plan.numero} · ${detail.plan.csc}\nNotificación: ${detail.plan.fechaNotificacion}\n` +
       `${item.establecimiento} · Acta ${item.idVisitaK2} · Hallazgo ${item.numeral}\n` +
+      `Responsable: ${item.responsableNombre || ""}\nAprueba tarea: ${item.aprobadorNombre || ""}\n` +
       `Hallazgo: ${item.descripcion}\nCompromiso: ${item.compromiso || ""}\n` +
       `Ejecución: ${item.fechaEjecucion || ""} · Seguimiento: ${item.fechaSeguimiento || ""}\n` +
-      `Subsanación: ${item.respuestaSoportes || ""}\nRevisión: ${item.soportesRevision.porNombre}\n`;
+      `Subsanación: ${item.respuestaSoportes || ""}\nObservaciones de Calidad: ${item.soportesRevision.motivo || "Sin observaciones"}\n` +
+      `Revisión: ${item.soportesRevision.porNombre}\nArchivos adjuntos: ${(original.evidencias || []).map((e: DatosPlan) => e.nombre).join(", ")}\n`;
     // WinAnsi font: replace unsupported glyphs explicitly; preserve Spanish accents.
     const safe = [...text].map((c) => {
       try {
@@ -586,6 +739,16 @@ export const interventoriaPlanes = functions.region("us-central1").runWith({time
       switch (input.accion) {
         case "listar": case "detalle": case "tarea": case "candidatos": return await consultarPlanes(input, a);
         case "crear": return await crearPlan(input, a);
+        case "seguimiento": return await seguimientoPlan(input, a);
+        case "agenda": return await agendaPlanes(a);
+        case "gestores": {
+          calidad(a);
+          const ids = [...new Set([...await gestores(a), a.id])];
+          return {gestores: await Promise.all(ids.map(async (uid) => {
+            const u = (await db().collection("TBL_USUARIOS").doc(uid).get()).data() || {};
+            return {id: uid, nombre: s(u.nombreCompleto || u.nombre || `${u.nombres || ""} ${u.apellidos || ""}`) || uid};
+          }))};
+        }
         case "vincular": return await vincularHallazgos(input, a);
         case "responder": case "soportes": case "revisar": case "presentar": case "reabrir": return await cambiarItem(input, a);
         case "adjuntar": return await adjuntar({itemId: input.itemId, nombre: input.nombre, base64: input.base64}, a);
@@ -616,7 +779,7 @@ export const interventoriaPlanesAvisos = functions.region("us-central1").pubsub
     for (const p of planes.docs) {
       const plan = p.data();
       const a: Actor = {id: "sistema", nombre: "Interventoría", empresaId: plan.empresaId, calidad: true, opera: true};
-      const calidadIds = await gestores(a);
+      const calidadIds = await destinatariosPlan(a, plan);
       const expiradas = await p.ref.collection("exportaciones").where("expiraAt", "<", admin.firestore.Timestamp.now()).limit(100).get();
       for (const e of expiradas.docs) {
         for (const parte of e.data().partes || []) {
@@ -627,6 +790,21 @@ export const interventoriaPlanesAvisos = functions.region("us-central1").pubsub
         await e.ref.delete();
       }
       const items = await db().collection(ITEMS_COL).where("planId", "==", p.id).get();
+      if (items.empty) {
+        for (const etapa of ["respuesta", "soportes"]) {
+          const limite = etapa === "respuesta" ? plan.limiteRespuesta : plan.limiteSoportes;
+          if (diasRestantesPlan(limite, hoy) > 3) continue;
+          for (const uid of calidadIds) {
+            const key = `plan-vacio:${p.id}:${etapa}:${hoy}:${uid}`;
+            const ref = db().collection("TBL_NOTIFICACIONES").doc(uid).collection("notifications").doc(hash(key));
+            await db().runTransaction(async (tx) => {
+              if ((await tx.get(ref)).exists) return;
+              notice(tx, uid, key, a, `${plan.numero}: ${etapa} pendiente`,
+                `Fecha máxima ${limite}. El plan aún no tiene hallazgos vinculados.`, {planId: p.id});
+            });
+          }
+        }
+      }
       for (const doc of items.docs) {
         const item = doc.data(); if (item.empresaId !== plan.empresaId) continue;
         const tarea = (await db().collection("TBL_TAREAS").doc(id(item.tareaId)).get()).data();

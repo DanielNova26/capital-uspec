@@ -1,6 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ROLES_GESTORES_PLANES = exports.ROL_CALIDAD_PLANES = exports.APP_PLANES = exports.ITEMS_COL = exports.PLANES_COL = void 0;
+exports.ESTADOS_PLAN = exports.ROLES_GESTORES_PLANES = exports.ROL_CALIDAD_PLANES = exports.APP_PLANES = exports.ITEMS_COL = exports.PLANES_COL = void 0;
+exports.grupoCentroPlan = grupoCentroPlan;
+exports.tareaAprobadaParaPlan = tareaAprobadaParaPlan;
 exports.diaValido = diaValido;
 exports.sumarDiasPlan = sumarDiasPlan;
 exports.hoyColombia = hoyColombia;
@@ -15,6 +17,25 @@ exports.ITEMS_COL = "TBL_INTERVENTORIA_PLAN_ITEMS";
 exports.APP_PLANES = "interventoriadashboard";
 exports.ROL_CALIDAD_PLANES = "calidad_interventoria";
 exports.ROLES_GESTORES_PLANES = [exports.ROL_CALIDAD_PLANES, "gerente_interventoria"];
+exports.ESTADOS_PLAN = ["recibido", "en_gestion", "enviado", "mesa_descuentos"];
+// Same source/normalization as grupoCentroCostoDesdeData in Flutter.
+function grupoCentroPlan(data) {
+    for (const key of ["grupo", "grupoId", "grupoNombre", "grupoContrato", "lote"]) {
+        const value = String(data[key] || "").trim();
+        if (!value)
+            continue;
+        const compact = value.toUpperCase().replace(/[\s_-]+/g, "");
+        const match = /^(?:G|GRUPO)?0?([19])$/.exec(compact);
+        return match ? `G${match[1]}` : value;
+    }
+    const match = /(?:^|[^A-Z0-9])G(?:RUPO)?[\s_-]*0?([19])(?:$|[^0-9])/i.exec(String(data.codigo || ""));
+    return match ? `G${match[1]}` : "";
+}
+function tareaAprobadaParaPlan(t) {
+    return t.estado === "finalizado" &&
+        !["pendiente", "rechazado"].includes(t.solicitud_finalizacion_estado) &&
+        t.reasignacion_estado !== "pendiente";
+}
 function diaValido(value) {
     const s = typeof value === "string" ? value : "";
     if (!/^\d{4}-\d{2}-\d{2}$/.test(s))

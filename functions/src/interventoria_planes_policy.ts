@@ -5,6 +5,26 @@ export const ITEMS_COL = "TBL_INTERVENTORIA_PLAN_ITEMS";
 export const APP_PLANES = "interventoriadashboard";
 export const ROL_CALIDAD_PLANES = "calidad_interventoria";
 export const ROLES_GESTORES_PLANES = [ROL_CALIDAD_PLANES, "gerente_interventoria"];
+export const ESTADOS_PLAN = ["recibido", "en_gestion", "enviado", "mesa_descuentos"];
+
+// Same source/normalization as grupoCentroCostoDesdeData in Flutter.
+export function grupoCentroPlan(data: DatosPlan): string {
+  for (const key of ["grupo", "grupoId", "grupoNombre", "grupoContrato", "lote"]) {
+    const value = String(data[key] || "").trim();
+    if (!value) continue;
+    const compact = value.toUpperCase().replace(/[\s_-]+/g, "");
+    const match = /^(?:G|GRUPO)?0?([19])$/.exec(compact);
+    return match ? `G${match[1]}` : value;
+  }
+  const match = /(?:^|[^A-Z0-9])G(?:RUPO)?[\s_-]*0?([19])(?:$|[^0-9])/i.exec(String(data.codigo || ""));
+  return match ? `G${match[1]}` : "";
+}
+
+export function tareaAprobadaParaPlan(t: DatosPlan): boolean {
+  return t.estado === "finalizado" &&
+    !["pendiente", "rechazado"].includes(t.solicitud_finalizacion_estado) &&
+    t.reasignacion_estado !== "pendiente";
+}
 
 export function diaValido(value: unknown): string {
   const s = typeof value === "string" ? value : "";

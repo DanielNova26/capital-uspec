@@ -886,12 +886,16 @@ class _NotificationList extends StatelessWidget {
                                     }
 
                                     if (type == 'interventoria_plan_mejora') {
-                                      final opened =
-                                          await abrirPlanesDesdeAviso(
-                                            context,
-                                            empresaId: notifEmpresaId,
-                                            tareaId: taskId ?? '',
-                                          );
+                                      final opened = await abrirPlanesDesdeAviso(
+                                        context,
+                                        empresaId: notifEmpresaId,
+                                        tareaId: taskId ?? '',
+                                        planId:
+                                            (data['planId'] ??
+                                                    data['sourceEntityId'] ??
+                                                    '')
+                                                .toString(),
+                                      );
                                       if (opened && !isRead) {
                                         try {
                                           await doc.reference.update({
