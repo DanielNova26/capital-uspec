@@ -25,7 +25,7 @@ function grupoCentroPlan(data) {
         if (!value)
             continue;
         const compact = value.toUpperCase().replace(/[\s_-]+/g, "");
-        const match = /^(?:G|GRUPO)?0?([19])$/.exec(compact);
+        const match = /^(?:G|GRUPO)?0*(\d+)$/.exec(compact);
         return match ? `G${match[1]}` : value;
     }
     const match = /(?:^|[^A-Z0-9])G(?:RUPO)?[\s_-]*0?([19])(?:$|[^0-9])/i.exec(String(data.codigo || ""));

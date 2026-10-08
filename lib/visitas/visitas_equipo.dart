@@ -61,7 +61,6 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
   String? _error;
   String _areaJefe = '';
   List<VisitaPersona> _equipo = const [];
-  Map<String, String> _areasMapa = const {};
   AreaCatalogo _areas = const AreaCatalogo.vacio();
   List<VisitaCentro> _centros = const [];
 
@@ -97,7 +96,6 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
       if (!mounted) return;
       setState(() {
         _areaJefe = areaJefe;
-        _areasMapa = areas;
         _areas = AreaCatalogo.desde(
           areas.entries.map((e) => (id: e.key, nombre: e.value)),
         );
@@ -654,7 +652,7 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
       ],
     );
   }
-
+}
 
 class _RolChip extends StatelessWidget {
   final String rol;

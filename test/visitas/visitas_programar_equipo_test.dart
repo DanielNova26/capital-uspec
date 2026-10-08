@@ -341,10 +341,67 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Guardar'));
     await tester.pumpAndSettle();
-    expect(svc.grupos, hasLength(1));
+    // El diálogo devuelve la selección; Admin realiza la escritura después.
+    expect(svc.grupos, isEmpty);
     expect(guardado?.centroIds, ['choconta', 'ipiales|sanidad']);
     expect(tester.takeException(), isNull);
   });
+
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    for (final width in [390.0, 768.0, 1024.0, 1366.0]) {
+      testWidgets('Grupo adaptable a $width en $platform con texto ampliado', (
+        tester,
+      ) async {
+        await tamano(tester, Size(width, 844));
+        VisitaGrupo? resultado;
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: ThemeData(platform: platform),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: const TextScaler.linear(1.6)),
+              child: child!,
+            ),
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: FilledButton(
+                  onPressed: () async =>
+                      resultado = await showDialog<VisitaGrupo>(
+                        context: context,
+                        builder: (_) => GrupoTrabajoDialog(
+                          svc: _SvcFalso(),
+                          grupo: const VisitaGrupo(
+                            empresaId: 'e',
+                            nombre: 'Grupo 6',
+                          ),
+                          equipo: const [],
+                        ),
+                      ),
+                  child: const Text('abrir'),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('abrir'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        if (width == 390) {
+          tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+          addTearDown(tester.view.resetViewInsets);
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull);
+        }
+        final guardar = find.widgetWithText(FilledButton, 'Guardar');
+        await tester.ensureVisible(guardar);
+        await tester.tap(guardar);
+        await tester.pumpAndSettle();
+        expect(resultado?.nombre, 'Grupo 6');
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
 
   testWidgets('Agregar visitas en el teléfono: subcentro y aviso caben', (
     tester,

@@ -13,7 +13,6 @@ import '../widgets/user_avatar.dart';
 import 'visitas_models.dart';
 import 'visitas_service.dart';
 
-const String _kFont = 'Arial';
 const Color _kColor = Color(0xFF7C3AED);
 const Color _kRojo = Color(0xFFDC2626);
 
@@ -27,6 +26,7 @@ class GrupoTrabajoDialog extends StatefulWidget {
   final List<VisitaGrupo> otrosGrupos;
 
   const GrupoTrabajoDialog({
+    super.key,
     required this.svc,
     required this.grupo,
     required this.equipo,
@@ -171,7 +171,10 @@ class GrupoTrabajoDialogState extends State<GrupoTrabajoDialog> {
           subtitle: _enOtroGrupo(c.id) != null && !entero
               ? Text(
                   'Hoy en ${_enOtroGrupo(c.id)}: pasa a este grupo al guardar',
-                  style: const TextStyle(fontSize: 11, color: Color(0xFFB45309)),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFFB45309),
+                  ),
                 )
               : subs.isEmpty
               ? (c.propio
@@ -373,4 +376,3 @@ class GrupoTrabajoDialogState extends State<GrupoTrabajoDialog> {
     );
   }
 }
-

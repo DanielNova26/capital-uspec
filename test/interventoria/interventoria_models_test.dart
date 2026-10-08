@@ -328,7 +328,10 @@ void main() {
   group('calcularPorcentajeGeneral', () {
     test('ignora categorias no evaluadas', () {
       final items = defaultInterventoriaItems();
-      final keys = kInterventoriaCategorias.map((c) => c.key).toList();
+      final keys = kInterventoriaCategorias
+          .where((c) => !kSeccionesFueraDelTotal.contains(c.key))
+          .map((c) => c.key)
+          .toList();
 
       items[keys[0]] = items[keys[0]]!.copyWith(valor: 100);
       items[keys[1]] = items[keys[1]]!.copyWith(valor: 80);

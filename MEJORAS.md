@@ -6,6 +6,44 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## 2026-10-08 — Recompilación de los últimos cambios de Claude (Codex)
+
+- Integrados los seis commits pendientes de `claude/elegant-goldberg-axhzwp`,
+  hasta `008636c`, mediante merge `3bf4e64`. Incluyen grupos de empresa en
+  Admin, cobertura multigrupo desde Talento Humano y ajustes de cierre del acta.
+- Los conflictos estaban en JavaScript generado: se resolvieron compilando
+  el TypeScript combinado. Corregida una llave faltante en `visitas_equipo.dart`
+  que impedía compilar la aplicación. Retiradas dos declaraciones sin uso.
+- Planes de mejora normaliza también G6/G7 y otros números del catálogo con
+  la misma regla de Flutter. No cambia la fuente del filtro de planes; el
+  filtro de grupos de trabajo en la pantalla general de Interventoría sigue
+  pendiente, como dejó documentado Claude.
+- Actualizadas pruebas anteriores al comportamiento nuevo: concepto sanitario
+  excluido del promedio, diálogo que devuelve datos para guardar desde Admin,
+  catálogo de grupos consultable por miembros de su empresa. Agregada prueba
+  de creación/edición de grupos sin departamento por Admin, denegación entre
+  empresas y revocación de la app; añadidas comprobaciones del diálogo en
+  390/768/1024/1366, texto 1,6× y teclado simulado con temas Android/iOS.
+- La incorporación compila y valida los cambios recibidos; no ejecuta
+  migraciones, reordena grupos reales ni reasigna personas de producción.
+  Pendiente la prueba autenticada de los nuevos flujos y en dispositivos
+  Android/iPhone físicos. Las restricciones de cierre en UI/servicio y la
+  consolidación/copia controlada de grupos conservan los límites documentados
+  en las entradas de Claude; no se declaran cerrados por una compilación.
+- Validación final: 1.617 pruebas Flutter, 184 Node y 41 de integración de
+  reglas/servicios aprobadas, sin omitidas. TypeScript y Web 2.6.21+35
+  compilados manualmente. Análisis Dart sin errores; advertencias previas de
+  código sin uso en el organigrama y recomendaciones de estilo registradas.
+- Publicados Hosting y los cuatro servicios implicados, incluido el nuevo
+  `visitasCoordinadoresAlCambiarPersona`. `version.json` público confirma
+  2.6.21+35; el SHA-256 de `main.dart.js` coincide con el compilado local.
+- Reglas: unificada la comprobación de pertenencia y administración del
+  grupo para evitar evaluarla dos veces; mismos permisos, verificados en
+  emulador. El dry-run de Google compiló, pero los intentos de publicación
+  siguen recibiendo HTTP 503. Mientras no se confirme la publicación, Admin
+  sin privilegio de Desarrollo/Gerencia puede seguir sin guardar grupos y
+  otros módulos sin rol de Visitas pueden no consultar el catálogo nuevo.
+
 ## 2026-10-08 — Integración de elegant-goldberg en main (Codex)
 
 - Integrada por petición expresa `claude/elegant-goldberg-axhzwp`

@@ -2,6 +2,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const p = require('../lib/interventoria_planes_policy');
 
+test('planes normaliza los grupos contractuales igual que la interfaz', () => {
+  for (const [entrada, esperado] of [['Grupo 6', 'G6'], ['g-07', 'G7'], ['012', 'G12'], ['Grupo 01', 'G1']]) {
+    assert.equal(p.grupoCentroPlan({grupo: entrada}), esperado);
+  }
+});
+
 test('plazos calendario comunes desde notificación, sin mover fines de semana', () => {
   assert.deepEqual(p.fechasPlan({fechaNotificacion: '2026-10-05'}), {
     fechaNotificacion: '2026-10-05', limiteRespuesta: '2026-10-10', limiteSoportes: '2026-10-25',

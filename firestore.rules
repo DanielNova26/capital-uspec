@@ -950,22 +950,20 @@ service cloud.firestore {
     // consumen Visitas e Interventoría, así que los lee cualquiera de la
     // empresa: solo contienen ids de personas y de establecimientos.
     match /TBL_VISITAS_GRUPOS/{docId} {
+      function administraGrupo(empresaId, areaId) {
+        return belongsToCompany(empresaId)
+          && (tieneAppAdminEn(empresaId) || administraVisitasAreaEn(empresaId, areaId));
+      }
       allow get: if resource == null
         || belongsToCompany(resource.data.empresaId);
       allow list: if belongsToCompany(resource.data.empresaId);
-      allow create: if administraVisitasArea(request.resource.data.empresaId,
-          request.resource.data.get('areaId', ''))
-        || (belongsToCompany(request.resource.data.empresaId)
-          && tieneAppAdminEn(request.resource.data.empresaId));
+      allow create: if administraGrupo(request.resource.data.empresaId,
+          request.resource.data.get('areaId', ''));
       allow update: if empresaSeConserva()
         && resource.data.get('areaId', '') == request.resource.data.get('areaId', '')
-        && (administraVisitasArea(resource.data.empresaId, resource.data.get('areaId', ''))
-          || (belongsToCompany(resource.data.empresaId)
-            && tieneAppAdminEn(resource.data.empresaId)));
-      allow delete: if administraVisitasArea(resource.data.empresaId,
-          resource.data.get('areaId', ''))
-        || (belongsToCompany(resource.data.empresaId)
-          && tieneAppAdminEn(resource.data.empresaId));
+        && administraGrupo(resource.data.empresaId, resource.data.get('areaId', ''));
+      allow delete: if administraGrupo(resource.data.empresaId,
+          resource.data.get('areaId', ''));
     }
 
     match /TBL_VISITAS_FORMATOS/{docId} {

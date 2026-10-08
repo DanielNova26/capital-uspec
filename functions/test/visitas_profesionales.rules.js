@@ -217,7 +217,8 @@ test("grupos: los arma el jefe de su área", async () => {
     profesionalIds: [],
   }));
   await assertSucceeds(getDoc(doc(auth("prof"), "TBL_VISITAS_GRUPOS/G1")));
-  await assertFails(getDoc(doc(auth("otro"), "TBL_VISITAS_GRUPOS/G1")));
+  // El catálogo ahora lo consume toda la empresa, también fuera de Visitas.
+  await assertSucceeds(getDoc(doc(auth("otro"), "TBL_VISITAS_GRUPOS/G1")));
 });
 
 test("roles: se acepta firmante y el jefe solo da Profesional", async () => {
