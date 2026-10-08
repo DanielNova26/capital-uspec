@@ -1655,6 +1655,8 @@ class InterventoriaService {
         'tiempoComida': visita.tiempoComida,
         'porcentajeGeneral': visita.porcentajeGeneral,
         'totalCondicionesServicio': visita.porcentajeGeneral,
+        'porcentajeFinal': visita.porcentajeFinal,
+        'porcentajeFinalMotivo': visita.porcentajeFinalMotivo,
         'idVisitaK2': visita.idVisitaK2,
         'itemsEvaluacion': visita.items.map(
           (key, value) => MapEntry(key, value.toMap()),
@@ -3169,6 +3171,25 @@ class InterventoriaService {
       list.sort((a, b) => b.fecha.compareTo(a.fecha));
       return list;
     });
+  }
+
+  /// Último concepto sanitario del establecimiento (el que rige hoy), o null.
+  /// El acta lo trae solo hasta que se cargue uno nuevo.
+  Future<InterventoriaConceptoSanitario?> conceptoSanitarioVigente(
+    String empresaId,
+    String centroId,
+  ) async {
+    final snap = await _db
+        .collection(kColeccionConceptosSanitarios)
+        .where('empresaId', isEqualTo: empresaId)
+        .where('centroCostoId', isEqualTo: centroId)
+        .get();
+    InterventoriaConceptoSanitario? vigente;
+    for (final d in snap.docs) {
+      final c = InterventoriaConceptoSanitario.fromMap(d.id, d.data());
+      if (vigente == null || c.fecha.isAfter(vigente.fecha)) vigente = c;
+    }
+    return vigente;
   }
 
   /// Crea o actualiza un concepto sanitario. Si trae [archivo], lo sube

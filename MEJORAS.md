@@ -10252,3 +10252,29 @@ cualquier número (`claveGrupoTrabajo`).
 - Grupos antiguos con `profesionalIds` siguen valiendo (se suman).
 - Desplegar además `functions:visitasCoordinadoresAlCambiarPersona`.
 - Sin verificar (sin Flutter/Node): compilación y tests; TH en Web/móvil.
+
+## Interventoría: concepto sanitario automático, % final y cierre del acta (8 oct 2026)
+- **Secretaría de Salud**: al elegir el establecimiento en un acta nueva, el
+  ítem `conceptoSanitario` (puntaje, fecha y concepto) se llena con el último
+  concepto cargado en la sección "Concepto sanitario"
+  (`conceptoSanitarioVigente` / `itemConConceptoVigente`) y rige hasta que se
+  suba uno nuevo. Una acta ya guardada conserva el suyo.
+- **No suma al total**: `calcularPorcentajeGeneral` excluye
+  `kSeccionesFueraDelTotal` ({conceptoSanitario}). Las actas ya guardadas
+  conservan su `porcentajeGeneral` hasta que se vuelvan a guardar o completar;
+  no se recalculó nada histórico.
+- **Porcentaje final**: campos `porcentajeFinal` y `porcentajeFinalMotivo` en
+  la visita (opcional; con motivo obligatorio de 10+ caracteres).
+  `porcentajeOficial` = final si existe, si no el calculado; el comparativo
+  por establecimiento usa el oficial. Otras pantallas siguen con el calculado.
+- **Cierre del registro** (`validarCierreRegistroActa`): número de acta y PDF
+  cargado en ese momento son obligatorios al registrar y al corregir un acta
+  devuelta (antes la corrección pasaba conservando el PDF anterior).
+  La regla es de la UI; el servicio solo exige que haya un PDF.
+- **Pendiente**: filtro por grupos en Interventoría (hoy el filtro es por
+  establecimiento); habría que ofrecer los grupos de Admin › Grupos de trabajo
+  y convertirlos a la lista de centros.
+- Asignación con subcentro: el responsable se sigue resolviendo por el
+  establecimiento (y ahora por su grupo); no se exige elegir persona.
+- Sin verificar (sin Flutter/Node): compilación y
+  `test/interventoria/interventoria_cierre_acta_test.dart`.
