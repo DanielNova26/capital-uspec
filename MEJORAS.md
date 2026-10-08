@@ -37,7 +37,10 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
   (11 recomendaciones de estilo); TypeScript y lint sin errores.
   Publicados los cuatro servicios: interventoriaPlanes,
   interventoriaPlanesAvisos, visitasCoordinadoresAlCrear y
-  visitasCoordinadoresAlCambiarGrupo. Publicación de Hosting en curso.
+  visitasCoordinadoresAlCambiarGrupo. Hosting publicado en
+  https://to-do-gestion.web.app: version.json confirma 2.6.20+34 y el SHA-256
+  del JavaScript público coincide con la compilación local. `main` subido a
+  GitHub con el merge solicitado y todas las correcciones de integración.
 
 ## 2026-10-08 — Planes de mejora: calendario, seguimiento y preparación para K2 (Codex)
 
