@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 
 import '../core/area_directory.dart';
 import '../core/festivos_colombia.dart';
+import '../core/grupos_trabajo.dart';
 import '../core/task_origen.dart';
 import '../services/org_service.dart';
 import '../services/task_service.dart';
@@ -2769,6 +2770,20 @@ class InterventoriaService {
       // Las asignaciones explícitas por centro siguen funcionando.
     }
 
+    // Grupos de trabajo (Admin › Grupos de trabajo): quien figura en un grupo
+    // cubre los establecimientos de ese grupo. Es la prioridad al asignar:
+    // primero quien trabaja en el grupo donde está el establecimiento.
+    var gruposTrabajo = const <Map<String, dynamic>>[];
+    try {
+      final gruposSnap = await _db
+          .collection('TBL_VISITAS_GRUPOS')
+          .where('empresaId', isEqualTo: empresaId)
+          .get();
+      gruposTrabajo = [for (final d in gruposSnap.docs) d.data()];
+    } catch (_) {
+      // Sin permiso o sin red se sigue con la cobertura de cada persona.
+    }
+
     Set<String> stringSet(Object? raw) {
       if (raw is! Iterable || raw is String) return <String>{};
       return raw
@@ -2876,6 +2891,16 @@ class InterventoriaService {
       ).map(normalizarGrupoCentroCosto).where((g) => g.isNotEmpty).toSet();
       for (final grupo in grupos) {
         centrosAsignados.addAll(centrosPorGrupo[grupo] ?? const <String>{});
+      }
+      final porGrupoTrabajo = centrosDeGruposParaPersona(gruposTrabajo, doc.id);
+      if (porGrupoTrabajo.isNotEmpty) {
+        // Con cobertura operativa el centro de costos deja de valer como
+        // respaldo (`cubreCentro`); se conserva para que entrar a un grupo no
+        // le quite el establecimiento donde ya trabajaba.
+        if (centrosAsignados.isEmpty && centroId.isNotEmpty) {
+          centrosAsignados.add(centroId);
+        }
+        centrosAsignados.addAll(porGrupoTrabajo);
       }
       var areaId = (scoped?['areaId'] ?? raiz['areaId'] ?? '')
           .toString()

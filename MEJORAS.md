@@ -10180,3 +10180,27 @@ Beneficiarios de pago (`pp_beneficiarios_plantilla.dart`): hoja CUENTAS con
 desplegables (Tipo Id, Forma Pago, Banco con código ACH, Tipo Cuenta),
 columnas de texto y hoja de instrucciones. El importador acepta "0013 - BBVA".
 Pendiente: modelo del Excel de "Generar desde Excel".
+
+### Grupos de trabajo en Admin (8 oct 2026, corrige lo anterior)
+Los grupos ya **no se arman en Visitas**: se arman en **Admin › Multiempresa/
+Catálogos › Grupos de trabajo** (`lib/admin/grupos_trabajo_panel.dart`), junto
+a los demás maestros por empresa. Cada grupo: departamento, establecimientos
+(centros y subcentros, incluidos los propios de Visitas), profesionales y
+coordinadores. Misma colección `TBL_VISITAS_GRUPOS`, sin duplicar fuentes.
+- Visitas › Equipo › Grupos queda de **solo consulta**.
+- Interventoría: `_leerUsuariosDeEmpresa` suma a la cobertura de cada persona
+  los establecimientos de los grupos donde figura (profesional o coordinador)
+  (`lib/core/grupos_trabajo.dart`). Como `resolverCargoUnico` ya prioriza al
+  que cubre el establecimiento, gana quien trabaja en el grupo de ese
+  establecimiento. Entrar a un grupo conserva el centro de costos propio.
+- Reglas: `TBL_VISITAS_GRUPOS` lo lee todo miembro de la empresa y lo escribe
+  Admin de la empresa, jefe del área o Gerencia/Desarrollo.
+- Un grupo tiene un solo departamento (las reglas lo exigen). Si se necesitan
+  varios departamentos por grupo, hay que cambiar el modelo y las reglas.
+- El diálogo solo ofrece como profesionales a quienes tienen rol Profesional
+  en Visitas; personal de Interventoría sin ese rol no se puede incluir aún.
+- No se copia entre empresas (ids de personas y centros distintos por
+  empresa): por eso no está en `kModulosMaestros`.
+- Sin verificar (sin Flutter/Node): compilación, tests (`grupos_trabajo_test`,
+  `visitas_programar_equipo_test`, `admin_internal_workspace_test`), reglas.
+  Web ancho/estrecho, Android e iOS sin probar.
