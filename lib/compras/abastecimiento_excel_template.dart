@@ -380,7 +380,7 @@ Uint8List construirPlantillaAbastecimiento({
         mensaje: 'Escriba una fecha válida en formato día/mes/año.',
       ),
   ];
-  return _agregarDesplegables(
+  return agregarDesplegablesXlsx(
     Uint8List.fromList(encoded),
     hojaModelo: 'Abastecimiento',
     hojaListas: kHojaListasAbastecimiento,
@@ -455,13 +455,15 @@ String _xml(String value) => value
     .replaceAll('"', '&quot;');
 
 /// El paquete excel no escribe validaciones de datos ni hojas ocultas: se
-/// agregan al XML del libro ya generado. Solo se tocan workbook.xml (para
+/// agregan al XML del libro ya generado. Lo comparten los modelos de carga de
+/// Excel de otros módulos (p. ej. Planillas de pago). Solo se tocan workbook.xml (para
 /// ocultar la hoja de listas) y el XML de la hoja del modelo.
-Uint8List _agregarDesplegables(
+Uint8List agregarDesplegablesXlsx(
   Uint8List bytes, {
   required String hojaModelo,
   required String hojaListas,
   required List<String> validaciones,
+  String modelo = 'Abastecimiento',
 }) {
   final archive = ZipDecoder().decodeBytes(bytes);
   String? leer(String name) {
@@ -472,7 +474,7 @@ Uint8List _agregarDesplegables(
   final workbook = leer('xl/workbook.xml');
   final rels = leer('xl/_rels/workbook.xml.rels');
   if (workbook == null || rels == null) {
-    throw StateError('No fue posible generar el modelo de Abastecimiento.');
+    throw StateError('No fue posible generar el modelo de $modelo.');
   }
 
   String? rutaHoja(String nombre) {
@@ -496,7 +498,7 @@ Uint8List _agregarDesplegables(
   final modelPath = rutaHoja(hojaModelo);
   final modelXml = modelPath == null ? null : leer(modelPath);
   if (modelPath == null || modelXml == null) {
-    throw StateError('No fue posible generar el modelo de Abastecimiento.');
+    throw StateError('No fue posible generar el modelo de $modelo.');
   }
 
   // Orden del esquema: dataValidations va después de sheetData, mergeCells y
@@ -561,7 +563,7 @@ Uint8List _agregarDesplegables(
   }
   final output = ZipEncoder().encode(rebuilt);
   if (output == null) {
-    throw StateError('No fue posible generar el modelo de Abastecimiento.');
+    throw StateError('No fue posible generar el modelo de $modelo.');
   }
   return Uint8List.fromList(output);
 }

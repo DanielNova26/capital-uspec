@@ -265,7 +265,7 @@ service cloud.firestore {
     function participaEnVisitas(empresaId) {
       return belongsToCompany(empresaId)
         && (rolVisitasEn(empresaId,
-            ['jefe', 'gerencia', 'profesional', 'consulta', 'firmante'])
+            ['jefe', 'gerencia', 'profesional', 'consulta', 'firmante', 'coordinador'])
           || isDeveloper() || isDeveloperIn(empresaId)
           || esGerenciaPorFicha(empresaId));
     }
@@ -896,7 +896,7 @@ service cloud.firestore {
           || tieneAppAdminEn(resource.data.empresaId));
       allow create: if belongsToCompany(request.resource.data.empresaId)
         && docId == request.resource.data.empresaId + '_' + request.resource.data.userId
-        && request.resource.data.rol in ['', 'jefe', 'profesional', 'consulta', 'firmante', 'gerencia']
+        && request.resource.data.rol in ['', 'jefe', 'profesional', 'consulta', 'firmante', 'coordinador', 'gerencia']
         && request.resource.data.areaId is string
         && (isDeveloper() || isDeveloperIn(request.resource.data.empresaId)
           || (request.resource.data.rol != 'gerencia'
@@ -910,7 +910,7 @@ service cloud.firestore {
       allow update: if empresaSeConserva()
         && resource.data.userId == request.resource.data.userId
         && belongsToCompany(resource.data.empresaId)
-        && request.resource.data.rol in ['', 'jefe', 'profesional', 'consulta', 'firmante', 'gerencia']
+        && request.resource.data.rol in ['', 'jefe', 'profesional', 'consulta', 'firmante', 'coordinador', 'gerencia']
         && request.resource.data.areaId is string
         && (isDeveloper() || isDeveloperIn(resource.data.empresaId)
           || (resource.data.rol != 'gerencia'
@@ -994,11 +994,13 @@ service cloud.firestore {
         || esVisitaPropiaDelProfesional()
         || (belongsToCompany(resource.data.empresaId)
           && (esFirmanteDeVisita()
+            || esCoordinadorDeVisita()
             || administraVisitasAreaEn(resource.data.empresaId, resource.data.areaId)
             || rolVisitasEn(resource.data.empresaId, ['consulta'])));
       allow list: if esVisitaPropiaDelProfesional()
         || (belongsToCompany(resource.data.empresaId)
           && (esFirmanteDeVisita()
+            || esCoordinadorDeVisita()
             || administraVisitasAreaEn(resource.data.empresaId, resource.data.areaId)
             || rolVisitasEn(resource.data.empresaId, ['consulta'])));
       // `numero` es el consecutivo por empresa que asigna el servidor
@@ -1093,6 +1095,15 @@ service cloud.firestore {
               .hasOnly(['firmaEstablecimiento', 'updatedAt']))
         );
       allow delete: if false;
+    }
+
+    // Coordinador (8 oct 2026): lee solo las visitas que lo nombran en
+    // `coordinadorIds`, campo que escribe el servidor desde los grupos
+    // (`visitasCoordinadores`). Nunca escribe.
+    function esCoordinadorDeVisita() {
+      return request.auth.token.userDocId
+          in resource.data.get('coordinadorIds', [])
+        && rolVisitasEn(resource.data.empresaId, ['coordinador']);
     }
 
     // La visita es del profesional que la pide y él tiene el rol en la
@@ -1299,7 +1310,7 @@ service cloud.firestore {
     function leeEstablecimientosVisitas(empresaId) {
       return belongsToCompany(empresaId)
         && (rolVisitasEn(empresaId,
-            ['jefe', 'gerencia', 'profesional', 'consulta', 'firmante'])
+            ['jefe', 'gerencia', 'profesional', 'consulta', 'firmante', 'coordinador'])
           || tieneAppAdminEn(empresaId)
           || isDeveloper() || isDeveloperIn(empresaId)
           || esGerenciaPorFicha(empresaId));

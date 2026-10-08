@@ -299,7 +299,9 @@ class _VisitasDashboardScreenState extends State<VisitasDashboardScreen>
             nombreUsuario: widget.nombreUsuario,
           ),
         ),
-      if (visitasPuedeProgramar(rol) || rol == kVisitasRolConsulta)
+      if (visitasPuedeProgramar(rol) ||
+          rol == kVisitasRolConsulta ||
+          rol == kVisitasRolCoordinador)
         _TabDef(
           'Cronograma',
           Icons.calendar_month_outlined,
@@ -501,7 +503,13 @@ class VisitasCronogramaState extends State<VisitasCronograma> {
     }, onError: (_) {});
     // Memoizada: recrear la stream en cada build es lo que dispara el
     // "INTERNAL ASSERTION FAILED" de Firestore en web.
-    _stream = widget.esDesarrollador
+    _stream = widget.rol == kVisitasRolCoordinador
+        // Coordinador: solo las visitas de los grupos que coordina.
+        ? widget.svc.streamVisitas(
+            widget.empresaId,
+            coordinadorId: widget.userId,
+          )
+        : widget.esDesarrollador
         ? widget.svc.streamVisitas(widget.empresaId)
         : widget.svc
               .areaDeUsuario(widget.empresaId, widget.userId)

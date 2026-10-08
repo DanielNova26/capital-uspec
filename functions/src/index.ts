@@ -137,6 +137,10 @@ export {visitasEliminarFormato, visitasEliminarPrueba} from "./visitas_cleanup";
 export {visitasBuscarLugar} from "./visitas_lugares";
 export {visitasAsignarNumero, visitasNumerarHistoricas} from "./visitas_numero";
 export {
+  visitasCoordinadoresAlCrear,
+  visitasCoordinadoresAlCambiarGrupo,
+} from "./visitas_coordinadores";
+export {
   rutasResumenEvidencia,
   rutasGenerarInforme,
   rutasGenerarZip,

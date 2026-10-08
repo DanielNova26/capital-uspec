@@ -1,7 +1,9 @@
 import 'package:file_picker/file_picker.dart';
+import 'package:file_saver/file_saver.dart';
 import 'package:flutter/material.dart';
 
 import '../../widgets/paged_list.dart';
+import 'pp_beneficiarios_plantilla.dart';
 import 'pp_beneficiarios_service.dart';
 import 'pp_archivo_plano.dart';
 import 'pp_cuentas_excel_parser.dart';
@@ -59,6 +61,11 @@ class _PpBeneficiariosScreenState extends State<PpBeneficiariosScreen> {
       appBar: AppBar(
         title: const Text('Beneficiarios de pago'),
         actions: [
+          IconButton(
+            tooltip: 'Descargar modelo de Excel',
+            onPressed: _descargarModelo,
+            icon: const Icon(Icons.download_outlined),
+          ),
           IconButton(
             tooltip: 'Importar desde Excel',
             onPressed: _importando ? null : _importar,
@@ -324,6 +331,22 @@ class _PpBeneficiariosScreenState extends State<PpBeneficiariosScreen> {
       if (mounted) _aviso('Beneficiario guardado.');
     } catch (e) {
       if (mounted) _aviso('No se pudo guardar: $e', error: true);
+    }
+  }
+
+  /// Descarga el modelo de carga con listas desplegables (banco, tipo de
+  /// cuenta, tipo de identificación y forma de pago).
+  Future<void> _descargarModelo() async {
+    try {
+      await FileSaver.instance.saveFile(
+        name: 'modelo_beneficiarios_pago',
+        bytes: construirModeloBeneficiarios(),
+        fileExtension: 'xlsx',
+        mimeType: MimeType.microsoftExcel,
+      );
+      if (mounted) _aviso('Modelo de Excel descargado.');
+    } catch (e) {
+      if (mounted) _aviso('No se pudo descargar el modelo: $e', error: true);
     }
   }
 

@@ -5777,6 +5777,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             return 'Ejecuta las visitas de su área que le programaron.';
           case kVisitasRolConsulta:
             return 'Ve el cronograma y el consolidado sin modificar nada.';
+          case kVisitasRolCoordinador:
+            return 'Ve, solo para consulta, las visitas de los profesionales de los grupos que coordina.';
           case kVisitasRolFirmante:
             return 'Administrador del establecimiento: firma desde su módulo las visitas que le envían.';
           case kVisitasRolGerencia:

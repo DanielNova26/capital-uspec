@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:excel/excel.dart';
 
+import 'pp_beneficiarios_plantilla.dart' show codigoDeDesplegable;
 import 'pp_cuentas_models.dart';
 
 /// Lee la hoja `CUENTAS` del Excel de Tesorería.
@@ -83,17 +84,23 @@ class PpCuentasExcelParser {
           cedula: cedula,
           empresaId: empresaId,
           nombre: valor('nombre'),
-          bancoCodigo: valor('banco'),
+          bancoCodigo: codigoDeDesplegable(valor('banco')),
           numeroCuenta: cuenta,
-          tipoId: valor('tipoId', '1'),
+          tipoId: _sinCeros(codigoDeDesplegable(valor('tipoId', '1'))),
           digitoVerificacion: valor('digitoV', '0'),
-          formaPago: valor('formaPago', '1'),
-          tipoCuenta: valor('tipoCuenta', '2'),
+          formaPago: _sinCeros(codigoDeDesplegable(valor('formaPago', '1'))),
+          tipoCuenta: _sinCeros(codigoDeDesplegable(valor('tipoCuenta', '2'))),
           email: valor('email'),
         ),
       );
     }
     return cuentas;
+  }
+
+  /// "01" → "1": los desplegables traen el código con ceros, el maestro no.
+  String _sinCeros(String v) {
+    final n = int.tryParse(v);
+    return n == null ? v : n.toString();
   }
 
   Sheet? _hoja(Excel excel, String preferida) {
