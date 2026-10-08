@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../core/grupos_trabajo.dart';
 import '../core/subcentros_costo.dart';
 import 'interventoria_actas_catalogo.dart';
 import 'interventoria_numerales_catalogo.dart';
@@ -818,15 +819,7 @@ extension EstablecimientoDeLaVisita on InterventoriaVisita {
 ///
 /// Se aceptan las variantes habituales de la fuente de datos (G1, Grupo 1,
 /// 01, etc.). No se deduce el grupo desde el nombre del establecimiento.
-String normalizarGrupoCentroCosto(Object? raw) {
-  final value = (raw ?? '').toString().trim();
-  if (value.isEmpty) return '';
-  final compact = value.toUpperCase().replaceAll(RegExp(r'[\s_-]+'), '');
-  // Cualquier número de grupo: 6, 06, G6, Grupo 6 → G6 (antes solo G1 y G9).
-  final numero = RegExp(r'^(?:G|GRUPO)?0*(\d+)$').firstMatch(compact);
-  if (numero != null) return 'G${numero.group(1)}';
-  return value;
-}
+String normalizarGrupoCentroCosto(Object? raw) => claveGrupoTrabajo(raw);
 
 /// Lee el grupo real del catálogo. Como compatibilidad, también reconoce G1
 /// o G9 cuando forman parte del código técnico del centro, nunca del nombre.

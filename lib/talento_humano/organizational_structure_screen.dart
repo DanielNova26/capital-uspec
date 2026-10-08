@@ -10,6 +10,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_typeahead/flutter_typeahead.dart';
 import 'package:excel/excel.dart';
 import 'package:file_saver/file_saver.dart';
+import '../core/grupos_trabajo.dart';
 import '../core/hierarchy_order.dart';
 import '../core/multiempresa_sync.dart';
 import '../widgets/internal_module_layout.dart';
@@ -1824,13 +1825,32 @@ class _OrganizationalStructureScreenState
           .map(normalizePersonnelInterventoriaGroup)
           .toSet();
     }
-    final gruposInterventoria =
-        centrosCosto
-            .map((centro) => centro.grupo)
-            .where((grupo) => grupo.isNotEmpty)
-            .toSet()
-            .toList()
-          ..sort();
+    // Los grupos son los de la empresa (Admin › Grupos de trabajo: Grupo 6,
+    // Grupo 7…); se suman los que traigan los centros de costo. Una persona
+    // puede pertenecer a varios.
+    final gruposTrabajo = <String>{
+      for (final centro in centrosCosto)
+        if (centro.grupo.isNotEmpty) centro.grupo,
+    };
+    try {
+      final snapGrupos = await FirebaseFirestore.instance
+          .collection('TBL_VISITAS_GRUPOS')
+          .where('empresaId', isEqualTo: widget.empresaId)
+          .get();
+      for (final d in snapGrupos.docs) {
+        final clave = claveGrupoTrabajo(d.data()['nombre']);
+        if (clave.isNotEmpty) gruposTrabajo.add(clave);
+      }
+    } catch (_) {
+      // Sin permiso se siguen ofreciendo los de los centros de costo.
+    }
+    gruposTrabajo.addAll(selectedGruposInterventoria);
+    final gruposInterventoria = gruposTrabajo.toList()
+      ..sort((a, b) {
+        final na = int.tryParse(a.replaceAll(RegExp(r'\D'), '')) ?? 1 << 30;
+        final nb = int.tryParse(b.replaceAll(RegExp(r'\D'), '')) ?? 1 << 30;
+        return na != nb ? na.compareTo(nb) : a.compareTo(b);
+      });
 
     final ctrId = TextEditingController(text: initialId);
     final ctrName = TextEditingController(text: initialName);
@@ -2200,7 +2220,7 @@ class _OrganizationalStructureScreenState
                       color: _kPrimaryColor,
                     ),
                     title: const Text(
-                      'Cobertura para Interventoría',
+                      'Grupos y cobertura (Visitas e Interventoría)',
                       style: TextStyle(
                         fontFamily: _kFontFamily,
                         fontWeight: FontWeight.w800,
@@ -2215,7 +2235,7 @@ class _OrganizationalStructureScreenState
                         Align(
                           alignment: Alignment.centerLeft,
                           child: Text(
-                            'Grupos que atiende',
+                            'Grupos a los que pertenece (puede ser más de uno)',
                             style: Theme.of(ctx).textTheme.labelLarge,
                           ),
                         ),
@@ -2228,7 +2248,7 @@ class _OrganizationalStructureScreenState
                             children: [
                               for (final grupo in gruposInterventoria)
                                 FilterChip(
-                                  label: Text('Grupo $grupo'),
+                                  label: Text(etiquetaGrupoTrabajo(grupo)),
                                   selected: selectedGruposInterventoria
                                       .contains(grupo),
                                   onSelected: (value) {

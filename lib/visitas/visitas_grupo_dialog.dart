@@ -40,7 +40,6 @@ class GrupoTrabajoDialog extends StatefulWidget {
 class GrupoTrabajoDialogState extends State<GrupoTrabajoDialog> {
   late final TextEditingController _nombre;
   late Set<String> _centros;
-  late Set<String> _profesionales;
   late Set<String> _coordinadores;
   String _buscarCentro = '';
 
@@ -55,7 +54,6 @@ class GrupoTrabajoDialogState extends State<GrupoTrabajoDialog> {
     final g = widget.grupo;
     _nombre = TextEditingController(text: g.nombre);
     _centros = {...g.centroIds};
-    _profesionales = {...g.profesionalIds};
     _coordinadores = {...g.coordinadorIds};
     _leerCentros();
   }
@@ -77,13 +75,6 @@ class GrupoTrabajoDialogState extends State<GrupoTrabajoDialog> {
     _nombre.dispose();
     super.dispose();
   }
-
-  /// Profesionales de visita de la empresa (el grupo no es de un
-  /// departamento: reúne establecimientos y personas de toda la empresa).
-  List<VisitaPersona> get _profesionalesDisponibles => [
-    for (final p in widget.equipo)
-      if (p.rol == kVisitasRolProfesional) p,
-  ];
 
   /// Nombre del otro grupo de la empresa que ya tiene el centro.
   String? _enOtroGrupo(String centroId) {
@@ -239,7 +230,6 @@ class GrupoTrabajoDialogState extends State<GrupoTrabajoDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final profesionales = _profesionalesDisponibles;
     final faltaNombre = _nombre.text.trim().isEmpty;
     final todos = _todos ?? const <VisitaCentro>[];
     final vigentes = [for (final e in establecimientosDe(todos)) e.clave];
@@ -299,50 +289,10 @@ class GrupoTrabajoDialogState extends State<GrupoTrabajoDialog> {
                 ),
               ),
               const SizedBox(height: 14),
-              Text(
-                'Profesionales (${_profesionales.length})',
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 6),
-              if (profesionales.isEmpty)
-                const Text(
-                  'No hay profesionales de visita en la empresa. El rol '
-                  'Profesional se asigna en Administración > Roles y '
-                  'permisos > Visitas.',
-                  style: TextStyle(fontSize: 12, color: Colors.black54),
-                )
-              else
-                Container(
-                  constraints: const BoxConstraints(maxHeight: 220),
-                  decoration: _marco(false),
-                  child: ListView(
-                    shrinkWrap: true,
-                    children: [
-                      for (final p in profesionales)
-                        CheckboxListTile(
-                          dense: true,
-                          value: _profesionales.contains(p.id),
-                          secondary: UserAvatar(
-                            userId: p.id,
-                            nameHint: p.nombre,
-                            radius: 14,
-                          ),
-                          title: UserNameText(p.id, fallbackName: p.nombre),
-                          subtitle: p.cargo.isEmpty ? null : Text(p.cargo),
-                          onChanged: (v) => setState(
-                            () => v == true
-                                ? _profesionales.add(p.id)
-                                : _profesionales.remove(p.id),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              const SizedBox(height: 6),
               const Text(
-                'Un profesional queda en un solo grupo: si '
-                'ya estaba en otro, sale de ese al guardar.',
-                style: TextStyle(fontSize: 11, color: Colors.black54),
+                'Las personas del grupo se asignan en Talento Humano › Grupos '
+                'y cobertura: una persona puede estar en varios grupos.',
+                style: TextStyle(fontSize: 12, color: Colors.black54),
               ),
               const SizedBox(height: 14),
               Text(
@@ -414,7 +364,6 @@ class GrupoTrabajoDialogState extends State<GrupoTrabajoDialog> {
                       for (final k in _centros)
                         if (!vigentes.contains(k)) k,
                     ],
-                    profesionalIds: _profesionales.toList(),
                     coordinadorIds: _coordinadores.toList(),
                   ),
                 ),

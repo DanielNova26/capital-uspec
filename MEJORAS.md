@@ -10234,3 +10234,21 @@ Se quitó el departamento de los grupos. `VisitaGrupo.areaId` queda opcional
 - Grupos antiguos por departamento: revisar en Admin › Grupos de trabajo y
   consolidarlos en Grupo 6 / Grupo 7 (no se migró automáticamente).
 - Sin verificar: compilación y tests (sin Flutter/Node).
+
+### Personas en varios grupos; membresía en Talento Humano (8 oct 2026)
+Una persona puede estar en **varios** grupos (p. ej. quien coordina todo) y
+eso se asigna en **Talento Humano › Estructura › persona › "Grupos y cobertura"**
+(`gruposInterventoria`, ya existente): ahora ofrece los grupos de la empresa
+(Grupo 6, Grupo 7…) además de los de los centros de costo, y reconoce
+cualquier número (`claveGrupoTrabajo`).
+- Fuente de verdad de la membresía: la ficha de la persona. Admin › Grupos de
+  trabajo define los establecimientos de cada grupo y sus coordinadores; ya no
+  elige profesionales (los muestra, derivados de la ficha).
+- Visitas: al programar, el profesional ve los establecimientos de todos sus
+  grupos (`centrosDePersonaEnGrupos`). El coordinador sigue por
+  `coordinadorIds` de la visita, que ahora recalcula el servidor también al
+  cambiar los grupos de una persona (`visitasCoordinadoresAlCambiarPersona`).
+- Interventoría: sin cambios de lógica; ya sumaba `gruposInterventoria`.
+- Grupos antiguos con `profesionalIds` siguen valiendo (se suman).
+- Desplegar además `functions:visitasCoordinadoresAlCambiarPersona`.
+- Sin verificar (sin Flutter/Node): compilación y tests; TH en Web/móvil.

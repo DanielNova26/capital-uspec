@@ -207,7 +207,7 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
     if (p == null) return const [];
     return establecimientosDeClaves(
       _centros,
-      centrosDelProfesional(p.id, _grupos),
+      centrosDePersonaEnGrupos(p.id, p.grupos, _grupos),
     );
   }
 

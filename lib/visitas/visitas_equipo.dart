@@ -259,7 +259,7 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
         .where((p) => p.rol == kVisitasRolProfesional)
         .toList();
     final sinGrupo = profesionales
-        .where((p) => gruposDe(p.id, grupos).isEmpty)
+        .where((p) => gruposDeMiembro(p.id, p.grupos, grupos).isEmpty)
         .toList();
     Widget etiqueta(String t) => Padding(
       padding: const EdgeInsets.only(top: 8, bottom: 2),
@@ -313,7 +313,7 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
               etiqueta('SIN GRUPO (NO SE LES PUEDE PROGRAMAR)'),
               Wrap(children: [for (final p in sinGrupo) _persona(p)]),
               const Text(
-                'Agrégalos a un grupo en Administración › Grupos de trabajo.',
+                'Asígnales su grupo en Talento Humano.',
                 style: TextStyle(fontSize: 12, color: _kRojo),
               ),
             ],
@@ -446,8 +446,14 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
     );
   }
 
+  /// Personas del grupo: las que Talento Humano asignó (puede estar en varios).
+  List<String> _miembros(VisitaGrupo g) => [
+    for (final p in _equipo)
+      if (perteneceAlGrupo(p.id, p.grupos, g)) p.id,
+  ];
+
   Widget _personaTile(VisitaPersona p, List<VisitaGrupo> grupos) {
-    final grupo = gruposDe(p.id, grupos).firstOrNull;
+    final susGrupos = gruposDeMiembro(p.id, p.grupos, grupos);
     final area = p.areaVisitas;
     // El departamento del rol quedó distinto al de la ficha: se corrige
     // volviendo a asignar el rol en Administración, que lo toma de la ficha.
@@ -476,7 +482,9 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
                 if (p.cargo.isNotEmpty) p.cargo,
                 _nombreArea(area),
                 if (p.rol == kVisitasRolProfesional)
-                  grupo == null ? 'sin grupo' : 'Grupo ${grupo.nombre}',
+                  susGrupos.isEmpty
+                      ? 'sin grupo'
+                      : susGrupos.map((g) => g.nombre).join(', '),
                 if (!p.tieneAcceso) 'sin el módulo Visitas en sus accesos',
               ].join(' · '),
               style: TextStyle(
@@ -511,11 +519,11 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       children: [
         const Text(
-          'Cada grupo reúne profesionales de un departamento, los '
-          'establecimientos que visitan y sus coordinadores. Al programar, a '
-          'cada profesional solo le salen los establecimientos de su grupo. '
-          'Los grupos se arman en Administración › Grupos de trabajo; aquí '
-          'solo se consultan.',
+          'Los grupos son de toda la empresa. Cada persona puede estar en '
+          'varios (se asigna en Talento Humano) y, al programar, a cada '
+          'profesional le salen los establecimientos de todos sus grupos. '
+          'Los grupos y sus coordinadores se arman en Administración › '
+          'Grupos de trabajo; aquí solo se consultan.',
           style: TextStyle(
             fontFamily: _kFont,
             fontSize: 12,
@@ -611,7 +619,7 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
                       ),
                     ],
                     const SizedBox(height: 6),
-                    if (g.profesionalIds.isEmpty)
+                    if (_miembros(g).isEmpty)
                       const Text(
                         'Sin profesionales',
                         style: TextStyle(fontSize: 12, color: _kRojo),
@@ -621,7 +629,7 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
                         spacing: 10,
                         runSpacing: 4,
                         children: [
-                          for (final id in g.profesionalIds)
+                          for (final id in _miembros(g))
                             Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [

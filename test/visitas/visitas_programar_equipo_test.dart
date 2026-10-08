@@ -265,7 +265,7 @@ void main() {
 
     await tester.tap(find.text('Grupos y establecimientos'));
     await tester.pumpAndSettle();
-    expect(find.text('Boyacá · Talento Humano'), findsOneWidget);
+    expect(find.text('Boyacá'), findsOneWidget);
     expect(
       find.textContaining('Buen Pastor, Chocontá, Ipiales · Sanidad'),
       findsOneWidget,

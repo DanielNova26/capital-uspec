@@ -1,3 +1,5 @@
+import '../core/grupos_trabajo.dart';
+
 class PersonnelCostCenterOption {
   final String id;
   final String nombre;
@@ -30,18 +32,8 @@ Set<String> resolvePersonnelAssignmentIds({
   return ids;
 }
 
-String normalizePersonnelInterventoriaGroup(Object? raw) {
-  final value = (raw ?? '').toString().trim();
-  if (value.isEmpty) return '';
-  final compact = value.toUpperCase().replaceAll(RegExp(r'[\s_-]+'), '');
-  if (const {'1', '01', 'G1', 'G01', 'GRUPO1', 'GRUPO01'}.contains(compact)) {
-    return 'G1';
-  }
-  if (const {'9', '09', 'G9', 'G09', 'GRUPO9', 'GRUPO09'}.contains(compact)) {
-    return 'G9';
-  }
-  return value;
-}
+String normalizePersonnelInterventoriaGroup(Object? raw) =>
+    claveGrupoTrabajo(raw);
 
 String personnelInterventoriaGroupFromCenterData(Map<String, dynamic> data) {
   for (final key in const [

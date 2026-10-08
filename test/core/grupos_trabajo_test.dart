@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:todo/core/grupos_trabajo.dart';
 import 'package:todo/interventoria/interventoria_models.dart';
+import 'package:todo/visitas/visitas_models.dart';
 import 'package:todo/interventoria/interventoria_service.dart';
 
 void main() {
@@ -69,5 +70,28 @@ void main() {
     expect(normalizarGrupoCentroCosto('9'), 'G9');
     expect(normalizarGrupoCentroCosto('Lote A'), 'Lote A');
     expect(normalizarGrupoCentroCosto(''), '');
+  });
+
+  test('una persona en varios grupos suma los establecimientos de todos', () {
+    const g6 = VisitaGrupo(
+      empresaId: 'e',
+      nombre: 'Grupo 6',
+      centroIds: ['picota', 'landazabal'],
+    );
+    const g7 = VisitaGrupo(
+      empresaId: 'e',
+      nombre: 'Grupo 7',
+      centroIds: ['ipiales'],
+    );
+    // Talento Humano la asignó a los dos grupos por nombre.
+    expect(
+      centrosDePersonaEnGrupos('yo', {'G6', 'G7'}, [g6, g7]),
+      {'picota', 'landazabal', 'ipiales'},
+    );
+    // En uno solo ve solo ese.
+    expect(centrosDePersonaEnGrupos('otro', {'G7'}, [g6, g7]), {'ipiales'});
+    expect(gruposDeMiembro('otro', {'G6'}, [g6, g7]).single.nombre, 'Grupo 6');
+    expect(claveGrupoTrabajo('Grupo 06'), 'G6');
+    expect(etiquetaGrupoTrabajo('G6'), 'Grupo 6');
   });
 }

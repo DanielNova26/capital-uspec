@@ -238,8 +238,9 @@ class _AdminGruposTrabajoPanelState extends State<AdminGruposTrabajoPanel> {
             const SizedBox(height: 6),
             const Text(
               'Los grupos son de toda la empresa (Grupo 6, Grupo 7…): cada '
-              'establecimiento va en un solo grupo, con sus profesionales y '
-              'coordinadores. Visitas '
+              'establecimiento va en un solo grupo. Las personas pueden estar '
+              'en varios y se asignan en Talento Humano › Grupos y cobertura; '
+              'aquí se definen los establecimientos y los coordinadores. Visitas '
               'programa con ellos y el coordinador ve las visitas de sus '
               'grupos; Interventoría asigna primero a quien trabaja en el '
               'grupo del establecimiento del hallazgo.',
@@ -306,6 +307,12 @@ class _AdminGruposTrabajoPanelState extends State<AdminGruposTrabajoPanel> {
       },
     );
   }
+
+  /// Personas del grupo: las que Talento Humano asignó (puede estar en varios).
+  List<String> _miembros(VisitaGrupo g) => [
+    for (final p in _equipo)
+      if (perteneceAlGrupo(p.id, p.grupos, g)) p.id,
+  ];
 
   Widget _personas(String titulo, List<String> ids) {
     if (ids.isEmpty) return const SizedBox.shrink();
@@ -388,16 +395,16 @@ class _AdminGruposTrabajoPanelState extends State<AdminGruposTrabajoPanel> {
                 color: g.centroIds.isEmpty ? _kRojo : Colors.black87,
               ),
             ),
-            if (g.profesionalIds.isEmpty)
+            if (_miembros(g).isEmpty)
               const Padding(
                 padding: EdgeInsets.only(top: 6),
                 child: Text(
-                  'Sin profesionales',
+                  'Sin personas: asígnales el grupo en Talento Humano',
                   style: TextStyle(fontSize: 12, color: _kRojo),
                 ),
               )
             else
-              _personas('Profesionales:', g.profesionalIds),
+              _personas('Personas:', _miembros(g)),
             _personas('Coordina:', g.coordinadorIds),
           ],
         ),
