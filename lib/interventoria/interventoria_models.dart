@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../core/grupos_trabajo.dart';
 import '../core/subcentros_costo.dart';
 import 'interventoria_actas_catalogo.dart';
 import 'interventoria_numerales_catalogo.dart';
@@ -818,28 +819,7 @@ extension EstablecimientoDeLaVisita on InterventoriaVisita {
 ///
 /// Se aceptan las variantes habituales de la fuente de datos (G1, Grupo 1,
 /// 01, etc.). No se deduce el grupo desde el nombre del establecimiento.
-String normalizarGrupoCentroCosto(Object? raw) {
-  final value = (raw ?? '').toString().trim();
-  if (value.isEmpty) return '';
-  final compact = value.toUpperCase().replaceAll(RegExp(r'[\s_-]+'), '');
-  if (compact == '1' ||
-      compact == '01' ||
-      compact == 'G1' ||
-      compact == 'G01' ||
-      compact == 'GRUPO1' ||
-      compact == 'GRUPO01') {
-    return 'G1';
-  }
-  if (compact == '9' ||
-      compact == '09' ||
-      compact == 'G9' ||
-      compact == 'G09' ||
-      compact == 'GRUPO9' ||
-      compact == 'GRUPO09') {
-    return 'G9';
-  }
-  return value;
-}
+String normalizarGrupoCentroCosto(Object? raw) => claveGrupoTrabajo(raw);
 
 /// Lee el grupo real del catálogo. Como compatibilidad, también reconoce G1
 /// o G9 cuando forman parte del código técnico del centro, nunca del nombre.
@@ -1250,6 +1230,12 @@ class InterventoriaVisita {
   final String? tipoActa;
   final String? tiempoComida;
   final double porcentajeGeneral;
+
+  /// Porcentaje final que fija el registrador cuando el de la interpretación
+  /// del acta no coincide con el calculado (8 oct 2026). Si existe, manda; su
+  /// [porcentajeFinalMotivo] es obligatorio.
+  final double? porcentajeFinal;
+  final String porcentajeFinalMotivo;
   final Map<String, InterventoriaItem> items;
   final List<InterventoriaAdjunto> adjuntos;
   final String actaOriginalUrl;
@@ -1269,6 +1255,10 @@ class InterventoriaVisita {
   final Timestamp createdAt;
   final Timestamp? updatedAt;
 
+  /// El porcentaje que vale para el acta: el final si se fijó, si no el
+  /// calculado.
+  double get porcentajeOficial => porcentajeFinal ?? porcentajeGeneral;
+
   const InterventoriaVisita({
     this.idVisitaK2 = '',
     this.id = '',
@@ -1285,6 +1275,8 @@ class InterventoriaVisita {
     this.tipoActa,
     this.tiempoComida,
     required this.porcentajeGeneral,
+    this.porcentajeFinal,
+    this.porcentajeFinalMotivo = '',
     required this.items,
     this.adjuntos = const [],
     this.actaOriginalUrl = '',
@@ -1357,6 +1349,10 @@ class InterventoriaVisita {
       porcentajeGeneral: data['porcentajeGeneral'] is num
           ? (data['porcentajeGeneral'] as num).toDouble()
           : 0,
+      porcentajeFinal: data['porcentajeFinal'] is num
+          ? (data['porcentajeFinal'] as num).toDouble()
+          : null,
+      porcentajeFinalMotivo: (data['porcentajeFinalMotivo'] ?? '').toString(),
       items: items,
       adjuntos: ((data['imagenesActa'] as List?) ?? const [])
           .whereType<Map>()
@@ -1394,6 +1390,8 @@ class InterventoriaVisita {
     'tipoActa': tipoActa,
     'tiempoComida': tiempoComida,
     'porcentajeGeneral': porcentajeGeneral,
+    'porcentajeFinal': porcentajeFinal,
+    'porcentajeFinalMotivo': porcentajeFinalMotivo,
     'itemsEvaluacion': items.map((key, value) => MapEntry(key, value.toMap())),
     'totalCondicionesServicio': porcentajeGeneral,
     'idVisitaK2': idVisitaK2,
@@ -1597,9 +1595,20 @@ Map<String, InterventoriaItem> defaultInterventoriaItems() => {
     categoria.key: InterventoriaItem.empty(categoria),
 };
 
+/// Secciones que se muestran en el acta pero NO suman al total: el concepto
+/// sanitario lo emite la Secretaría de Salud y su porcentaje no es de la
+/// interventoría (8 oct 2026).
+const Set<String> kSeccionesFueraDelTotal = {'conceptoSanitario'};
+
 double calcularPorcentajeGeneral(Map<String, InterventoriaItem> items) {
-  final evaluados = items.values
-      .where((item) => !item.noEvaluado && item.valor != null)
+  final evaluados = items.entries
+      .where(
+        (e) =>
+            !kSeccionesFueraDelTotal.contains(e.key) &&
+            !e.value.noEvaluado &&
+            e.value.valor != null,
+      )
+      .map((e) => e.value)
       .map((item) => item.valor!.clamp(0, 100).toDouble())
       .toList();
   if (evaluados.isEmpty) return 0;
@@ -2216,7 +2225,7 @@ bool visitaEntraEnCategoria(String? tipoActaVisita, String valorFiltro) {
 double? valorCategoriaAnalisis(InterventoriaVisita visita, String valorFiltro) {
   if (!visitaEntraEnCategoria(visita.tipoActa, valorFiltro)) return null;
   if (valorFiltro.isEmpty) {
-    return visita.porcentajeGeneral.clamp(0, 100).toDouble();
+    return visita.porcentajeOficial.clamp(0, 100).toDouble();
   }
   final item = visita.items[descomponerCategoriaAnalisis(valorFiltro).clave];
   if (item == null || item.noEvaluado || item.valor == null) return null;
@@ -2498,3 +2507,71 @@ Map<String, InterventoriaConceptoSanitario> conceptoVigentePorEstablecimiento(
   }
   return out;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cierre del registro del acta (8 oct 2026)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Lee el porcentaje final escrito por una persona ("85", "85,5", "85.5%").
+/// Devuelve null si está vacío o no es un número entre 0 y 100.
+double? leerPorcentajeFinal(String texto) {
+  final limpio = texto.trim().replaceAll('%', '').replaceAll(',', '.');
+  if (limpio.isEmpty) return null;
+  final v = double.tryParse(limpio);
+  if (v == null || v.isNaN || v < 0 || v > 100) return null;
+  return v;
+}
+
+/// Mínimo de caracteres del motivo del porcentaje final.
+const int kMinMotivoPorcentajeFinal = 10;
+
+/// Qué le falta al registro de un acta, o null si está completo. Es lo que
+/// exigen el registro nuevo y la corrección de un acta devuelta:
+/// - número de acta;
+/// - el PDF del acta cargado ahora (en una corrección no vale el anterior:
+///   se corrige y se vuelve a subir el PDF corregido);
+/// - si se escribió un porcentaje final: que sea válido y con motivo.
+String? validarCierreRegistroActa({
+  required String numeroActa,
+  required bool hayArchivoNuevo,
+  String porcentajeFinalTexto = '',
+  String motivoPorcentajeFinal = '',
+}) {
+  if (numeroActa.trim().isEmpty) return 'Indica el número de acta.';
+  if (!hayArchivoNuevo) {
+    return 'Carga el PDF del acta (también al corregirla).';
+  }
+  if (porcentajeFinalTexto.trim().isNotEmpty) {
+    if (leerPorcentajeFinal(porcentajeFinalTexto) == null) {
+      return 'El porcentaje final va de 0 a 100.';
+    }
+    if (motivoPorcentajeFinal.trim().length < kMinMotivoPorcentajeFinal) {
+      return 'Explica por qué ese porcentaje final '
+          '(mínimo $kMinMotivoPorcentajeFinal caracteres).';
+    }
+  }
+  return null;
+}
+
+/// Puntaje y concepto del último concepto sanitario del establecimiento,
+/// llevados al ítem `conceptoSanitario` del acta. Sigue valiendo hasta que se
+/// cargue uno nuevo.
+InterventoriaItem itemConConceptoVigente(
+  InterventoriaItem item,
+  InterventoriaConceptoSanitario vigente,
+) => item.copyWith(
+  noEvaluado: false,
+  valor: vigente.puntaje,
+  meta: {
+    ...item.meta,
+    'fechaConceptoSanitario': Timestamp.fromDate(vigente.fecha),
+    'conceptoEmitido': switch (vigente.concepto) {
+      kConceptoFavorable => 'favorable',
+      kConceptoFavorableRequerimientos => 'favorable_con_requerimientos',
+      kConceptoDesfavorable => 'desfavorable',
+      _ => '',
+    },
+    'conceptoSanitarioId': vigente.id,
+    'conceptoSanitarioAutomatico': true,
+  },
+);

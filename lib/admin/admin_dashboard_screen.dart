@@ -86,6 +86,7 @@ import 'dian_tokens_admin_panel.dart';
 import 'security_admin_panel.dart';
 import 'whatsapp_admin_panel.dart';
 import 'migrations/admin_migration_service.dart';
+import 'grupos_trabajo_panel.dart';
 import 'multiempresa_admin_panel.dart';
 import 'multiempresa_sync_service.dart';
 import '../core/multiempresa_sync.dart';
@@ -9587,6 +9588,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       AdminInternalSection.catalogos => _tabCatalogos(),
       AdminInternalSection.grupos => _tabGruposInternos(),
       AdminInternalSection.membresia => _tabMembresia(),
+      AdminInternalSection.gruposTrabajo => AdminGruposTrabajoPanel(
+        key: ValueKey('grupos_trabajo_${_empresaId ?? widget.empresaId}'),
+        userId: widget.userId,
+        empresaId: _empresaId ?? widget.empresaId,
+      ),
       AdminInternalSection.multiempresa => AdminMultiempresaPanel(
         key: ValueKey('multiempresa_${_empresaId ?? widget.empresaId}'),
         userId: widget.userId,

@@ -7311,6 +7311,8 @@ class _RegistrarActaSheet extends StatefulWidget {
 
 class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
   final _idVisitaK2Ctrl = TextEditingController();
+  final _pctFinalCtrl = TextEditingController();
+  final _pctFinalMotivoCtrl = TextEditingController();
   CentroCostoRef? _centro;
 
   /// División interna del establecimiento, cuando lo está: Cómbita Alta o
@@ -7363,6 +7365,10 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
     super.initState();
     final existente = widget.visitaEditar;
     _idVisitaK2Ctrl.text = existente?.idVisitaK2 ?? '';
+    if (existente?.porcentajeFinal != null) {
+      _pctFinalCtrl.text = existente!.porcentajeFinal!.toString();
+      _pctFinalMotivoCtrl.text = existente.porcentajeFinalMotivo;
+    }
     _fecha = existente?.fechaVisita.toDate() ?? DateTime.now();
     _tipoActa = existente?.tipoActa;
     _tiempoComida = existente?.tiempoComida;
@@ -7428,6 +7434,32 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
     }
   }
 
+  /// El resultado de la Secretaría de Salud se trae solo: el último concepto
+  /// cargado del establecimiento rige hasta que se suba uno nuevo (8 oct
+  /// 2026). Solo en actas nuevas; una acta ya guardada conserva el suyo.
+  Future<void> _traerConceptoSanitarioVigente() async {
+    final centro = _centro;
+    if (centro == null || _editando) return;
+    if (!_items.containsKey('conceptoSanitario')) return;
+    try {
+      final vigente = await widget.service.conceptoSanitarioVigente(
+        widget.empresaId,
+        centro.centroId,
+      );
+      if (!mounted || vigente == null || _centro?.centroId != centro.centroId) {
+        return;
+      }
+      setState(() {
+        _items['conceptoSanitario'] = itemConConceptoVigente(
+          _items['conceptoSanitario']!,
+          vigente,
+        );
+      });
+    } catch (_) {
+      // Sin permiso o sin red el concepto se diligencia a mano, como antes.
+    }
+  }
+
   Future<void> _precargarCentro(String centroId, {String? subcentroId}) async {
     try {
       final doc = await FirebaseFirestore.instance
@@ -7441,6 +7473,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
               .where((sub) => sub.id == subcentroId)
               .firstOrNull;
         });
+        _traerConceptoSanitarioVigente();
       }
     } catch (_) {}
   }
@@ -7449,6 +7482,8 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
   void dispose() {
     _ocrCtrl.dispose();
     _idVisitaK2Ctrl.dispose();
+    _pctFinalCtrl.dispose();
+    _pctFinalMotivoCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
   }
@@ -7535,14 +7570,14 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
                 Builder(
                   builder: (_) {
                     final faltantes = _itemsIncompletos();
-                    final faltaActa = _idVisitaK2Ctrl.text.trim().isEmpty;
+                    final faltaCierre = _faltaParaGuardar;
                     final puedeGuardar =
                         !_saving &&
                         !_extracting &&
                         _configActasCargada &&
                         _centro != null &&
                         _tipoActa != null &&
-                        !faltaActa &&
+                        faltaCierre == null &&
                         faltantes.isEmpty;
                     return SafeArea(
                       child: Padding(
@@ -7562,8 +7597,8 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
                                         ? 'Consultando las actas habilitadas'
                                         : _tipoActa == null
                                         ? 'Selecciona el tipo de acta asignado'
-                                        : faltaActa
-                                        ? 'Indica el número de acta'
+                                        : faltaCierre != null
+                                        ? faltaCierre
                                         : 'Faltan ${faltantes.length} sección(es) sin puntaje ni NE',
                                     style: const TextStyle(
                                       fontSize: 11,
@@ -7610,6 +7645,57 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
     );
   }
 
+  /// Porcentaje final del acta (8 oct 2026): el calculado por la app puede no
+  /// coincidir con el de la interpretación del acta. Si se escribe uno, el
+  /// motivo es obligatorio.
+  Widget _buildPorcentajeFinal() {
+    final calculado = calcularPorcentajeGeneral(_itemsParaGuardar());
+    final hayFinal = _pctFinalCtrl.text.trim().isNotEmpty;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: _pctFinalCtrl,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: InputDecoration(
+            labelText: 'Porcentaje final (opcional)',
+            helperText:
+                'Calculado: ${calculado.toStringAsFixed(1)}%. Escríbelo solo '
+                'si el del acta es otro; no cuenta el concepto sanitario.',
+            helperMaxLines: 2,
+            suffixText: '%',
+            border: const OutlineInputBorder(),
+            isDense: true,
+          ),
+          onChanged: (_) => setState(() {}),
+        ),
+        if (hayFinal) ...[
+          const SizedBox(height: 10),
+          TextField(
+            controller: _pctFinalMotivoCtrl,
+            minLines: 2,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              labelText: 'Motivo del porcentaje final (obligatorio)',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// Lo que falta para guardar, o null: número de acta, PDF cargado ahora
+  /// (también al corregir) y, si hay porcentaje final, su motivo.
+  String? get _faltaParaGuardar => validarCierreRegistroActa(
+    numeroActa: _idVisitaK2Ctrl.text,
+    hayArchivoNuevo: _files.isNotEmpty,
+    porcentajeFinalTexto: _pctFinalCtrl.text,
+    motivoPorcentajeFinal: _pctFinalMotivoCtrl.text,
+  );
+
   Widget _buildCommonHeader(bool isWeb) {
     return Column(
       children: [
@@ -7621,6 +7707,8 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
           ),
           onChanged: (_) => setState(() {}),
         ),
+        const SizedBox(height: 12),
+        _buildPorcentajeFinal(),
         const SizedBox(height: 12),
         if (_editando) ...[
           Container(
@@ -7695,11 +7783,14 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
                 isDense: true,
               ),
               items: _centrosCostoDropdownItems(centros),
-              onChanged: (v) => setState(() {
-                _centro = v;
-                // El subcentro anterior es de otro establecimiento.
-                _subcentro = null;
-              }),
+              onChanged: (v) {
+                setState(() {
+                  _centro = v;
+                  // El subcentro anterior es de otro establecimiento.
+                  _subcentro = null;
+                });
+                _traerConceptoSanitarioVigente();
+              },
             );
           },
         ),
@@ -8295,6 +8386,8 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
         _itemKeys = _clavesDeItems();
       }
     });
+    // Los puntajes se vaciaron: el concepto sanitario vuelve a traerse solo.
+    _traerConceptoSanitarioVigente();
   }
 
   /// Nombre de archivo con el formato {centro}_{fecha}_interventoria.{ext}
@@ -8889,11 +8982,12 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
       );
       return;
     }
-    if (_idVisitaK2Ctrl.text.trim().isEmpty) {
+    final faltaCierre = _faltaParaGuardar;
+    if (faltaCierre != null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Color(0xFFB91C1C),
-          content: Text('Indica el número de acta.'),
+        SnackBar(
+          backgroundColor: const Color(0xFFB91C1C),
+          content: Text(faltaCierre),
         ),
       );
       return;
@@ -9006,6 +9100,10 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
         tipoActa: _tipoActa,
         tiempoComida: _tiempoComida,
         porcentajeGeneral: pctGeneral,
+        porcentajeFinal: leerPorcentajeFinal(_pctFinalCtrl.text),
+        porcentajeFinalMotivo: leerPorcentajeFinal(_pctFinalCtrl.text) == null
+            ? ''
+            : _pctFinalMotivoCtrl.text.trim(),
         items: itemsParaGuardar,
         adjuntos: adjuntos,
         actaOriginalUrl: actaPdf?.url ?? existente?.actaOriginalUrl ?? '',

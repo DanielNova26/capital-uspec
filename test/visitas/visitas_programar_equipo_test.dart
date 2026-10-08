@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:todo/core/subcentros_costo.dart';
 import 'package:todo/visitas/visitas_equipo.dart';
+import 'package:todo/visitas/visitas_grupo_dialog.dart';
 import 'package:todo/visitas/visitas_models.dart';
 import 'package:todo/visitas/visitas_programar.dart';
 import 'package:todo/visitas/visitas_service.dart';
@@ -264,17 +265,52 @@ void main() {
 
     await tester.tap(find.text('Grupos y establecimientos'));
     await tester.pumpAndSettle();
-    expect(find.text('Boyacá · Talento Humano'), findsOneWidget);
+    expect(find.text('Boyacá'), findsOneWidget);
     expect(
       find.textContaining('Buen Pastor, Chocontá, Ipiales · Sanidad'),
       findsOneWidget,
     );
 
-    await tester.tap(find.text('Nuevo grupo'));
+    // Los grupos ya no se editan aquí: se arman en Admin › Grupos de trabajo.
+    expect(find.text('Nuevo grupo'), findsNothing);
+    expect(find.byTooltip('Editar grupo'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Grupo de trabajo: establecimientos, profesionales y '
+      'coordinadores', (tester) async {
+    await tamano(tester, const Size(1300, 900));
+    final svc = _SvcFalso();
+    final equipo = await svc.equipoVisitas('e');
+    VisitaGrupo? guardado;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: FilledButton(
+                onPressed: () async {
+                  guardado = await showDialog<VisitaGrupo>(
+                    context: context,
+                    builder: (_) => GrupoTrabajoDialog(
+                      svc: svc,
+                      grupo: const VisitaGrupo(empresaId: 'e', nombre: ''),
+                      equipo: equipo,
+                    ),
+                  );
+                },
+                child: const Text('abrir'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('abrir'));
     await tester.pumpAndSettle();
     // El departamento no se vuelve a escoger y los establecimientos están,
     // con sus subcentros activos debajo.
-    expect(find.text('Departamento: Talento Humano'), findsOneWidget);
+    expect(find.textContaining('Departamento'), findsNothing);
     expect(find.widgetWithText(CheckboxListTile, 'Ipiales'), findsOneWidget);
     expect(find.widgetWithText(CheckboxListTile, 'Pabellón A'), findsOneWidget);
     expect(find.widgetWithText(CheckboxListTile, 'Viejo'), findsNothing);
@@ -306,7 +342,7 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Guardar'));
     await tester.pumpAndSettle();
     expect(svc.grupos, hasLength(1));
-    expect(svc.grupos.single.centroIds, ['choconta', 'ipiales|sanidad']);
+    expect(guardado?.centroIds, ['choconta', 'ipiales|sanidad']);
     expect(tester.takeException(), isNull);
   });
 

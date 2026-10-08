@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 
 import '../core/area_directory.dart';
 import '../core/festivos_colombia.dart';
+import '../core/grupos_trabajo.dart';
 import '../core/task_origen.dart';
 import '../services/org_service.dart';
 import '../services/task_service.dart';
@@ -1654,6 +1655,8 @@ class InterventoriaService {
         'tiempoComida': visita.tiempoComida,
         'porcentajeGeneral': visita.porcentajeGeneral,
         'totalCondicionesServicio': visita.porcentajeGeneral,
+        'porcentajeFinal': visita.porcentajeFinal,
+        'porcentajeFinalMotivo': visita.porcentajeFinalMotivo,
         'idVisitaK2': visita.idVisitaK2,
         'itemsEvaluacion': visita.items.map(
           (key, value) => MapEntry(key, value.toMap()),
@@ -2769,6 +2772,31 @@ class InterventoriaService {
       // Las asignaciones explícitas por centro siguen funcionando.
     }
 
+    // Grupos de trabajo (Admin › Grupos de trabajo): quien figura en un grupo
+    // cubre los establecimientos de ese grupo. Es la prioridad al asignar:
+    // primero quien trabaja en el grupo donde está el establecimiento.
+    var gruposTrabajo = const <Map<String, dynamic>>[];
+    try {
+      final gruposSnap = await _db
+          .collection('TBL_VISITAS_GRUPOS')
+          .where('empresaId', isEqualTo: empresaId)
+          .get();
+      gruposTrabajo = [for (final d in gruposSnap.docs) d.data()];
+      // Un grupo de trabajo llamado "Grupo 6" es el G6 del contrato: quien
+      // tenga G6 en Talento Humano cubre también sus establecimientos.
+      for (final g in gruposTrabajo) {
+        final nombre = normalizarGrupoCentroCosto(g['nombre']);
+        if (!RegExp(r'^G\d+$').hasMatch(nombre)) continue;
+        final claves = g['centroIds'];
+        if (claves is! Iterable) continue;
+        centrosPorGrupo
+            .putIfAbsent(nombre, () => <String>{})
+            .addAll(claves.map((c) => centroIdDeClaveGrupo(c.toString())));
+      }
+    } catch (_) {
+      // Sin permiso o sin red se sigue con la cobertura de cada persona.
+    }
+
     Set<String> stringSet(Object? raw) {
       if (raw is! Iterable || raw is String) return <String>{};
       return raw
@@ -2876,6 +2904,16 @@ class InterventoriaService {
       ).map(normalizarGrupoCentroCosto).where((g) => g.isNotEmpty).toSet();
       for (final grupo in grupos) {
         centrosAsignados.addAll(centrosPorGrupo[grupo] ?? const <String>{});
+      }
+      final porGrupoTrabajo = centrosDeGruposParaPersona(gruposTrabajo, doc.id);
+      if (porGrupoTrabajo.isNotEmpty) {
+        // Con cobertura operativa el centro de costos deja de valer como
+        // respaldo (`cubreCentro`); se conserva para que entrar a un grupo no
+        // le quite el establecimiento donde ya trabajaba.
+        if (centrosAsignados.isEmpty && centroId.isNotEmpty) {
+          centrosAsignados.add(centroId);
+        }
+        centrosAsignados.addAll(porGrupoTrabajo);
       }
       var areaId = (scoped?['areaId'] ?? raiz['areaId'] ?? '')
           .toString()
@@ -3133,6 +3171,25 @@ class InterventoriaService {
       list.sort((a, b) => b.fecha.compareTo(a.fecha));
       return list;
     });
+  }
+
+  /// Último concepto sanitario del establecimiento (el que rige hoy), o null.
+  /// El acta lo trae solo hasta que se cargue uno nuevo.
+  Future<InterventoriaConceptoSanitario?> conceptoSanitarioVigente(
+    String empresaId,
+    String centroId,
+  ) async {
+    final snap = await _db
+        .collection(kColeccionConceptosSanitarios)
+        .where('empresaId', isEqualTo: empresaId)
+        .where('centroCostoId', isEqualTo: centroId)
+        .get();
+    InterventoriaConceptoSanitario? vigente;
+    for (final d in snap.docs) {
+      final c = InterventoriaConceptoSanitario.fromMap(d.id, d.data());
+      if (vigente == null || c.fecha.isAfter(vigente.fecha)) vigente = c;
+    }
+    return vigente;
   }
 
   /// Crea o actualiza un concepto sanitario. Si trae [archivo], lo sube

@@ -16,6 +16,7 @@ import 'package:flutter/foundation.dart'
 import 'package:geolocator/geolocator.dart';
 
 import '../core/area_directory.dart' show areaClave, areasUnicas;
+import '../core/grupos_trabajo.dart';
 import '../core/subcentros_costo.dart';
 import '../core/user_directory.dart';
 import '../gestion_documental/gd_service.dart';
@@ -144,6 +145,10 @@ class VisitaPersona {
   final String rol;
   final String rolAreaId;
 
+  /// Grupos de trabajo a los que pertenece (`G6`, `G7`…), tal como los
+  /// asigna Talento Humano. Puede ser más de uno.
+  final Set<String> grupos;
+
   const VisitaPersona({
     required this.id,
     required this.nombre,
@@ -153,6 +158,7 @@ class VisitaPersona {
     this.tieneAcceso = false,
     this.rol = '',
     this.rolAreaId = '',
+    this.grupos = const {},
   });
 
   /// El área con la que trabaja en Visitas: la del rol si lo tiene (es la
@@ -169,6 +175,7 @@ class VisitaPersona {
         tieneAcceso: tieneAcceso,
         rol: rol ?? this.rol,
         rolAreaId: rolAreaId ?? this.rolAreaId,
+        grupos: grupos,
       );
 }
 
@@ -356,8 +363,9 @@ class VisitasService {
     String? areaId,
   }) async => _gruposDe(await _gruposQuery(empresaId, areaId).get());
 
-  /// Guarda el grupo. Un profesional pertenece a un solo grupo de su área:
-  /// si ya estaba en otro, sale de ese en el mismo lote.
+  /// Guarda el grupo. Un establecimiento está en un solo grupo: si estaba en
+  /// otro, sale de ese en el mismo lote. Las personas pueden estar en varios
+  /// (se asignan en Talento Humano).
   Future<String> guardarGrupo(
     VisitaGrupo g, {
     required String actorId,
@@ -368,13 +376,22 @@ class VisitasService {
     final ref = g.id.isEmpty ? _grupos.doc() : _grupos.doc(g.id);
     final batch = _db.batch();
     for (final o in otros) {
-      if (o.id == ref.id || o.id.isEmpty || o.areaId != g.areaId) continue;
-      final quedan = o.profesionalIds
-          .where((p) => !g.profesionalIds.contains(p))
+      if (o.id == ref.id || o.id.isEmpty) continue;
+      // Un establecimiento está en un solo grupo del departamento (Grupo 6,
+      // Grupo 7…): al pasarlo a este, sale del otro. Un centro entero también
+      // saca sus subcentros.
+      final propios = {for (final c in g.centroIds) centroIdDeClaveGrupo(c)};
+      final centrosQuedan = o.centroIds
+          .where(
+            (c) =>
+                !g.centroIds.contains(c) &&
+                !(c.contains('|') && g.centroIds.contains(centroIdDeClaveGrupo(c))) &&
+                !(!c.contains('|') && propios.contains(c)),
+          )
           .toList();
-      if (quedan.length != o.profesionalIds.length) {
+      if (centrosQuedan.length != o.centroIds.length) {
         batch.update(_grupos.doc(o.id), {
-          'profesionalIds': quedan,
+          'centroIds': centrosQuedan,
           'actualizadoPor': actorId,
           'updatedAt': FieldValue.serverTimestamp(),
         });
@@ -640,6 +657,12 @@ class VisitasService {
           cargo: cargo,
           centroId: campo(const ['centroId', 'centro_id']),
           tieneAcceso: userHasApp(data, kVisitasAppId, empresaId: empresaId),
+          grupos: gruposDePersonaFicha(
+            scoped['gruposInterventoria'] ??
+                ((unaEmpresa || data['empresaId']?.toString() == empresaId)
+                    ? data['gruposInterventoria']
+                    : null),
+          ),
         ),
       );
     }

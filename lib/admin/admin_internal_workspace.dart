@@ -4,6 +4,7 @@ enum AdminInternalSection {
   catalogos('Catálogos y bodegas', Icons.account_tree_outlined),
   grupos('Grupos', Icons.groups_2_outlined),
   membresia('Membresía', Icons.apartment_outlined),
+  gruposTrabajo('Grupos de trabajo', Icons.diversity_3_outlined),
   multiempresa('Multiempresa', Icons.hub_outlined);
 
   const AdminInternalSection(this.label, this.icon);

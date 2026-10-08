@@ -10277,3 +10277,101 @@ Beneficiarios de pago (`pp_beneficiarios_plantilla.dart`): hoja CUENTAS con
 desplegables (Tipo Id, Forma Pago, Banco con código ACH, Tipo Cuenta),
 columnas de texto y hoja de instrucciones. El importador acepta "0013 - BBVA".
 Pendiente: modelo del Excel de "Generar desde Excel".
+
+### Grupos de trabajo en Admin (8 oct 2026, corrige lo anterior)
+Los grupos ya **no se arman en Visitas**: se arman en **Admin › Multiempresa/
+Catálogos › Grupos de trabajo** (`lib/admin/grupos_trabajo_panel.dart`), junto
+a los demás maestros por empresa. Cada grupo: departamento, establecimientos
+(centros y subcentros, incluidos los propios de Visitas), profesionales y
+coordinadores. Misma colección `TBL_VISITAS_GRUPOS`, sin duplicar fuentes.
+- Visitas › Equipo › Grupos queda de **solo consulta**.
+- Interventoría: `_leerUsuariosDeEmpresa` suma a la cobertura de cada persona
+  los establecimientos de los grupos donde figura (profesional o coordinador)
+  (`lib/core/grupos_trabajo.dart`). Como `resolverCargoUnico` ya prioriza al
+  que cubre el establecimiento, gana quien trabaja en el grupo de ese
+  establecimiento. Entrar a un grupo conserva el centro de costos propio.
+- Reglas: `TBL_VISITAS_GRUPOS` lo lee todo miembro de la empresa y lo escribe
+  Admin de la empresa, jefe del área o Gerencia/Desarrollo.
+- Un grupo tiene un solo departamento (las reglas lo exigen). Si se necesitan
+  varios departamentos por grupo, hay que cambiar el modelo y las reglas.
+- El diálogo solo ofrece como profesionales a quienes tienen rol Profesional
+  en Visitas; personal de Interventoría sin ese rol no se puede incluir aún.
+- No se copia entre empresas (ids de personas y centros distintos por
+  empresa): por eso no está en `kModulosMaestros`.
+- Sin verificar (sin Flutter/Node): compilación, tests (`grupos_trabajo_test`,
+  `visitas_programar_equipo_test`, `admin_internal_workspace_test`), reglas.
+  Web ancho/estrecho, Android e iOS sin probar.
+
+### Grupos contractuales (Grupo 6, Grupo 7…) — ajuste (8 oct 2026)
+Modelo aclarado por el usuario: la empresa tiene grupos (p. ej. Grupo 6 =
+Picota, Landázuri y Tomás Cipriano; Grupo 7 = los demás) y cada
+establecimiento va en **un solo grupo**.
+- `normalizarGrupoCentroCosto` reconoce cualquier número (antes solo G1/G9).
+- Admin › Grupos de trabajo: al guardar, un establecimiento sale de otro grupo
+  del mismo departamento (`guardarGrupo`); el diálogo avisa dónde está hoy y
+  trae "Incluir los demás" para armar el Grupo 7 en un clic.
+- Interventoría: un grupo de trabajo llamado "Grupo N" alimenta el G*N* del
+  contrato: quien tenga G*N* en Talento Humano (`gruposInterventoria`) cubre
+  sus establecimientos, además de lo ya existente por personas del grupo.
+- Pendiente de confirmar con el usuario: nombres exactos de los
+  establecimientos de cada grupo (se cargan a mano en el panel, no se
+  migraron datos), y si el grupo debe ser independiente del departamento
+  (hoy cada grupo pertenece a un departamento).
+- Sin verificar: compilación y tests (sin Flutter/Node).
+
+### Corrección: el grupo es de la EMPRESA, no de un departamento (8 oct 2026)
+Se quitó el departamento de los grupos. `VisitaGrupo.areaId` queda opcional
+(vacío en los nuevos; los antiguos lo conservan y siguen funcionando).
+- Un establecimiento y un profesional van en un solo grupo de toda la empresa
+  (`guardarGrupo` ya no filtra por área); "Incluir los demás" mira todos los
+  grupos.
+- Visitas (Programar y Equipo) leen todos los grupos de la empresa.
+- Reglas `TBL_VISITAS_GRUPOS`: `areaId` opcional; escriben Admin de la
+  empresa, Gerencia y Desarrollo (el jefe solo los antiguos de su área).
+- Grupos antiguos por departamento: revisar en Admin › Grupos de trabajo y
+  consolidarlos en Grupo 6 / Grupo 7 (no se migró automáticamente).
+- Sin verificar: compilación y tests (sin Flutter/Node).
+
+### Personas en varios grupos; membresía en Talento Humano (8 oct 2026)
+Una persona puede estar en **varios** grupos (p. ej. quien coordina todo) y
+eso se asigna en **Talento Humano › Estructura › persona › "Grupos y cobertura"**
+(`gruposInterventoria`, ya existente): ahora ofrece los grupos de la empresa
+(Grupo 6, Grupo 7…) además de los de los centros de costo, y reconoce
+cualquier número (`claveGrupoTrabajo`).
+- Fuente de verdad de la membresía: la ficha de la persona. Admin › Grupos de
+  trabajo define los establecimientos de cada grupo y sus coordinadores; ya no
+  elige profesionales (los muestra, derivados de la ficha).
+- Visitas: al programar, el profesional ve los establecimientos de todos sus
+  grupos (`centrosDePersonaEnGrupos`). El coordinador sigue por
+  `coordinadorIds` de la visita, que ahora recalcula el servidor también al
+  cambiar los grupos de una persona (`visitasCoordinadoresAlCambiarPersona`).
+- Interventoría: sin cambios de lógica; ya sumaba `gruposInterventoria`.
+- Grupos antiguos con `profesionalIds` siguen valiendo (se suman).
+- Desplegar además `functions:visitasCoordinadoresAlCambiarPersona`.
+- Sin verificar (sin Flutter/Node): compilación y tests; TH en Web/móvil.
+
+## Interventoría: concepto sanitario automático, % final y cierre del acta (8 oct 2026)
+- **Secretaría de Salud**: al elegir el establecimiento en un acta nueva, el
+  ítem `conceptoSanitario` (puntaje, fecha y concepto) se llena con el último
+  concepto cargado en la sección "Concepto sanitario"
+  (`conceptoSanitarioVigente` / `itemConConceptoVigente`) y rige hasta que se
+  suba uno nuevo. Una acta ya guardada conserva el suyo.
+- **No suma al total**: `calcularPorcentajeGeneral` excluye
+  `kSeccionesFueraDelTotal` ({conceptoSanitario}). Las actas ya guardadas
+  conservan su `porcentajeGeneral` hasta que se vuelvan a guardar o completar;
+  no se recalculó nada histórico.
+- **Porcentaje final**: campos `porcentajeFinal` y `porcentajeFinalMotivo` en
+  la visita (opcional; con motivo obligatorio de 10+ caracteres).
+  `porcentajeOficial` = final si existe, si no el calculado; el comparativo
+  por establecimiento usa el oficial. Otras pantallas siguen con el calculado.
+- **Cierre del registro** (`validarCierreRegistroActa`): número de acta y PDF
+  cargado en ese momento son obligatorios al registrar y al corregir un acta
+  devuelta (antes la corrección pasaba conservando el PDF anterior).
+  La regla es de la UI; el servicio solo exige que haya un PDF.
+- **Pendiente**: filtro por grupos en Interventoría (hoy el filtro es por
+  establecimiento); habría que ofrecer los grupos de Admin › Grupos de trabajo
+  y convertirlos a la lista de centros.
+- Asignación con subcentro: el responsable se sigue resolviendo por el
+  establecimiento (y ahora por su grupo); no se exige elegir persona.
+- Sin verificar (sin Flutter/Node): compilación y
+  `test/interventoria/interventoria_cierre_acta_test.dart`.
