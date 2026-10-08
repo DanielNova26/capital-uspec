@@ -6,6 +6,32 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## 2026-10-08 — Editor único de grupos publicado, reglas confirmadas (Codex)
+
+- Integrado `ae1a8d6` de `claude/elegant-goldberg-axhzwp` mediante merge
+  `c219e0d`: un solo editor en Admin › Gestión interna › Grupos, con grupos
+  de Compras y de trabajo unidos por nombre canónico, establecimientos y
+  coordinadores. Se conserva la selección por empresa y la asignación de
+  personas desde Talento Humano.
+- Web **2.6.22+36** compilada y publicada. El `version.json` público y el
+  SHA-256 de `main.dart.js` coinciden con la compilación local.
+- Validación: 1.617 pruebas existentes Flutter aprobadas y ocho pruebas
+  nuevas del editor unificado, con edición sin duplicar registros,
+  desactivación conservando el identificador de Compras, empresa y centros.
+  Anchos 390/768/1024/1366, texto 1,6× y temas Android/iOS. Continúan pendientes
+  la validación autenticada y los dispositivos físicos.
+- **Resuelto el pendiente de publicación de reglas.** El endpoint de prueba
+  de Google siguió devolviendo 503. Se publicó mediante la API de Firebase
+  una copia de las mismas reglas, únicamente sin comentarios ni sangría,
+  sin cambiar permisos. Se conservó la fuente legible en el repositorio.
+  La activación también respondió 503, pero la lectura posterior confirmó
+  que sí se había aplicado: release `cloud.firestore`, ruleset
+  `39348aa4-da4b-47d3-b373-22d6511ab864`; contenido activo SHA-256
+  `0c09fe4e5c99b1bc0589556f3b089b3126b6f13e89434759a8952ad605caa8a1`.
+  Esto sustituye el estado pendiente descrito en la entrada anterior.
+- No hubo cambios nuevos de Functions en este commit de Claude: se conservan
+  los servicios publicados en 2.6.21. No se migraron ni editaron grupos reales.
+
 ## 2026-10-08 — Recompilación de los últimos cambios de Claude (Codex)
 
 - Integrados los seis commits pendientes de `claude/elegant-goldberg-axhzwp`,
