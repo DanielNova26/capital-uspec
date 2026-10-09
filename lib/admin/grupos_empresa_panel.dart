@@ -22,6 +22,7 @@ import '../core/grupos_trabajo.dart';
 import '../core/user_directory.dart';
 import '../widgets/paged_list.dart';
 import '../widgets/user_avatar.dart';
+import '../utils/user_company.dart' show mergeCompanyScopedData;
 import 'admin_repository.dart';
 import 'grupo_empresa_dialog.dart';
 
@@ -115,11 +116,7 @@ class AdminGruposEmpresaPanel extends StatelessWidget {
     final out = <({String id, String nombre})>[];
     for (final u in usuarios) {
       final data = u.data();
-      final detalle = data['empresasDetalle'];
-      final propio = detalle is Map ? detalle[empresaId] : null;
-      final raw = propio is Map && propio['gruposInterventoria'] != null
-          ? propio['gruposInterventoria']
-          : data['gruposInterventoria'];
+      final raw = mergeCompanyScopedData(data, empresaId)['gruposInterventoria'];
       if (gruposDePersonaFicha(raw).contains(clave)) {
         final nombre = UserDirectory.instance
             .fromUsuario(u.id, data)

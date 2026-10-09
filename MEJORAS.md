@@ -6,6 +6,39 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## 2026-10-08 — Separación de grupos de empresa y Visitas (Codex)
+
+- Integrados `1d19182` y `ba00757` de Claude mediante merge `ed4dfcc`.
+  Admin › Gestión interna › Grupos usa únicamente `TBL_COMPRAS_GRUPOS` y
+  sus establecimientos. Visitas › Equipo vuelve a administrar sus grupos
+  por departamento, con profesionales y coordinadores. Los nombres de las
+  personas se resuelven desde el directorio común.
+- Resueltos conflictos conservando la separación solicitada y las defensas
+  previas: el cliente no escribe `coordinadorIds` en visitas y el coordinador
+  necesita acceso vigente a la app. Corregido además el listado de personas
+  del grupo de empresa: no toma grupos de la empresa principal para mostrarlos
+  en una secundaria que no tiene esa asignación.
+- TypeScript compilado desde la fuente combinada. Validación: 1.614 pruebas
+  Flutter aprobadas, más la nueva prueba de nombres/empresa secundaria;
+  nueve pruebas del panel después del ajuste, incluidas 390/768/1024/1366 y
+  texto 1,6× con temas Android/iOS. 183 pruebas Node y 41 de integración de
+  reglas/servicios aprobadas. La copia de maestros omite `centroIds`.
+- Reglas activas verificadas leyendo el release y su contenido completo,
+  idéntico al archivo local (SHA-256
+  `2cd5a78ae8e1dc3ec9c8e37b2761d74a8d8ec801ec4938625630c702c6301b89`).
+  Firebase devolvió 409 después de activar el ruleset
+  `72994824-6e59-44da-8242-5fd3fa844db3`; la lectura confirma la publicación.
+- Pendiente validación autenticada y en Android/iPhone físicos. No se
+  migraron grupos de producción: si se crearon grupos sin departamento o
+  coordinaciones basadas en Talento Humano durante la versión anterior,
+  deben revisarse y consolidarse de forma controlada. El despliegue no borra
+  ni reasigna esos registros históricos automáticamente.
+- Publicada Web **2.6.23+37**, verificada por `version.json` y SHA-256 del
+  JavaScript público. Actualizados `adminSincronizarMaestros`,
+  `visitasCoordinadoresAlCrear` y `visitasCoordinadoresAlCambiarGrupo`.
+  Retirada de producción `visitasCoordinadoresAlCambiarPersona`, eliminada
+  por Claude para que Talento Humano no vuelva a afectar grupos de Visitas.
+
 ## 2026-10-08 — Editor único de grupos publicado, reglas confirmadas (Codex)
 
 - Integrado `ae1a8d6` de `claude/elegant-goldberg-axhzwp` mediante merge

@@ -17,6 +17,11 @@ const {
 } = require('../lib/maestros');
 const {MODULOS_LIMPIEZA} = require('../lib/limpieza');
 
+test('la copia de grupos de empresa no arrastra establecimientos de origen', () => {
+  const grupo = MODULOS_MAESTROS.flatMap((m) => m.maestros).find((m) => m.id === 'TBL_COMPRAS_GRUPOS');
+  assert.ok(grupo.omitir.includes('centroIds'));
+});
+
 const ctx = (mapa = {}, pendientes = {}) => ({
   origen: 'EMP_A',
   destino: 'EMP_B',

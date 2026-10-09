@@ -65,20 +65,21 @@ test('coordinador no modifica visitas ni su asignación al grupo', async () => {
     empresaId: 'A', areaId: 'nutricion', profesionalIds: ['prof'], coordinadorIds: ['coor'],
   }));
 });
-test('Admin administra grupos sin departamento solo en su empresa', async () => {
+test('Admin administra grupos de empresa, sin abrir grupos de Visitas', async () => {
   await seed((db) => setDoc(doc(db, 'TBL_USUARIOS/adminA'), {
     empresaId: 'A', empresas: ['A'], appsPorEmpresa: true,
     empresasDetalle: {A: {apps: ['admindashboard']}},
   }));
   const db = auth('adminA');
-  const grupo = {empresaId: 'A', nombre: 'Grupo 6', centroIds: ['C1'], coordinadorIds: ['coor']};
-  await assertSucceeds(setDoc(doc(db, 'TBL_VISITAS_GRUPOS/g'), grupo));
-  await assertSucceeds(getDoc(doc(auth('coor'), 'TBL_VISITAS_GRUPOS/g')));
-  await assertSucceeds(updateDoc(doc(db, 'TBL_VISITAS_GRUPOS/g'), {nombre: 'Grupo 7'}));
-  await assertFails(updateDoc(doc(db, 'TBL_VISITAS_GRUPOS/g'), {empresaId: 'B'}));
-  await assertFails(setDoc(doc(db, 'TBL_VISITAS_GRUPOS/ajeno'), {...grupo, empresaId: 'B'}));
+  const grupo = {empresaId: 'A', nombre: 'Grupo 6', centroIds: ['C1'], activo: true};
+  await assertFails(setDoc(doc(db, 'TBL_VISITAS_GRUPOS/g'), {...grupo, areaId: 'nutricion'}));
+  await assertSucceeds(setDoc(doc(db, 'TBL_COMPRAS_GRUPOS/g'), grupo));
+  await assertSucceeds(getDoc(doc(auth('coor'), 'TBL_COMPRAS_GRUPOS/g')));
+  await assertSucceeds(updateDoc(doc(db, 'TBL_COMPRAS_GRUPOS/g'), {centroIds: ['C2']}));
+  await assertFails(updateDoc(doc(db, 'TBL_COMPRAS_GRUPOS/g'), {empresaId: 'B'}));
+  await assertFails(setDoc(doc(db, 'TBL_COMPRAS_GRUPOS/ajeno'), {...grupo, empresaId: 'B'}));
   await seed((root) => updateDoc(doc(root, 'TBL_USUARIOS/adminA'), {'empresasDetalle.A.apps': []}));
-  await assertFails(updateDoc(doc(db, 'TBL_VISITAS_GRUPOS/g'), {nombre: 'Grupo 8'}));
+  await assertFails(updateDoc(doc(db, 'TBL_COMPRAS_GRUPOS/g'), {nombre: 'Grupo 8'}));
 });
 test('solo servidor asigna coordinadorIds, también al crear la visita', async () => {
   const {coordinadorIds, ...nueva} = visita();
