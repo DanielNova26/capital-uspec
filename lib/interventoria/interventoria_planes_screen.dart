@@ -999,41 +999,71 @@ class _SeleccionHallazgos extends StatefulWidget {
 }
 
 class _SeleccionHallazgosState extends State<_SeleccionHallazgos> {
-  final List<PlanData> _rows = [];
+  List<PlanData> _establecimientos = [], _actas = [], _rows = [];
   final Set<String> _selected = {};
-  String? _cursor, _errorText;
+  String? _centro, _acta, _errorText;
   bool _busy = false;
-  String _query = '';
-  final _filtros = PlanFiltros();
   @override
   void initState() {
     super.initState();
-    _load();
+    _cargar(() async {
+      final d = await widget.request({'accion': 'establecimientos'});
+      _establecimientos = planList(d['establecimientos']);
+    });
   }
 
-  Future<void> _load() async {
+  /// Ejecuta una consulta mostrando progreso y errores en esta pantalla.
+  Future<void> _cargar(Future<void> Function() accion) async {
     setState(() => _busy = true);
     try {
-      final d = await widget.request({
-        'accion': 'candidatos',
-        if (_cursor != null) 'cursor': _cursor,
-      });
-      if (mounted) {
-        setState(() {
-          _rows.addAll(
-            planList(
-              d['candidatos'],
-            ).where((r) => planText(r, 'idVisitaK2').trim().isNotEmpty),
-          );
-          _cursor = d['cursor'] as String?;
-          _errorText = null;
-        });
-      }
+      await accion();
+      if (mounted) setState(() => _errorText = null);
     } catch (e) {
       if (mounted) setState(() => _errorText = _error(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _elegirCentro(String? id) async {
+    setState(() {
+      _centro = id;
+      _acta = null;
+      _actas = [];
+      _rows = [];
+      _selected.clear();
+    });
+    if (id == null) return;
+    await _cargar(() async {
+      final d = await widget.request({
+        'accion': 'actas',
+        'centroCostoId': id,
+      });
+      _actas = planList(d['actas']);
+    });
+  }
+
+  Future<void> _elegirActa(String? id) async {
+    setState(() {
+      _acta = id;
+      _rows = [];
+      _selected.clear();
+    });
+    if (id == null) return;
+    await _cargar(() async {
+      final rows = <PlanData>[];
+      String? cursor;
+      do {
+        final d = await widget.request({
+          'accion': 'candidatos',
+          'visitaId': id,
+          if (cursor != null) 'cursor': cursor,
+        });
+        rows.addAll(planList(d['candidatos']));
+        cursor = d['cursor'] as String?;
+      } while (cursor != null);
+      _rows = rows;
+    });
   }
 
   Future<void> _save() async {
@@ -1059,51 +1089,67 @@ class _SeleccionHallazgosState extends State<_SeleccionHallazgos> {
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(16),
-            child: TextField(
-              decoration: const InputDecoration(
-                labelText: 'Buscar establecimiento, número de acta o fecha',
-              ),
-              onChanged: (v) => setState(() => _query = v.toLowerCase()),
-            ),
-          ),
-          Flexible(
-            flex: 1,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 240),
-              child: SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: PlanFiltrosBar(
-                    rows: _rows,
-                    filtros: _filtros,
-                    onChanged: () => setState(() {}),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Column(
+              children: [
+                DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  initialValue: _centro,
+                  decoration: const InputDecoration(
+                    labelText: '1. Establecimiento',
+                    border: OutlineInputBorder(),
                   ),
+                  items: [
+                    for (final e in _establecimientos)
+                      DropdownMenuItem(
+                        value: planText(e, 'id'),
+                        child: Text(
+                          planText(e, 'nombre'),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: _busy ? null : _elegirCentro,
                 ),
-              ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  key: ValueKey('acta-$_centro'),
+                  isExpanded: true,
+                  initialValue: _acta,
+                  decoration: const InputDecoration(
+                    labelText: '2. Acta (más reciente primero)',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    for (final v in _actas)
+                      DropdownMenuItem(
+                        value: planText(v, 'id'),
+                        child: Text(
+                          'Acta ${planText(v, 'idVisitaK2')} · ${planText(v, 'fechaActa').split('T').first}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: _busy || _centro == null ? null : _elegirActa,
+                ),
+              ],
             ),
           ),
           if (_busy) const LinearProgressIndicator(),
-          if (_errorText != null) Text(_errorText!),
+          if (_errorText != null)
+            Padding(padding: const EdgeInsets.all(8), child: Text(_errorText!)),
+          if (_centro != null && _actas.isEmpty && !_busy)
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('Este establecimiento no tiene actas con número.'),
+            ),
           Expanded(
-            flex: 2,
             child: ListView(
               children: [
-                for (final row
-                    in _filtros
-                        .aplicar(_rows)
-                        .where(
-                          (r) =>
-                              '${r['establecimiento']} ${r['idVisitaK2']} ${r['fechaActa']} ${r['numeral']} ${r['responsable']}'
-                                  .toLowerCase()
-                                  .contains(_query),
-                        ))
+                for (final row in _rows)
                   CheckboxListTile(
                     value: _selected.contains(row['id']),
-                    onChanged:
-                        _busy ||
-                            planText(row, 'tareaId').isEmpty ||
-                            planText(row, 'idVisitaK2').isEmpty
+                    onChanged: _busy || planText(row, 'tareaId').isEmpty
                         ? null
                         : (v) => setState(() {
                             if (v == true && _selected.length < 40) {
@@ -1112,19 +1158,12 @@ class _SeleccionHallazgosState extends State<_SeleccionHallazgos> {
                               _selected.remove(row['id']);
                             }
                           }),
-                    title: Text(
-                      '${row['establecimiento']} · ${row['numeral']}',
-                    ),
+                    title: Text('Numeral ${row['numeral']}'),
                     subtitle: Text(
-                      'Acta ${row['idVisitaK2']} · ${planText(row, 'fechaActa').split('T').first}\n${row['descripcion']}${planText(row, 'tareaId').isEmpty ? '\nFalta asignar tarea' : ''}',
-                      maxLines: 3,
+                      '${row['descripcion']}\nResponsable: ${row['responsable']}${planText(row, 'tareaId').isEmpty ? '\nFalta asignar tarea' : ''}',
+                      maxLines: 4,
                       overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                if (_cursor != null)
-                  TextButton(
-                    onPressed: _busy ? null : _load,
-                    child: const Text('Cargar más hallazgos'),
                   ),
               ],
             ),
@@ -1260,10 +1299,18 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
   late final _soportes = TextEditingController(
     text: planText(_item, 'respuestaSoportes'),
   );
+  late final _compromisoCalidad = TextEditingController(
+    text: planText(_item, 'compromisoCalidad'),
+  );
+  late final _respuestaCalidad = TextEditingController(
+    text: planText(_item, 'respuestaCalidad'),
+  );
   bool _busy = false;
   String _etapa = 'respuesta';
   @override
   void dispose() {
+    _compromisoCalidad.dispose();
+    _respuestaCalidad.dispose();
     _compromiso.dispose();
     _ejecucion.dispose();
     _seguimiento.dispose();
@@ -1357,7 +1404,7 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
     }
   }
 
-  Future<void> _archivo({bool camera = false}) async {
+  Future<void> _archivo({bool camera = false, bool porCalidad = false}) async {
     if (camera) {
       final file = await ImagePicker().pickImage(
         source: ImageSource.camera,
@@ -1374,6 +1421,7 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
         'accion': 'adjuntar',
         'nombre': file.name,
         'base64': base64Encode(bytes),
+        if (porCalidad) 'porCalidad': true,
       });
     } else {
       final result = await FilePicker.platform.pickFiles(
@@ -1400,6 +1448,7 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
         'accion': 'adjuntar',
         'nombre': nombre,
         'base64': base64Encode(bytes),
+        if (porCalidad) 'porCalidad': true,
       });
     }
   }
@@ -1486,28 +1535,63 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
               if (_busy) const LinearProgressIndicator(),
               PlanCabecera(
                 title:
-                    '${_item['establecimiento']} · Acta ${_item['idVisitaK2']}',
+                    '${_plan['numero']} · ${_item['establecimiento']}',
                 subtitle:
-                    'Hallazgo ${_item['numeral']} · Tarea ${_item['numeroTarea']}\nResponsable: ${_item['responsableNombre'] ?? ''}',
+                    'Acta ${_item['idVisitaK2']} · ${planText(_item, 'fechaActa').split('T').first}\n'
+                    'TAREA N.º ${_item['numeroTarea'] ?? '—'} · Responsable: ${_item['responsableNombre'] ?? ''}\n'
+                    'Estado de la tarea: ${_item['tareaEstado'] ?? 'Consultar'} · Aprueba: ${_item['aprobadorNombre'] ?? 'Sin información'}\n'
+                    'Plan: ${planEstadoGestion(_plan)} · Hallazgo: ${planEstadoHallazgo(_item)}',
               ),
               const SizedBox(height: 8),
+              Text(
+                'Numeral ${_item['numeral']}',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
               SelectableText(planText(_item, 'descripcion')),
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xfffff4e0),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xffe0a030)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Observación de interventoría (lo que debe subsanarse)',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    SelectableText(
+                      planText(_item, 'observacion').isEmpty
+                          ? 'Sin observación registrada en el acta.'
+                          : planText(_item, 'observacion'),
+                    ),
+                  ],
+                ),
+              ),
               Align(
                 alignment: Alignment.centerLeft,
                 child: PlanEstadoChip(planSemaforo(_item)),
               ),
-              Text(
-                'Estado de tarea: ${_item['tareaEstado'] ?? 'Consultar'} · Aprueba: ${_item['aprobadorNombre'] ?? 'Sin información'}',
-              ),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _copy('hallazgo', planText(_item, 'descripcion')),
-                  if (widget.calidad && planAprobado(_item, 'soportes'))
-                    _copy('subsanación', planText(_item, 'respuestaSoportes')),
-                ],
-              ),
+              if (widget.calidad)
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _copy('compromiso', planText(_item, 'compromiso')),
+                    _copy('respuesta', planText(_item, 'respuestaSoportes')),
+                    _copy(
+                      'compromiso de Calidad',
+                      planText(_item, 'compromisoCalidad'),
+                    ),
+                    _copy(
+                      'respuesta de Calidad',
+                      planText(_item, 'respuestaCalidad'),
+                    ),
+                  ],
+                ),
               const SizedBox(height: 12),
               Wrap(
                 spacing: 10,
@@ -1529,6 +1613,14 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                     selected: _etapa == 'soportes',
                     onSelected: (_) => setState(() => _etapa = 'soportes'),
                   ),
+                  if (widget.calidad)
+                    ChoiceChip(
+                      showCheckmark: false,
+                      avatar: const Icon(Icons.rate_review_outlined),
+                      label: const Text('3. Redacción de Calidad'),
+                      selected: _etapa == 'calidad',
+                      onSelected: (_) => setState(() => _etapa = 'calidad'),
+                    ),
                 ],
               ),
               PlanColumnas(
@@ -1778,7 +1870,7 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                                   planAprobado(_item, 'respuesta')) ...[
                                 _copy(
                                   'respuesta para K2',
-                                  '${_plan['numero']} · ${_item['establecimiento']}\nActa: ${_item['idVisitaK2']} · Numeral: ${_item['numeral']}\nResponsable: ${_item['responsableNombre']}\nHallazgo: ${_item['descripcion']}\nCompromiso: ${_item['compromiso']}\nEjecución: ${_item['fechaEjecucion']}\nSeguimiento: ${_item['fechaSeguimiento']}\nSubsanación: ${_item['respuestaSoportes']}',
+                                  '${_plan['numero']} · ${_item['establecimiento']}\nActa: ${_item['idVisitaK2']} · Numeral: ${_item['numeral']}\nResponsable: ${_item['responsableNombre']}\nCompromiso: ${_item['compromiso']}\nEjecución: ${_item['fechaEjecucion']}\nSeguimiento: ${_item['fechaSeguimiento']}\nSubsanación: ${_item['respuestaSoportes']}',
                                 ),
                                 OutlinedButton.icon(
                                   icon: const Icon(Icons.compress),
@@ -1819,6 +1911,80 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                               ],
                             ],
                           ),
+                        ],
+                      ),
+                    ),
+                  if (_etapa == 'calidad' && widget.calidad)
+                    PlanBloque(
+                      title: 'Respuesta preparada por Calidad',
+                      icon: Icons.rate_review_outlined,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Text(
+                            'Se conserva junto a la respuesta del funcionario. Si queda vacía, se usa la importada de la tarea.',
+                          ),
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: _compromisoCalidad,
+                            minLines: 2,
+                            maxLines: 10,
+                            maxLength: 12000,
+                            decoration: const InputDecoration(
+                              labelText: 'Compromiso redactado por Calidad',
+                              border: OutlineInputBorder(),
+                              alignLabelWithHint: true,
+                            ),
+                          ),
+                          TextField(
+                            controller: _respuestaCalidad,
+                            minLines: 3,
+                            maxLines: 12,
+                            maxLength: 12000,
+                            decoration: const InputDecoration(
+                              labelText: 'Respuesta redactada por Calidad',
+                              border: OutlineInputBorder(),
+                              alignLabelWithHint: true,
+                            ),
+                          ),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              FilledButton(
+                                onPressed: _busy
+                                    ? null
+                                    : () => _mutate({
+                                        'accion': 'redactarCalidad',
+                                        'compromisoCalidad':
+                                            _compromisoCalidad.text,
+                                        'respuestaCalidad':
+                                            _respuestaCalidad.text,
+                                      }),
+                                child: const Text('Guardar redacción'),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed: _busy ? null : () => _archivo(porCalidad: true),
+                                icon: const Icon(Icons.attach_file),
+                                label: const Text('Agregar soporte de Calidad'),
+                              ),
+                            ],
+                          ),
+                          for (final ev in planList(_item['evidencias']))
+                            ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(
+                                planText(ev, 'origen') == 'calidad'
+                                    ? Icons.rate_review_outlined
+                                    : Icons.person_outline,
+                              ),
+                              title: Text(planText(ev, 'nombre')),
+                              subtitle: Text(
+                                planText(ev, 'origen') == 'calidad'
+                                    ? 'Aportado por Calidad'
+                                    : 'Del funcionario / tarea aprobada',
+                              ),
+                            ),
                         ],
                       ),
                     ),

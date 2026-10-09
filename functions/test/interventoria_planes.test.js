@@ -47,3 +47,22 @@ test('copiar, aprobar o descargar no equivale a presentar en K2', () => {
   assert.throws(() => p.validarPresentacion(item, 'respuesta', 2));
   assert.throws(() => p.validarPresentacion({...item, respuestaPresentado: {fecha: '2026-10-05'}}, 'respuesta', 3));
 });
+
+test('la tarea debe estar aprobada antes de responder, revisar o presentar', () => {
+  assert.throws(() => p.exigirTareaAprobada({estado: 'en_proceso'}));
+  assert.throws(() => p.exigirTareaAprobada({estado: 'finalizado', solicitud_finalizacion_estado: 'pendiente'}));
+  assert.doesNotThrow(() => p.exigirTareaAprobada({estado: 'finalizado', solicitud_finalizacion_estado: 'aprobado'}));
+});
+
+test('el plan pasa a «En gestión» solo cuando todos los hallazgos están en gestión', () => {
+  const plan = {estadoGestion: 'recibido'};
+  const en = {respuestaVersion: 1};
+  const pend = {respuestaVersion: 0, soportesVersion: 0};
+  assert.equal(p.estadoHallazgo(pend), 'pendiente');
+  assert.equal(p.estadoHallazgo(en), 'en_gestion');
+  assert.equal(p.estadoHallazgo({respuestaPresentado: {}, soportesPresentado: {}}), 'enviado');
+  assert.equal(p.planDebePasarAGestion(plan, [en, pend]), false);
+  assert.equal(p.planDebePasarAGestion(plan, [en, {soportesVersion: 2}]), true);
+  assert.equal(p.planDebePasarAGestion({estadoGestion: 'enviado'}, [en]), false);
+  assert.equal(p.planDebePasarAGestion(plan, []), false);
+});

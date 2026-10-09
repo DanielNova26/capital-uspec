@@ -435,7 +435,7 @@ class PlanResumen extends StatelessWidget {
                     ? 'Listos'
                     : estado == 'Sin iniciar'
                     ? 'Por hacer'
-                    : 'En curso',
+                    : 'En gestión',
                 style: TextStyle(color: color, fontWeight: FontWeight.w600),
               ),
             ],
@@ -444,4 +444,20 @@ class PlanResumen extends StatelessWidget {
       }).toList(),
     ),
   );
+}
+
+/// Estado global del plan: siempre «En gestión», nunca «En curso».
+String planEstadoGestion(Map<String, dynamic> plan) =>
+    planEstadosGestion[plan['estadoGestion']] ?? 'Recibido';
+
+/// Estado propio del hallazgo, independiente del estado del plan.
+String planEstadoHallazgo(Map<String, dynamic> item) {
+  switch ('${item['estadoHallazgo'] ?? 'pendiente'}') {
+    case 'en_gestion':
+      return 'En gestión';
+    case 'enviado':
+      return 'Enviado a K2';
+    default:
+      return 'Pendiente';
+  }
 }

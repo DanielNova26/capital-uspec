@@ -99,3 +99,21 @@ export function diasRestantesPlan(limite: string, hoy: string): number {
   return Math.round((Date.parse(`${diaValido(limite)}T12:00:00Z`) -
     Date.parse(`${diaValido(hoy)}T12:00:00Z`)) / 86400000);
 }
+
+/** Estado propio del hallazgo; distinto del estado global del plan. */
+export function estadoHallazgo(item: DatosPlan): "pendiente" | "en_gestion" | "enviado" {
+  if (item.respuestaPresentado && item.soportesPresentado) return "enviado";
+  return (Number(item.respuestaVersion) > 0 || Number(item.soportesVersion) > 0) ? "en_gestion" : "pendiente";
+}
+
+/** Cuando todos los hallazgos están en gestión, el plan recibido pasa a «En gestión». */
+export function planDebePasarAGestion(plan: DatosPlan, items: DatosPlan[]): boolean {
+  return (plan.estadoGestion || "recibido") === "recibido" && items.length > 0 &&
+    items.every((i) => estadoHallazgo(i) !== "pendiente");
+}
+
+export function exigirTareaAprobada(tarea: DatosPlan): void {
+  if (!tareaAprobadaParaPlan(tarea)) {
+    throw Error("La tarea debe estar aprobada antes de responder, revisar o presentar en K2.");
+  }
+}

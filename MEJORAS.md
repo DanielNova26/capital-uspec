@@ -750,6 +750,30 @@ lo podemos poner en el admin".
   K2 de Codex) en un parche junto con la plantilla Word, que el usuario aplica
   en `main` con PowerShell; después se borra la rama remota.
 
+## 2026-10-09 — Planes K2: ajustes de la reunión (Claude)
+
+- Los cambios locales de Codex no llegaron al repositorio; se reimplementó.
+- Servidor (`interventoriaPlanes`): responder, subir soportes, revisar y presentar
+  exigen la tarea aprobada (compromiso inicial incluido, decisión del usuario);
+  reabrir no. Acciones nuevas `establecimientos`, `actas` (numeradas, más reciente
+  primero) y `candidatos` por `visitaId`; `redactarCalidad` guarda
+  `compromisoCalidad`/`respuestaCalidad` aparte de la del funcionario y
+  `adjuntar` con `porCalidad` marca `origen: "calidad"`. Se guarda y expone
+  `observacion` (observaciones de interventoría). `estadoHallazgo` por hallazgo y
+  el plan pasa solo a «En gestión» cuando todos sus hallazgos lo están.
+  El PDF queda estructurado (identificación, no conformidad, respuestas,
+  revisión/presentación, índice de soportes; imágenes y PDF a continuación).
+- Cliente: vinculación Establecimiento → Acta → hallazgos; cabecera con PM,
+  acta, fecha, N.º de tarea, estados y aprobador; observación destacada; pestaña
+  «Redacción de Calidad»; botones para copiar compromiso/respuesta (funcionario
+  y Calidad); «En curso» → «En gestión».
+- Pruebas: 9/9 de política (TypeScript compila). **Sin verificar**: compilación y
+  pruebas Flutter, Web, Android e iPhone (sin Flutter en este entorno); pruebas
+  de integración con emulador no ejecutadas.
+- Pendiente: disposición en tres secciones/dos paneles lado a lado, iconos de
+  ayuda «?», descarga de todos los soportes y fechas de subsanación distintas
+  del plazo del plan; PDF no se verificó visualmente.
+
 ## 2026-10-05 — Planes de mejora K2 implementados (Codex)
 
 - Interventoría → Calidad → Planes de mejora: PM/CSC, hallazgos de visitas

@@ -12,6 +12,9 @@ exports.etapaAprobada = etapaAprobada;
 exports.validarRevision = validarRevision;
 exports.validarPresentacion = validarPresentacion;
 exports.diasRestantesPlan = diasRestantesPlan;
+exports.estadoHallazgo = estadoHallazgo;
+exports.planDebePasarAGestion = planDebePasarAGestion;
+exports.exigirTareaAprobada = exigirTareaAprobada;
 exports.PLANES_COL = "TBL_INTERVENTORIA_PLANES";
 exports.ITEMS_COL = "TBL_INTERVENTORIA_PLAN_ITEMS";
 exports.APP_PLANES = "interventoriadashboard";
@@ -107,4 +110,20 @@ function validarPresentacion(item, etapa, version) {
 function diasRestantesPlan(limite, hoy) {
     return Math.round((Date.parse(`${diaValido(limite)}T12:00:00Z`) -
         Date.parse(`${diaValido(hoy)}T12:00:00Z`)) / 86400000);
+}
+/** Estado propio del hallazgo; distinto del estado global del plan. */
+function estadoHallazgo(item) {
+    if (item.respuestaPresentado && item.soportesPresentado)
+        return "enviado";
+    return (Number(item.respuestaVersion) > 0 || Number(item.soportesVersion) > 0) ? "en_gestion" : "pendiente";
+}
+/** Cuando todos los hallazgos están en gestión, el plan recibido pasa a «En gestión». */
+function planDebePasarAGestion(plan, items) {
+    return (plan.estadoGestion || "recibido") === "recibido" && items.length > 0 &&
+        items.every((i) => estadoHallazgo(i) !== "pendiente");
+}
+function exigirTareaAprobada(tarea) {
+    if (!tareaAprobadaParaPlan(tarea)) {
+        throw Error("La tarea debe estar aprobada antes de responder, revisar o presentar en K2.");
+    }
 }
