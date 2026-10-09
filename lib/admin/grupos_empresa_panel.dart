@@ -116,7 +116,10 @@ class AdminGruposEmpresaPanel extends StatelessWidget {
     final out = <({String id, String nombre})>[];
     for (final u in usuarios) {
       final data = u.data();
-      final raw = mergeCompanyScopedData(data, empresaId)['gruposInterventoria'];
+      final raw = mergeCompanyScopedData(
+        data,
+        empresaId,
+      )['gruposInterventoria'];
       if (gruposDePersonaFicha(raw).contains(clave)) {
         final nombre = UserDirectory.instance
             .fromUsuario(u.id, data)
@@ -125,7 +128,9 @@ class AdminGruposEmpresaPanel extends StatelessWidget {
         out.add((id: u.id, nombre: nombre.isEmpty ? u.id : nombre));
       }
     }
-    out.sort((a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()));
+    out.sort(
+      (a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()),
+    );
     return out;
   }
 
@@ -205,8 +210,7 @@ class AdminGruposEmpresaPanel extends StatelessWidget {
           PagedListSection<ComprasGrupoDoc>(
             items: ordenados,
             etiqueta: 'grupos',
-            itemBuilder: (context, g, _) =>
-                _tarjeta(context, g, nombreCentro),
+            itemBuilder: (context, g, _) => _tarjeta(context, g, nombreCentro),
           ),
       ],
     );
@@ -288,8 +292,8 @@ class AdminGruposEmpresaPanel extends StatelessWidget {
                           ),
                         ),
                         for (final p in personas)
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
+                          Wrap(
+                            crossAxisAlignment: WrapCrossAlignment.center,
                             children: [
                               UserAvatar(
                                 userId: p.id,

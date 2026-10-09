@@ -31,6 +31,26 @@ Capturas del usuario (Android, ancho ~390 px, módulo Gerencia › Interventorí
   - Descartado como falso positivo: `_PeopleHero` de Talento Humano es solo de
     escritorio (el teléfono usa `_MobilePeopleCard`). Los diálogos con
     `SizedBox(width: 520…)` no desbordan: el diálogo limita el ancho.
+- **Segunda pasada: Admin y Compras.**
+  - 17 filas de icono + texto largo (chips y etiquetas con marca, estado, tiempo
+    de Calidad, grupos de empresa, avisos) pasan de `Row` a `Wrap`: en el
+    teléfono el texto baja de línea en vez de salirse. `Wrap` no falla con ancho
+    sin límite, a diferencia de `Flexible`.
+  - Compras › Ficha técnica y Orden de compra: el nombre del proveedor y el NIT
+    pasan a `Expanded` (estaban en el formulario de un diálogo, ancho acotado).
+  - 9 selectores `DropdownButtonFormField` sin `isExpanded` (Admin › Documentos
+    de Compras y WhatsApp, Abastecimiento, filtros de grupo de Compras): con un
+    texto largo desbordaban en 390 px. Se dejaron sin tocar los que están dentro
+    de una `Row` o `LayoutBuilder` (`security_admin_panel.dart`, el cambio de
+    estado de documentos y dos selectores de roles en `admin_dashboard_screen.dart`)
+    porque `isExpanded` allí lanzaría error de ancho sin límite.
+  - **Abastecimiento no paginaba**: ni la tabla de escritorio ni las tarjetas del
+    teléfono (regla 1: 20 por página). Ahora usa `pageOf` + `PagerBar` sobre la
+    lista filtrada; `_visibles` conserva todo lo filtrado para la exportación.
+  - Pendiente: 26 filas de Admin y Compras con texto dinámico sin `Expanded`
+    (por ejemplo ciudad y NIT del proveedor, marcas, títulos de tarjetas). No se
+    cambiaron en masa: sin verlas en pantalla, `Expanded` podría lanzar errores
+    de ancho sin límite. Se corrigen con capturas.
 - Validación: Flutter 3.44.9 instalado en el entorno; `flutter analyze` sin
   errores en lo tocado (los avisos que salen ya existían); suite completa de
   1.631 pruebas aprobada.

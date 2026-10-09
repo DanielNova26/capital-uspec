@@ -178,8 +178,8 @@ class _TiempoCalidadBadgeState extends State<TiempoCalidadBadge> {
       message: t.enCurso
           ? 'Tiempo desde que se cargó el documento y sigue sin decisión de Calidad'
           : 'Tiempo que tardó Calidad desde la carga hasta su decisión',
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Icon(icono, size: widget.fontSize + 2, color: color),
           const SizedBox(width: 3),

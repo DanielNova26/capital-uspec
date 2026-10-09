@@ -9038,8 +9038,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: kAdminAccent.withValues(alpha: 0.2)),
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
+              child: Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   Icon(
                     Icons.people_alt_rounded,
@@ -9065,10 +9065,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       onEdit: () => _dialogApp(existing: aDoc),
       onToggle: (v) async {
         await _repo.setAppEnabled(
-                      empresaId: _empresaId ?? widget.empresaId,
-                      docId: aDoc.id,
-                      enabled: v,
-                    );
+          empresaId: _empresaId ?? widget.empresaId,
+          docId: aDoc.id,
+          enabled: v,
+        );
         _snack('App ${v ? "habilitada" : "deshabilitada"}');
         await _loadAll(forceEmpresaId: _empresaId);
       },
@@ -10353,8 +10353,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: kAdminBorder),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Icon(icon, size: 15, color: kAdminMuted),
           const SizedBox(width: 6),
@@ -10390,8 +10390,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: color.withValues(alpha: 0.35)),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Container(
             width: 10,

@@ -203,8 +203,8 @@ class _AdminNotificationMasterPanelState
             : fijo
             ? 'Aviso crítico: no se puede apagar.'
             : nombre,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
+        child: Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             Icon(icono, size: 18, color: _muted),
             const SizedBox(width: 4),

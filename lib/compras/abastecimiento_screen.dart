@@ -7,6 +7,7 @@ import 'package:printing/printing.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/compras_abastecimiento_excel_parser.dart';
+import '../widgets/paged_list.dart';
 import 'abastecimiento_excel_template.dart';
 import 'abastecimiento_models.dart';
 import 'abastecimiento_pdf.dart';
@@ -72,6 +73,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
 
   /// Lo que la lista muestra ahora; el PDF sale con exactamente esto.
   List<AbastecimientoDoc> _visibles = const [];
+  int _paginaLista = 0;
 
   String? get _rol => _currentRole;
   bool get _canImport => _rol == kRolAdmin || _rol == kRolCompras;
@@ -257,6 +259,14 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
           _visibles = visible;
           final selected = _resolveSelected(visible);
           final desktop = MediaQuery.sizeOf(context).width >= 1050;
+          // 20 por página (regla de la app). `_visibles` conserva todo lo
+          // filtrado: la exportación y los totales no dependen de la página.
+          final ultimaPagina = pageCountOf(visible.length) - 1;
+          final pagina = _paginaLista.clamp(
+            0,
+            ultimaPagina < 0 ? 0 : ultimaPagina,
+          );
+          final enPagina = pageOf(visible, pagina);
 
           return SafeArea(
             child: Column(
@@ -266,18 +276,35 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                 Expanded(
                   child: visible.isEmpty
                       ? _EmptyAbastecimiento(canImport: _canImport)
-                      : desktop
-                      ? Row(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                      : Column(
                           children: [
-                            Expanded(child: _buildTable(visible)),
-                            SizedBox(
-                              width: 390,
-                              child: _buildDetail(selected ?? visible.first),
+                            Expanded(
+                              child: desktop
+                                  ? Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        Expanded(child: _buildTable(enPagina)),
+                                        SizedBox(
+                                          width: 390,
+                                          child: _buildDetail(
+                                            selected ?? visible.first,
+                                          ),
+                                        ),
+                                      ],
+                                    )
+                                  : _buildCards(enPagina),
                             ),
+                            if (visible.length > kPageSize)
+                              PagerBar(
+                                total: visible.length,
+                                page: pagina,
+                                etiqueta: 'entregas',
+                                onPageChanged: (p) =>
+                                    setState(() => _paginaLista = p),
+                              ),
                           ],
-                        )
-                      : _buildCards(visible),
+                        ),
                 ),
               ],
             ),
@@ -2112,6 +2139,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   DropdownButtonFormField<AbastecimientoEstado>(
+                    isExpanded: true,
                     initialValue: status,
                     decoration: const InputDecoration(
                       labelText: 'Nuevo estado',
