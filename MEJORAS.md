@@ -6,6 +6,42 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## 2026-10-09 — Gerencia › Interventoría: análisis ilegible en el teléfono (Claude)
+
+Capturas del usuario (Android, ancho ~390 px, módulo Gerencia › Interventoría).
+- **Título de la gráfica en vertical.** `Hallazgos por establecimiento` compartía
+  fila con tres leyendas y dos botones de exportar; el `Expanded` del título
+  quedaba casi sin ancho y se pintaba una letra por renglón. Ahora, por debajo de
+  560 px de ancho disponible, el título va con las exportaciones y las leyendas
+  bajan a un `Wrap`. En ancho amplio no cambia.
+- **Tarjetas de resumen cortadas.** En móvil usaban `GridView` con
+  `childAspectRatio: 2.1` fijo: `879 (198)` partía en dos renglones y
+  `Hallazgos (visitas)` / `Establecimientos` se cortaban. Ahora son dos por
+  fila con alto según el contenido; el valor se reduce en vez de partirse y el
+  título admite dos renglones.
+- Archivo: `lib/gerencia/gerencia_interventoria_tab.dart`.
+- **Revisión de otras pantallas** (búsqueda por patrón sobre `lib/`, 402 archivos):
+  - Nuevo `lib/widgets/alto_escalado.dart` (`altoEscalado`): alto de tarjeta que
+    crece con la escala de texto, con prueba propia. Las rejillas de tarjetas con
+    `childAspectRatio` fijo pasan a `mainAxisExtent` en el teléfono, como ya hacía
+    el Home: Talento Humano › Disciplinario y › Finalización de documentos,
+    Gerencia (tarjetas de resumen) y las dos rejillas de perfiles de Rutas.
+  - Rutas › horario de comida: nombre y los dos botones de hora pasan a `Wrap`;
+    en el teléfono el nombre quedaba casi sin ancho.
+  - Descartado como falso positivo: `_PeopleHero` de Talento Humano es solo de
+    escritorio (el teléfono usa `_MobilePeopleCard`). Los diálogos con
+    `SizedBox(width: 520…)` no desbordan: el diálogo limita el ancho.
+- Validación: Flutter 3.44.9 instalado en el entorno; `flutter analyze` sin
+  errores en lo tocado (los avisos que salen ya existían); suite completa de
+  1.631 pruebas aprobada.
+- **Pendiente (no es una revisión completa):** quedan filas de lista con título +
+  varios botones (Compras, Facturación obligaciones, Talento Humano, Interventoría
+  tablero de asignación) que solo se pueden juzgar viéndolas. Esta revisión es
+  estática: no hay capturas de cada pantalla en 390 px ni con texto 1,6×.
+  Verificar en Android/iPhone físicos y enviar capturas de lo que se vea mal.
+- Pendiente de la misma revisión: Admin y Gerencia con filas que combinan título
+  y varios controles. No se auditaron todas.
+
 ## 2026-10-09 — Claude integrado y publicación 2.6.25 (Codex)
 
 - Integrada `claude/eloquent-goodall-mrk87j` (hasta `c560472`) en `main`

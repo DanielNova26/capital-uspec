@@ -7,10 +7,10 @@ import 'package:url_launcher/url_launcher.dart';
 import '../widgets/internal_module_layout.dart';
 import '../widgets/paged_list.dart';
 import '../widgets/user_avatar.dart';
-import 'disciplinary_service.dart'
-    show DisciplinaryPerson, DisciplinaryService;
+import 'disciplinary_service.dart' show DisciplinaryPerson, DisciplinaryService;
 import 'finalizacion_documentos_service.dart';
 import 'plantilla_combinacion.dart';
+import '../widgets/alto_escalado.dart';
 
 const _primary = Color(0xFF0F766E);
 const _navy = Color(0xFF173B5E);
@@ -112,12 +112,15 @@ class _FinalizacionDocumentosScreenState
           Expanded(
             child: TabBarView(
               controller: _tabs,
-              children: [_GenerarTab(
-                userId: widget.userId,
-                empresaId: widget.empresaId,
-                service: _service,
-                plantillas: _plantillas,
-              ), _carpetasTab()],
+              children: [
+                _GenerarTab(
+                  userId: widget.userId,
+                  empresaId: widget.empresaId,
+                  service: _service,
+                  plantillas: _plantillas,
+                ),
+                _carpetasTab(),
+              ],
             ),
           ),
         ],
@@ -320,10 +323,7 @@ class _FinalizacionDocumentosScreenState
   void _message(String text, {bool error = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(text),
-        backgroundColor: error ? _danger : _navy,
-      ),
+      SnackBar(content: Text(text), backgroundColor: error ? _danger : _navy),
     );
   }
 }
@@ -358,7 +358,8 @@ class _GenerarTabState extends State<_GenerarTab> {
     return StreamBuilder<Map<String, PlantillaDocumento>>(
       stream: widget.plantillas,
       builder: (context, snapshot) {
-        final plantillas = snapshot.data ?? const <String, PlantillaDocumento>{};
+        final plantillas =
+            snapshot.data ?? const <String, PlantillaDocumento>{};
         final plantilla = plantillas[_tipo];
         return ColoredBox(
           color: _surface,
@@ -556,10 +557,7 @@ class _GenerarTabState extends State<_GenerarTab> {
   void _message(String text, {bool error = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(text),
-        backgroundColor: error ? _danger : _navy,
-      ),
+      SnackBar(content: Text(text), backgroundColor: error ? _danger : _navy),
     );
   }
 }
@@ -653,8 +651,11 @@ class _Paso extends StatelessWidget {
                   shape: BoxShape.circle,
                 ),
                 child: hecho
-                    ? const Icon(Icons.check_rounded,
-                        size: 15, color: Colors.white)
+                    ? const Icon(
+                        Icons.check_rounded,
+                        size: 15,
+                        color: Colors.white,
+                      )
                     : Text(
                         '$numero',
                         style: const TextStyle(
@@ -1044,13 +1045,22 @@ class _ResumenCarpetas extends StatelessWidget {
       ('Incompletas', pendientes, Icons.pending_actions_rounded, _warning),
     ];
     return LayoutBuilder(
-      builder: (context, constraints) => GridView.count(
+      builder: (context, constraints) => GridView(
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
-        crossAxisCount: constraints.maxWidth < 640 ? 2 : 4,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
-        childAspectRatio: constraints.maxWidth < 640 ? 1.9 : 1.7,
+        gridDelegate: constraints.maxWidth < 640
+            ? SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
+                mainAxisExtent: altoEscalado(context, 92),
+              )
+            : const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 4,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
+                childAspectRatio: 1.7,
+              ),
         children: [
           for (final (label, valor, icono, color) in datos)
             Container(

@@ -18,6 +18,7 @@ import '../widgets/paged_list.dart';
 import 'gerencia_areas.dart';
 import 'gerencia_interventoria_tab.dart';
 import 'gerencia_permisos.dart';
+import '../widgets/alto_escalado.dart';
 
 const String kTodasEmpresasValue = '__todas_empresas__';
 const List<InternalModuleTabItem> _kGerenciaModuleTabs = [
@@ -1018,6 +1019,8 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
           itemCount: cards.length,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: crossAxisCount,
+            // Teléfono: alto según la escala de texto en vez de proporción.
+            mainAxisExtent: w <= 600 ? altoEscalado(context, 120) : null,
             childAspectRatio: aspect,
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
