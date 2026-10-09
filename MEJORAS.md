@@ -773,7 +773,10 @@ lo podemos poner en el admin".
 - Hecho después: pantalla del hallazgo en tres secciones (≥1000 px lado a lado;
   en estrecho, selector Datos/Numeral/Soportes) e icono «?» (`PlanAyuda`) en
   avisos largos. Sin compilar ni probar en Web/Android/iPhone.
-- Pendiente: dos paneles funcionario/Calidad lado a lado, descarga de todos los soportes y fechas de subsanación distintas
+- Hecho: con ≥1000 px, Calidad ve dos paneles lado a lado (izquierda Calidad,
+  derecha funcionario/tarea aprobada); en estrecho, pestaña «Redacción de Calidad».
+  Sin compilar ni probar.
+- Pendiente: descarga de todos los soportes y fechas de subsanación distintas
   del plazo del plan; PDF no se verificó visualmente.
 
 ## 2026-10-05 — Planes de mejora K2 implementados (Codex)

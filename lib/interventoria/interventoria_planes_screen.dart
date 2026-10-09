@@ -1605,7 +1605,85 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
     ),
   );
 
-  Widget _respuesta() => Column(
+  Widget _bloqueCalidad() =>
+PlanBloque(
+                      title: 'Respuesta preparada por Calidad',
+                      icon: Icons.rate_review_outlined,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Align(
+                            alignment: Alignment.centerLeft,
+                            child: PlanAyuda(
+                              'Se conserva junto a la respuesta del funcionario. Si queda vacía, se usa la importada de la tarea.',
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: _compromisoCalidad,
+                            minLines: 2,
+                            maxLines: 10,
+                            maxLength: 12000,
+                            decoration: const InputDecoration(
+                              labelText: 'Compromiso redactado por Calidad',
+                              border: OutlineInputBorder(),
+                              alignLabelWithHint: true,
+                            ),
+                          ),
+                          TextField(
+                            controller: _respuestaCalidad,
+                            minLines: 3,
+                            maxLines: 12,
+                            maxLength: 12000,
+                            decoration: const InputDecoration(
+                              labelText: 'Respuesta redactada por Calidad',
+                              border: OutlineInputBorder(),
+                              alignLabelWithHint: true,
+                            ),
+                          ),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              FilledButton(
+                                onPressed: _busy
+                                    ? null
+                                    : () => _mutate({
+                                        'accion': 'redactarCalidad',
+                                        'compromisoCalidad':
+                                            _compromisoCalidad.text,
+                                        'respuestaCalidad':
+                                            _respuestaCalidad.text,
+                                      }),
+                                child: const Text('Guardar redacción'),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed: _busy ? null : () => _archivo(porCalidad: true),
+                                icon: const Icon(Icons.attach_file),
+                                label: const Text('Agregar soporte de Calidad'),
+                              ),
+                            ],
+                          ),
+                          for (final ev in planList(_item['evidencias']))
+                            ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(
+                                planText(ev, 'origen') == 'calidad'
+                                    ? Icons.rate_review_outlined
+                                    : Icons.person_outline,
+                              ),
+                              title: Text(planText(ev, 'nombre')),
+                              subtitle: Text(
+                                planText(ev, 'origen') == 'calidad'
+                                    ? 'Aportado por Calidad'
+                                    : 'Del funcionario / tarea aprobada',
+                              ),
+                            ),
+                        ],
+                      ),
+                    );
+
+  Widget _respuesta({bool conCalidad = false}) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
               const SizedBox(height: 12),
@@ -1629,7 +1707,7 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                     selected: _etapa == 'soportes',
                     onSelected: (_) => setState(() => _etapa = 'soportes'),
                   ),
-                  if (widget.calidad)
+                  if (conCalidad)
                     ChoiceChip(
                       showCheckmark: false,
                       avatar: const Icon(Icons.rate_review_outlined),
@@ -1933,83 +2011,7 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                         ],
                       ),
                     ),
-                  if (_etapa == 'calidad' && widget.calidad)
-                    PlanBloque(
-                      title: 'Respuesta preparada por Calidad',
-                      icon: Icons.rate_review_outlined,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          const Align(
-                            alignment: Alignment.centerLeft,
-                            child: PlanAyuda(
-                              'Se conserva junto a la respuesta del funcionario. Si queda vacía, se usa la importada de la tarea.',
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          TextField(
-                            controller: _compromisoCalidad,
-                            minLines: 2,
-                            maxLines: 10,
-                            maxLength: 12000,
-                            decoration: const InputDecoration(
-                              labelText: 'Compromiso redactado por Calidad',
-                              border: OutlineInputBorder(),
-                              alignLabelWithHint: true,
-                            ),
-                          ),
-                          TextField(
-                            controller: _respuestaCalidad,
-                            minLines: 3,
-                            maxLines: 12,
-                            maxLength: 12000,
-                            decoration: const InputDecoration(
-                              labelText: 'Respuesta redactada por Calidad',
-                              border: OutlineInputBorder(),
-                              alignLabelWithHint: true,
-                            ),
-                          ),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              FilledButton(
-                                onPressed: _busy
-                                    ? null
-                                    : () => _mutate({
-                                        'accion': 'redactarCalidad',
-                                        'compromisoCalidad':
-                                            _compromisoCalidad.text,
-                                        'respuestaCalidad':
-                                            _respuestaCalidad.text,
-                                      }),
-                                child: const Text('Guardar redacción'),
-                              ),
-                              OutlinedButton.icon(
-                                onPressed: _busy ? null : () => _archivo(porCalidad: true),
-                                icon: const Icon(Icons.attach_file),
-                                label: const Text('Agregar soporte de Calidad'),
-                              ),
-                            ],
-                          ),
-                          for (final ev in planList(_item['evidencias']))
-                            ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              leading: Icon(
-                                planText(ev, 'origen') == 'calidad'
-                                    ? Icons.rate_review_outlined
-                                    : Icons.person_outline,
-                              ),
-                              title: Text(planText(ev, 'nombre')),
-                              subtitle: Text(
-                                planText(ev, 'origen') == 'calidad'
-                                    ? 'Aportado por Calidad'
-                                    : 'Del funcionario / tarea aprobada',
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
+                  if (_etapa == 'calidad' && conCalidad) _bloqueCalidad(),
                   if (_etapa == 'soportes')
                     PlanBloque(
                       title: 'Traer archivos y respuestas de la tarea',
@@ -2028,6 +2030,22 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
     ],
   );
 
+  Widget _panel(String titulo, String ayuda, Widget hijo) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Row(
+          children: [
+            Text(titulo, style: Theme.of(context).textTheme.titleMedium),
+            PlanAyuda(ayuda),
+          ],
+        ),
+      ),
+      hijo,
+    ],
+  );
+
   String _seccion = 'general';
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -2043,13 +2061,39 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
           child: LayoutBuilder(
             builder: (context, c) {
               final ancho = c.maxWidth >= 1000;
+              if (ancho && _etapa == 'calidad') _etapa = 'respuesta';
               return ListView(
                 padding: const EdgeInsets.all(16),
                 keyboardDismissBehavior:
                     ScrollViewKeyboardDismissBehavior.onDrag,
                 children: [
                   if (_busy) const LinearProgressIndicator(),
-                  if (ancho)
+                  if (ancho && widget.calidad) ...[
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(flex: 2, child: _general()),
+                        const SizedBox(width: 16),
+                        Expanded(flex: 3, child: _numeral()),
+                      ],
+                    ),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: _panel(
+                          'Preparado por Calidad',
+                          'Redacción propia y soportes adicionales. Si Calidad no escribe una respuesta, se usa la del funcionario.',
+                          _bloqueCalidad(),
+                        )),
+                        const SizedBox(width: 16),
+                        Expanded(child: _panel(
+                          'Respuesta del funcionario',
+                          'Respuesta y archivos de la tarea aprobada.',
+                          _respuesta(),
+                        )),
+                      ],
+                    ),
+                  ] else if (ancho)
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -2087,7 +2131,7 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                     const SizedBox(height: 8),
                     if (_seccion == 'general') _general(),
                     if (_seccion == 'numeral') _numeral(),
-                    if (_seccion == 'soportes') _respuesta(),
+                    if (_seccion == 'soportes') _respuesta(conCalidad: widget.calidad),
                   ],
                   const SizedBox(height: 24),
                 ],
