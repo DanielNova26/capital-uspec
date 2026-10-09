@@ -942,30 +942,17 @@ service cloud.firestore {
     // Grupos de profesionales con sus establecimientos (25 sep 2026). Los
     // arma el jefe de cada área para su área; no se cambian de área (se
     // borra y se crea otro), así un jefe no se lleva el grupo de otro.
-    // 8 oct 2026: los grupos son de la EMPRESA (Grupo 6, Grupo 7…), sin
-    // departamento: `areaId` queda vacío en los nuevos y solo se conserva en
-    // los antiguos. Se arman en Admin › Grupos de trabajo (Administración de
-    // la empresa, Gerencia o Desarrollo; el jefe, solo los antiguos de su
-    // área) y los
-    // consumen Visitas e Interventoría, así que los lee cualquiera de la
-    // empresa: solo contienen ids de personas y de establecimientos.
     match /TBL_VISITAS_GRUPOS/{docId} {
       allow get: if resource == null
-        || belongsToCompany(resource.data.empresaId);
-      allow list: if belongsToCompany(resource.data.empresaId);
+        || participaEnVisitas(resource.data.empresaId);
+      allow list: if participaEnVisitas(resource.data.empresaId);
       allow create: if administraVisitasArea(request.resource.data.empresaId,
-          request.resource.data.get('areaId', ''))
-        || (belongsToCompany(request.resource.data.empresaId)
-          && tieneAppAdminEn(request.resource.data.empresaId));
+          request.resource.data.areaId);
       allow update: if empresaSeConserva()
-        && resource.data.get('areaId', '') == request.resource.data.get('areaId', '')
-        && (administraVisitasArea(resource.data.empresaId, resource.data.get('areaId', ''))
-          || (belongsToCompany(resource.data.empresaId)
-            && tieneAppAdminEn(resource.data.empresaId)));
+        && resource.data.areaId == request.resource.data.areaId
+        && administraVisitasArea(resource.data.empresaId, resource.data.areaId);
       allow delete: if administraVisitasArea(resource.data.empresaId,
-          resource.data.get('areaId', ''))
-        || (belongsToCompany(resource.data.empresaId)
-          && tieneAppAdminEn(resource.data.empresaId));
+          resource.data.areaId);
     }
 
     match /TBL_VISITAS_FORMATOS/{docId} {

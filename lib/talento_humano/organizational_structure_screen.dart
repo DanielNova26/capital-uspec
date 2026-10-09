@@ -1825,19 +1825,20 @@ class _OrganizationalStructureScreenState
           .map(normalizePersonnelInterventoriaGroup)
           .toSet();
     }
-    // Los grupos son los de la empresa (Admin › Grupos de trabajo: Grupo 6,
-    // Grupo 7…); se suman los que traigan los centros de costo. Una persona
-    // puede pertenecer a varios.
+    // Los grupos son los de la empresa (Admin › Gestión interna › Grupos:
+    // Grupo 1, Grupo 9…); se suman los que traigan los centros de costo. Una
+    // persona puede pertenecer a varios.
     final gruposTrabajo = <String>{
       for (final centro in centrosCosto)
         if (centro.grupo.isNotEmpty) centro.grupo,
     };
     try {
       final snapGrupos = await FirebaseFirestore.instance
-          .collection('TBL_VISITAS_GRUPOS')
+          .collection('TBL_COMPRAS_GRUPOS')
           .where('empresaId', isEqualTo: widget.empresaId)
           .get();
       for (final d in snapGrupos.docs) {
+        if (d.data()['activo'] == false) continue;
         final clave = claveGrupoTrabajo(d.data()['nombre']);
         if (clave.isNotEmpty) gruposTrabajo.add(clave);
       }

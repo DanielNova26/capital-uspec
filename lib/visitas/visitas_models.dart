@@ -30,8 +30,6 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import '../core/grupos_trabajo.dart';
-
 import '../core/area_directory.dart' show areaClave;
 import '../core/subcentros_costo.dart' show slugSubcentro;
 
@@ -2994,7 +2992,7 @@ class VisitaGrupo {
     this.id = '',
     required this.empresaId,
     required this.nombre,
-    this.areaId = '',
+    required this.areaId,
     this.areaNombre = '',
     this.centroIds = const [],
     this.profesionalIds = const [],
@@ -3053,40 +3051,13 @@ bool visitasPuedeVerComoCoordinador(String? rol) =>
 
 List<String> validarGrupo(VisitaGrupo g) => [
   if (g.nombre.trim().isEmpty) 'El grupo necesita un nombre.',
+  if (g.areaId.trim().isEmpty) 'El grupo necesita un área.',
 ];
 
 /// Grupos a los que pertenece un profesional.
 List<VisitaGrupo> gruposDe(String profesionalId, List<VisitaGrupo> grupos) => [
   for (final g in grupos)
     if (g.profesionalIds.contains(profesionalId)) g,
-];
-
-/// Establecimientos de una persona según TODOS sus grupos: aquellos donde
-/// figura como profesional y aquellos que Talento Humano le asignó por nombre
-/// (`grupos`: `G6`, `G7`…). Puede estar en varios.
-Set<String> centrosDePersonaEnGrupos(
-  String personaId,
-  Set<String> gruposPersona,
-  List<VisitaGrupo> grupos,
-) => {
-  for (final g in grupos)
-    if (perteneceAlGrupo(personaId, gruposPersona, g)) ...g.centroIds,
-};
-
-/// La persona pertenece al grupo si figura en él o si Talento Humano le
-/// asignó ese grupo por nombre.
-bool perteneceAlGrupo(String personaId, Set<String> gruposPersona, VisitaGrupo g) =>
-    g.profesionalIds.contains(personaId) ||
-    gruposPersona.contains(claveGrupoTrabajo(g.nombre));
-
-/// Todos los grupos de una persona (puede ser más de uno).
-List<VisitaGrupo> gruposDeMiembro(
-  String personaId,
-  Set<String> gruposPersona,
-  List<VisitaGrupo> grupos,
-) => [
-  for (final g in grupos)
-    if (perteneceAlGrupo(personaId, gruposPersona, g)) g,
 ];
 
 /// Establecimientos del profesional según sus grupos, sin repetir.

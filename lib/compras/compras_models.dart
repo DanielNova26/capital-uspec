@@ -874,11 +874,16 @@ class ComprasGrupoDoc {
   final String nombre;
   final bool activo;
 
+  /// Establecimientos (centros de costo) del grupo. Cada uno va en un solo
+  /// grupo de la empresa; Interventoría los usa para asignar y filtrar.
+  final List<String> centroIds;
+
   const ComprasGrupoDoc({
     this.id = '',
     required this.empresaId,
     required this.nombre,
     this.activo = true,
+    this.centroIds = const [],
   });
 
   factory ComprasGrupoDoc.fromMap(String id, Map<String, dynamic> data) =>
@@ -887,6 +892,10 @@ class ComprasGrupoDoc {
         empresaId: (data['empresaId'] ?? '').toString(),
         nombre: (data['nombre'] ?? id).toString(),
         activo: data['activo'] != false,
+        centroIds: [
+          for (final c in (data['centroIds'] as List? ?? const []))
+            c.toString(),
+        ],
       );
 
   Map<String, dynamic> toMap() => {

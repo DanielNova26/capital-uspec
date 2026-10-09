@@ -139,7 +139,6 @@ export {visitasAsignarNumero, visitasNumerarHistoricas} from "./visitas_numero";
 export {
   visitasCoordinadoresAlCrear,
   visitasCoordinadoresAlCambiarGrupo,
-  visitasCoordinadoresAlCambiarPersona,
 } from "./visitas_coordinadores";
 export {
   rutasResumenEvidencia,
