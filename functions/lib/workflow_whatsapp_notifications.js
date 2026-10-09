@@ -141,6 +141,26 @@ exports.ppWhatsAppCambioFirma = functions
             });
         });
     }
+    if (current === "firmada") {
+        // Gerencia firmó: Tesorería ya puede subir los pagos.
+        await once(`pp_gerencia_${context.params.planillaId}_${context.eventId}`, async () => {
+            await (0, whatsapp_1.sendWhatsAppRoute)({
+                empresaId,
+                routeId: "planillas_gerencia_tesoreria",
+                mensaje: `✅ *Planilla firmada por Gerencia*\n📄 ${nombre}\n💳 Tesorería ya puede subir los pagos.`,
+                metadata: {
+                    type: "planillas_gerencia_tesoreria",
+                    templateKey: "planilla_pago_actualizacion",
+                    planillaId: context.params.planillaId,
+                    templateVariables: {
+                        planilla: nombre,
+                        estado: "Firmada por Gerencia",
+                        accion: "Subir los pagos",
+                    },
+                },
+            });
+        });
+    }
 });
 /**
  * "Planta externa (Estación Soacha)". El subcentro quedó guardado de dos

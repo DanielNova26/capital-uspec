@@ -98,9 +98,9 @@ class _AdminNotificationMasterPanelState
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo guardar: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('No se pudo guardar: $e')));
     } finally {
       if (mounted) setState(() => _guardando = false);
     }
@@ -118,7 +118,10 @@ class _AdminNotificationMasterPanelState
             children: [
               Text(_error!, textAlign: TextAlign.center),
               const SizedBox(height: 12),
-              OutlinedButton(onPressed: _cargar, child: const Text('Reintentar')),
+              OutlinedButton(
+                onPressed: _cargar,
+                child: const Text('Reintentar'),
+              ),
             ],
           ),
         ),
@@ -126,7 +129,7 @@ class _AdminNotificationMasterPanelState
     }
     return LayoutBuilder(
       builder: (context, c) {
-        final ancho = c.maxWidth >= 720;
+        final ancho = c.maxWidth >= 1000;
         final pad = c.maxWidth >= 720 ? 24.0 : 16.0;
         final modulos = <String>[
           for (final t in kCatalogoNotificaciones)
@@ -140,7 +143,7 @@ class _AdminNotificationMasterPanelState
           children: [
             const Text(
               'Elige por qué canales llega cada aviso en esta empresa. La '
-              'campana siempre guarda el historial; los avisos críticos '
+              'campana guarda el historial cuando está activa; los avisos críticos '
               '(aprobaciones y plazos) no se pueden apagar en campana, push ni sonido. Sin sonido, el push llega en silencio.',
               style: TextStyle(color: _muted),
             ),
@@ -228,13 +231,20 @@ class _AdminNotificationMasterPanelState
           'Sonido',
           Icons.volume_up_outlined,
         ),
-        interruptor(CanalNotificacion.whatsapp, 'WhatsApp', Icons.chat_outlined),
+        interruptor(
+          CanalNotificacion.whatsapp,
+          'WhatsApp',
+          Icons.chat_outlined,
+        ),
       ],
     );
     final titulo = Row(
       children: [
         Flexible(
-          child: Text(t.etiqueta, style: const TextStyle(fontWeight: FontWeight.w600)),
+          child: Text(
+            t.etiqueta,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
         ),
         if (t.critico) ...[
           const SizedBox(width: 6),
@@ -253,7 +263,7 @@ class _AdminNotificationMasterPanelState
           ? Row(
               children: [
                 Expanded(child: titulo),
-                conmutadores,
+                Flexible(flex: 2, child: conmutadores),
               ],
             )
           : Column(

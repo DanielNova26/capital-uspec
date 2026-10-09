@@ -30,6 +30,7 @@ exports.notifyTaskNews = exports.notifyTaskCompleted = exports.sendTestPushHttp 
 const functions = __importStar(require("firebase-functions/v1")); // compat v1
 const crypto_1 = require("crypto");
 const acceso_1 = require("./acceso");
+const notification_catalog_1 = require("./notification_catalog");
 // Autenticación privada de To-Do. La contraseña se valida exclusivamente en
 // servidor y la aplicación recibe una sesión Firebase individual.
 var auth_1 = require("./auth");
@@ -631,6 +632,40 @@ async function sendDataOnlyTo(tokens, data) {
     return { success: resp.successCount, failure: resp.failureCount };
 }
 // --------------------------- Triggers ---------------------------
+/**
+ * Documento de la persona por id, cédula o uid (igual que `getTokensFor`).
+ * @param {string} userId Id del destinatario de la notificación.
+ * @return {Promise<admin.firestore.DocumentData | null>} Sus datos, o null.
+ */
+async function datosDeUsuario(userId) {
+    const direct = await db.collection("TBL_USUARIOS").doc(userId).get();
+    if (direct.exists)
+        return direct.data() ?? null;
+    for (const campo of ["cedula", "uid"]) {
+        const q = await db.collection("TBL_USUARIOS").where(campo, "==", userId).limit(1).get();
+        if (!q.empty)
+            return q.docs[0].data();
+    }
+    return null;
+}
+/**
+ * Filtro central de destinatarios: una persona inhabilitada, o inhabilitada
+ * en la empresa del aviso, no recibe nada, sin importar qué módulo lo creó.
+ * Si no se encuentra su ficha no se le niega (no se rompe un aviso válido).
+ * @param {admin.firestore.DocumentData | null} usuario Ficha de la persona.
+ * @param {string} empresaId Empresa del aviso ("" si no tiene).
+ * @return {boolean} true si puede recibir el aviso.
+ */
+function destinatarioHabilitado(usuario, empresaId) {
+    if (!usuario)
+        return true;
+    if ((0, acceso_1.motivoAccesoBloqueado)(usuario) !== null)
+        return false;
+    if (empresaId && (0, acceso_1.empresasDe)(usuario).includes(empresaId) &&
+        !(0, acceso_1.empresasSeleccionables)(usuario).includes(empresaId))
+        return false;
+    return true;
+}
 exports.onNotificationCreated = functions
     .region("us-central1")
     .runWith({ failurePolicy: true })
@@ -650,9 +685,55 @@ exports.onNotificationCreated = functions
     const sourceEntityId = data.sourceEntityId ? String(data.sourceEntityId) : "";
     const notifId = ctx.params.notifId;
     const silenciosa = (0, notification_sound_policy_1.esSilenciosa)(data.silenciosa);
+    // Filtro central de destinatarios habilitados.
+    const usuario = await datosDeUsuario(userId);
+    if (!destinatarioHabilitado(usuario, empresaId)) {
+        await snap.ref.set({
+            pushDelivery: {
+                state: "omitido_inhabilitado",
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+        }, { merge: true });
+        return;
+    }
+    // Maestro de la empresa + preferencias de la persona.
+    const [maestro, mias] = await Promise.all([
+        empresaId ?
+            db.collection("TBL_NOTIFICACIONES_CONFIG").doc(empresaId).get() : null,
+        db.collection("TBL_NOTIFICACIONES_PREFERENCIAS").doc(userId).get(),
+    ]);
+    const plan = (0, notification_catalog_1.planDeEntrega)(type, maestro?.exists ? maestro.data() : null, mias.exists ? mias.data() : null);
+    const sinSonido = silenciosa || !plan.sonido;
+    if (!plan.push) {
+        // Solo campana (o nada, si también está apagada).
+        if (plan.app) {
+            await snap.ref.set({
+                pushDelivery: {
+                    state: "in_app_only",
+                    lastError: "El push de este tipo está apagado.",
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                },
+            }, { merge: true });
+        }
+        else {
+            await snap.ref.delete();
+        }
+        return;
+    }
+    if (!plan.app) {
+        // Sin campana: se manda el push una vez y no queda registro.
+        const tokens = await getTokensFor(userId);
+        if (tokens.length) {
+            await sendPushTo(tokens, { title, body: body || title }, {
+                taskId, type, empresaId, module, sourceEntityId, notifId,
+            }, sinSonido);
+        }
+        await snap.ref.delete();
+        return;
+    }
     const queueRef = await enqueuePushDelivery(snap.ref, userId, notifId, title, body || title, {
         taskId, type, empresaId, module, sourceEntityId, notifId,
-        ...(silenciosa ? { silenciosa: "1" } : {}),
+        ...(sinSonido ? { silenciosa: "1" } : {}),
     });
     await processPushQueueItem(queueRef);
 });

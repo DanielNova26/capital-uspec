@@ -6,6 +6,42 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## 2026-10-09 — Claude integrado y publicación 2.6.25 (Codex)
+
+- Integrada `claude/eloquent-goodall-mrk87j` (hasta `c560472`) en `main`
+  mediante merge `c5dae2f`. Incluye las tres fases del maestro de avisos,
+  preferencias personales, avisos de planillas a Tesorería y logos por empresa.
+- Corregida la composición del maestro para texto grande: canales con ancho
+  limitado y salto de línea en Web; distribución vertical en anchos menores.
+  El texto aclara que la campana conserva historial cuando su canal está activo.
+- Validación: 1.619 pruebas Flutter existentes, ocho pruebas nuevas de los
+  paneles en 390/768/1024/1366 con texto 1,6× y temas Android/iOS, 190 pruebas
+  Node y tres pruebas nuevas de reglas en emulador, todas aprobadas. Las reglas
+  comprueban lectura por empresa, edición solo Admin, revocación y preferencias
+  accesibles solo por su dueño. Análisis dirigido sin errores ni advertencias.
+- Compilado TypeScript y actualizados los JS correspondientes a esta rama.
+  Publicados `onNotificationCreated`, `adminSincronizarMaestros`,
+  `ppWhatsAppCambioFirma`, `interventoriaWhatsAppNuevaActa`,
+  `whatsappAdminEstado`, `whatsappAdminGuardar`, `whatsappAdminGuardarListado`
+  y `whatsappAdminAsignarListado`.
+- Reglas activas verificadas por contenido después de una respuesta 409 de
+  Firebase: ruleset `edd990aa-55f2-499f-a178-28a825bb67f7`, SHA-256
+  `580a23ccf02cd3a1df293692630eefb1a774fd0dc84fae087e9cb11b93e7ca96`.
+- Web **2.6.25+39** compilada y publicada; versión pública y JavaScript
+  coinciden con el build local, SHA-256
+  `11259930d8d4b2637659e3917a8a5445c6299193ca21f5dbc2f4277290a7f052`.
+- iOS: comandos en `docs/PUBLICAR_IOS_2.6.25.md`, con versión 2.6.25 y build
+  39; se conserva Bundle ID y equipo de Apple. No se compiló ni firmó iOS en
+  Windows; requiere Mac/Xcode y certificados del equipo.
+- Android: Java 25 del Android Studio local no pudo ejecutar Gradle 8.12.
+  Se preparó Temurin 21 portátil, verificado contra el SHA-256 oficial, para
+  compilar sin cambiar la configuración global del equipo. Compilación en curso.
+  No existe `android/key.properties` ni el keystore de carga en este equipo:
+  pendiente la ruta solicitada al usuario para firmar una entrega de Google Play.
+- Pendientes de alcance previo: validación autenticada de avisos en dispositivos
+  reales, firma iOS y las correcciones de seguridad de notificaciones que Claude
+  documentó como pendientes. No se migraron registros ni preferencias productivas.
+
 ## 2026-10-08 — Planes de mejora: hallazgos, soportes y expediente (Codex)
 
 - Vincular hallazgos omite visitas sin número de acta tanto en servidor como
