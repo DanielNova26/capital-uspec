@@ -45,9 +45,11 @@ void main() {
       'app': false,
       'push': false,
       'whatsapp': false,
+      'sonido': false,
     });
     expect(c[CanalNotificacion.app], isTrue);
     expect(c[CanalNotificacion.push], isTrue);
+    expect(c[CanalNotificacion.sonido], isTrue);
     expect(c[CanalNotificacion.whatsapp], isFalse);
   });
 
@@ -59,6 +61,7 @@ void main() {
       CanalNotificacion.app: true,
       CanalNotificacion.push: true,
       CanalNotificacion.whatsapp: false,
+      CanalNotificacion.sonido: true,
     });
     final apagado = canalesDeTipo(visitas, {'push': false});
     expect(apagado[CanalNotificacion.push], isFalse);

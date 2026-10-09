@@ -10648,3 +10648,30 @@ sonido/silencio en el maestro; preferencias personales (silenciar lo
 informativo); aplicar el canal "campana" apagado (hoy la campana siempre
 guarda); reglas de `TBL_NOTIFICACIONES` y `registerDeviceToken`; verificar en
 Web (390/768/1024/1366), Android e iOS.
+
+## MAESTRO DE NOTIFICACIONES — fase 3 (9 oct 2026)
+Cierra los puntos pendientes de la fase 2 (excepto seguridad, que el usuario
+dejó para el final porque "por ahora funciona"). Sin Flutter ni node_modules
+no se compiló ni se corrieron tests.
+- **Filtro central de destinatarios** (`onNotificationCreated`,
+  `destinatarioHabilitado`): quien está inhabilitado, o inhabilitado en la
+  empresa del aviso, no recibe push de ningún módulo (la notificación queda con
+  `pushDelivery.state = omitido_inhabilitado`). Cubre los avisos de Compras,
+  Rutas, etc. que antes no filtraban. Si no se halla la ficha no se niega.
+  *No se creó un selector de destinatarios por tipo*: cada módulo sigue
+  resolviendo a quién avisa (rol del módulo, responsable, jefe).
+- **Sonido en el maestro:** cuarto canal `sonido` por tipo; sin sonido el push
+  llega en silencio (canal `tasks_silent`). Críticos siempre suenan. El
+  silencio que ya marcaba cada módulo (`silenciosa`) se conserva.
+- **Campana apagada:** si el maestro apaga la campana de un tipo no crítico,
+  el servidor manda el push una vez y borra la notificación; si apaga también
+  el push, la borra sin enviar.
+- **Preferencias personales:** `TBL_NOTIFICACIONES_PREFERENCIAS/{userDocId}`
+  (regla: solo la propia persona). Pantalla "Mis avisos" (icono en
+  Notificaciones): silenciar push o sonido de lo informativo. Nunca activa lo
+  que la empresa apagó ni toca críticos ni campana (`planDeEntrega`).
+- Cambió el flujo: el filtro del maestro ya no está en `processPushQueueItem`
+  sino en `onNotificationCreated` (los reintentos usan el plan inicial).
+- **Sin verificar:** Web (390/768/1024/1366), Android e iOS, escala de texto y
+  teclado en "Mis avisos" y en el panel del maestro; compilación TS/Dart.
+- **Pendiente:** seguridad (reglas de `TBL_NOTIFICACIONES`, `registerDeviceToken`).

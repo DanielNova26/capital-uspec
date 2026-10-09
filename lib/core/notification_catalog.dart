@@ -4,7 +4,7 @@
 // falla si no coinciden. La configuración de cada empresa vive en
 // `TBL_NOTIFICACIONES_CONFIG/{empresaId}` (`tipos.{clave}.{app|push|whatsapp}`).
 
-enum CanalNotificacion { app, push, whatsapp }
+enum CanalNotificacion { app, push, whatsapp, sonido }
 
 class TipoNotificacion {
   const TipoNotificacion({
@@ -120,7 +120,7 @@ const List<TipoNotificacion> kCatalogoNotificaciones = [
 
 /// Canales activos de un tipo según los ajustes de la empresa
 /// (`tipos.{clave}`). Lo no ajustado usa el valor por defecto y los críticos
-/// no pueden apagar campana ni push. Igual que `canalesDe` del servidor.
+/// no pueden apagar campana, push ni sonido. Igual que `canalesDe` del servidor.
 Map<CanalNotificacion, bool> canalesDeTipo(
   TipoNotificacion tipo,
   Map<String, dynamic>? ajuste,
@@ -137,10 +137,12 @@ Map<CanalNotificacion, bool> canalesDeTipo(
       CanalNotificacion.whatsapp,
       tipo.conWhatsapp,
     ),
+    CanalNotificacion.sonido: leer(CanalNotificacion.sonido, true),
   };
   if (tipo.critico) {
     out[CanalNotificacion.app] = true;
     out[CanalNotificacion.push] = true;
+    out[CanalNotificacion.sonido] = true;
   }
   return out;
 }

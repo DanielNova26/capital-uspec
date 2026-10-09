@@ -141,7 +141,7 @@ class _AdminNotificationMasterPanelState
             const Text(
               'Elige por qué canales llega cada aviso en esta empresa. La '
               'campana siempre guarda el historial; los avisos críticos '
-              '(aprobaciones y plazos) no se pueden apagar en campana ni push.',
+              '(aprobaciones y plazos) no se pueden apagar en campana, push ni sonido. Sin sonido, el push llega en silencio.',
               style: TextStyle(color: _muted),
             ),
             const SizedBox(height: 12),
@@ -223,6 +223,11 @@ class _AdminNotificationMasterPanelState
       children: [
         interruptor(CanalNotificacion.app, 'Campana', Icons.notifications_none),
         interruptor(CanalNotificacion.push, 'Push', Icons.phone_iphone),
+        interruptor(
+          CanalNotificacion.sonido,
+          'Sonido',
+          Icons.volume_up_outlined,
+        ),
         interruptor(CanalNotificacion.whatsapp, 'WhatsApp', Icons.chat_outlined),
       ],
     );

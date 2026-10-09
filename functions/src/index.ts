@@ -1,8 +1,8 @@
 // functions/src/index.ts
 import * as functions from "firebase-functions/v1"; // compat v1
 import {createHash} from "crypto";
-import {motivoAccesoBloqueado} from "./acceso";
-import {canalesDe} from "./notification_catalog";
+import {empresasDe, empresasSeleccionables, motivoAccesoBloqueado} from "./acceso";
+import {planDeEntrega} from "./notification_catalog";
 
 // Autenticación privada de To-Do. La contraseña se valida exclusivamente en
 // servidor y la aplicación recibe una sesión Firebase individual.
@@ -642,22 +642,6 @@ async function processPushQueueItem(queueRef: admin.firestore.DocumentReference)
 
   if (!claimed) return;
   try {
-    // Maestro de notificaciones: la empresa puede apagar el push de un tipo
-    // (no el de los críticos). La campana queda siempre.
-    const empresaAviso = (claimed.data?.empresaId ?? "").toString().trim();
-    if (empresaAviso) {
-      const cfg = await db.collection("TBL_NOTIFICACIONES_CONFIG").doc(empresaAviso).get();
-      if (!canalesDe(claimed.data?.type, cfg.exists ? cfg.data() : null).push) {
-        await updatePushDeliveryState(queueRef, claimed, {
-          state: "in_app_only",
-          attemptCount: claimed.attemptCount ?? 0,
-          lastError: "La empresa desactivó el push de este tipo de aviso.",
-          deliveredAt: admin.firestore.FieldValue.serverTimestamp(),
-          retryTokens: admin.firestore.FieldValue.delete(),
-        });
-        return;
-      }
-    }
     const tokens = claimed.retryTokens?.length ? claimed.retryTokens : await getTokensFor(claimed.userId);
     if (!tokens.length) {
       await updatePushDeliveryState(queueRef, claimed, {
@@ -729,6 +713,40 @@ async function sendDataOnlyTo(tokens: string[], data: Record<string, string>) {
 }
 
 // --------------------------- Triggers ---------------------------
+/**
+ * Documento de la persona por id, cédula o uid (igual que `getTokensFor`).
+ * @param {string} userId Id del destinatario de la notificación.
+ * @return {Promise<admin.firestore.DocumentData | null>} Sus datos, o null.
+ */
+async function datosDeUsuario(userId: string): Promise<admin.firestore.DocumentData | null> {
+  const direct = await db.collection("TBL_USUARIOS").doc(userId).get();
+  if (direct.exists) return direct.data() ?? null;
+  for (const campo of ["cedula", "uid"]) {
+    const q = await db.collection("TBL_USUARIOS").where(campo, "==", userId).limit(1).get();
+    if (!q.empty) return q.docs[0].data();
+  }
+  return null;
+}
+
+/**
+ * Filtro central de destinatarios: una persona inhabilitada, o inhabilitada
+ * en la empresa del aviso, no recibe nada, sin importar qué módulo lo creó.
+ * Si no se encuentra su ficha no se le niega (no se rompe un aviso válido).
+ * @param {admin.firestore.DocumentData | null} usuario Ficha de la persona.
+ * @param {string} empresaId Empresa del aviso ("" si no tiene).
+ * @return {boolean} true si puede recibir el aviso.
+ */
+function destinatarioHabilitado(
+  usuario: admin.firestore.DocumentData | null,
+  empresaId: string
+): boolean {
+  if (!usuario) return true;
+  if (motivoAccesoBloqueado(usuario) !== null) return false;
+  if (empresaId && empresasDe(usuario).includes(empresaId) &&
+      !empresasSeleccionables(usuario).includes(empresaId)) return false;
+  return true;
+}
+
 export const onNotificationCreated = functions
   .region("us-central1")
   .runWith({failurePolicy: true})
@@ -752,6 +770,59 @@ export const onNotificationCreated = functions
     const notifId = ctx.params.notifId as string;
     const silenciosa = esSilenciosa(data.silenciosa);
 
+    // Filtro central de destinatarios habilitados.
+    const usuario = await datosDeUsuario(userId);
+    if (!destinatarioHabilitado(usuario, empresaId)) {
+      await snap.ref.set({
+        pushDelivery: {
+          state: "omitido_inhabilitado",
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+      }, {merge: true});
+      return;
+    }
+
+    // Maestro de la empresa + preferencias de la persona.
+    const [maestro, mias] = await Promise.all([
+      empresaId ?
+        db.collection("TBL_NOTIFICACIONES_CONFIG").doc(empresaId).get() : null,
+      db.collection("TBL_NOTIFICACIONES_PREFERENCIAS").doc(userId).get(),
+    ]);
+    const plan = planDeEntrega(
+      type,
+      maestro?.exists ? maestro.data() : null,
+      mias.exists ? mias.data() : null
+    );
+    const sinSonido = silenciosa || !plan.sonido;
+
+    if (!plan.push) {
+      // Solo campana (o nada, si también está apagada).
+      if (plan.app) {
+        await snap.ref.set({
+          pushDelivery: {
+            state: "in_app_only",
+            lastError: "El push de este tipo está apagado.",
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+        }, {merge: true});
+      } else {
+        await snap.ref.delete();
+      }
+      return;
+    }
+
+    if (!plan.app) {
+      // Sin campana: se manda el push una vez y no queda registro.
+      const tokens = await getTokensFor(userId);
+      if (tokens.length) {
+        await sendPushTo(tokens, {title, body: body || title}, {
+          taskId, type, empresaId, module, sourceEntityId, notifId,
+        }, sinSonido);
+      }
+      await snap.ref.delete();
+      return;
+    }
+
     const queueRef = await enqueuePushDelivery(
       snap.ref,
       userId,
@@ -760,7 +831,7 @@ export const onNotificationCreated = functions
       body || title,
       {
         taskId, type, empresaId, module, sourceEntityId, notifId,
-        ...(silenciosa ? {silenciosa: "1"} : {}),
+        ...(sinSonido ? {silenciosa: "1"} : {}),
       }
     );
     await processPushQueueItem(queueRef);

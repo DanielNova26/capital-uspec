@@ -11,7 +11,7 @@
  * de Admin y el despacho del servidor leen de aquí.
  */
 
-export type CanalNotificacion = "app" | "push" | "whatsapp";
+export type CanalNotificacion = "app" | "push" | "whatsapp" | "sonido";
 
 export interface TipoNotificacion {
   clave: string;
@@ -96,15 +96,21 @@ export function canalesDe(
   config: ConfigNotificaciones
 ): Record<CanalNotificacion, boolean> {
   const entrada = tipoDeCatalogo(tipo);
-  const base = {app: true, push: true, whatsapp: false, ...entrada?.defecto};
+  const base = {
+    app: true, push: true, whatsapp: false, sonido: true, ...entrada?.defecto,
+  };
   if (!entrada) return base;
   const ajuste = config?.tipos?.[entrada.clave] ?? {};
   const leer = (c: CanalNotificacion) =>
     typeof ajuste[c] === "boolean" ? (ajuste[c] as boolean) : base[c];
-  const out = {app: leer("app"), push: leer("push"), whatsapp: leer("whatsapp")};
+  const out = {
+    app: leer("app"), push: leer("push"), whatsapp: leer("whatsapp"),
+    sonido: leer("sonido"),
+  };
   if (entrada.critico) {
     out.app = true;
     out.push = true;
+    out.sonido = true;
   }
   return out;
 }
@@ -125,4 +131,42 @@ export function whatsappActivoParaRuta(
   );
   if (!entrada) return true;
   return canalesDe(entrada.tipos[0], config).whatsapp;
+}
+
+export type PreferenciasPersonales = {
+  tipos?: Record<string, Partial<Record<CanalNotificacion, unknown>>>;
+} | null | undefined;
+
+export interface PlanEntrega {
+  /** Queda en la campana (si no, se entrega y se borra). */
+  app: boolean;
+  /** Sale como push al teléfono. */
+  push: boolean;
+  /** El push suena; si no, llega en silencio. */
+  sonido: boolean;
+}
+
+/**
+ * Cómo se entrega un aviso: lo que la empresa permite (maestro) y, sobre eso,
+ * lo que la persona silenció para sí. La persona solo puede quitar push y
+ * sonido de lo informativo: nunca activa lo que la empresa apagó ni toca los
+ * críticos ni la campana.
+ * @param {unknown} tipo Campo `type` de la notificación.
+ * @param {ConfigNotificaciones} config Maestro de la empresa.
+ * @param {PreferenciasPersonales} personal Preferencias de la persona.
+ * @return {PlanEntrega} Campana, push y sonido finales.
+ */
+export function planDeEntrega(
+  tipo: unknown,
+  config: ConfigNotificaciones,
+  personal: PreferenciasPersonales
+): PlanEntrega {
+  const entrada = tipoDeCatalogo(tipo);
+  const c = canalesDe(tipo, config);
+  const plan: PlanEntrega = {app: c.app, push: c.push, sonido: c.sonido};
+  if (!entrada || entrada.critico) return plan;
+  const mio = personal?.tipos?.[entrada.clave] ?? {};
+  if (mio.push === false) plan.push = false;
+  if (mio.sonido === false) plan.sonido = false;
+  return plan;
 }
