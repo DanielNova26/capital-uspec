@@ -413,6 +413,7 @@ class _EntradaDiagnosticosScreenState extends State<EntradaDiagnosticosScreen>
 
         // Estado Fisiológico
         DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: _estadoFisiologico,
           decoration: InputDecoration(
             labelText: 'Estado Fisiológico',
@@ -450,6 +451,7 @@ class _EntradaDiagnosticosScreenState extends State<EntradaDiagnosticosScreen>
             const SizedBox(width: 8),
             Expanded(
               child: DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: _gravedad,
                 decoration: InputDecoration(
                   labelText: 'Gravedad',

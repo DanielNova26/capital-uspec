@@ -2170,7 +2170,12 @@ class _PickIngredienteDialogState extends State<_PickIngredienteDialog> {
             ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
-            child: Row(
+            // Wrap: los tres botones suman unos 340 px y el diálogo, en el
+            // teléfono, es más angosto; así el segundo grupo baja de línea.
+            child: Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              runSpacing: 4,
               children: [
                 OutlinedButton.icon(
                   onPressed: _crearNuevo,
@@ -2179,16 +2184,20 @@ class _PickIngredienteDialogState extends State<_PickIngredienteDialog> {
                       style: TextStyle(
                           fontSize: 11, fontWeight: FontWeight.w700)),
                 ),
-                const Spacer(),
-                TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('CANCELAR')),
-                const SizedBox(width: 8),
-                FilledButton(
-                  onPressed: _seleccionado == null ? null : _confirmar,
-                  style: FilledButton.styleFrom(
-                      backgroundColor: NutritionPalette.accent),
-                  child: const Text('AGREGAR'),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('CANCELAR')),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: _seleccionado == null ? null : _confirmar,
+                      style: FilledButton.styleFrom(
+                          backgroundColor: NutritionPalette.accent),
+                      child: const Text('AGREGAR'),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -2291,6 +2300,7 @@ class _NuevoIngredienteQuickDialogState
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
+            isExpanded: true,
             initialValue: _c,
             items: kCategorias
                 .where((x) => x != 'Todos')

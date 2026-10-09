@@ -70,6 +70,22 @@ Capturas del usuario (Android, ancho ~390 px, módulo Gerencia › Interventorí
     allí lanzaría error de ancho sin límite): selectores en
     `interventoria_dashboard_screen.dart` líneas ~1396, 2481, 3651, 4630, 8134,
     9397 y 9415. Se corrigen con capturas de la pantalla afectada.
+- **Cuarta pasada: Visitas y Nutrición.**
+  - 11 selectores sin `isExpanded` pasan a `isExpanded: true` (Nutrición: panel
+    principal, establecimiento, dieta/período, género, régimen, ubicación,
+    categoría de ingredientes, estado fisiológico y gravedad; Visitas: hoja del
+    formato). Todos están en `Column`, `Expanded` o `SizedBox`. Sin tocar: el
+    selector de «parte» del editor de formatos, que está en una celda de tabla.
+  - **Nutrición › Menús › Agregar ingrediente**: la fila «CREAR NUEVO / CANCELAR /
+    AGREGAR» (~340 px) no cabía en el diálogo en el teléfono; ahora es un `Wrap`
+    que baja el segundo grupo de botones.
+  - **Visitas › asistente de visita**: el pie «Anterior · Guardar avance ·
+    Siguiente» dejaba ~110 px al botón central; ahora se reduce (`FittedBox`).
+  - Revisado sin cambio: pestañas (dos elementos), `DataTable` del editor de
+    formatos (desplaza en horizontal), pasos del asistente de Nutrición (columnas
+    `Expanded`) y los pies de diálogo de Nutrición que sí caben.
+  - No hay cuadrículas de proporción fija ni filas convertibles a `Wrap` en estos
+    dos módulos.
 - Validación: Flutter 3.44.9 instalado en el entorno; `flutter analyze` sin
   errores en lo tocado (los avisos que salen ya existían); suite completa de
   1.631 pruebas aprobada.

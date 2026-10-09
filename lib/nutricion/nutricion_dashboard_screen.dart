@@ -767,6 +767,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
 
   Widget _buildEstablecimientoDropdown() {
     return DropdownButtonFormField<String>(
+      isExpanded: true,
       initialValue: _selectedEstablecimiento,
       items: _establecimientos
           .map((e) => DropdownMenuItem(value: e, child: Text(e)))
@@ -1370,6 +1371,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                             }
 
                             return DropdownButtonFormField<String>(
+                              isExpanded: true,
                               initialValue: currentVal,
                               decoration: const InputDecoration(
                                 labelText: 'Dieta Principal',
@@ -1405,6 +1407,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                       if (isWide)
                         Expanded(
                           child: DropdownButtonFormField<String>(
+                            isExpanded: true,
                             initialValue: _periodoSeleccionado,
                             decoration: const InputDecoration(
                               labelText: 'Período',
@@ -1436,6 +1439,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                   if (!isWide) ...[
                     const SizedBox(height: 16),
                     DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue: _periodoSeleccionado,
                       decoration: const InputDecoration(
                         labelText: 'Período',
@@ -2286,6 +2290,7 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: DropdownButtonFormField<String>(
+                            isExpanded: true,
                             initialValue: _genero,
                             decoration: const InputDecoration(
                               labelText: 'Género',
@@ -2343,6 +2348,7 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: DropdownButtonFormField<String>(
+                            isExpanded: true,
                             initialValue: _regimen,
                             decoration: const InputDecoration(
                               labelText: 'Régimen',
@@ -2372,6 +2378,7 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
                   icon: Icons.location_on_outlined,
                   children: [
                     DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue: _establecimientoSeleccionado,
                       decoration: const InputDecoration(
                         labelText: 'Sede / Establecimiento',
