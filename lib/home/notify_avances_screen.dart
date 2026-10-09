@@ -13,7 +13,6 @@ import 'dart:ui' as ui;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
@@ -22,6 +21,7 @@ import 'package:intl/intl.dart';
 import 'package:todo/utils/task_status.dart';
 import 'package:todo/widgets/task_action_context_card.dart';
 
+import '../services/company_branding_service.dart';
 import '../services/task_service.dart';
 
 const Color kMarronOscuro = Color(0xFF145DA0);
@@ -242,9 +242,13 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
     // logo
     ui.Image? logo;
     try {
-      final ld = await rootBundle.load('assets/logo.png');
-      final lc = await ui.instantiateImageCodec(ld.buffer.asUint8List());
-      logo = (await lc.getNextFrame()).image;
+      final ld = await CompanyBrandingService().loadLogoBytes(
+        (_task?['empresaId'] ?? _task?['empresa_id'] ?? '').toString(),
+      );
+      if (ld != null && ld.isNotEmpty) {
+        final lc = await ui.instantiateImageCodec(ld);
+        logo = (await lc.getNextFrame()).image;
+      }
     } catch (_) {}
 
     // dibujar marca

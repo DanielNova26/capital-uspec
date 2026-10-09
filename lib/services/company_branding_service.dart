@@ -9,17 +9,17 @@ class CompanyBrandingService {
 
   static final Map<String, Uint8List?> _logoCache = {};
 
-  /// Logo de la empresa. Sin logo propio devuelve [fallbackAsset] (el de la
-  /// app); con `fallbackAsset: null` devuelve null, para los documentos que
-  /// llevan la marca de la empresa y no deben salir con la de la app.
+  /// Logo de la empresa. Sin logo propio devuelve null: marcas de agua,
+  /// informes y PDF llevan la marca de la empresa y nunca la de la app
+  /// (decisión del usuario, 9 oct 2026). Solo quien lo pida expresamente
+  /// pasa un [fallbackAsset].
   Future<Uint8List?> loadLogoBytes(
     String? empresaId, {
-    String? fallbackAsset = 'assets/logo.png',
+    String? fallbackAsset,
   }) async {
     final eid = (empresaId ?? '').trim();
-    if (eid.isNotEmpty && _logoCache.containsKey(eid)) {
-      return _logoCache[eid];
-    }
+    final cached = eid.isEmpty ? null : _logoCache[eid];
+    if (cached != null && cached.isNotEmpty) return cached;
 
     Uint8List? bytes;
     if (eid.isNotEmpty) {
@@ -33,7 +33,8 @@ class CompanyBrandingService {
           bytes = loaded.buffer.asUint8List();
         }
       } catch (_) {}
-      _logoCache[eid] = bytes;
+      // Un fallo de red no se recuerda: solo se guarda el logo que sí llegó.
+      if (bytes != null && bytes.isNotEmpty) _logoCache[eid] = bytes;
     }
 
     if (bytes != null && bytes.isNotEmpty) return bytes;

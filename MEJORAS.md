@@ -10544,3 +10544,57 @@ sobre grupos en las entradas del 8 oct.**
   de Visitas y ya no aparecen allí.
 - Sin verificar (sin Dart): compilación y tests de Flutter. TS compilado y
   probado.
+
+## REVISIÓN: notificaciones por módulo y logo de marca de agua (9 oct 2026)
+**Hecho (Claude):** toda marca de agua/informe usa el logo cargado de la
+empresa (`TBL_EMPRESAS.logoUrl`), nunca `assets/logo.png`.
+- `CompanyBrandingService.loadLogoBytes` ya no cae al logo de la app (el
+  respaldo era el valor por defecto; ahora es `null`). Tampoco recuerda un
+  fallo de red como "sin logo" en la caché.
+- `notify_novedades_screen.dart` y `notify_avances_screen.dart` usaban
+  `assets/logo.png` fijo: ahora cargan el logo de la empresa de la tarea.
+- Sin logo cargado la foto/PDF sale sin logo (no con el de la app). Revisado y
+  correcto: Rutas, Visitas (fotos, informe, consolidado), crear/completar
+  tarea, Gerencia, Planillas (logo de `TBL_PP_CONFIG`), carnet. El sello de
+  Planillas (`pp_stamp_pdf.ts`) no lleva logo. La marca de agua de texto del
+  visor de Gestión Documental ("estado") no es imagen.
+- Sin verificar (sin Flutter en el entorno): compilación y tests.
+
+**Hallazgos de notificaciones SIN corregir (decisión/Codex):**
+1. **Seguridad — reglas:** `TBL_NOTIFICACIONES` no tiene regla propia y cae en
+   la regla general (`firestore.rules`, final): cualquier sesión lee, crea,
+   borra o marca leídas las notificaciones de OTRA persona o empresa. Falta una
+   regla: lectura/`read` solo del dueño (`userDocId`), creación solo del
+   servidor o con `fromId == userDocId`.
+2. **Seguridad — push:** `registerDeviceToken` (index.ts) es un callable sin
+   `context.auth`: cualquiera registra su token en la cédula de otro y recibe
+   sus avisos. Además el cierre de sesión (`app_drawer._logout`) no quita el
+   token del usuario ni se quita de otros usuarios al registrarlo: en un
+   teléfono compartido, los avisos de quien salió llegan a quien entró.
+3. **Compras (servidor):** `comprasNotificarRecepcionCalidad` y
+   `notifyInAppNewSupplier` avisan a todos los `TBL_COMPRAS_ROLES` con rol
+   calidad sin filtrar inhabilitados/retirados de la empresa
+   (`motivoAccesoBloqueado`/`inhabilitadaEn` de `acceso.ts`) ni comprobar que
+   siga con la app (el cliente `getUsuariosPorRol` sí lo hace). Vigencias
+   documentales (`compras_expiration_notifications.ts`) solo avisa a quien
+   subió el documento: si ya no está, nadie lo recibe; falta copia a Calidad/
+   analista de Compras.
+4. **Tareas:** `notifyTaskCompleted`/`notifyTaskNews` y los cambios de estado
+   (distintos de "por aprobar") van a responsable y jefe, no a quien asignó la
+   tarea (`destinatariosSeguimiento` ya lo resuelve solo para "por aprobar").
+   El actor también recibe aviso de su propia acción. El jefe se toma de
+   `jefe_uid` de la tarea o de `jefeId` global del usuario, no del bloque de la
+   empresa activa.
+5. **Gestión Documental:** solo se notifica "observado/rechazado" al creador.
+   Enviar a revisión, aprobar y publicar no avisan a revisor/aprobador/creador.
+   Correspondencia solo avisa al destinatario de la mesa de colaboración.
+6. **Interventoría:** un seguimiento solo avisa al responsable; si el
+   responsable responde no se avisa a nadie (creador/aprobador/auditor).
+7. **Rutas:** la alerta de movilidad va a cédulas configuradas sin validar que
+   estén habilitadas; la evidencia nueva no avisa a Calidad (solo el rechazo).
+8. **Facturación:** bien filtrado (`personaHabilitadaEn` + `userHasApp`);
+   `findEstablishmentRecipient` no exige `userHasApp`.
+9. **Visitas, Planillas, Talento Humano (plazos disciplinarios), Nutrición:**
+   destinatarios correctos por empresa; revisan habilitación (Planillas) o
+   usan al asignado/propietario (Visitas/Nutrición).
+10. Pagos, Biblioteca y Gerencia no generan notificaciones propias.
