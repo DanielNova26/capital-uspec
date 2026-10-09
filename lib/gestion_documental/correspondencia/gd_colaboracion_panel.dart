@@ -191,6 +191,7 @@ class _GdColaboracionPanelState extends State<GdColaboracionPanel> {
                   SizedBox(
                     width: compact ? double.infinity : 210,
                     child: DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue: _type,
                       items: const [
                         DropdownMenuItem(
@@ -237,6 +238,7 @@ class _GdColaboracionPanelState extends State<GdColaboracionPanel> {
                           _documentId = '';
                         }
                         return DropdownButtonFormField<String>(
+                          isExpanded: true,
                           initialValue: _documentId,
                           items: [
                             const DropdownMenuItem(

@@ -1374,9 +1374,7 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: colors.$2),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
+      child: Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
           Icon(_estadoIcon(estado), size: 18, color: colors.$2),
           const SizedBox(width: 8),
           Text(
@@ -1388,8 +1386,7 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
               color: colors.$2,
             ),
           ),
-        ],
-      ),
+        ]),
     );
   }
 

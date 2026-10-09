@@ -31,6 +31,7 @@ import 'rutas_logic.dart';
 import 'rutas_models.dart';
 import 'rutas_service.dart';
 import '../widgets/paged_list.dart';
+import '../widgets/alto_escalado.dart';
 
 const Color kRutasColor = Color(0xFF15803D); // verde logística
 const double _kCentroOperacionesLat = kRutaOrigenLatDefault;
@@ -128,12 +129,15 @@ class _RutasAdminCalidadHome extends StatelessWidget {
       body: LayoutBuilder(
         builder: (context, constraints) {
           final isWide = constraints.maxWidth >= 760;
-          return GridView.count(
+          return GridView(
             padding: const EdgeInsets.all(16),
-            crossAxisCount: isWide ? 2 : 1,
-            mainAxisSpacing: 12,
-            crossAxisSpacing: 12,
-            childAspectRatio: isWide ? 2.4 : 3.2,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: isWide ? 2 : 1,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              mainAxisExtent: isWide ? null : altoEscalado(context, 112),
+              childAspectRatio: isWide ? 2.4 : 3.2,
+            ),
             children: [
               _PerfilAccesoCard(
                 title: 'Administración',
@@ -306,6 +310,7 @@ class _RutasDeveloperHome extends StatelessWidget {
                   crossAxisCount: isWide ? 3 : 1,
                   mainAxisSpacing: 12,
                   crossAxisSpacing: 12,
+                  mainAxisExtent: isWide ? null : altoEscalado(context, 112),
                   childAspectRatio: isWide ? 1.45 : 3.2,
                 ),
                 itemCount: profiles.length,
@@ -3179,9 +3184,15 @@ class _ConfigTabState extends State<_ConfigTab> {
           return Card(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-              child: Row(
+              // Wrap: en el teléfono el nombre y los dos botones no caben en
+              // una fila y el nombre quedaba casi sin ancho.
+              child: Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 4,
+                runSpacing: 2,
                 children: [
-                  Expanded(
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(minWidth: 120),
                     child: Text(
                       comida,
                       style: const TextStyle(fontWeight: FontWeight.w600),

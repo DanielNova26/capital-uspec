@@ -257,6 +257,7 @@ class _PpBeneficiariosScreenState extends State<PpBeneficiariosScreen> {
                   ],
                   const SizedBox(height: 10),
                   DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: tipoCuenta == '1' ? '1' : '2',
                     decoration: const InputDecoration(
                       labelText: 'Tipo de cuenta',

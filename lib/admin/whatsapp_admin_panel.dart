@@ -544,6 +544,7 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
     child: Column(
       children: [
         DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: _provider,
           decoration: const InputDecoration(
             labelText: 'Proveedor',
@@ -798,6 +799,7 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
           ),
           const Divider(height: 26),
           DropdownButtonFormField<String>(
+            isExpanded: true,
             initialValue: _selectedTemplateKey,
             decoration: const InputDecoration(
               labelText: 'Tipo de mensaje',
@@ -1246,6 +1248,7 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
                 ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   key: ValueKey(
                     'purchase-list-${selectedExists ? _purchaseNewSupplierListId : ''}',
                   ),
@@ -1335,9 +1338,8 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
                   icon: Icons.payments_outlined,
                   lists: activeLists,
                   selectedId: _planillasGerenciaTesoreriaListId,
-                  onChanged: (value) => setState(
-                    () => _planillasGerenciaTesoreriaListId = value,
-                  ),
+                  onChanged: (value) =>
+                      setState(() => _planillasGerenciaTesoreriaListId = value),
                 ),
                 const Divider(height: 30),
                 _routeListSelector(
@@ -1775,6 +1777,7 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
         ),
         const SizedBox(height: 10),
         DropdownButtonFormField<String>(
+          isExpanded: true,
           key: ValueKey('$routeId-${selectedExists ? selectedId : ''}'),
           initialValue: selectedExists ? selectedId : '',
           decoration: InputDecoration(

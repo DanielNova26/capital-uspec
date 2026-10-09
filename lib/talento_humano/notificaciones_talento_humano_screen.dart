@@ -682,8 +682,8 @@ class _NotificacionesTalentoHumanoScreenState
       children: _tipos.map((tipo) {
         final selected = _tipoSeleccionado.key == tipo.key;
         return FilterChip(
-          label: Row(
-            mainAxisSize: MainAxisSize.min,
+          label: Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               Icon(
                 tipo.icon,

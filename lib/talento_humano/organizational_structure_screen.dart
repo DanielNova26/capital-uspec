@@ -3592,8 +3592,8 @@ class _InfoChip extends StatelessWidget {
         color: const Color(0xFFF1F5F9),
         borderRadius: BorderRadius.circular(20),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Icon(icon, size: 12, color: const Color(0xFF64748B)),
           const SizedBox(width: 4),

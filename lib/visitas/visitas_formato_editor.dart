@@ -2012,6 +2012,7 @@ class _TablaEditorDialogState extends State<_TablaEditorDialog> {
               if (widget.partes.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: widget.partes.contains(_parte) ? _parte : null,
                   decoration: const InputDecoration(labelText: 'Hoja'),
                   items: [

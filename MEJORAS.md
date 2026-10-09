@@ -6,6 +6,154 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## 2026-10-09 — Gerencia › Interventoría: análisis ilegible en el teléfono (Claude)
+
+Capturas del usuario (Android, ancho ~390 px, módulo Gerencia › Interventoría).
+- **Título de la gráfica en vertical.** `Hallazgos por establecimiento` compartía
+  fila con tres leyendas y dos botones de exportar; el `Expanded` del título
+  quedaba casi sin ancho y se pintaba una letra por renglón. Ahora, por debajo de
+  560 px de ancho disponible, el título va con las exportaciones y las leyendas
+  bajan a un `Wrap`. En ancho amplio no cambia.
+- **Tarjetas de resumen cortadas.** En móvil usaban `GridView` con
+  `childAspectRatio: 2.1` fijo: `879 (198)` partía en dos renglones y
+  `Hallazgos (visitas)` / `Establecimientos` se cortaban. Ahora son dos por
+  fila con alto según el contenido; el valor se reduce en vez de partirse y el
+  título admite dos renglones.
+- Archivo: `lib/gerencia/gerencia_interventoria_tab.dart`.
+- **Revisión de otras pantallas** (búsqueda por patrón sobre `lib/`, 402 archivos):
+  - Nuevo `lib/widgets/alto_escalado.dart` (`altoEscalado`): alto de tarjeta que
+    crece con la escala de texto, con prueba propia. Las rejillas de tarjetas con
+    `childAspectRatio` fijo pasan a `mainAxisExtent` en el teléfono, como ya hacía
+    el Home: Talento Humano › Disciplinario y › Finalización de documentos,
+    Gerencia (tarjetas de resumen) y las dos rejillas de perfiles de Rutas.
+  - Rutas › horario de comida: nombre y los dos botones de hora pasan a `Wrap`;
+    en el teléfono el nombre quedaba casi sin ancho.
+  - Descartado como falso positivo: `_PeopleHero` de Talento Humano es solo de
+    escritorio (el teléfono usa `_MobilePeopleCard`). Los diálogos con
+    `SizedBox(width: 520…)` no desbordan: el diálogo limita el ancho.
+- **Segunda pasada: Admin y Compras.**
+  - 17 filas de icono + texto largo (chips y etiquetas con marca, estado, tiempo
+    de Calidad, grupos de empresa, avisos) pasan de `Row` a `Wrap`: en el
+    teléfono el texto baja de línea en vez de salirse. `Wrap` no falla con ancho
+    sin límite, a diferencia de `Flexible`.
+  - Compras › Ficha técnica y Orden de compra: el nombre del proveedor y el NIT
+    pasan a `Expanded` (estaban en el formulario de un diálogo, ancho acotado).
+  - 9 selectores `DropdownButtonFormField` sin `isExpanded` (Admin › Documentos
+    de Compras y WhatsApp, Abastecimiento, filtros de grupo de Compras): con un
+    texto largo desbordaban en 390 px. Se dejaron sin tocar los que están dentro
+    de una `Row` o `LayoutBuilder` (`security_admin_panel.dart`, el cambio de
+    estado de documentos y dos selectores de roles en `admin_dashboard_screen.dart`)
+    porque `isExpanded` allí lanzaría error de ancho sin límite.
+  - **Abastecimiento no paginaba**: ni la tabla de escritorio ni las tarjetas del
+    teléfono (regla 1: 20 por página). Ahora usa `pageOf` + `PagerBar` sobre la
+    lista filtrada; `_visibles` conserva todo lo filtrado para la exportación.
+  - Pendiente: 26 filas de Admin y Compras con texto dinámico sin `Expanded`
+    (por ejemplo ciudad y NIT del proveedor, marcas, títulos de tarjetas). No se
+    cambiaron en masa: sin verlas en pantalla, `Expanded` podría lanzar errores
+    de ancho sin límite. Se corrigen con capturas.
+- **Tercera pasada: Talento Humano e Interventoría.**
+  - 11 filas de icono + texto largo pasan de `Row` a `Wrap` (más dos más a mano en
+    Interventoría: área del hallazgo y filtro de fecha).
+  - 9 selectores sin `isExpanded` en Hoja de vida y Requisiciones de personal
+    (parte dentro de un `SizedBox` de 120 px, que sí acota el ancho).
+  - **Talento Humano › Acceso del personal**: las etiquetas "Inactivo" y "No opera
+    en To-Do" estaban en la misma fila que el nombre y el botón Cambiar; en 390 px
+    el nombre se quedaba sin ancho. Ahora las etiquetas van bajo el nombre.
+  - **Áreas y Cargos**: tres `IconButton` (144 px) por fila dejaban al nombre con
+    ~110 px. Nuevo `lib/widgets/acciones_de_fila.dart` (con prueba): por debajo de
+    520 px las acciones pasan a un menú «⋮» con las mismas opciones.
+  - Interventoría › Tablero de asignación: el título de cada grupo era un `Text`
+    sin `Flexible` junto al contador y el botón de acción; ahora se ajusta.
+  - Revisados y sin cambio: pestañas (todas de 2 elementos), `DataTable` de
+    Interventoría (ya paginadas), cabecera del PDF del acta y filas con `Expanded`.
+  - Sin tocar (están en una `Row`, `LayoutBuilder` o celda de tabla; `isExpanded`
+    allí lanzaría error de ancho sin límite): selectores en
+    `interventoria_dashboard_screen.dart` líneas ~1396, 2481, 3651, 4630, 8134,
+    9397 y 9415. Se corrigen con capturas de la pantalla afectada.
+- **Cuarta pasada: Visitas y Nutrición.**
+  - 11 selectores sin `isExpanded` pasan a `isExpanded: true` (Nutrición: panel
+    principal, establecimiento, dieta/período, género, régimen, ubicación,
+    categoría de ingredientes, estado fisiológico y gravedad; Visitas: hoja del
+    formato). Todos están en `Column`, `Expanded` o `SizedBox`. Sin tocar: el
+    selector de «parte» del editor de formatos, que está en una celda de tabla.
+  - **Nutrición › Menús › Agregar ingrediente**: la fila «CREAR NUEVO / CANCELAR /
+    AGREGAR» (~340 px) no cabía en el diálogo en el teléfono; ahora es un `Wrap`
+    que baja el segundo grupo de botones.
+  - **Visitas › asistente de visita**: el pie «Anterior · Guardar avance ·
+    Siguiente» dejaba ~110 px al botón central; ahora se reduce (`FittedBox`).
+  - Revisado sin cambio: pestañas (dos elementos), `DataTable` del editor de
+    formatos (desplaza en horizontal), pasos del asistente de Nutrición (columnas
+    `Expanded`) y los pies de diálogo de Nutrición que sí caben.
+  - No hay cuadrículas de proporción fija ni filas convertibles a `Wrap` en estos
+    dos módulos.
+- **Quinta pasada: Facturación y Rutas.**
+  - 18 selectores sin `isExpanded` (14 en Facturación: mes, año, establecimiento,
+    tipo de documento, filtros de observaciones; 4 en Estudio de movilidad).
+    Todos en `Column`, `Expanded`, diálogo o `SizedBox` con ancho acotado.
+  - **Facturación**: las pestañas (hasta cinco con icono y texto, p. ej.
+    «Establecimientos») se desplazan por debajo de 700 px en vez de cortar el
+    texto. Las dos rejillas de tarjetas de documentos del teléfono pasan de
+    `childAspectRatio` (0,55 y 0,6) a `mainAxisExtent` con `altoEscalado`.
+  - **Facturación › Obligaciones**: avatar + nombre + 3 botones + interruptor
+    dejaban ~110 px al nombre; las tres acciones pasan al menú «⋮» bajo 520 px.
+  - Facturación: dos filas de texto largo (avance «n de m docs · Mes…» y
+    «Documento: …») y filas de Rutas pasan a `Wrap`.
+  - **Rutas › Estudio de movilidad**: la cabecera de cada ruta (código, paradas,
+    verificación y totales) tenía nueve elementos con `Spacer` en una fila; ahora
+    son dos grupos `Flexible` + `Wrap` (izquierda y derecha) que bajan de línea.
+  - Sin tocar: `SizedBox(width: 380)` de la configuración de movilidad (dentro
+    de un `Wrap`, el ancho se recorta al disponible), las rejillas de
+    evidencias de Rutas (miniaturas con proporción fija) y los paneles de ancho
+    fijo de Rutas, que solo se usan en la rama ancha.
+- **Sexta pasada: Gestión Documental y Correo.**
+  - 10 selectores sin `isExpanded` (Planillas › beneficiarios, Correspondencia,
+    panel de colaboración y cinco en Correo: buzón, responsable, prioridad,
+    revisor e icono). Todos en `Column`, `Expanded` o `SizedBox`.
+  - 5 filas de icono + texto largo a `Wrap` (tablero de control, detalle de
+    planilla, tablero y widgets de Gestión Documental).
+  - Títulos de tarjeta de sección en Correo y Correspondencia, y el nombre del
+    actor en las tarjetas de historial: `Flexible` para que no se salgan.
+  - Revisado sin cambio: todas las pestañas (desplazables o de dos o tres
+    elementos), `DataTable` (ya paginadas o con scroll horizontal), no hay
+    cuadrículas de proporción fija en estos módulos.
+  - Pendiente: tarjetas de documento del panel de colaboración con tres botones
+    de acción (`gd_colaboracion_panel.dart`, ~línea 665); no se pasaron al menú
+    «⋮» porque uno va dentro de un `Tooltip` condicional.
+- **Séptima pasada: Tokens DIAN, WhatsApp, Login y Home.**
+  - **Login › Instrucciones de la hoja de vida**: en el teléfono las cuatro
+    tarjetas iban en una rejilla de una columna con proporción 2,25; el texto de
+    cada una desbordaba en 390 px o con letra grande. Ahora el teléfono usa una
+    columna simple y la rejilla de dos columnas queda solo para escritorio.
+  - 2 selectores sin `isExpanded` (Tokens DIAN: filtro de estado; Home: cargo al
+    asignar una tarea) y 4 filas de texto largo a `Wrap` (perfil, tareas creadas,
+    agrupar por área que asignó y «Viendo tareas de…» en el equipo).
+  - Revisado sin cambio: pestañas de Home (dos elementos o desplazables),
+    `DataTable` de resumen del equipo (paginada), tabla de Tokens DIAN (paginada),
+    selección de empresa al iniciar sesión y paneles de WhatsApp (sin filas
+    marcadas; los selectores ya se corrigieron en la pasada de Admin).
+  - El Home ya adapta las rejillas a la escala de texto (`mainAxisExtent`).
+  - Nota: `dart format` en archivos que no estaban formateados añade cambios de
+    estilo menores (Home › equipo, Login › instrucciones); no cambian el
+    comportamiento.
+- **Versión 2.6.26+40 preparada** en `pubspec.yaml` y guía en
+  `docs/PUBLICAR_2.6.26.md` (merge a `main`, Web, Android e iOS).
+  `claude/wonderful-johnson-ewjir5` (Planes K2, 3 commits) se fusiona sin
+  conflictos con esta rama, **pero sola ya falla 21 pruebas** de
+  `interventoria_planes_test.dart` y `interventoria_planes_mejoras_test.dart`
+  (`main` las pasa) y desborda 56 px a 390 px con texto 1,6× en
+  `interventoria_planes_screen.dart:1536`. No se corrigió: queda para quien
+  mantiene esa rama, antes de integrarla.
+- Validación: Flutter 3.44.9 instalado en el entorno; `flutter analyze` sin
+  errores en lo tocado (los avisos que salen ya existían); suite completa de
+  1.631 pruebas aprobada.
+- **Pendiente (no es una revisión completa):** quedan filas de lista con título +
+  varios botones (Compras, Facturación obligaciones, Talento Humano, Interventoría
+  tablero de asignación) que solo se pueden juzgar viéndolas. Esta revisión es
+  estática: no hay capturas de cada pantalla en 390 px ni con texto 1,6×.
+  Verificar en Android/iPhone físicos y enviar capturas de lo que se vea mal.
+- Pendiente de la misma revisión: Admin y Gerencia con filas que combinan título
+  y varios controles. No se auditaron todas.
+
 ## 2026-10-09 — Claude integrado y publicación 2.6.25 (Codex)
 
 - Integrada `claude/eloquent-goodall-mrk87j` (hasta `c560472`) en `main`

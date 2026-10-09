@@ -4012,10 +4012,15 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
                 ),
                 Expanded(
                   child: Center(
-                    child: TextButton.icon(
-                      onPressed: _ocupado ? null : () => _guardarAvance(v),
-                      icon: const Icon(Icons.save_outlined, size: 18),
-                      label: const Text('Guardar avance'),
+                    // Entre «Anterior» y «Siguiente» quedan ~110 px en el
+                    // teléfono: el botón se reduce en vez de desbordar.
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: TextButton.icon(
+                        onPressed: _ocupado ? null : () => _guardarAvance(v),
+                        icon: const Icon(Icons.save_outlined, size: 18),
+                        label: const Text('Guardar avance'),
+                      ),
                     ),
                   ),
                 ),

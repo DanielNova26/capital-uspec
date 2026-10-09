@@ -51,41 +51,60 @@ class InstructionScreen extends StatelessWidget {
                   colaboradorNombre: colaboradorNombre,
                 ),
                 const SizedBox(height: 16),
-                GridView(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: isDesktop ? 2 : 1,
-                    crossAxisSpacing: 14,
-                    mainAxisSpacing: 14,
-                    childAspectRatio: isDesktop ? 2.7 : 2.25,
-                  ),
-                  children: const [
-                    _InstructionCard(
-                      icon: Icons.picture_as_pdf_outlined,
-                      title: 'Ten tus soportes en PDF',
-                      body:
-                          'Cedula, EPS, fondo de pensiones, cesantias, estudios, cursos, antecedentes y experiencia deben subirse en PDF cuando el formulario lo solicite.',
-                    ),
-                    _InstructionCard(
-                      icon: Icons.account_circle_outlined,
-                      title: 'Prepara tu foto de perfil',
-                      body:
-                          'Carga una imagen clara tipo carnet. Se usara en tu hoja de vida y en tu perfil dentro de To Do App.',
-                    ),
-                    _InstructionCard(
-                      icon: Icons.manage_search_rounded,
-                      title: 'Usa los desplegables con busqueda',
-                      body:
-                          'Departamento, ciudad, EPS, fondos, banco y otros catalogos permiten buscar y escribir para completar mas rapido.',
-                    ),
-                    _InstructionCard(
-                      icon: Icons.diversity_3_outlined,
-                      title: 'Completa el perfil demografico',
-                      body:
-                          'Estado civil, hijos, sangre, contacto de emergencia, nacimiento, genero, personas a cargo, estrato y tipo de vehiculo quedan para gestion interna.',
-                    ),
-                  ],
+                Builder(
+                  builder: (context) {
+                    const tarjetas = [
+                      _InstructionCard(
+                        icon: Icons.picture_as_pdf_outlined,
+                        title: 'Ten tus soportes en PDF',
+                        body:
+                            'Cedula, EPS, fondo de pensiones, cesantias, estudios, cursos, antecedentes y experiencia deben subirse en PDF cuando el formulario lo solicite.',
+                      ),
+                      _InstructionCard(
+                        icon: Icons.account_circle_outlined,
+                        title: 'Prepara tu foto de perfil',
+                        body:
+                            'Carga una imagen clara tipo carnet. Se usara en tu hoja de vida y en tu perfil dentro de To Do App.',
+                      ),
+                      _InstructionCard(
+                        icon: Icons.manage_search_rounded,
+                        title: 'Usa los desplegables con busqueda',
+                        body:
+                            'Departamento, ciudad, EPS, fondos, banco y otros catalogos permiten buscar y escribir para completar mas rapido.',
+                      ),
+                      _InstructionCard(
+                        icon: Icons.diversity_3_outlined,
+                        title: 'Completa el perfil demografico',
+                        body:
+                            'Estado civil, hijos, sangre, contacto de emergencia, nacimiento, genero, personas a cargo, estrato y tipo de vehiculo quedan para gestion interna.',
+                      ),
+                    ];
+                    // Teléfono: una columna. Con la proporción fija de la
+                    // rejilla (2,25) el texto de cada tarjeta se desbordaba
+                    // en 390 px o con letra grande.
+                    if (!isDesktop) {
+                      return Column(
+                        children: [
+                          for (var i = 0; i < tarjetas.length; i++) ...[
+                            if (i > 0) const SizedBox(height: 14),
+                            tarjetas[i],
+                          ],
+                        ],
+                      );
+                    }
+                    return GridView(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            crossAxisSpacing: 14,
+                            mainAxisSpacing: 14,
+                            childAspectRatio: 2.7,
+                          ),
+                      children: tarjetas,
+                    );
+                  },
                 ),
                 const SizedBox(height: 16),
                 _FlowCard(),

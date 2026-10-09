@@ -518,8 +518,8 @@ class _ConductorHomeScreenState extends State<ConductorHomeScreen>
       future: future,
       builder: (context, snap) {
         if (snap.connectionState != ConnectionState.done) {
-          return const Row(
-            mainAxisSize: MainAxisSize.min,
+          return const Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               SizedBox(
                 width: 16,

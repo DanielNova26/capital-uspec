@@ -2842,8 +2842,8 @@ class _ReassignMetaPill extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: Colors.purple.withValues(alpha: 0.14)),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Icon(icon, size: 15, color: Colors.purple),
           const SizedBox(width: 6),

@@ -2349,9 +2349,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                 label: const Text('PLANTILLA WORD'),
               ),
               if (_plantillaDescargada)
-                const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
+                const Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
                     Icon(
                       Icons.check_circle,
                       size: 18,
@@ -2362,8 +2360,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                       'Plantilla descargada. Ármala y súbela abajo.',
                       style: TextStyle(fontFamily: kArial, fontSize: 12),
                     ),
-                  ],
-                ),
+                  ]),
             ],
           ),
         ],

@@ -19,6 +19,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../core/guarded_module_page.dart';
 import '../core/user_directory.dart';
 import '../utils/doc_preview.dart';
+import '../widgets/alto_escalado.dart';
 import '../widgets/internal_module_layout.dart';
 import '../widgets/user_avatar.dart';
 import 'facturacion_models.dart';
@@ -584,6 +585,12 @@ class _FacturacionViewState extends State<_FacturacionView>
       color: _kPrimary,
       child: TabBar(
         controller: _tab,
+        // Hasta cinco pestañas con icono y texto no caben en 390 px: en
+        // pantallas angostas se desplazan en vez de cortar el texto.
+        isScrollable: MediaQuery.sizeOf(context).width < 700,
+        tabAlignment: MediaQuery.sizeOf(context).width < 700
+            ? TabAlignment.start
+            : null,
         indicatorColor: _kAccent,
         labelColor: Colors.white,
         unselectedLabelColor: Colors.white70,
@@ -947,8 +954,8 @@ class _FacSummaryChip extends StatelessWidget {
       borderRadius: BorderRadius.circular(999),
       border: Border.all(color: color.withValues(alpha: 0.22)),
     ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
+    child: Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         Icon(icon, size: 14, color: color),
         const SizedBox(width: 5),
@@ -1025,7 +1032,8 @@ class _EstCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 4),
-              Row(
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   const SizedBox(width: 16),
                   Text(
@@ -1573,6 +1581,7 @@ class _GestionTabState extends State<_GestionTab> {
     return Column(
       children: [
         DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: _mesEstId,
           decoration: _inputDeco('Establecimiento'),
           items: _estItemsTodos,
@@ -1584,6 +1593,7 @@ class _GestionTabState extends State<_GestionTab> {
             children: [
               Expanded(
                 child: DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: _mesSel,
                   decoration: _inputDeco('Mes'),
                   items: kMeses
@@ -1606,6 +1616,7 @@ class _GestionTabState extends State<_GestionTab> {
               const SizedBox(width: 10),
               Expanded(
                 child: DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: _anioSel,
                   decoration: _inputDeco('Año'),
                   items: anos
@@ -1629,6 +1640,7 @@ class _GestionTabState extends State<_GestionTab> {
           )
         else ...[
           DropdownButtonFormField<String>(
+            isExpanded: true,
             initialValue: _mesSel,
             decoration: _inputDeco('Mes'),
             items: kMeses
@@ -1646,6 +1658,7 @@ class _GestionTabState extends State<_GestionTab> {
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(
+            isExpanded: true,
             initialValue: _anioSel,
             decoration: _inputDeco('Año'),
             items: anos
@@ -1701,6 +1714,7 @@ class _GestionTabState extends State<_GestionTab> {
             children: [
               Expanded(
                 child: DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: _fechaEstId,
                   decoration: _inputDeco('Establecimiento'),
                   items: _estItemsTodos,
@@ -1710,6 +1724,7 @@ class _GestionTabState extends State<_GestionTab> {
               const SizedBox(width: 10),
               Expanded(
                 child: DropdownButtonFormField<String?>(
+                  isExpanded: true,
                   initialValue: _fechaDocTipo,
                   decoration: _inputDeco('Documento'),
                   items: _docItems,
@@ -1720,6 +1735,7 @@ class _GestionTabState extends State<_GestionTab> {
           )
         else ...[
           DropdownButtonFormField<String>(
+            isExpanded: true,
             initialValue: _fechaEstId,
             decoration: _inputDeco('Establecimiento'),
             items: _estItemsTodos,
@@ -1727,6 +1743,7 @@ class _GestionTabState extends State<_GestionTab> {
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String?>(
+            isExpanded: true,
             initialValue: _fechaDocTipo,
             decoration: _inputDeco('Documento'),
             items: _docItems,
@@ -1892,6 +1909,7 @@ class _GestionTabState extends State<_GestionTab> {
             children: [
               Expanded(
                 child: DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: _obsEstId,
                   decoration: _inputDeco('Establecimiento'),
                   items: _estItemsSolo,
@@ -1901,6 +1919,7 @@ class _GestionTabState extends State<_GestionTab> {
               const SizedBox(width: 10),
               Expanded(
                 child: DropdownButtonFormField<String?>(
+                  isExpanded: true,
                   initialValue: _obsDocTipo,
                   decoration: _inputDeco('Documento'),
                   items: _docItems,
@@ -1911,6 +1930,7 @@ class _GestionTabState extends State<_GestionTab> {
           )
         else ...[
           DropdownButtonFormField<String>(
+            isExpanded: true,
             initialValue: _obsEstId,
             decoration: _inputDeco('Establecimiento'),
             items: _estItemsSolo,
@@ -1918,6 +1938,7 @@ class _GestionTabState extends State<_GestionTab> {
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String?>(
+            isExpanded: true,
             initialValue: _obsDocTipo,
             decoration: _inputDeco('Documento'),
             items: _docItems,
@@ -1936,7 +1957,8 @@ class _GestionTabState extends State<_GestionTab> {
               borderRadius: BorderRadius.circular(6),
               border: Border.all(color: _kGreen.withValues(alpha: 0.3)),
             ),
-            child: Row(
+            child: Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 const Icon(
                   Icons.insert_drive_file_outlined,
@@ -2706,11 +2728,13 @@ class _DetalleEstablecimientoScreenState
   Widget _buildMobileGrid() {
     return GridView.builder(
       padding: const EdgeInsets.all(10),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+      // Alto según la escala de texto: con proporción fija, la letra grande
+      // dejaba sin espacio a los botones y observaciones de la tarjeta.
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
         crossAxisSpacing: 10,
         mainAxisSpacing: 10,
-        childAspectRatio: 0.55,
+        mainAxisExtent: altoEscalado(context, 330),
       ),
       itemCount: widget.documentos.length,
       itemBuilder: (_, i) => _docCardDetalle(widget.documentos[i]),
@@ -2820,6 +2844,7 @@ class _DetalleEstablecimientoScreenState
           if (_mesesDisponibles.length > 1) ...[
             Expanded(
               child: DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: _mesesDisponibles.contains(mesActual)
                     ? mesActual
                     : null,
@@ -3378,11 +3403,13 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
   Widget _buildMobileGrid() {
     return GridView.builder(
       padding: const EdgeInsets.all(10),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+      // Alto según la escala de texto: con proporción fija, la letra grande
+      // dejaba sin espacio a los botones y observaciones de la tarjeta.
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
         crossAxisSpacing: 10,
         mainAxisSpacing: 10,
-        childAspectRatio: 0.6,
+        mainAxisExtent: altoEscalado(context, 300),
       ),
       itemCount: _visibleDocs.length,
       itemBuilder: (_, i) => _buildDocCard(_visibleDocs[i]),
@@ -5239,8 +5266,8 @@ class _ObservacionesScreen extends StatelessWidget {
                             color: _kPrimary.withValues(alpha: 0.25),
                           ),
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
+                        child: Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
                             const Icon(
                               Icons.insert_drive_file_outlined,

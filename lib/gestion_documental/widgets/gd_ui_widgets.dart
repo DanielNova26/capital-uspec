@@ -92,9 +92,7 @@ class GdStatusBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: text.withValues(alpha: 0.2)),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
+      child: Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
           Icon(icon, size: 14, color: text),
           const SizedBox(width: 6),
           Text(
@@ -107,8 +105,7 @@ class GdStatusBadge extends StatelessWidget {
               letterSpacing: 0.5,
             ),
           ),
-        ],
-      ),
+        ]),
     );
   }
 }
@@ -310,13 +307,15 @@ class GdTimelineItem extends StatelessWidget {
                     children: [
                       const Icon(Icons.person_outline, size: 12, color: GdPalette.muted),
                       const SizedBox(width: 4),
-                      Text(
+                      Flexible(
+                        child: Text(
                         actor,
                         style: const TextStyle(
                           fontFamily: kArial,
                           fontSize: 12,
                           color: GdPalette.muted,
                         ),
+                      ),
                       ),
                     ],
                   ),

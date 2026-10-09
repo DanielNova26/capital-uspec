@@ -765,6 +765,7 @@ class _AdminComprasDocumentControlPanelState
                         ),
                       ),
                       DropdownButtonFormField<String>(
+                        isExpanded: true,
                         initialValue: _origin,
                         decoration: const InputDecoration(
                           labelText: 'Origen',
@@ -786,6 +787,7 @@ class _AdminComprasDocumentControlPanelState
                             setState(() => _origin = value ?? 'todos'),
                       ),
                       DropdownButtonFormField<String>(
+                        isExpanded: true,
                         initialValue: _status,
                         decoration: const InputDecoration(
                           labelText: 'Estado actual',

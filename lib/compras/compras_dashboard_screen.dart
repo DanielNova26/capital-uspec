@@ -1989,8 +1989,8 @@ class _CalendarioVencimientos extends StatelessWidget {
     );
   }
 
-  Widget _leyenda(Color color, String label) => Row(
-    mainAxisSize: MainAxisSize.min,
+  Widget _leyenda(Color color, String label) => Wrap(
+    crossAxisAlignment: WrapCrossAlignment.center,
     children: [
       Container(
         width: 8,
@@ -4491,8 +4491,8 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
                   spacing: 8,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         Icon(statusIcon, size: 11, color: statusColor),
                         const SizedBox(width: 3),
@@ -7376,8 +7376,8 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: color.withValues(alpha: 0.28)),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Icon(icon, size: 15, color: color),
           const SizedBox(width: 6),
@@ -9136,12 +9136,14 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
                 children: [
                   const Icon(Icons.store, size: 16, color: Colors.black54),
                   const SizedBox(width: 8),
-                  Text(
-                    widget.fichaExistente!.proveedorNombre,
-                    style: const TextStyle(
-                      fontFamily: _kFont,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
+                  Expanded(
+                    child: Text(
+                      widget.fichaExistente!.proveedorNombre,
+                      style: const TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ],
@@ -9398,6 +9400,7 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
       color: Colors.white,
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
       child: DropdownButtonFormField<String>(
+        isExpanded: true,
         initialValue: _grupoFiltro,
         decoration: InputDecoration(
           labelText: 'Filtrar por grupo de Compras',
@@ -11418,14 +11421,16 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                           color: Colors.black38,
                         ),
                         const SizedBox(width: 8),
-                        Text(
-                          'NIT: ${_proveedor?.nit ?? '(Seleccione proveedor)'}',
-                          style: TextStyle(
-                            fontFamily: _kFont,
-                            fontSize: 13,
-                            color: _proveedor != null
-                                ? Colors.black87
-                                : Colors.black38,
+                        Expanded(
+                          child: Text(
+                            'NIT: ${_proveedor?.nit ?? '(Seleccione proveedor)'}',
+                            style: TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 13,
+                              color: _proveedor != null
+                                  ? Colors.black87
+                                  : Colors.black38,
+                            ),
                           ),
                         ),
                       ],
@@ -11917,8 +11922,8 @@ class _RecepcionFlowStep extends StatelessWidget {
           color: active ? color.withValues(alpha: 0.35) : Colors.transparent,
         ),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Icon(
             completed
@@ -12155,8 +12160,9 @@ class _ProductoEntryCard extends StatelessWidget {
                                                 ).withValues(alpha: 0.3),
                                               ),
                                             ),
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
+                                            child: Wrap(
+                                              crossAxisAlignment:
+                                                  WrapCrossAlignment.center,
                                               children: [
                                                 const Icon(
                                                   Icons.local_offer,
@@ -12198,8 +12204,9 @@ class _ProductoEntryCard extends StatelessWidget {
                                                   : Colors.amber.shade300,
                                             ),
                                           ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
+                                          child: Wrap(
+                                            crossAxisAlignment:
+                                                WrapCrossAlignment.center,
                                             children: [
                                               Icon(
                                                 Icons.description,
@@ -13551,8 +13558,8 @@ Widget _consultaDocumentoChip(
       borderRadius: BorderRadius.circular(999),
       border: Border.all(color: estado.color.withValues(alpha: 0.3)),
     ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
+    child: Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         Icon(estado.icon, size: 13, color: estado.color),
         const SizedBox(width: 5),
@@ -13646,8 +13653,8 @@ Widget _consultaFichasProveedorChip(
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: estado.color.withValues(alpha: 0.3)),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Icon(estado.icon, size: 13, color: estado.color),
           const SizedBox(width: 5),
@@ -14418,8 +14425,8 @@ class _ConsultaLegendChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: color.withValues(alpha: 0.28)),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Icon(icon ?? Icons.circle, size: icon == null ? 8 : 14, color: color),
           const SizedBox(width: 6),
@@ -14453,8 +14460,8 @@ class _ConsultasFeatureChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Icon(icon, size: 14, color: _ConsultasScreenState._accentColor),
           const SizedBox(width: 6),
@@ -16737,6 +16744,7 @@ class _ConsultaRecepcionesTabState extends State<_ConsultaRecepcionesTab> {
               color: Colors.white,
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
               child: DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: _grupoFiltro,
                 decoration: InputDecoration(
                   labelText: 'Grupo de Compras',
@@ -23053,8 +23061,8 @@ class _RecepcionCalidadCard extends StatelessWidget {
                             : Colors.blue.withValues(alpha: 0.3),
                       ),
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
+                    child: Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         Icon(
                           Icons.calendar_today,

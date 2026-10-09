@@ -1275,14 +1275,29 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
         ],
       );
     }
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 10,
-      crossAxisSpacing: 10,
-      childAspectRatio: 2.1,
-      children: tarjetas,
+    // Móvil: dos tarjetas por fila y alto según el contenido. Con una
+    // proporción fija, "879 (198)" y los títulos largos se cortaban o
+    // desbordaban con texto grande.
+    return Column(
+      children: [
+        for (var i = 0; i < tarjetas.length; i += 2) ...[
+          if (i > 0) const SizedBox(height: 10),
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(child: tarjetas[i]),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: i + 1 < tarjetas.length
+                      ? tarjetas[i + 1]
+                      : const SizedBox.shrink(),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
     );
   }
 
@@ -1425,50 +1440,81 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: altoFijo ? MainAxisSize.max : MainAxisSize.min,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Hallazgos por ${_agrupar.etiqueta.toLowerCase()}',
-                    style: const TextStyle(
-                      fontFamily: kArial,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      color: _kInk,
+            LayoutBuilder(
+              builder: (context, caja) {
+                // En el teléfono el título y las tres leyendas no caben en
+                // una sola fila: el título quedaba con ancho casi cero y se
+                // pintaba una letra por renglón. Aquí el título va arriba,
+                // con las exportaciones, y las leyendas debajo, que bajan de
+                // renglón si hace falta.
+                final estrecho = caja.maxWidth < 560;
+                final titulo = Text(
+                  'Hallazgos por ${_agrupar.etiqueta.toLowerCase()}',
+                  style: const TextStyle(
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                    color: _kInk,
+                  ),
+                );
+                final exportar = <Widget>[
+                  _botonExportar(
+                    icono: Icons.table_view_rounded,
+                    tooltip: 'Exportar a Excel todo lo filtrado',
+                    onPressed: () => _exportar(
+                      todosLosFiltrados,
+                      AlcanceExportacion(
+                        titulo: 'Todos los hallazgos filtrados',
+                        filtros: _descripcionFiltros(),
+                      ),
+                      pdf: false,
                     ),
                   ),
-                ),
-                const _Leyenda(color: _kActivo, texto: 'Activos'),
-                const SizedBox(width: 8),
-                const _Leyenda(color: _kPendiente, texto: 'Por aprobar'),
-                const SizedBox(width: 8),
-                const _Leyenda(color: _kSubsanado, texto: 'Subsanados'),
-                const SizedBox(width: 4),
-                _botonExportar(
-                  icono: Icons.table_view_rounded,
-                  tooltip: 'Exportar a Excel todo lo filtrado',
-                  onPressed: () => _exportar(
-                    todosLosFiltrados,
-                    AlcanceExportacion(
-                      titulo: 'Todos los hallazgos filtrados',
-                      filtros: _descripcionFiltros(),
+                  _botonExportar(
+                    icono: Icons.picture_as_pdf_rounded,
+                    tooltip: 'Exportar a PDF todo lo filtrado',
+                    onPressed: () => _exportar(
+                      todosLosFiltrados,
+                      AlcanceExportacion(
+                        titulo: 'Todos los hallazgos filtrados',
+                        filtros: _descripcionFiltros(),
+                      ),
+                      pdf: true,
                     ),
-                    pdf: false,
                   ),
-                ),
-                _botonExportar(
-                  icono: Icons.picture_as_pdf_rounded,
-                  tooltip: 'Exportar a PDF todo lo filtrado',
-                  onPressed: () => _exportar(
-                    todosLosFiltrados,
-                    AlcanceExportacion(
-                      titulo: 'Todos los hallazgos filtrados',
-                      filtros: _descripcionFiltros(),
+                ];
+                const leyendas = [
+                  _Leyenda(color: _kActivo, texto: 'Activos'),
+                  _Leyenda(color: _kPendiente, texto: 'Por aprobar'),
+                  _Leyenda(color: _kSubsanado, texto: 'Subsanados'),
+                ];
+                if (!estrecho) {
+                  return Row(
+                    children: [
+                      Expanded(child: titulo),
+                      for (final l in leyendas) ...[
+                        l,
+                        const SizedBox(width: 8),
+                      ],
+                      const SizedBox(width: 4),
+                      ...exportar,
+                    ],
+                  );
+                }
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(child: titulo),
+                        ...exportar,
+                      ],
                     ),
-                    pdf: true,
-                  ),
-                ),
-              ],
+                    const SizedBox(height: 6),
+                    const Wrap(spacing: 12, runSpacing: 4, children: leyendas),
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 4),
             Text(
@@ -1743,18 +1789,23 @@ class _Kpi extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      valor,
-                      style: TextStyle(
-                        fontFamily: kArial,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: color,
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        valor,
+                        maxLines: 1,
+                        style: TextStyle(
+                          fontFamily: kArial,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: color,
+                        ),
                       ),
                     ),
                     Text(
                       titulo,
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontFamily: kArial,

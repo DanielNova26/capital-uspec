@@ -1739,6 +1739,7 @@ class _FiltrosSheetState extends State<_FiltrosSheet> {
               ),
               const SizedBox(height: 6),
               DropdownButtonFormField<String?>(
+                isExpanded: true,
                 initialValue: _area,
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
@@ -1766,6 +1767,7 @@ class _FiltrosSheetState extends State<_FiltrosSheet> {
               ),
               const SizedBox(height: 6),
               DropdownButtonFormField<String?>(
+                isExpanded: true,
                 initialValue: _cargo,
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),

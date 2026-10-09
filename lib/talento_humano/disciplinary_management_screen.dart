@@ -7,6 +7,7 @@ import '../widgets/internal_module_layout.dart';
 import '../widgets/paged_list.dart';
 import '../widgets/user_avatar.dart';
 import 'disciplinary_service.dart';
+import '../widgets/alto_escalado.dart';
 
 const _primary = Color(0xFF9A5B32);
 const _navy = Color(0xFF173B5E);
@@ -476,7 +477,7 @@ class _DisciplinaryManagementScreenState
         crossAxisCount: mobile ? 2 : 4,
         crossAxisSpacing: 10,
         mainAxisSpacing: 10,
-        childAspectRatio: mobile ? 1.95 : 1.75,
+        mainAxisExtent: altoEscalado(context, mobile ? 92 : 96),
       ),
       itemBuilder: (_, index) => _MetricCard(data: cards[index]),
     );
@@ -1747,8 +1748,8 @@ class _TrackStep extends StatelessWidget {
           ),
           borderRadius: BorderRadius.circular(999),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
+        child: Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             Icon(
               done
@@ -2391,8 +2392,8 @@ class _FilterButton extends StatelessWidget {
         border: Border.all(color: _border),
         borderRadius: BorderRadius.circular(10),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           const Icon(Icons.filter_list_rounded, size: 17, color: _muted),
           const SizedBox(width: 6),
