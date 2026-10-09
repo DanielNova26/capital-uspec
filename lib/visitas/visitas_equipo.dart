@@ -446,6 +446,14 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
     );
   }
 
+  /// Nombre de la persona según el equipo de la empresa (no la cédula).
+  String? _nombreDe(String id) {
+    for (final p in _equipo) {
+      if (p.id == id && p.nombre.trim().isNotEmpty) return p.nombre;
+    }
+    return null;
+  }
+
   /// Personas del grupo: las que Talento Humano asignó (puede estar en varios).
   List<String> _miembros(VisitaGrupo g) => [
     for (final p in _equipo)
@@ -604,10 +612,11 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
                             Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                UserAvatar(userId: id, radius: 11),
+                                UserAvatar(userId: id, nameHint: _nombreDe(id), radius: 11),
                                 const SizedBox(width: 4),
                                 UserNameText(
                                   id,
+                                  fallbackName: _nombreDe(id),
                                   style: const TextStyle(
                                     fontFamily: _kFont,
                                     fontSize: 12,
@@ -633,10 +642,11 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
                             Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                UserAvatar(userId: id, radius: 11),
+                                UserAvatar(userId: id, nameHint: _nombreDe(id), radius: 11),
                                 const SizedBox(width: 4),
                                 UserNameText(
                                   id,
+                                  fallbackName: _nombreDe(id),
                                   style: const TextStyle(
                                     fontFamily: _kFont,
                                     fontSize: 12,
