@@ -461,3 +461,20 @@ String planEstadoHallazgo(Map<String, dynamic> item) {
       return 'Pendiente';
   }
 }
+
+/// Icono «?» con la explicación larga; se abre al pulsar o al pasar el cursor.
+class PlanAyuda extends StatelessWidget {
+  const PlanAyuda(this.mensaje, {super.key});
+  final String mensaje;
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: mensaje,
+    triggerMode: TooltipTriggerMode.tap,
+    showDuration: const Duration(seconds: 8),
+    margin: const EdgeInsets.symmetric(horizontal: 16),
+    child: const Padding(
+      padding: EdgeInsets.all(8),
+      child: Icon(Icons.help_outline, size: 20, semanticLabel: 'Ayuda'),
+    ),
+  );
+}

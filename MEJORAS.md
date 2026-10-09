@@ -770,8 +770,10 @@ lo podemos poner en el admin".
 - Pruebas: 9/9 de política (TypeScript compila). **Sin verificar**: compilación y
   pruebas Flutter, Web, Android e iPhone (sin Flutter en este entorno); pruebas
   de integración con emulador no ejecutadas.
-- Pendiente: disposición en tres secciones/dos paneles lado a lado, iconos de
-  ayuda «?», descarga de todos los soportes y fechas de subsanación distintas
+- Hecho después: pantalla del hallazgo en tres secciones (≥1000 px lado a lado;
+  en estrecho, selector Datos/Numeral/Soportes) e icono «?» (`PlanAyuda`) en
+  avisos largos. Sin compilar ni probar en Web/Android/iPhone.
+- Pendiente: dos paneles funcionario/Calidad lado a lado, descarga de todos los soportes y fechas de subsanación distintas
   del plazo del plan; PDF no se verificó visualmente.
 
 ## 2026-10-05 — Planes de mejora K2 implementados (Codex)

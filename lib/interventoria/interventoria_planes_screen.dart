@@ -1517,22 +1517,12 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
     icon: const Icon(Icons.copy, size: 18),
     label: Text('Copiar $label'),
   );
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Text('${_plan['numero']} · Hallazgo ${_item['numeral']}'),
-    ),
-    backgroundColor: const Color(0xfff0f5f8),
-    body: SafeArea(
-      child: Align(
-        alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1200),
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            children: [
-              if (_busy) const LinearProgressIndicator(),
+  Widget _general() => PlanBloque(
+    title: '1. Datos generales',
+    icon: Icons.badge_outlined,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
               PlanCabecera(
                 title:
                     '${_plan['numero']} · ${_item['establecimiento']}',
@@ -1543,6 +1533,25 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                     'Plan: ${planEstadoGestion(_plan)} · Hallazgo: ${planEstadoHallazgo(_item)}',
               ),
               const SizedBox(height: 8),
+        Row(
+          children: [
+            const Text('Plazos del plan'),
+            PlanAyuda(
+              'Respuesta máxima ${_plan['limiteRespuesta']}; soportes máximos ${_plan['limiteSoportes']}. '
+              'El plazo propio de cada subsanación puede ser distinto.',
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+
+  Widget _numeral() => PlanBloque(
+    title: '2. Numeral y observación',
+    icon: Icons.rule_folder_outlined,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
               Text(
                 'Numeral ${_item['numeral']}',
                 style: Theme.of(context).textTheme.titleMedium,
@@ -1592,6 +1601,13 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                     ),
                   ],
                 ),
+      ],
+    ),
+  );
+
+  Widget _respuesta() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
               const SizedBox(height: 12),
               Wrap(
                 spacing: 10,
@@ -1774,8 +1790,11 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                               ),
                             ],
                           ),
-                          const Text(
-                            'Solo evidencias de subsanación. PDF, JPG o PNG; hasta 5 MB por archivo.',
+                          const Align(
+                            alignment: Alignment.centerLeft,
+                            child: PlanAyuda(
+                              'Solo evidencias de subsanación. PDF, JPG o PNG; hasta 5 MB por archivo.',
+                            ),
                           ),
                           const SizedBox(height: 12),
                           Text(
@@ -1921,8 +1940,11 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          const Text(
-                            'Se conserva junto a la respuesta del funcionario. Si queda vacía, se usa la importada de la tarea.',
+                          const Align(
+                            alignment: Alignment.centerLeft,
+                            child: PlanAyuda(
+                              'Se conserva junto a la respuesta del funcionario. Si queda vacía, se usa la importada de la tarea.',
+                            ),
                           ),
                           const SizedBox(height: 8),
                           TextField(
@@ -2003,8 +2025,74 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                     ),
                 ],
               ),
-              const SizedBox(height: 24),
-            ],
+    ],
+  );
+
+  String _seccion = 'general';
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: Text('${_plan['numero']} · Hallazgo ${_item['numeral']}'),
+    ),
+    backgroundColor: const Color(0xfff0f5f8),
+    body: SafeArea(
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1600),
+          child: LayoutBuilder(
+            builder: (context, c) {
+              final ancho = c.maxWidth >= 1000;
+              return ListView(
+                padding: const EdgeInsets.all(16),
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                children: [
+                  if (_busy) const LinearProgressIndicator(),
+                  if (ancho)
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(flex: 3, child: _general()),
+                        const SizedBox(width: 16),
+                        Expanded(flex: 4, child: _numeral()),
+                        const SizedBox(width: 16),
+                        Expanded(flex: 6, child: _respuesta()),
+                      ],
+                    )
+                  else ...[
+                    SegmentedButton<String>(
+                      showSelectedIcon: false,
+                      segments: const [
+                        ButtonSegment(
+                          value: 'general',
+                          icon: Icon(Icons.badge_outlined),
+                          label: Text('Datos'),
+                        ),
+                        ButtonSegment(
+                          value: 'numeral',
+                          icon: Icon(Icons.rule_folder_outlined),
+                          label: Text('Numeral'),
+                        ),
+                        ButtonSegment(
+                          value: 'soportes',
+                          icon: Icon(Icons.attach_file),
+                          label: Text('Soportes'),
+                        ),
+                      ],
+                      selected: {_seccion},
+                      onSelectionChanged: (v) =>
+                          setState(() => _seccion = v.first),
+                    ),
+                    const SizedBox(height: 8),
+                    if (_seccion == 'general') _general(),
+                    if (_seccion == 'numeral') _numeral(),
+                    if (_seccion == 'soportes') _respuesta(),
+                  ],
+                  const SizedBox(height: 24),
+                ],
+              );
+            },
           ),
         ),
       ),
