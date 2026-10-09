@@ -964,6 +964,7 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
                         ),
                       if (_requiresApproval && canEditResponse)
                         DropdownButtonFormField<GdResponsable>(
+                          isExpanded: true,
                           initialValue: _reviewer,
                           items: users
                               .map(
@@ -1366,6 +1367,7 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
                       ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue: priority,
                       decoration: const InputDecoration(
                         labelText: 'Prioridad',
@@ -2272,12 +2274,14 @@ class _SectionCard extends StatelessWidget {
             children: [
               Icon(icon, color: _accent),
               const SizedBox(width: 8),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w900,
-                  color: _ink,
+              Flexible(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    color: _ink,
+                  ),
                 ),
               ),
             ],

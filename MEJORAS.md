@@ -105,6 +105,20 @@ Capturas del usuario (Android, ancho ~390 px, módulo Gerencia › Interventorí
     de un `Wrap`, el ancho se recorta al disponible), las rejillas de
     evidencias de Rutas (miniaturas con proporción fija) y los paneles de ancho
     fijo de Rutas, que solo se usan en la rama ancha.
+- **Sexta pasada: Gestión Documental y Correo.**
+  - 10 selectores sin `isExpanded` (Planillas › beneficiarios, Correspondencia,
+    panel de colaboración y cinco en Correo: buzón, responsable, prioridad,
+    revisor e icono). Todos en `Column`, `Expanded` o `SizedBox`.
+  - 5 filas de icono + texto largo a `Wrap` (tablero de control, detalle de
+    planilla, tablero y widgets de Gestión Documental).
+  - Títulos de tarjeta de sección en Correo y Correspondencia, y el nombre del
+    actor en las tarjetas de historial: `Flexible` para que no se salgan.
+  - Revisado sin cambio: todas las pestañas (desplazables o de dos o tres
+    elementos), `DataTable` (ya paginadas o con scroll horizontal), no hay
+    cuadrículas de proporción fija en estos módulos.
+  - Pendiente: tarjetas de documento del panel de colaboración con tres botones
+    de acción (`gd_colaboracion_panel.dart`, ~línea 665); no se pasaron al menú
+    «⋮» porque uno va dentro de un `Tooltip` condicional.
 - Validación: Flutter 3.44.9 instalado en el entorno; `flutter analyze` sin
   errores en lo tocado (los avisos que salen ya existían); suite completa de
   1.631 pruebas aprobada.

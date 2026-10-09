@@ -1398,9 +1398,7 @@ class _ProcessTable extends StatelessWidget {
                 DataCell(_DashboardStatus(row: row)),
                 DataCell(SizedBox(width: 190, child: _RespuestaCell(row: row))),
                 DataCell(
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
+                  Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
                       const Icon(
                         Icons.attach_file,
                         size: 16,
@@ -1409,8 +1407,7 @@ class _ProcessTable extends StatelessWidget {
                       Text(
                         '${row.adjuntosEntrada.length + row.adjuntosRespuesta.length}',
                       ),
-                    ],
-                  ),
+                    ]),
                 ),
               ],
             ),
@@ -1513,17 +1510,14 @@ class _TinyMeta extends StatelessWidget {
   final String value;
   const _TinyMeta(this.icon, this.value);
   @override
-  Widget build(BuildContext context) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
+  Widget build(BuildContext context) => Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
       Icon(icon, size: 14, color: const Color(0xFF64748B)),
       const SizedBox(width: 4),
       Text(
         value,
         style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
       ),
-    ],
-  );
+    ]);
 }
 
 class _FilterChoice extends StatelessWidget {

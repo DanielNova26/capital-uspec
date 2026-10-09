@@ -568,7 +568,12 @@ class _SummaryRanking extends StatelessWidget {
             children: [
               Icon(icon, color: _correoPrimary),
               const SizedBox(width: 8),
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+              Flexible(
+                child: Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
             ],
           ),
           const Divider(height: 22),
@@ -709,6 +714,7 @@ class _InboxTabState extends State<_InboxTab> {
                     SizedBox(
                       width: fieldWidth,
                       child: DropdownButtonFormField<String>(
+                        isExpanded: true,
                         initialValue: _mailboxFilter,
                         decoration: const InputDecoration(
                           labelText: 'Buzón receptor',
@@ -983,6 +989,7 @@ class _RadicacionDialogState extends State<_RadicacionDialog> {
                 ),
                 const Divider(height: 28),
                 DropdownButtonFormField<GdResponsable>(
+                  isExpanded: true,
                   initialValue: _responsable,
                   items: users
                       .map(
@@ -1001,6 +1008,7 @@ class _RadicacionDialogState extends State<_RadicacionDialog> {
                   children: [
                     Expanded(
                       child: DropdownButtonFormField<String>(
+                        isExpanded: true,
                         initialValue: _priority,
                         items: const [
                           DropdownMenuItem(
@@ -1054,6 +1062,7 @@ class _RadicacionDialogState extends State<_RadicacionDialog> {
                 ),
                 if (_requiresApproval)
                   DropdownButtonFormField<GdResponsable>(
+                    isExpanded: true,
                     initialValue: _revisor,
                     items: users
                         .map(
@@ -1338,6 +1347,7 @@ class CorreoFiltrosPanel extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: _correoFilterIcons.contains(selectedIcon)
                       ? selectedIcon
                       : '📩',
