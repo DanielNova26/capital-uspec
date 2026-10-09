@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../widgets/acciones_de_fila.dart';
 import 'facturacion_models.dart';
 import 'facturacion_service.dart';
 
@@ -459,21 +460,23 @@ class _ObligacionCard extends StatelessWidget {
               ],
             ),
           ),
-          IconButton(
-            tooltip: 'Establecimientos a los que aplica',
-            onPressed: onAlcance,
-            icon: const Icon(Icons.store_mall_directory_outlined),
-          ),
-          IconButton(
-            tooltip: 'Subir posición',
-            onPressed: onUp,
-            icon: const Icon(Icons.keyboard_arrow_up_rounded),
-          ),
-          IconButton(
-            tooltip: 'Bajar posición',
-            onPressed: onDown,
-            icon: const Icon(Icons.keyboard_arrow_down_rounded),
-          ),
+          ...accionesDeFila(context, [
+            IconButton(
+              tooltip: 'Establecimientos a los que aplica',
+              onPressed: onAlcance,
+              icon: const Icon(Icons.store_mall_directory_outlined),
+            ),
+            IconButton(
+              tooltip: 'Subir posición',
+              onPressed: onUp,
+              icon: const Icon(Icons.keyboard_arrow_up_rounded),
+            ),
+            IconButton(
+              tooltip: 'Bajar posición',
+              onPressed: onDown,
+              icon: const Icon(Icons.keyboard_arrow_down_rounded),
+            ),
+          ]),
           Switch.adaptive(value: item.enabled, onChanged: onToggle),
         ],
       ),

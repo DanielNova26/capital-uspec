@@ -86,6 +86,25 @@ Capturas del usuario (Android, ancho ~390 px, módulo Gerencia › Interventorí
     `Expanded`) y los pies de diálogo de Nutrición que sí caben.
   - No hay cuadrículas de proporción fija ni filas convertibles a `Wrap` en estos
     dos módulos.
+- **Quinta pasada: Facturación y Rutas.**
+  - 18 selectores sin `isExpanded` (14 en Facturación: mes, año, establecimiento,
+    tipo de documento, filtros de observaciones; 4 en Estudio de movilidad).
+    Todos en `Column`, `Expanded`, diálogo o `SizedBox` con ancho acotado.
+  - **Facturación**: las pestañas (hasta cinco con icono y texto, p. ej.
+    «Establecimientos») se desplazan por debajo de 700 px en vez de cortar el
+    texto. Las dos rejillas de tarjetas de documentos del teléfono pasan de
+    `childAspectRatio` (0,55 y 0,6) a `mainAxisExtent` con `altoEscalado`.
+  - **Facturación › Obligaciones**: avatar + nombre + 3 botones + interruptor
+    dejaban ~110 px al nombre; las tres acciones pasan al menú «⋮» bajo 520 px.
+  - Facturación: dos filas de texto largo (avance «n de m docs · Mes…» y
+    «Documento: …») y filas de Rutas pasan a `Wrap`.
+  - **Rutas › Estudio de movilidad**: la cabecera de cada ruta (código, paradas,
+    verificación y totales) tenía nueve elementos con `Spacer` en una fila; ahora
+    son dos grupos `Flexible` + `Wrap` (izquierda y derecha) que bajan de línea.
+  - Sin tocar: `SizedBox(width: 380)` de la configuración de movilidad (dentro
+    de un `Wrap`, el ancho se recorta al disponible), las rejillas de
+    evidencias de Rutas (miniaturas con proporción fija) y los paneles de ancho
+    fijo de Rutas, que solo se usan en la rama ancha.
 - Validación: Flutter 3.44.9 instalado en el entorno; `flutter analyze` sin
   errores en lo tocado (los avisos que salen ya existían); suite completa de
   1.631 pruebas aprobada.

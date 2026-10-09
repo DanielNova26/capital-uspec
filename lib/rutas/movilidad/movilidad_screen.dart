@@ -1301,70 +1301,95 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Dos grupos con `Flexible`/`Wrap`: código y paradas a la izquierda,
+            // totales a la derecha; en el teléfono cada grupo baja de línea en
+            // vez de desbordar.
             Row(
               children: [
-                CircleAvatar(
-                  radius: 15,
-                  backgroundColor: _kVerde,
-                  child: Text(
-                    ruta.codigo.replaceAll(RegExp(r'[^0-9]'), ''),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  ruta.codigo,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '${ruta.paradas.length} paradas',
-                  style: const TextStyle(fontSize: 12, color: Colors.black54),
-                ),
-                const SizedBox(width: 6),
-                Builder(
-                  builder: (context) {
-                    final c = MovilidadService.compararConEstudio(
-                      ruta.codigo,
-                      ruta.paradas,
-                    );
-                    return Tooltip(
-                      message: c.coincide
-                          ? 'La secuencia coincide con la del estudio'
-                          : 'Secuencia del estudio: ${c.esperado}',
-                      child: Icon(
-                        c.coincide ? Icons.verified : Icons.error_outline,
-                        size: 16,
-                        color: c.coincide ? kMovColorBajo : kMovColorCritico,
+                Flexible(
+                  child: Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      CircleAvatar(
+                        radius: 15,
+                        backgroundColor: _kVerde,
+                        child: Text(
+                          ruta.codigo.replaceAll(RegExp(r'[^0-9]'), ''),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13,
+                          ),
+                        ),
                       ),
-                    );
-                  },
+                      const SizedBox(width: 10),
+                      Text(
+                        ruta.codigo,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${ruta.paradas.length} paradas',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.black54,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Builder(
+                        builder: (context) {
+                          final c = MovilidadService.compararConEstudio(
+                            ruta.codigo,
+                            ruta.paradas,
+                          );
+                          return Tooltip(
+                            message: c.coincide
+                                ? 'La secuencia coincide con la del estudio'
+                                : 'Secuencia del estudio: ${c.esperado}',
+                            child: Icon(
+                              c.coincide ? Icons.verified : Icons.error_outline,
+                              size: 16,
+                              color: c.coincide
+                                  ? kMovColorBajo
+                                  : kMovColorCritico,
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
                 ),
-                const Spacer(),
-                if (finalMed != null) ...[
-                  Text(
-                    'Total en ruta: ',
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                Flexible(
+                  child: Wrap(
+                    alignment: WrapAlignment.end,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      if (finalMed != null) ...[
+                        Text(
+                          'Total en ruta: ',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                        Text(
+                          finalMed.acumuladoTexto,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: movRiesgoColor(finalMed.riesgo),
+                          ),
+                        ),
+                      ] else
+                        const Text(
+                          'Sin mediciones aún',
+                          style: TextStyle(fontSize: 12, color: Colors.black54),
+                        ),
+                    ],
                   ),
-                  Text(
-                    finalMed.acumuladoTexto,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      color: movRiesgoColor(finalMed.riesgo),
-                    ),
-                  ),
-                ] else
-                  const Text(
-                    'Sin mediciones aún',
-                    style: TextStyle(fontSize: 12, color: Colors.black54),
-                  ),
+                ),
               ],
             ),
             const Divider(),
@@ -1734,6 +1759,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
     constraints: const BoxConstraints(maxWidth: 220),
     child: DropdownButtonHideUnderline(
       child: DropdownButton<T>(
+        isExpanded: true,
         hint: Text(label, style: const TextStyle(fontSize: 13)),
         value: valor,
         isDense: true,
@@ -2409,8 +2435,8 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
     );
   }
 
-  Widget _leyenda(String label, Color color) => Row(
-    mainAxisSize: MainAxisSize.min,
+  Widget _leyenda(String label, Color color) => Wrap(
+    crossAxisAlignment: WrapCrossAlignment.center,
     children: [
       Icon(Icons.location_on, size: 16, color: color),
       const SizedBox(width: 2),
@@ -2889,6 +2915,7 @@ class _ProgramacionViewState extends State<_ProgramacionView> {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<int>(
+                isExpanded: true,
                 initialValue: weekday,
                 decoration: const InputDecoration(labelText: 'Día'),
                 items: kMovWeekdayNombres.entries
@@ -2927,6 +2954,7 @@ class _ProgramacionViewState extends State<_ProgramacionView> {
                 ],
               ),
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: escenario,
                 decoration: const InputDecoration(labelText: 'Escenario'),
                 items: kMovEscenarios
@@ -3151,6 +3179,7 @@ class _ProgramacionViewState extends State<_ProgramacionView> {
                           SizedBox(
                             width: 380,
                             child: DropdownButtonFormField<String>(
+                              isExpanded: true,
                               initialValue: cfg.fuente,
                               decoration: const InputDecoration(
                                 labelText: 'Fuente de medición (API)',
