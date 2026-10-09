@@ -17,6 +17,7 @@ class PlanFuentesPanel extends StatefulWidget {
     this.onOpen,
     this.onUseText,
     this.enabled = true,
+    this.selector = false,
   });
   final List<PlanData> items;
   final PlanRequest request;
@@ -24,6 +25,7 @@ class PlanFuentesPanel extends StatefulWidget {
   final Future<void> Function(PlanData)? onOpen;
   final ValueChanged<String>? onUseText;
   final bool enabled;
+  final bool selector;
 
   @override
   State<PlanFuentesPanel> createState() => _PlanFuentesPanelState();
@@ -37,9 +39,17 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
   final Map<String, String> _errors = {};
   final Map<String, Set<String>> _selected = {};
   String? _result;
+  String? _hallazgoId;
 
-  List<PlanData> get _visible =>
-      widget.items.skip(_page * _pageSize).take(_pageSize).toList();
+  List<PlanData> get _visible => widget.selector
+      ? widget.items
+            .where(
+              (i) =>
+                  i['id'] == (_hallazgoId ?? widget.items.firstOrNull?['id']),
+            )
+            .take(1)
+            .toList()
+      : widget.items.skip(_page * _pageSize).take(_pageSize).toList();
   String _signature(List<PlanData> items) => items
       .map(
         (i) =>
@@ -58,6 +68,7 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
     super.didUpdateWidget(oldWidget);
     if (_signature(oldWidget.items) != _signature(widget.items)) {
       if (_page * _pageSize >= widget.items.length) _page = 0;
+      if (!widget.items.any((i) => i['id'] == _hallazgoId)) _hallazgoId = null;
       _load();
     }
   }
@@ -168,6 +179,23 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
     }
   }
 
+  Future<void> _attached(PlanData item, PlanData file) async {
+    setState(() => _busy = true);
+    try {
+      await InterventoriaPlanesService.guardarArchivo(
+        await widget.request({
+          'accion': 'evidencia',
+          'itemId': item['id'],
+          'path': file['path'],
+        }),
+      );
+    } catch (e) {
+      if (mounted) setState(() => _result = e.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final count = _selected.values.fold<int>(0, (n, keys) => n + keys.length);
@@ -175,8 +203,43 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (widget.selector) ...[
+          DropdownButtonFormField<String>(
+            key: ValueKey('hallazgo:${_visible.firstOrNull?['id']}'),
+            initialValue: _visible.firstOrNull?['id'] as String?,
+            isExpanded: true,
+            menuMaxHeight: 360,
+            decoration: const InputDecoration(
+              labelText: 'Seleccionar hallazgo',
+              prefixIcon: Icon(Icons.fact_check_outlined),
+              border: OutlineInputBorder(),
+            ),
+            items: widget.items
+                .map(
+                  (i) => DropdownMenuItem<String>(
+                    value: i['id'],
+                    child: Text(
+                      '${i['establecimiento']} · Acta ${i['idVisitaK2']} · ${i['numeral']}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                )
+                .toList(),
+            onChanged: !enabled || count > 0
+                ? null
+                : (value) {
+                    setState(() => _hallazgoId = value);
+                    _load();
+                  },
+          ),
+          if (count > 0)
+            const Text(
+              'Incluye o desmarca los archivos antes de cambiar de hallazgo.',
+            ),
+          const SizedBox(height: 16),
+        ],
         Text(
-          'Evidencias existentes',
+          'Fuentes de la tarea aprobada',
           style: Theme.of(context).textTheme.titleMedium,
         ),
         const Text(
@@ -200,7 +263,7 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
               icon: const Icon(Icons.refresh),
               label: const Text('Actualizar evidencias'),
             ),
-            if (widget.items.length > _pageSize) ...[
+            if (!widget.selector && widget.items.length > _pageSize) ...[
               IconButton(
                 tooltip: 'Hallazgos anteriores',
                 onPressed: enabled && count == 0 && _page > 0
@@ -230,7 +293,7 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
             ],
           ],
         ),
-        if (count > 0 && widget.items.length > _pageSize)
+        if (!widget.selector && count > 0 && widget.items.length > _pageSize)
           const Text(
             'Incluye o desmarca los archivos seleccionados antes de cambiar de página.',
           ),
@@ -374,7 +437,14 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
                 ),
               ],
             ),
-            SelectableText(planText(item, 'descripcion')),
+            if (widget.selector)
+              ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                title: const Text('Descripción del hallazgo'),
+                children: [SelectableText(planText(item, 'descripcion'))],
+              )
+            else
+              SelectableText(planText(item, 'descripcion')),
             Text('Acta ${item['idVisitaK2']} · Tarea ${item['numeroTarea']}'),
             Text(
               'Estado de tarea: ${source?['tareaEstado'] ?? item['tareaEstado'] ?? 'Consultando'} · Aprueba: ${source?['aprobadorNombre'] ?? item['aprobadorNombre'] ?? 'Consultando'}',
@@ -387,11 +457,6 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
             Wrap(
               spacing: 8,
               children: [
-                TextButton.icon(
-                  icon: const Icon(Icons.copy, size: 16),
-                  label: const Text('Copiar responsable'),
-                  onPressed: () => Clipboard.setData(ClipboardData(text: name)),
-                ),
                 TextButton.icon(
                   icon: const Icon(Icons.copy, size: 16),
                   label: const Text('Copiar hallazgo'),
@@ -413,7 +478,40 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
                 child: TextButton.icon(
                   onPressed: !_busy ? () => widget.onOpen!(item) : null,
                   icon: const Icon(Icons.open_in_new),
-                  label: const Text('Abrir hallazgo y respuesta'),
+                  label: const Text('Preparar respuesta y adjuntar soportes'),
+                ),
+              ),
+            if (widget.selector)
+              PlanBloque(
+                title:
+                    'Soportes adjuntos (${planList(item['evidencias']).length})',
+                icon: Icons.verified_outlined,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (planList(item['evidencias']).isEmpty)
+                      const Text(
+                        'Aún no hay soportes en este hallazgo. Abre la respuesta para adjuntarlos o incluye una fuente aprobada abajo.',
+                      ),
+                    for (final file in planList(item['evidencias']))
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(planText(file, 'nombre')),
+                        subtitle: Text(
+                          planText(file, 'fuenteKey').isNotEmpty
+                              ? 'Incorporado desde la tarea'
+                              : 'Adjuntado al plan',
+                        ),
+                        leading: const Icon(Icons.insert_drive_file_outlined),
+                        trailing: IconButton(
+                          tooltip: 'Descargar soporte',
+                          icon: const Icon(Icons.download),
+                          onPressed: enabled
+                              ? () => _attached(item, file)
+                              : null,
+                        ),
+                      ),
+                  ],
                 ),
               ),
             if (_errors.containsKey(id))

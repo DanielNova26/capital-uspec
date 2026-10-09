@@ -247,7 +247,8 @@ export async function consultarPlanes(input: DatosPlan, a: Actor): Promise<Datos
         idVisitaK2: visita?.empresaId === a.empresaId ? s(visita.idVisitaK2) : "",
         grupo: await grupo(d), fechaActa: plain(visita?.fechaVisita || d.fechaHallazgo)};
     }));
-    return {candidatos, cursor: snap.size > 100 ? docs[99].id : null};
+    // Preserve the raw cursor even when this page has no identified visits.
+    return {candidatos: candidatos.filter((c) => c.idVisitaK2), cursor: snap.size > 100 ? docs[99].id : null};
   }
   if (input.accion === "tarea") {
     const tid = id(input.tareaId);
@@ -638,26 +639,47 @@ async function leerEvidencia(ev: DatosPlan): Promise<Buffer> {
 
 async function exportar(input: DatosPlan, a: Actor) {
   calidad(a);
+  const expediente = input.accion === "expediente";
   const detail = await consultarPlanes({...input, accion: "detalle"}, a);
   const company = (await db().collection("TBL_EMPRESAS").doc(a.empresaId).get()).data();
   const companyName = s(company?.nombre || company?.razonSocial) || a.empresaId;
   const items = (detail.items as DatosPlan[]).filter((i) => !input.itemId || i.id === input.itemId);
-  if (!items.length || items.some((i) => !etapaAprobada(i, "respuesta") || !etapaAprobada(i, "soportes"))) err("Todos los hallazgos seleccionados deben tener compromiso y soportes satisfactorios.");
+  if (!items.length || (!expediente && items.some((i) => !etapaAprobada(i, "respuesta") || !etapaAprobada(i, "soportes")))) err("Todos los hallazgos seleccionados deben tener compromiso y soportes satisfactorios.");
   const zip = new JSZip(); let total = 0;
+  const corte = new Date().toISOString();
+  if (expediente) {
+    const history = await db().collection(PLANES_COL).doc(id(input.planId)).collection("historial").orderBy("fecha", "asc").get();
+    detail.historial = history.docs.map((d) => plain(d.data()));
+  }
+  const registro: DatosPlan = {corte, plan: detail.plan, historialPlan: detail.historial, hallazgos: []};
   let individual: {nombre: string; bytes: Buffer} | undefined;
   for (const item of items) {
     const original = (await db().collection(ITEMS_COL).doc(item.id).get()).data(); empresa(original, a);
     if (original.soportesVersion !== item.soportesVersion || original.respuestaVersion !== item.respuestaVersion ||
-        !etapaAprobada(original, "respuesta") || !etapaAprobada(original, "soportes")) err("La entrega cambió. Actualiza antes de exportar.");
+        (!expediente && (!etapaAprobada(original, "respuesta") || !etapaAprobada(original, "soportes")))) err("La entrega cambió. Actualiza antes de exportar.");
+    const history = expediente ? await db().collection(ITEMS_COL).doc(item.id).collection("historial").orderBy("fecha", "asc").get() : null;
+    const historial = history?.docs.map((d) => ({id: d.id, ...plain(d.data())})) || [];
+    // Audit snapshots are sanitized by plain(), including nested encryption keys.
+    registro.hallazgos.push({id: item.id, ...plain(original), historial});
+    const etapa = (e: string) => {
+      const presented = original[`${e}Presentado`]; const review = original[`${e}Revision`] || {};
+      return `${e === "respuesta" ? "Compromiso" : "Soportes"}: ${presented ? "Presentado en K2" : etapaAprobada(original, e) ? "Aprobado, pendiente de presentación" : s(review.estado) || "Pendiente"}\n` +
+        `Revisión: ${s(review.porNombre)} · ${s(plain(review.fecha))} · ${s(review.motivo)}\n` +
+        (presented ? `Presentación: ${s(presented.fecha)} · ${s(presented.porNombre)} · Constancia: ${s(presented.comprobante)}\n` : "");
+    };
     const pdf = await PDFDocument.create(); const font = await pdf.embedFont(StandardFonts.Helvetica);
     let page = pdf.addPage(); let y = page.getHeight() - 45;
-    const text = `PLAN DE MEJORA · ${companyName}\n${detail.plan.numero} · ${detail.plan.csc}\nNotificación: ${detail.plan.fechaNotificacion}\n` +
+    const text = (expediente ? `EXPEDIENTE PARA MESA DE DESCUENTOS\nCorte: ${corte}\nIncluye pendientes. Este expediente no acredita por sí mismo la aceptación de K2.\n` : "") +
+      `PLAN DE MEJORA · ${companyName}\n${detail.plan.numero} · ${detail.plan.csc}\nNotificación: ${detail.plan.fechaNotificacion}\n` +
+      `Máximo respuesta: ${detail.plan.limiteRespuesta} · Máximo soportes: ${detail.plan.limiteSoportes}\n` +
       `${item.establecimiento} · Acta ${item.idVisitaK2} · Hallazgo ${item.numeral}\n` +
       `Responsable: ${item.responsableNombre || ""}\nAprueba tarea: ${item.aprobadorNombre || ""}\n` +
       `Hallazgo: ${item.descripcion}\nCompromiso: ${item.compromiso || ""}\n` +
       `Ejecución: ${item.fechaEjecucion || ""} · Seguimiento: ${item.fechaSeguimiento || ""}\n` +
-      `Subsanación: ${item.respuestaSoportes || ""}\nObservaciones de Calidad: ${item.soportesRevision.motivo || "Sin observaciones"}\n` +
-      `Revisión: ${item.soportesRevision.porNombre}\nArchivos adjuntos: ${(original.evidencias || []).map((e: DatosPlan) => e.nombre).join(", ")}\n`;
+      `Subsanación: ${item.respuestaSoportes || "Pendiente"}\n` + etapa("respuesta") + etapa("soportes") +
+      `ÍNDICE DE SOPORTES\n${(original.evidencias || []).map((e: DatosPlan, n: number) => `${n + 1}. ${e.nombre} · ${e.contentType} · ${e.size || e.bytes || ""} bytes`).join("\n") || "Sin soportes adjuntos"}\n` +
+      (expediente ? `HISTORIAL DEL HALLAZGO\n${historial.map((h: DatosPlan) => `${h.fecha} · ${h.accion} · ${h.porNombre} · ${h.motivo || h.cambio?.[`${h.etapa}Revision`]?.motivo || ""}`).join("\n")}\n` +
+        `HISTORIAL DEL PLAN\n${(detail.historial as DatosPlan[]).map((h) => `${h.fecha} · ${h.accion} · ${h.porNombre} · ${h.motivo || ""}`).join("\n")}\n` : "");
     // WinAnsi font: replace unsupported glyphs explicitly; preserve Spanish accents.
     const safe = [...text].map((c) => {
       try {
@@ -682,7 +704,7 @@ async function exportar(input: DatosPlan, a: Actor) {
       }
       page.drawText(line, {x: 45, y, size: 10, font}); y -= 20;
     }
-    for (const ev of original.evidencias) {
+    for (const ev of original.evidencias || []) {
       if (!s(ev.path).startsWith(`interventoria_planes/${a.empresaId}/${item.id}/`)) err("Ruta de evidencia inválida.");
       const bytes = await leerEvidencia(ev); total += bytes.length;
       if (total > 100 * 1024 * 1024) err("El paquete supera 100 MB. Descarga los hallazgos individualmente.");
@@ -700,8 +722,9 @@ async function exportar(input: DatosPlan, a: Actor) {
     zip.file(`${name}.pdf`, output);
     individual = {nombre: `${name}.pdf`, bytes: output};
   }
+  if (expediente) zip.file("registro_del_expediente.json", JSON.stringify(registro, null, 2));
   const bytes = await zip.generateAsync({type: "nodebuffer", compression: "DEFLATE"});
-  const resultado = input.itemId && individual ? individual : {nombre: `${detail.plan.numero}_soportes.zip`, bytes};
+  const resultado = input.itemId && individual && !expediente ? individual : {nombre: `${detail.plan.numero}_${expediente ? "expediente" : "soportes"}.zip`, bytes};
   if (resultado.bytes.length <= 6 * 1024 * 1024) return {nombre: resultado.nombre, base64: resultado.bytes.toString("base64")};
   const ref = db().collection(PLANES_COL).doc(id(input.planId)).collection("exportaciones").doc();
   const partes: DatosPlan[] = [];
@@ -759,7 +782,7 @@ export const interventoriaPlanes = functions.region("us-central1").runWith({time
         case "fechas": return await editarFechas(input, a);
         case "identificarVisita": return await identificarVisita(input, a);
         case "evidencia": return await evidencia(input, a);
-        case "exportar": return await exportar(input, a);
+        case "exportar": case "expediente": return await exportar(input, a);
         case "exportParte": return await exportParte(input, a);
         default: return err("Acción desconocida.", "invalid-argument");
       }

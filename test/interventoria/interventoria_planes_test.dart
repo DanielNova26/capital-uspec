@@ -110,6 +110,9 @@ void main() {
     expect(rolOperativoInterventoria('', esDesarrollo: false), isEmpty);
   });
   setUpAll(() async {
+    final icons = FontLoader('MaterialIcons')
+      ..addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'));
+    await icons.load();
     final fontFile = File('C:/Windows/Fonts/arial.ttf');
     if (await fontFile.exists()) {
       final loader = FontLoader('QaFont')
@@ -255,6 +258,30 @@ void main() {
               image.dispose();
             });
           }
+          await tester.scrollUntilVisible(
+            find.textContaining('2. Soportes ('),
+            -300,
+            scrollable: find.byType(Scrollable).first,
+          );
+          await tester.tap(find.textContaining('2. Soportes ('));
+          await tester.pumpAndSettle();
+          expect(find.text('Copiar responsable'), findsNothing);
+          if (platform == TargetPlatform.android && scale == 1) {
+            await tester.runAsync(() async {
+              final image =
+                  await (key.currentContext!.findRenderObject()!
+                          as RenderRepaintBoundary)
+                      .toImage();
+              final data = await image.toByteData(
+                format: ui.ImageByteFormat.png,
+              );
+              await File(
+                'tmp/k2-qa/soportes-${width.toInt()}.png',
+              ).writeAsBytes(data!.buffer.asUint8List());
+              image.dispose();
+            });
+          }
+
           await tester.scrollUntilVisible(
             find.text('Enviar soportes a revisión'),
             350,

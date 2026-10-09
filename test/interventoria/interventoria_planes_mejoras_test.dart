@@ -236,17 +236,28 @@ void main() {
                     request: (input) async {
                       if (input['accion'] == 'candidatos')
                         return {
-                          'candidatos': rows
-                              .map(
-                                (r) => {
-                                  ...r,
-                                  'tareaId': 't',
-                                  'idVisitaK2': 'ACT-123',
-                                  'descripcion':
-                                      'Verificar el rotulado de alimentos.',
-                                },
-                              )
-                              .toList(),
+                          'candidatos':
+                              [
+                                    ...rows,
+                                    {
+                                      'id': 'sin-acta',
+                                      'establecimiento':
+                                          'Visita sin identificar',
+                                      'idVisitaK2': '',
+                                    },
+                                  ]
+                                  .map(
+                                    (r) => {
+                                      ...r,
+                                      'tareaId': 't',
+                                      'idVisitaK2': r['id'] == 'sin-acta'
+                                          ? ''
+                                          : 'ACT-123',
+                                      'descripcion':
+                                          'Verificar el rotulado de alimentos.',
+                                    },
+                                  )
+                                  .toList(),
                         };
                       if (input['accion'] == 'vincular')
                         selected.addAll(
@@ -295,6 +306,8 @@ void main() {
         await tester.tap(find.text('Vincular hallazgos'));
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
+        expect(find.textContaining('Visita sin identificar'), findsNothing);
+        expect(find.byType(CheckboxListTile), findsNWidgets(3));
         if (width == 390) {
           tester.view.viewInsets = const FakeViewPadding(bottom: 320);
           await tester.enterText(find.byType(TextField).first, 'Armenia');

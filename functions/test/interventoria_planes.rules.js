@@ -22,6 +22,44 @@ test.before(async () => {
 });
 test.after(async () => { await env?.cleanup(); await admin.app().delete(); });
 
+test('candidatos omite actas vacías y conserva cursor de páginas vacías', async () => {
+  await db.doc('TBL_INTERVENTORIA_VISITAS/v').update({idVisitaK2: '   '});
+  assert.deepEqual((await call('calidad', {accion: 'candidatos'})).candidatos, []);
+  await assert.rejects(call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']}));
+  const batch = db.batch();
+  for (let n = 0; n < 101; n++) batch.set(db.doc(`TBL_INTERVENTORIA_HALLAZGOS/a${String(n).padStart(3, '0')}`),
+    {empresaId: 'A', visitaId: 'v'});
+  await batch.commit();
+  const empty = await call('calidad', {accion: 'candidatos'});
+  assert.equal(empty.candidatos.length, 0); assert.equal(empty.cursor, 'a099');
+  await db.doc('TBL_INTERVENTORIA_VISITAS/identificada').set({empresaId: 'A', idVisitaK2: 'ACT-OK'});
+  await db.doc('TBL_INTERVENTORIA_HALLAZGOS/h').update({visitaId: 'identificada'});
+  const next = await call('calidad', {accion: 'candidatos', cursor: empty.cursor});
+  assert.equal(next.candidatos.length, 1); assert.equal(next.candidatos[0].idVisitaK2, 'ACT-OK');
+});
+
+test('expediente incluye pendientes e historial sin aprobarlos ni exponer claves', async () => {
+  await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']});
+  await itemRef().collection('historial').doc('auditoria').set({accion: 'prueba', porNombre: 'Calidad',
+    fecha: admin.firestore.Timestamp.now(), anterior: {_cryptoKey: 'no-exponer', compromiso: 'Texto anterior'}});
+  await assert.rejects(call('responsable', {accion: 'expediente', planId}), {code: 'permission-denied'});
+  await assert.rejects(call('calidad', {accion: 'expediente', planId, empresaId: 'B'}), {code: 'permission-denied'});
+  await assert.rejects(call('calidad', {accion: 'exportar', planId}));
+  const result = await call('calidad', {accion: 'expediente', planId});
+  assert.match(result.nombre, /_expediente.zip$/);
+  const zip = await require('jszip').loadAsync(Buffer.from(result.base64, 'base64'));
+  const text = await zip.file('registro_del_expediente.json').async('string');
+  assert.ok(!text.includes('no-exponer')); assert.ok(!text.includes('_crypto'));
+  const registro = JSON.parse(text);
+  assert.equal(registro.hallazgos[0].respuestaRevision.estado, 'pendiente');
+  assert.ok(registro.hallazgos[0].historial.some((h) => h.accion === 'prueba'));
+  const pdf = Object.keys(zip.files).find((p) => p.endsWith('.pdf'));
+  const document = await require('pdf-lib').PDFDocument.load(await zip.file(pdf).async('nodebuffer'));
+  assert.ok(document.getPageCount() >= 1);
+  assert.equal((await itemRef().get()).data().respuestaRevision.estado, 'pendiente');
+  assert.equal((await itemRef().get()).data().respuestaPresentado, undefined);
+});
+
 test('grupo viene del establecimiento de su empresa y no del agrupador de observaciones', async () => {
   await db.doc('TBL_CENTROS_COSTOS/A_c').set({empresaId: 'A', centroId: 'c', grupo: 'Grupo 01'});
   await db.doc('TBL_CENTROS_COSTOS/B_c').set({empresaId: 'B', centroId: 'c', grupo: 'G9'});
@@ -279,6 +317,16 @@ test('soporte cifrado, revisión, PDF real y descarga solo por personas autoriza
   assert.deepEqual(Buffer.from(downloaded.base64, 'base64'), bytes);
   await call('responsable', {accion: 'soportes', itemId: itemId(), version: 1, respuestaSoportes: 'Se realizó el cambio y se verificó el rotulado conforme al compromiso.'});
   await assert.rejects(call('calidad', {accion: 'exportar', planId, itemId: itemId()}));
+  const expediente = await call('calidad', {accion: 'expediente', planId});
+  const pack = await require('jszip').loadAsync(Buffer.from(expediente.base64, 'base64'));
+  const expedientePdf = await pack.file(Object.keys(pack.files).find((p) => p.endsWith('.pdf'))).async('nodebuffer');
+  assert.ok((await PDFDocument.load(expedientePdf)).getPageCount() >= 2);
+  const registro = JSON.parse(await pack.file('registro_del_expediente.json').async('string'));
+  assert.equal(registro.hallazgos[0].soportesRevision.estado, 'por_revisar');
+  assert.equal(registro.hallazgos[0].evidencias.length, 1);
+  assert.equal(registro.hallazgos[0].evidencias[0]._cryptoKey, undefined);
+  fs.mkdirSync(path.resolve(__dirname, '../../tmp/k2-qa'), {recursive: true});
+  fs.writeFileSync(path.resolve(__dirname, '../../tmp/k2-qa/expediente.pdf'), expedientePdf);
   await call('calidad', {accion: 'revisar', itemId: itemId(), etapa: 'soportes', version: 2, estado: 'satisfactorio'});
   const output = await call('calidad', {accion: 'exportar', planId, itemId: itemId()});
   assert.match(output.nombre, /PM-4158.*25133385.*3.5.*\.pdf$/);

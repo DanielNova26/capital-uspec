@@ -21,6 +21,48 @@ PlanData fuente(String key, {bool incluido = false}) => {
 };
 
 void main() {
+  testWidgets(
+    'desplegable consulta un hallazgo a la vez y separa sus soportes',
+    (tester) async {
+      final reads = <String>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: PlanFuentesPanel(
+                selector: true,
+                items: [
+                  hallazgo('primero'),
+                  {
+                    ...hallazgo('segundo'),
+                    'evidencias': [
+                      {'nombre': 'soporte-adjunto.pdf', 'path': 'p'},
+                    ],
+                  },
+                ],
+                onChanged: () async {},
+                request: (input) async {
+                  reads.add(input['itemId'] as String);
+                  return {'archivos': [], 'responsableNombre': 'Ana'};
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(reads, ['primero']);
+      expect(find.text('Copiar responsable'), findsNothing);
+      await tester.tap(find.byType(DropdownButtonFormField<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('· segundo').last);
+      await tester.pumpAndSettle();
+      expect(reads, ['primero', 'segundo']);
+      expect(find.text('soporte-adjunto.pdf'), findsOneWidget);
+      expect(find.text('Soportes adjuntos (1)'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     for (final width in [390.0, 768.0, 1024.0, 1366.0]) {
       testWidgets('precarga y selección a $width, $platform y texto 1.6', (

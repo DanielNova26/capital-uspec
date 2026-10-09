@@ -1,12 +1,124 @@
 import 'package:flutter/material.dart';
 import 'interventoria_planes_service.dart';
 
+/// Encabezado común; el contenido conserva su propio flujo en cada tamaño.
+class PlanCabecera extends StatelessWidget {
+  const PlanCabecera({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    this.icon = Icons.fact_check_outlined,
+    this.child,
+  });
+  final String title, subtitle;
+  final IconData icon;
+  final Widget? child;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(20),
+    decoration: BoxDecoration(
+      gradient: const LinearGradient(
+        colors: [Color(0xff123e56), Color(0xff087f83)],
+      ),
+      borderRadius: BorderRadius.circular(22),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: const Color(0xffa5efe3), size: 28),
+        const SizedBox(height: 10),
+        Text(
+          title,
+          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(subtitle, style: const TextStyle(color: Color(0xffd7efef))),
+        if (child != null) ...[const SizedBox(height: 12), child!],
+      ],
+    ),
+  );
+}
+
+class PlanBloque extends StatelessWidget {
+  const PlanBloque({
+    super.key,
+    required this.title,
+    required this.child,
+    this.icon = Icons.folder_open_outlined,
+    this.color = const Color(0xff087f83),
+  });
+  final String title;
+  final Widget child;
+  final IconData icon;
+  final Color color;
+  @override
+  Widget build(BuildContext context) => Container(
+    margin: const EdgeInsets.symmetric(vertical: 10),
+    padding: const EdgeInsets.all(18),
+    decoration: BoxDecoration(
+      color: Theme.of(context).colorScheme.surface,
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: color.withValues(alpha: .22)),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Icon(icon, color: color),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                title,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Material(type: MaterialType.transparency, child: child),
+      ],
+    ),
+  );
+}
+
 const planEstadosGestion = {
   'recibido': 'Recibido',
   'en_gestion': 'En gestión',
   'enviado': 'Enviado',
   'mesa_descuentos': 'Mesa de descuentos',
 };
+
+class PlanColumnas extends StatelessWidget {
+  const PlanColumnas({super.key, required this.children});
+  final List<Widget> children;
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, c) {
+      if (c.maxWidth < 900 || children.length < 2) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: children,
+        );
+      }
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < children.length; i++) ...[
+            if (i > 0) const SizedBox(width: 16),
+            Expanded(child: children[i]),
+          ],
+        ],
+      );
+    },
+  );
+}
 
 String planSemaforo(PlanData item) {
   if (item['respuestaPresentado'] != null && item['soportesPresentado'] != null)
@@ -186,10 +298,19 @@ class PlanFiltrosBar extends StatelessWidget {
       }
 
       return ExpansionTile(
-        initiallyExpanded: true,
+        initiallyExpanded: false,
         tilePadding: EdgeInsets.zero,
         leading: const Icon(Icons.tune),
         title: const Text('Filtrar y ordenar hallazgos'),
+        subtitle: Text(
+          [
+            filtros.establecimiento,
+            filtros.grupo,
+            filtros.responsable,
+            filtros.numeral.isEmpty ? '' : 'Numeral ${filtros.numeral}',
+            if (filtros.fechas != null) 'Rango de fechas',
+          ].where((v) => v.isNotEmpty).join(' · '),
+        ),
         children: [
           const SizedBox(height: 12),
           Wrap(

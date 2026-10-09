@@ -6,6 +6,42 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## 2026-10-08 — Planes de mejora: hallazgos, soportes y expediente (Codex)
+
+- Vincular hallazgos omite visitas sin número de acta tanto en servidor como
+  en cliente. Conserva el cursor de una página sin resultados identificados
+  para poder llegar a las siguientes. Se mantiene la validación obligatoria
+  de número de acta al registrar y vincular; no se altera el registro histórico.
+- El plan conserva Por hacer / En curso / Listos y trabaja con un desplegable
+  de hallazgos, búsqueda y filtros recogidos. Nuevos encabezados y bloques
+  con color; compromiso y soportes tienen etapas separadas. En ancho amplio,
+  la edición y las fuentes de soportes aparecen lado a lado; en estrecho,
+  se recorren verticalmente. Las fechas usan calendario.
+- Retirado Copiar responsable. Permanecen Copiar hallazgo, compromiso,
+  fechas y textos aprobados. Soportes adjuntos muestra cantidad, procedencia
+  y descarga; se distingue de las fuentes de tareas aprobadas. Se conserva
+  adjuntar PDF/foto y reducir a 5 MB, sin pedir evidencia inicial al administrador.
+- Nueva sección Expediente y descuentos: descarga ZIP con PDF por hallazgo,
+  anexos, índice, plazos, revisiones, constancias de presentación e historial
+  completo del plan y sus hallazgos. Incluye registro JSON saneado sin claves
+  de cifrado. Identifica pendientes y no equivale a aprobación ni presentación
+  en K2. La descarga de entregas aprobadas sigue exigiendo ambas etapas.
+- Conserva permisos canónicos y empresa activa: solo gestores autorizados
+  exportan expedientes. No cambia reglas ni roles ni migra datos productivos.
+- Validación: 46 pruebas Flutter y 31 Node/emuladores Firestore/Storage
+  aprobadas. Incluyen páginas sin actas, selección de un hallazgo, empresa
+  ajena, usuario no gestor, PDF con soporte cifrado e historial sin secretos.
+  Revisadas capturas de compromiso y soportes; anchos 390/768/1024/1366,
+  texto 1,6× y temas Android/iOS. TypeScript y lint sin errores; análisis Dart
+  sin errores ni advertencias, con cinco recomendaciones de llaves existentes.
+- Pendientes reales: prueba autenticada de producción y Android/iPhone físicos
+  (teclado, cámara, selector y descarga nativos). No se publica en K2 desde
+  ToDo: Calidad copia los textos y registra allí las entregas. El expediente
+  tiene el límite de descarga existente de 100 MB por paquete.
+- Publicada Web **2.6.24+38** y actualizada la función `interventoriaPlanes`.
+  `version.json` y SHA-256 del JavaScript público coinciden con el build local:
+  `39ad4b95e0b82b6478f264a438cf7f1d6a471993551ca7a7384fcda8ffb07afd`.
+
 ## 2026-10-08 — Separación de grupos de empresa y Visitas (Codex)
 
 - Integrados `1d19182` y `ba00757` de Claude mediante merge `ed4dfcc`.

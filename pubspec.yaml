@@ -2,7 +2,7 @@ name: todo
 description: "Aplicación de Gestión Empresarial"
 publish_to: 'none'
 
-version: 2.6.23+37
+version: 2.6.24+38
 
 environment:
   sdk: ^3.8.1

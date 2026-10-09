@@ -512,6 +512,7 @@ class PlanDetalle extends StatefulWidget {
 }
 
 class _PlanDetalleState extends State<PlanDetalle> {
+  String _vista = 'hallazgos';
   PlanData _plan = {};
   List<PlanData> _items = [], _historial = [];
   final _filtros = PlanFiltros();
@@ -702,11 +703,14 @@ class _PlanDetalleState extends State<PlanDetalle> {
     }
   }
 
-  Future<void> _exportar() async {
+  Future<void> _exportar({bool expediente = false}) async {
     setState(() => _busy = true);
     try {
       await InterventoriaPlanesService.guardarArchivo(
-        await widget.request({'accion': 'exportar', 'planId': widget.planId}),
+        await widget.request({
+          'accion': expediente ? 'expediente' : 'exportar',
+          'planId': widget.planId,
+        }),
         request: widget.request,
       );
     } catch (e) {
@@ -756,64 +760,61 @@ class _PlanDetalleState extends State<PlanDetalle> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Text(
-          '${_plan['numero']} · ${_plan['csc']}',
-          style: Theme.of(context).textTheme.titleLarge,
+        PlanCabecera(
+          title: '${_plan['numero']} · Plan de mejora',
+          subtitle:
+              '${_plan['csc']} · Notificación ${_plan['fechaNotificacion']}',
         ),
-        Text('Notificación: ${_plan['fechaNotificacion']}'),
+        const SizedBox(height: 12),
         Wrap(
           spacing: 8,
           runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             PlanEstadoChip(
               planEstadosGestion[_plan['estadoGestion']] ?? 'Recibido',
             ),
+            Text(
+              '$porRevisar por revisar · $completos / ${_items.length} presentados',
+            ),
             TextButton.icon(
               onPressed: _busy ? null : _seguimientoPlan,
               icon: const Icon(Icons.manage_accounts_outlined),
-              label: const Text('Estado y responsable de K2'),
+              label: const Text('Gestionar plan'),
+            ),
+            IconButton(
+              tooltip: 'Actualizar plan',
+              onPressed: _busy ? null : _load,
+              icon: const Icon(Icons.refresh),
             ),
           ],
         ),
-        Text(
-          'Creado por: ${_plan['creadoPorNombre'] ?? ''} · Responde en K2: ${_plan['responsableK2Nombre'] ?? _plan['creadoPorNombre'] ?? ''}',
-        ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
         PlanResumen(items: _items),
-        ExpansionTile(
-          title: const Text('Historial del plan'),
-          leading: const Icon(Icons.history),
-          children: [
-            for (final h in _historial)
-              ListTile(
-                title: Text('${h['accion']} · ${h['porNombre']}'),
-                subtitle: Text(
-                  [
-                    planText(h, 'fecha'),
-                    planText(h, 'motivo'),
-                    planEstadosGestion[planMap(h['cambio'])['estadoGestion']] ??
-                        '',
-                  ].where((v) => v.isNotEmpty).join(' · '),
-                ),
-              ),
-          ],
+        PlanBloque(
+          title: 'Fechas máximas para todos los hallazgos',
+          icon: Icons.event_available,
+          child: LayoutBuilder(
+            builder: (context, c) => Wrap(
+              spacing: 16,
+              runSpacing: 12,
+              children: [
+                for (final entry in {
+                  'limiteRespuesta': 'Compromiso',
+                  'limiteSoportes': 'Soportes',
+                }.entries)
+                  SizedBox(
+                    width: c.maxWidth < 600
+                        ? c.maxWidth
+                        : (c.maxWidth - 16) / 2,
+                    child: Text(
+                      '${entry.value}: ${_plan[entry.key]}\n${planVencimiento(planText(_plan, entry.key))}',
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            Chip(label: Text('$porRevisar por revisar')),
-            Chip(label: Text('$completos / ${_items.length} presentados')),
-          ],
-        ),
-        Text(
-          'Respuesta máxima: ${_plan['limiteRespuesta']} · ${planVencimiento(planText(_plan, 'limiteRespuesta'))}',
-        ),
-        Text(
-          'Soportes máximos: ${_plan['limiteSoportes']} · ${planVencimiento(planText(_plan, 'limiteSoportes'))}',
-        ),
-        const SizedBox(height: 12),
         Wrap(
           spacing: 8,
           runSpacing: 8,
@@ -823,83 +824,166 @@ class _PlanDetalleState extends State<PlanDetalle> {
               icon: const Icon(Icons.playlist_add),
               label: const Text('Vincular hallazgos'),
             ),
-            TextButton.icon(
+            OutlinedButton.icon(
               onPressed: _busy ? null : _fechas,
               icon: const Icon(Icons.event),
-              label: const Text('Fechas máximas'),
+              label: const Text('Ajustar fechas'),
             ),
             OutlinedButton.icon(
               onPressed:
                   _busy ||
                       _items.isEmpty ||
-                      !_items.every((i) => planAprobado(i, 'soportes'))
+                      !_items.every(
+                        (i) =>
+                            planAprobado(i, 'respuesta') &&
+                            planAprobado(i, 'soportes'),
+                      )
                   ? null
-                  : _exportar,
-              icon: const Icon(Icons.folder_zip_outlined),
-              label: const Text('Descargar PDFs'),
-            ),
-            IconButton(
-              tooltip: 'Actualizar plan',
-              onPressed: _busy ? null : _load,
-              icon: const Icon(Icons.refresh),
+                  : () => _exportar(),
+              icon: const Icon(Icons.download_outlined),
+              label: const Text('Descargar entregas aprobadas'),
             ),
           ],
         ),
         if (_busy) const LinearProgressIndicator(),
-        const SizedBox(height: 16),
-        TextField(
-          decoration: const InputDecoration(
-            labelText:
-                'Establecimiento, visita, responsable o fecha AAAA-MM-DD',
-            prefixIcon: Icon(Icons.search),
+        const SizedBox(height: 18),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            ChoiceChip(
+              showCheckmark: false,
+              avatar: const Icon(Icons.fact_check_outlined),
+              label: Text('Hallazgos (${_items.length})'),
+              selected: _vista == 'hallazgos',
+              onSelected: (_) => setState(() => _vista = 'hallazgos'),
+            ),
+            ChoiceChip(
+              showCheckmark: false,
+              avatar: const Icon(Icons.shield_outlined),
+              label: const Text('Expediente y descuentos'),
+              selected: _vista == 'expediente',
+              onSelected: (_) => setState(() => _vista = 'expediente'),
+            ),
+          ],
+        ),
+        if (_vista == 'expediente') ...[
+          PlanBloque(
+            title: 'Respaldo para mesa de descuentos',
+            icon: Icons.shield_outlined,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Reúne los hallazgos, sus compromisos, los soportes adjuntos y las constancias de presentación. El expediente identifica qué está pendiente y qué fue revisado.',
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Creado por: ${_plan['creadoPorNombre'] ?? ''}\nCoordina en K2: ${_plan['responsableK2Nombre'] ?? _plan['creadoPorNombre'] ?? ''}',
+                ),
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: _busy || _items.isEmpty
+                      ? null
+                      : () => _exportar(expediente: true),
+                  icon: const Icon(Icons.folder_zip_outlined),
+                  label: const Text('Descargar expediente'),
+                ),
+              ],
+            ),
           ),
-          onChanged: (v) => setState(() => _filter = v),
-        ),
-        const SizedBox(height: 8),
-        DropdownButtonFormField<String>(
-          initialValue: _estado,
-          isExpanded: true,
-          decoration: const InputDecoration(labelText: 'Estado de entrega'),
-          items: [
-            'Todos',
-            'Pendiente de entrega',
-            'Por revisar',
-            'Requiere corrección',
-            'Listo para K2',
-            'Presentado en K2',
-          ].map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
-          onChanged: (v) => setState(() => _estado = v ?? 'Todos'),
-        ),
-        PlanFiltrosBar(
-          rows: _items,
-          filtros: _filtros,
-          onChanged: () => setState(() {}),
-        ),
-        const SizedBox(height: 12),
-        if (list.isEmpty)
-          const Padding(
-            padding: EdgeInsets.all(16),
-            child: Text('No hay hallazgos con estos filtros.'),
-          ),
-        if (list.isNotEmpty)
-          PlanFuentesPanel(
-            items: list,
-            request: widget.request,
-            onChanged: _load,
-            enabled: !_busy,
-            onOpen: (item) async {
-              await Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => PlanItemScreen(
-                    item: item,
-                    plan: _plan,
-                    request: widget.request,
-                    calidad: true,
+          ExpansionTile(
+            title: const Text('Expediente e historial del plan'),
+            leading: const Icon(Icons.history),
+            children: [
+              for (final h in _historial)
+                ListTile(
+                  title: Text('${h['accion']} · ${h['porNombre']}'),
+                  subtitle: Text(
+                    [
+                      planText(h, 'fecha'),
+                      planText(h, 'motivo'),
+                      planEstadosGestion[planMap(
+                            h['cambio'],
+                          )['estadoGestion']] ??
+                          '',
+                    ].where((v) => v.isNotEmpty).join(' · '),
                   ),
                 ),
-              );
-              await _load();
-            },
+            ],
+          ),
+        ],
+        if (_vista == 'hallazgos')
+          PlanBloque(
+            title: 'Trabajar por hallazgo',
+            icon: Icons.fact_check_outlined,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  decoration: const InputDecoration(
+                    labelText: 'Buscar establecimiento, acta o numeral',
+                    prefixIcon: Icon(Icons.search),
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (v) => setState(() => _filter = v),
+                ),
+                ExpansionTile(
+                  title: const Text('Estado de entrega'),
+                  subtitle: Text(_estado),
+                  children: [
+                    DropdownButtonFormField<String>(
+                      initialValue: _estado,
+                      isExpanded: true,
+                      items:
+                          [
+                                'Todos',
+                                'Pendiente de entrega',
+                                'Por revisar',
+                                'Requiere corrección',
+                                'Listo para K2',
+                                'Presentado en K2',
+                              ]
+                              .map(
+                                (v) =>
+                                    DropdownMenuItem(value: v, child: Text(v)),
+                              )
+                              .toList(),
+                      onChanged: (v) => setState(() => _estado = v ?? 'Todos'),
+                    ),
+                  ],
+                ),
+                PlanFiltrosBar(
+                  rows: _items,
+                  filtros: _filtros,
+                  onChanged: () => setState(() {}),
+                ),
+                const SizedBox(height: 12),
+                if (list.isEmpty)
+                  const Text('No hay hallazgos con estos filtros.'),
+                if (list.isNotEmpty)
+                  PlanFuentesPanel(
+                    selector: true,
+                    items: list,
+                    request: widget.request,
+                    onChanged: _load,
+                    enabled: !_busy,
+                    onOpen: (item) async {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => PlanItemScreen(
+                            item: item,
+                            plan: _plan,
+                            request: widget.request,
+                            calidad: true,
+                          ),
+                        ),
+                      );
+                      await _load();
+                    },
+                  ),
+              ],
+            ),
           ),
       ],
     );
@@ -936,7 +1020,11 @@ class _SeleccionHallazgosState extends State<_SeleccionHallazgos> {
       });
       if (mounted) {
         setState(() {
-          _rows.addAll(planList(d['candidatos']));
+          _rows.addAll(
+            planList(
+              d['candidatos'],
+            ).where((r) => planText(r, 'idVisitaK2').trim().isNotEmpty),
+          );
           _cursor = d['cursor'] as String?;
           _errorText = null;
         });
@@ -1011,50 +1099,6 @@ class _SeleccionHallazgosState extends State<_SeleccionHallazgos> {
                                   .contains(_query),
                         ))
                   CheckboxListTile(
-                    secondary: planText(row, 'idVisitaK2').isEmpty
-                        ? IconButton(
-                            tooltip: 'Completar número de acta',
-                            icon: const Icon(Icons.edit_outlined),
-                            onPressed: _busy
-                                ? null
-                                : () async {
-                                    final data = await _form(
-                                      context,
-                                      'Identificar visita en K2',
-                                      {'idVisitaK2': ('número de acta', '')},
-                                    );
-                                    if (data == null) return;
-                                    setState(() => _busy = true);
-                                    try {
-                                      await widget.request({
-                                        'accion': 'identificarVisita',
-                                        'visitaId': row['visitaId'],
-                                        ...data,
-                                      });
-                                      if (mounted) {
-                                        setState(() {
-                                          for (final r in _rows.where(
-                                            (r) =>
-                                                r['visitaId'] ==
-                                                row['visitaId'],
-                                          )) {
-                                            r['idVisitaK2'] =
-                                                data['idVisitaK2'];
-                                          }
-                                        });
-                                      }
-                                    } catch (e) {
-                                      if (context.mounted) {
-                                        _showError(context, e);
-                                      }
-                                    } finally {
-                                      if (mounted) {
-                                        setState(() => _busy = false);
-                                      }
-                                    }
-                                  },
-                          )
-                        : null,
                     value: _selected.contains(row['id']),
                     onChanged:
                         _busy ||
@@ -1072,7 +1116,9 @@ class _SeleccionHallazgosState extends State<_SeleccionHallazgos> {
                       '${row['establecimiento']} · ${row['numeral']}',
                     ),
                     subtitle: Text(
-                      'Acta ${row['idVisitaK2']} · ${planText(row, 'fechaActa').split('T').first}\n${row['descripcion']}\n${row['responsable']}${planText(row, 'idVisitaK2').isEmpty ? '\nFalta número de acta' : ''}${planText(row, 'tareaId').isEmpty ? '\nFalta asignar tarea' : ''}',
+                      'Acta ${row['idVisitaK2']} · ${planText(row, 'fechaActa').split('T').first}\n${row['descripcion']}${planText(row, 'tareaId').isEmpty ? '\nFalta asignar tarea' : ''}',
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 if (_cursor != null)
@@ -1215,6 +1261,7 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
     text: planText(_item, 'respuestaSoportes'),
   );
   bool _busy = false;
+  String _etapa = 'respuesta';
   @override
   void dispose() {
     _compromiso.dispose();
@@ -1426,26 +1473,29 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
     appBar: AppBar(
       title: Text('${_plan['numero']} · Hallazgo ${_item['numeral']}'),
     ),
+    backgroundColor: const Color(0xfff0f5f8),
     body: SafeArea(
       child: Align(
         alignment: Alignment.topCenter,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1000),
+          constraints: const BoxConstraints(maxWidth: 1200),
           child: ListView(
             padding: const EdgeInsets.all(16),
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             children: [
               if (_busy) const LinearProgressIndicator(),
-              Text(
-                '${_item['establecimiento']} · Acta ${_item['idVisitaK2']}',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              Text(
-                'Tarea ${_item['numeroTarea']} · ${_item['responsableNombre'] ?? ''}',
+              PlanCabecera(
+                title:
+                    '${_item['establecimiento']} · Acta ${_item['idVisitaK2']}',
+                subtitle:
+                    'Hallazgo ${_item['numeral']} · Tarea ${_item['numeroTarea']}\nResponsable: ${_item['responsableNombre'] ?? ''}',
               ),
               const SizedBox(height: 8),
               SelectableText(planText(_item, 'descripcion')),
-              PlanEstadoChip(planSemaforo(_item)),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: PlanEstadoChip(planSemaforo(_item)),
+              ),
               Text(
                 'Estado de tarea: ${_item['tareaEstado'] ?? 'Consultar'} · Aprueba: ${_item['aprobadorNombre'] ?? 'Sin información'}',
               ),
@@ -1453,229 +1503,338 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  _copy('responsable', planText(_item, 'responsableNombre')),
                   _copy('hallazgo', planText(_item, 'descripcion')),
                   if (widget.calidad && planAprobado(_item, 'soportes'))
                     _copy('subsanación', planText(_item, 'respuestaSoportes')),
                 ],
               ),
-              const Divider(height: 32),
-              Text(
-                '1. Compromiso · máximo ${_plan['limiteRespuesta']}',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              Text(planVencimiento(planText(_plan, 'limiteRespuesta'))),
-              _estadoEtapa('respuesta'),
-              TextField(
-                controller: _compromiso,
-                enabled: !_busy && _item['respuestaPresentado'] == null,
-                minLines: 3,
-                maxLines: 12,
-                maxLength: 12000,
-                decoration: const InputDecoration(
-                  labelText: 'Compromiso, acción de mejora u observación',
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: PlanFechaCampo(
-                  controller: _ejecucion,
-                  enabled: !_busy && _item['respuestaPresentado'] == null,
-                  label: 'Fecha propuesta de ejecución',
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: PlanFechaCampo(
-                  controller: _seguimiento,
-                  enabled: !_busy && _item['respuestaPresentado'] == null,
-                  label: 'Fecha propuesta de seguimiento',
-                ),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  FilledButton(
-                    onPressed: _busy || _item['respuestaPresentado'] != null
-                        ? null
-                        : () => _mutate({
-                            'accion': 'responder',
-                            'version': _item['respuestaVersion'],
-                            'compromiso': _compromiso.text,
-                            'fechaEjecucion': _ejecucion.text,
-                            'fechaSeguimiento': _seguimiento.text,
-                          }),
-                    child: const Text('Guardar y enviar a revisión'),
-                  ),
-                  if (widget.calidad && planAprobado(_item, 'respuesta')) ...[
-                    _copy('compromiso', planText(_item, 'compromiso')),
-                    _copy(
-                      'fecha de ejecución',
-                      planText(_item, 'fechaEjecucion'),
-                    ),
-                    _copy(
-                      'fecha de seguimiento',
-                      planText(_item, 'fechaSeguimiento'),
-                    ),
-                  ],
-                ],
-              ),
-              const Divider(height: 32),
-              Text(
-                '2. Soportes · máximo ${_plan['limiteSoportes']}',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              Text(planVencimiento(planText(_plan, 'limiteSoportes'))),
-              _estadoEtapa('soportes'),
-              PlanFuentesPanel(
-                items: [_item],
-                request: widget.request,
-                onChanged: _refresh,
-                enabled: !_busy,
-                onUseText: (texto) => setState(() => _soportes.text = texto),
-              ),
               const SizedBox(height: 12),
-              TextField(
-                controller: _soportes,
-                enabled: !_busy && _item['soportesPresentado'] == null,
-                minLines: 3,
-                maxLines: 12,
-                maxLength: 12000,
-                decoration: const InputDecoration(
-                  labelText: 'Qué se hizo para subsanar el hallazgo',
-                ),
-              ),
               Wrap(
-                spacing: 8,
-                runSpacing: 8,
+                spacing: 10,
+                runSpacing: 10,
                 children: [
-                  OutlinedButton.icon(
-                    onPressed: _busy || _item['soportesPresentado'] != null
-                        ? null
-                        : _archivo,
-                    icon: const Icon(Icons.attach_file),
-                    label: const Text('Adjuntar soporte'),
+                  ChoiceChip(
+                    showCheckmark: false,
+                    avatar: const Icon(Icons.edit_note),
+                    label: const Text('1. Compromiso'),
+                    selected: _etapa == 'respuesta',
+                    onSelected: (_) => setState(() => _etapa = 'respuesta'),
                   ),
-                  OutlinedButton.icon(
-                    onPressed: _busy || _item['soportesPresentado'] != null
-                        ? null
-                        : () => _archivo(camera: true),
-                    icon: const Icon(Icons.camera_alt_outlined),
-                    label: const Text('Tomar foto'),
+                  ChoiceChip(
+                    showCheckmark: false,
+                    avatar: const Icon(Icons.attach_file),
+                    label: Text(
+                      '2. Soportes (${planList(_item['evidencias']).length})',
+                    ),
+                    selected: _etapa == 'soportes',
+                    onSelected: (_) => setState(() => _etapa = 'soportes'),
                   ),
                 ],
               ),
-              const Text(
-                'Solo evidencias de subsanación. PDF, JPG o PNG; hasta 5 MB por archivo.',
-              ),
-              for (final ev in planList(_item['evidencias']))
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(planText(ev, 'nombre')),
-                  leading: const Icon(Icons.description_outlined),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        tooltip: 'Retirar soporte',
-                        icon: const Icon(Icons.remove_circle_outline),
-                        onPressed: _busy || _item['soportesPresentado'] != null
-                            ? null
-                            : () => _mutate({
-                                'accion': 'retirarSoporte',
-                                'path': ev['path'],
-                              }),
-                      ),
-                      IconButton(
-                        tooltip: 'Descargar soporte',
-                        icon: const Icon(Icons.download),
-                        onPressed: _busy
-                            ? null
-                            : () => _run(() async {
-                                await InterventoriaPlanesService.guardarArchivo(
-                                  await widget.request({
-                                    'accion': 'evidencia',
-                                    'itemId': _item['id'],
-                                    'path': ev['path'],
-                                  }),
-                                );
-                              }),
-                      ),
-                    ],
-                  ),
-                ),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
+              PlanColumnas(
                 children: [
-                  FilledButton(
-                    onPressed: _busy || _item['soportesPresentado'] != null
-                        ? null
-                        : () => _mutate({
-                            'accion': 'soportes',
-                            'version': _item['soportesVersion'],
-                            'respuestaSoportes': _soportes.text,
-                          }),
-                    child: const Text('Enviar soportes a revisión'),
-                  ),
-                  if (widget.calidad && planAprobado(_item, 'soportes'))
-                    OutlinedButton.icon(
-                      onPressed: _busy
-                          ? null
-                          : () => _run(() async {
-                              await InterventoriaPlanesService.guardarArchivo(
-                                await widget.request({
-                                  'accion': 'exportar',
-                                  'planId': _item['planId'],
-                                  'itemId': _item['id'],
-                                }),
-                                request: widget.request,
-                              );
-                            }),
-                      icon: const Icon(Icons.picture_as_pdf),
-                      label: const Text('Descargar PDF del hallazgo'),
+                  if (_etapa == 'respuesta')
+                    PlanBloque(
+                      title: 'Compromiso y fechas de ejecución',
+                      icon: Icons.edit_note,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            '1. Compromiso · máximo ${_plan['limiteRespuesta']}',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          Text(
+                            planVencimiento(planText(_plan, 'limiteRespuesta')),
+                          ),
+                          _estadoEtapa('respuesta'),
+                          TextField(
+                            controller: _compromiso,
+                            enabled:
+                                !_busy && _item['respuestaPresentado'] == null,
+                            minLines: 3,
+                            maxLines: 12,
+                            maxLength: 12000,
+                            decoration: const InputDecoration(
+                              labelText: 'Compromiso de mejora',
+                              border: OutlineInputBorder(),
+                              alignLabelWithHint: true,
+                            ),
+                          ),
+                          PlanColumnas(
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 6,
+                                ),
+                                child: PlanFechaCampo(
+                                  controller: _ejecucion,
+                                  enabled:
+                                      !_busy &&
+                                      _item['respuestaPresentado'] == null,
+                                  label: 'Fecha propuesta de ejecución',
+                                ),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 6,
+                                ),
+                                child: PlanFechaCampo(
+                                  controller: _seguimiento,
+                                  enabled:
+                                      !_busy &&
+                                      _item['respuestaPresentado'] == null,
+                                  label: 'Fecha propuesta de seguimiento',
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              FilledButton(
+                                onPressed:
+                                    _busy ||
+                                        _item['respuestaPresentado'] != null
+                                    ? null
+                                    : () => _mutate({
+                                        'accion': 'responder',
+                                        'version': _item['respuestaVersion'],
+                                        'compromiso': _compromiso.text,
+                                        'fechaEjecucion': _ejecucion.text,
+                                        'fechaSeguimiento': _seguimiento.text,
+                                      }),
+                                child: const Text(
+                                  'Guardar y enviar a revisión',
+                                ),
+                              ),
+                              if (widget.calidad &&
+                                  planAprobado(_item, 'respuesta')) ...[
+                                _copy(
+                                  'compromiso',
+                                  planText(_item, 'compromiso'),
+                                ),
+                                _copy(
+                                  'fecha de ejecución',
+                                  planText(_item, 'fechaEjecucion'),
+                                ),
+                                _copy(
+                                  'fecha de seguimiento',
+                                  planText(_item, 'fechaSeguimiento'),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
-                  if (widget.calidad &&
-                      planAprobado(_item, 'soportes') &&
-                      planAprobado(_item, 'respuesta')) ...[
-                    _copy(
-                      'respuesta para K2',
-                      '${_plan['numero']} · ${_item['establecimiento']}\nActa: ${_item['idVisitaK2']} · Numeral: ${_item['numeral']}\nResponsable: ${_item['responsableNombre']}\nHallazgo: ${_item['descripcion']}\nCompromiso: ${_item['compromiso']}\nEjecución: ${_item['fechaEjecucion']}\nSeguimiento: ${_item['fechaSeguimiento']}\nSubsanación: ${_item['respuestaSoportes']}',
+                  if (_etapa == 'soportes')
+                    PlanBloque(
+                      title: 'Evidencias de subsanación',
+                      icon: Icons.verified_outlined,
+                      color: const Color(0xff465aa5),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            '2. Soportes · máximo ${_plan['limiteSoportes']}',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          Text(
+                            planVencimiento(planText(_plan, 'limiteSoportes')),
+                          ),
+                          _estadoEtapa('soportes'),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: _soportes,
+                            enabled:
+                                !_busy && _item['soportesPresentado'] == null,
+                            minLines: 3,
+                            maxLines: 12,
+                            maxLength: 12000,
+                            decoration: const InputDecoration(
+                              labelText: 'Subsanación realizada',
+                              border: OutlineInputBorder(),
+                              alignLabelWithHint: true,
+                            ),
+                          ),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              OutlinedButton.icon(
+                                onPressed:
+                                    _busy || _item['soportesPresentado'] != null
+                                    ? null
+                                    : _archivo,
+                                icon: const Icon(Icons.attach_file),
+                                label: const Text('Adjuntar soporte'),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed:
+                                    _busy || _item['soportesPresentado'] != null
+                                    ? null
+                                    : () => _archivo(camera: true),
+                                icon: const Icon(Icons.camera_alt_outlined),
+                                label: const Text('Tomar foto'),
+                              ),
+                            ],
+                          ),
+                          const Text(
+                            'Solo evidencias de subsanación. PDF, JPG o PNG; hasta 5 MB por archivo.',
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Soportes adjuntos a este hallazgo (${planList(_item['evidencias']).length})',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          if (planList(_item['evidencias']).isEmpty)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 12),
+                              child: Text(
+                                'Aún no hay soportes adjuntos. Carga un archivo o incorpora una fuente aprobada en la sección de fuentes.',
+                              ),
+                            ),
+                          for (final ev in planList(_item['evidencias']))
+                            ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(planText(ev, 'nombre')),
+                              leading: const Icon(Icons.description_outlined),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    tooltip: 'Retirar soporte',
+                                    icon: const Icon(
+                                      Icons.remove_circle_outline,
+                                    ),
+                                    onPressed:
+                                        _busy ||
+                                            _item['soportesPresentado'] != null
+                                        ? null
+                                        : () => _mutate({
+                                            'accion': 'retirarSoporte',
+                                            'path': ev['path'],
+                                          }),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Descargar soporte',
+                                    icon: const Icon(Icons.download),
+                                    onPressed: _busy
+                                        ? null
+                                        : () => _run(() async {
+                                            await InterventoriaPlanesService.guardarArchivo(
+                                              await widget.request({
+                                                'accion': 'evidencia',
+                                                'itemId': _item['id'],
+                                                'path': ev['path'],
+                                              }),
+                                            );
+                                          }),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              FilledButton(
+                                onPressed:
+                                    _busy || _item['soportesPresentado'] != null
+                                    ? null
+                                    : () => _mutate({
+                                        'accion': 'soportes',
+                                        'version': _item['soportesVersion'],
+                                        'respuestaSoportes': _soportes.text,
+                                      }),
+                                child: const Text('Enviar soportes a revisión'),
+                              ),
+                              if (widget.calidad &&
+                                  planAprobado(_item, 'soportes') &&
+                                  planAprobado(_item, 'respuesta'))
+                                OutlinedButton.icon(
+                                  onPressed: _busy
+                                      ? null
+                                      : () => _run(() async {
+                                          await InterventoriaPlanesService.guardarArchivo(
+                                            await widget.request({
+                                              'accion': 'exportar',
+                                              'planId': _item['planId'],
+                                              'itemId': _item['id'],
+                                            }),
+                                            request: widget.request,
+                                          );
+                                        }),
+                                  icon: const Icon(Icons.picture_as_pdf),
+                                  label: const Text(
+                                    'Descargar PDF del hallazgo',
+                                  ),
+                                ),
+                              if (widget.calidad &&
+                                  planAprobado(_item, 'soportes') &&
+                                  planAprobado(_item, 'respuesta')) ...[
+                                _copy(
+                                  'respuesta para K2',
+                                  '${_plan['numero']} · ${_item['establecimiento']}\nActa: ${_item['idVisitaK2']} · Numeral: ${_item['numeral']}\nResponsable: ${_item['responsableNombre']}\nHallazgo: ${_item['descripcion']}\nCompromiso: ${_item['compromiso']}\nEjecución: ${_item['fechaEjecucion']}\nSeguimiento: ${_item['fechaSeguimiento']}\nSubsanación: ${_item['respuestaSoportes']}',
+                                ),
+                                OutlinedButton.icon(
+                                  icon: const Icon(Icons.compress),
+                                  label: const Text(
+                                    'Descargar PDF de hasta 5 MB',
+                                  ),
+                                  onPressed: _busy
+                                      ? null
+                                      : () => _run(() async {
+                                          final result = await widget.request({
+                                            'accion': 'exportar',
+                                            'planId': _item['planId'],
+                                            'itemId': _item['id'],
+                                          });
+                                          final bytes =
+                                              await InterventoriaPlanesService.leerArchivo(
+                                                result,
+                                                request: widget.request,
+                                              );
+                                          if (!context.mounted) return;
+                                          final reduced =
+                                              await planOfrecerReducir(
+                                                context,
+                                                bytes,
+                                                planText(result, 'nombre'),
+                                              );
+                                          if (reduced != null)
+                                            await InterventoriaPlanesService.guardarArchivo(
+                                              {
+                                                'nombre': reduced.nombre,
+                                                'base64': base64Encode(
+                                                  reduced.bytes,
+                                                ),
+                                              },
+                                            );
+                                        }),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.compress),
-                      label: const Text('Descargar PDF de hasta 5 MB'),
-                      onPressed: _busy
-                          ? null
-                          : () => _run(() async {
-                              final result = await widget.request({
-                                'accion': 'exportar',
-                                'planId': _item['planId'],
-                                'itemId': _item['id'],
-                              });
-                              final bytes =
-                                  await InterventoriaPlanesService.leerArchivo(
-                                    result,
-                                    request: widget.request,
-                                  );
-                              if (!context.mounted) return;
-                              final reduced = await planOfrecerReducir(
-                                context,
-                                bytes,
-                                planText(result, 'nombre'),
-                              );
-                              if (reduced != null)
-                                await InterventoriaPlanesService.guardarArchivo(
-                                  {
-                                    'nombre': reduced.nombre,
-                                    'base64': base64Encode(reduced.bytes),
-                                  },
-                                );
-                            }),
+                  if (_etapa == 'soportes')
+                    PlanBloque(
+                      title: 'Traer archivos y respuestas de la tarea',
+                      icon: Icons.move_to_inbox_outlined,
+                      child: PlanFuentesPanel(
+                        items: [_item],
+                        request: widget.request,
+                        onChanged: _refresh,
+                        enabled: !_busy,
+                        onUseText: (texto) =>
+                            setState(() => _soportes.text = texto),
+                      ),
                     ),
-                  ],
                 ],
               ),
               const SizedBox(height: 24),
