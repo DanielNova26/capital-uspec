@@ -66,7 +66,9 @@ exports.MODULOS_MAESTROS = [
                 omitir: ["marcaSeq", "abastecimientoPeriodoActualizadoPor",
                     "abastecimientoPeriodoActualizadoAt"] },
             { id: "TBL_COMPRAS_GRUPOS", nombre: "Grupos", tipo: "coleccion",
-                clave: ["nombre"] },
+                clave: ["nombre"],
+                // Los establecimientos son ids de cada empresa: no se copian.
+                omitir: ["centroIds"] },
             { id: "TBL_COMPRAS_BODEGAS", nombre: "Bodegas", tipo: "coleccion",
                 clave: ["nombre"] },
             { id: "TBL_COMPRAS_MARCAS", nombre: "Marcas", tipo: "coleccion",

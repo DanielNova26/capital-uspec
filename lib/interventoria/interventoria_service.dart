@@ -10,7 +10,6 @@ import 'package:intl/intl.dart';
 
 import '../core/area_directory.dart';
 import '../core/festivos_colombia.dart';
-import '../core/grupos_trabajo.dart';
 import '../core/task_origen.dart';
 import '../services/org_service.dart';
 import '../services/task_service.dart';
@@ -2772,26 +2771,26 @@ class InterventoriaService {
       // Las asignaciones explícitas por centro siguen funcionando.
     }
 
-    // Grupos de trabajo (Admin › Grupos de trabajo): quien figura en un grupo
-    // cubre los establecimientos de ese grupo. Es la prioridad al asignar:
+    // Grupos de la empresa (Admin › Gestión interna › Grupos: Grupo 1,
+    // Grupo 9…) con sus establecimientos. Quien tiene el grupo asignado en
+    // Talento Humano cubre esos establecimientos: es la prioridad al asignar,
     // primero quien trabaja en el grupo donde está el establecimiento.
-    var gruposTrabajo = const <Map<String, dynamic>>[];
     try {
       final gruposSnap = await _db
-          .collection('TBL_VISITAS_GRUPOS')
+          .collection('TBL_COMPRAS_GRUPOS')
           .where('empresaId', isEqualTo: empresaId)
           .get();
-      gruposTrabajo = [for (final d in gruposSnap.docs) d.data()];
-      // Un grupo de trabajo llamado "Grupo 6" es el G6 del contrato: quien
-      // tenga G6 en Talento Humano cubre también sus establecimientos.
-      for (final g in gruposTrabajo) {
-        final nombre = normalizarGrupoCentroCosto(g['nombre']);
-        if (!RegExp(r'^G\d+$').hasMatch(nombre)) continue;
-        final claves = g['centroIds'];
-        if (claves is! Iterable) continue;
+      for (final d in gruposSnap.docs) {
+        final data = d.data();
+        if (data['activo'] == false) continue;
+        final clave = normalizarGrupoCentroCosto(data['nombre']);
+        final centros = data['centroIds'];
+        if (clave.isEmpty || centros is! Iterable) continue;
         centrosPorGrupo
-            .putIfAbsent(nombre, () => <String>{})
-            .addAll(claves.map((c) => centroIdDeClaveGrupo(c.toString())));
+            .putIfAbsent(clave, () => <String>{})
+            .addAll(
+              centros.map((c) => c.toString().trim()).where((c) => c.isNotEmpty),
+            );
       }
     } catch (_) {
       // Sin permiso o sin red se sigue con la cobertura de cada persona.
@@ -2904,16 +2903,6 @@ class InterventoriaService {
       ).map(normalizarGrupoCentroCosto).where((g) => g.isNotEmpty).toSet();
       for (final grupo in grupos) {
         centrosAsignados.addAll(centrosPorGrupo[grupo] ?? const <String>{});
-      }
-      final porGrupoTrabajo = centrosDeGruposParaPersona(gruposTrabajo, doc.id);
-      if (porGrupoTrabajo.isNotEmpty) {
-        // Con cobertura operativa el centro de costos deja de valer como
-        // respaldo (`cubreCentro`); se conserva para que entrar a un grupo no
-        // le quite el establecimiento donde ya trabajaba.
-        if (centrosAsignados.isEmpty && centroId.isNotEmpty) {
-          centrosAsignados.add(centroId);
-        }
-        centrosAsignados.addAll(porGrupoTrabajo);
       }
       var areaId = (scoped?['areaId'] ?? raiz['areaId'] ?? '')
           .toString()

@@ -559,6 +559,43 @@ class AdminRepository {
     return ref.id;
   }
 
+  /// Fija los establecimientos del grupo. Un establecimiento va en un solo
+  /// grupo de la empresa: al pasarlo a este, sale del que lo tenía.
+  Future<void> asignarEstablecimientosGrupo({
+    required String empresaId,
+    required String grupoId,
+    required List<String> centroIds,
+  }) async {
+    final eid = empresaId.trim();
+    final col = _db.collection('TBL_COMPRAS_GRUPOS');
+    final propios = centroIds.map((c) => c.trim()).where((c) => c.isNotEmpty);
+    final nuevos = propios.toSet().toList()..sort();
+    final todos = await col.where('empresaId', isEqualTo: eid).get();
+    if (!todos.docs.any((d) => d.id == grupoId)) {
+      throw StateError('El grupo no pertenece a la empresa activa.');
+    }
+    final batch = _db.batch();
+    batch.update(col.doc(grupoId), {
+      'centroIds': nuevos,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    for (final d in todos.docs) {
+      if (d.id == grupoId) continue;
+      final actuales = [
+        for (final c in (d.data()['centroIds'] as List? ?? const []))
+          c.toString(),
+      ];
+      final quedan = actuales.where((c) => !nuevos.contains(c)).toList();
+      if (quedan.length != actuales.length) {
+        batch.update(d.reference, {
+          'centroIds': quedan,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+    }
+    await batch.commit();
+  }
+
   // ---------------- USUARIOS ----------------
   /// Delega en el repositorio compartido: Admin y Talento Humano deben ver
   /// exactamente el mismo padron de usuarios por empresa.

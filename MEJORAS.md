@@ -10449,3 +10449,29 @@ por nombre ("Grupo 6" = G6): `TBL_COMPRAS_GRUPOS` (nombre, activo) +
 `TBL_VISITAS_GRUPOS` (establecimientos, coordinadores). Un grupo de Compras no
 se borra (se desactiva con el interruptor). Se eliminó `_dialogGrupoCompras`.
 Sin verificar: compilación/tests de Flutter.
+
+## CORRECCIÓN: grupos de Visitas ≠ grupos de la empresa (9 oct 2026)
+Son dos cosas distintas y se separaron. **Este apartado reemplaza lo dicho
+sobre grupos en las entradas del 8 oct.**
+- **Grupos de la empresa** (Grupo 1, Grupo 9…): `TBL_COMPRAS_GRUPOS`, con el
+  campo nuevo `centroIds` (establecimientos; cada uno en un solo grupo).
+  Se editan en Admin › Gestión interna › Grupos
+  (`grupos_empresa_panel.dart`, `grupo_empresa_dialog.dart`,
+  `AdminRepository.asignarEstablecimientosGrupo`). Talento Humano asigna a cada
+  persona sus grupos (`gruposInterventoria`, puede ser más de uno) con las
+  casillas de esos mismos grupos. Interventoría suma a la cobertura de cada
+  persona los establecimientos de sus grupos (por nombre: "Grupo 6" = G6), con
+  lo que gana quien trabaja en el grupo del establecimiento. La copia entre
+  empresas omite `centroIds`.
+- **Grupos de Visitas**: `TBL_VISITAS_GRUPOS`, por departamento, con sus
+  profesionales, establecimientos y —nuevo— coordinadores; se editan en
+  Visitas › Equipo como antes (se restauró el comportamiento original y sus
+  reglas). El coordinador ve las visitas de los profesionales de sus grupos de
+  Visitas (`coordinadorIds` en la visita, escrito por el servidor).
+- Se eliminaron: `visitas_grupo_dialog.dart`, `grupos_trabajo_panel.dart`, la
+  función `visitasCoordinadoresAlCambiarPersona` y la lectura de grupos de
+  Visitas desde Talento Humano e Interventoría.
+- Grupos de Visitas con nombres como "Calidad G1" que se vieron en Admin son
+  de Visitas y ya no aparecen allí.
+- Sin verificar (sin Dart): compilación y tests de Flutter. TS compilado y
+  probado.

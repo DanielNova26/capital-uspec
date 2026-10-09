@@ -316,16 +316,12 @@ void main() {
       ]);
     });
 
-    test('un grupo solo necesita nombre: es de toda la empresa', () {
-      expect(
-        validarGrupo(const VisitaGrupo(empresaId: 'capital', nombre: '')),
-        hasLength(1),
-      );
+    test('un grupo necesita nombre y área', () {
       expect(
         validarGrupo(
-          const VisitaGrupo(empresaId: 'capital', nombre: 'Grupo 6'),
+          const VisitaGrupo(empresaId: 'capital', nombre: '', areaId: ''),
         ),
-        isEmpty,
+        hasLength(2),
       );
       expect(VisitaGrupo.fromMap('g1', grupos.first.toMap()).centroIds, [
         'c2',

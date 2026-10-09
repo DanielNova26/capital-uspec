@@ -86,7 +86,7 @@ import 'dian_tokens_admin_panel.dart';
 import 'security_admin_panel.dart';
 import 'whatsapp_admin_panel.dart';
 import 'migrations/admin_migration_service.dart';
-import 'grupos_trabajo_panel.dart';
+import 'grupos_empresa_panel.dart';
 import 'multiempresa_admin_panel.dart';
 import 'multiempresa_sync_service.dart';
 import '../core/multiempresa_sync.dart';
@@ -9603,30 +9603,36 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     if (empresa == null) {
       return const Center(child: Text('Selecciona una empresa'));
     }
-    // Un solo editor de grupos (8 oct 2026): los de Compras son los mismos del
-    // contrato (Grupo 1, Grupo 9…), y aquí se les agregan los
-    // establecimientos y los coordinadores que usan Visitas e Interventoría.
-    return AdminGruposTrabajoPanel(
-      key: ValueKey('grupos_${_empresaId ?? widget.empresaId}'),
-      userId: widget.userId,
-      empresaId: _empresaId ?? widget.empresaId,
-      gruposCompras: _catalogoGrupos,
-      guardarCompras:
-          ({String? id, required String nombre, required bool activo}) async {
-        final repetido = _catalogoGrupos.any(
-          (g) =>
-              g.id != id &&
-              g.nombre.trim().toLowerCase() == nombre.trim().toLowerCase(),
-        );
-        if (repetido) throw StateError('Ya existe un grupo con ese nombre.');
-        await _repo.saveGrupoCompras(
-          grupoId: id,
-          empresaId: _empresaId ?? widget.empresaId,
-          nombre: nombre,
-          activo: activo,
-        );
-        await _refreshGruposInternos();
-      },
+    final empresaId = _empresaId ?? widget.empresaId;
+    // Grupos de la empresa (Grupo 1, Grupo 9…), los mismos de Compras: aquí
+    // se les agregan los establecimientos. No son los grupos de Visitas.
+    return AdminGruposEmpresaPanel(
+      key: ValueKey('grupos_$empresaId'),
+      empresaId: empresaId,
+      grupos: _catalogoGrupos,
+      centros: _centros,
+      usuarios: _matrixCompanyUsers(empresaId),
+      guardar:
+          ({
+            String? id,
+            required String nombre,
+            required bool activo,
+            required List<String> centroIds,
+          }) async {
+            if (_empresaId != null && _empresaId != empresaId) return;
+            final grupoId = await _repo.saveGrupoCompras(
+              grupoId: id,
+              empresaId: empresaId,
+              nombre: nombre,
+              activo: activo,
+            );
+            await _repo.asignarEstablecimientosGrupo(
+              empresaId: empresaId,
+              grupoId: grupoId,
+              centroIds: centroIds,
+            );
+            await _refreshGruposInternos();
+          },
     );
   }
 

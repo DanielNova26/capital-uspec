@@ -139,8 +139,10 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
           ? ''
           : await widget.svc.areaDeUsuario(widget.empresaId, widget.jefeId);
       final centros = await widget.svc.centrosDeEmpresa(widget.empresaId);
-      // Los grupos son de toda la empresa, no de un departamento.
-      final grupos = await widget.svc.gruposDeEmpresa(widget.empresaId);
+      final grupos = await widget.svc.gruposDeEmpresa(
+        widget.empresaId,
+        areaId: widget.esDesarrollador ? null : areaJefe,
+      );
       final areas = await widget.svc.areasDeEmpresa(widget.empresaId);
       List<VisitaUbicacion>? ubicaciones;
       try {
@@ -207,7 +209,7 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
     if (p == null) return const [];
     return establecimientosDeClaves(
       _centros,
-      centrosDePersonaEnGrupos(p.id, p.grupos, _grupos),
+      centrosDelProfesional(p.id, _grupos),
     );
   }
 
