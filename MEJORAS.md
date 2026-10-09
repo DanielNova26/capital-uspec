@@ -10544,3 +10544,134 @@ sobre grupos en las entradas del 8 oct.**
   de Visitas y ya no aparecen allí.
 - Sin verificar (sin Dart): compilación y tests de Flutter. TS compilado y
   probado.
+
+## REVISIÓN: notificaciones por módulo y logo de marca de agua (9 oct 2026)
+**Hecho (Claude):** toda marca de agua/informe usa el logo cargado de la
+empresa (`TBL_EMPRESAS.logoUrl`), nunca `assets/logo.png`.
+- `CompanyBrandingService.loadLogoBytes` ya no cae al logo de la app (el
+  respaldo era el valor por defecto; ahora es `null`). Tampoco recuerda un
+  fallo de red como "sin logo" en la caché.
+- `notify_novedades_screen.dart` y `notify_avances_screen.dart` usaban
+  `assets/logo.png` fijo: ahora cargan el logo de la empresa de la tarea.
+- Sin logo cargado la foto/PDF sale sin logo (no con el de la app). Revisado y
+  correcto: Rutas, Visitas (fotos, informe, consolidado), crear/completar
+  tarea, Gerencia, Planillas (logo de `TBL_PP_CONFIG`), carnet. El sello de
+  Planillas (`pp_stamp_pdf.ts`) no lleva logo. La marca de agua de texto del
+  visor de Gestión Documental ("estado") no es imagen.
+- Sin verificar (sin Flutter en el entorno): compilación y tests.
+
+**Hallazgos de notificaciones SIN corregir (decisión/Codex):**
+1. **Seguridad — reglas:** `TBL_NOTIFICACIONES` no tiene regla propia y cae en
+   la regla general (`firestore.rules`, final): cualquier sesión lee, crea,
+   borra o marca leídas las notificaciones de OTRA persona o empresa. Falta una
+   regla: lectura/`read` solo del dueño (`userDocId`), creación solo del
+   servidor o con `fromId == userDocId`.
+2. **Seguridad — push:** `registerDeviceToken` (index.ts) es un callable sin
+   `context.auth`: cualquiera registra su token en la cédula de otro y recibe
+   sus avisos. Además el cierre de sesión (`app_drawer._logout`) no quita el
+   token del usuario ni se quita de otros usuarios al registrarlo: en un
+   teléfono compartido, los avisos de quien salió llegan a quien entró.
+3. **Compras (servidor):** `comprasNotificarRecepcionCalidad` y
+   `notifyInAppNewSupplier` avisan a todos los `TBL_COMPRAS_ROLES` con rol
+   calidad sin filtrar inhabilitados/retirados de la empresa
+   (`motivoAccesoBloqueado`/`inhabilitadaEn` de `acceso.ts`) ni comprobar que
+   siga con la app (el cliente `getUsuariosPorRol` sí lo hace). Vigencias
+   documentales (`compras_expiration_notifications.ts`) solo avisa a quien
+   subió el documento: si ya no está, nadie lo recibe; falta copia a Calidad/
+   analista de Compras.
+4. **Tareas:** `notifyTaskCompleted`/`notifyTaskNews` y los cambios de estado
+   (distintos de "por aprobar") van a responsable y jefe, no a quien asignó la
+   tarea (`destinatariosSeguimiento` ya lo resuelve solo para "por aprobar").
+   El actor también recibe aviso de su propia acción. El jefe se toma de
+   `jefe_uid` de la tarea o de `jefeId` global del usuario, no del bloque de la
+   empresa activa.
+5. **Gestión Documental:** solo se notifica "observado/rechazado" al creador.
+   Enviar a revisión, aprobar y publicar no avisan a revisor/aprobador/creador.
+   Correspondencia solo avisa al destinatario de la mesa de colaboración.
+6. **Interventoría:** un seguimiento solo avisa al responsable; si el
+   responsable responde no se avisa a nadie (creador/aprobador/auditor).
+7. **Rutas:** la alerta de movilidad va a cédulas configuradas sin validar que
+   estén habilitadas; la evidencia nueva no avisa a Calidad (solo el rechazo).
+8. **Facturación:** bien filtrado (`personaHabilitadaEn` + `userHasApp`);
+   `findEstablishmentRecipient` no exige `userHasApp`.
+9. **Visitas, Planillas, Talento Humano (plazos disciplinarios), Nutrición:**
+   destinatarios correctos por empresa; revisan habilitación (Planillas) o
+   usan al asignado/propietario (Visitas/Nutrición).
+10. Pagos, Biblioteca y Gerencia no generan notificaciones propias.
+
+## MAESTRO DE NOTIFICACIONES — fase 1 (9 oct 2026)
+Pedido del usuario: un maestro que regule los tipos de aviso y por qué canal
+llegan (campana, push, WhatsApp), por empresa y con copia entre empresas;
+edita Admin y los avisos críticos no se apagan.
+**Hecho (Claude, sin poder compilar/probar: faltan Flutter y node_modules):**
+- `functions/src/notification_catalog.ts`: catálogo de tipos (clave, módulo,
+  críticos, valores por defecto) y `canalesDe(tipo, config)`. Config por
+  empresa en `TBL_NOTIFICACIONES_CONFIG/{empresaId}`:
+  `tipos.{clave}.{app|push|whatsapp}`. Test: `test/notification_catalog.test.js`.
+- `index.ts` (`processPushQueueItem`): si la empresa apagó el push de un tipo,
+  la notificación queda solo en la campana (`in_app_only`). Críticos siempre
+  salen. Tipos fuera del catálogo se comportan como hasta ahora.
+- `firestore.rules`: regla propia de `TBL_NOTIFICACIONES_CONFIG` (lee el
+  personal de la empresa; escribe Admin/Desarrollo); excluida de la regla
+  general.
+- **Planillas de pago:** faltaba avisar a Tesorería. Ahora recibe aviso cuando
+  Auditoría observa, cuando Auditoría o Gerencia rechazan y cuando Gerencia
+  firma (ya puede subir los pagos). Ya existían Tesorería→Auditoría y
+  Auditoría→Gerencia.
+**Pendiente (fase 2):** panel Admin › Notificaciones (tabla tipo × canal,
+críticos bloqueados) y registrar el maestro en `kModulosMaestros` y
+`functions/src/maestros.ts` para "Copiar a otras empresas"; canal WhatsApp por
+tipo conectado a las rutas de `whatsapp.ts` (hoy `SUPPORTED_ROUTES`);
+destinatarios por tipo con el filtro central de inhabilitados; mover aquí el
+sonido/silencio (`notification_sound_policy.ts`); y los hallazgos de la
+revisión de notificaciones (reglas de `TBL_NOTIFICACIONES`, `registerDeviceToken`).
+
+## MAESTRO DE NOTIFICACIONES — fase 2 (9 oct 2026)
+**Hecho (Claude; sin Flutter ni node_modules no se compiló ni se corrieron tests):**
+- Panel Admin › Maestros por módulo › **Tareas y notificaciones**
+  (`notification_master_panel.dart`, `notification_master_service.dart`):
+  tabla tipo × canal (campana, push, WhatsApp) agrupada por módulo; críticos
+  con candado (solo WhatsApp se puede apagar); "Valores por defecto". Solo se
+  guardan los ajustes que difieren del defecto.
+- Catálogo espejo en Dart `lib/core/notification_catalog.dart`;
+  `test/core/notification_catalog_test.dart` falla si difiere del TS.
+- Registrado para "Copiar a otras empresas": módulo `tareas`,
+  maestro `TBL_NOTIFICACIONES_CONFIG` (config) en `maestros.ts` y
+  `kModulosMaestros`; nuevo `PanelAdminModulo.notificaciones`.
+- WhatsApp por tipo: `sendWhatsAppRoute` consulta el maestro y omite el envío
+  si la empresa apagó el canal (`canal_desactivado_en_maestro`).
+- Nueva ruta WhatsApp `planillas_gerencia_tesoreria` (Gerencia firma →
+  Tesorería sube pagos): `whatsapp.ts`, trigger `ppWhatsAppCambioFirma`
+  (estado `firmada`) y selector de lista en Admin › WhatsApp.
+**Pendiente:** destinatarios por tipo con filtro central de habilitados;
+sonido/silencio en el maestro; preferencias personales (silenciar lo
+informativo); aplicar el canal "campana" apagado (hoy la campana siempre
+guarda); reglas de `TBL_NOTIFICACIONES` y `registerDeviceToken`; verificar en
+Web (390/768/1024/1366), Android e iOS.
+
+## MAESTRO DE NOTIFICACIONES — fase 3 (9 oct 2026)
+Cierra los puntos pendientes de la fase 2 (excepto seguridad, que el usuario
+dejó para el final porque "por ahora funciona"). Sin Flutter ni node_modules
+no se compiló ni se corrieron tests.
+- **Filtro central de destinatarios** (`onNotificationCreated`,
+  `destinatarioHabilitado`): quien está inhabilitado, o inhabilitado en la
+  empresa del aviso, no recibe push de ningún módulo (la notificación queda con
+  `pushDelivery.state = omitido_inhabilitado`). Cubre los avisos de Compras,
+  Rutas, etc. que antes no filtraban. Si no se halla la ficha no se niega.
+  *No se creó un selector de destinatarios por tipo*: cada módulo sigue
+  resolviendo a quién avisa (rol del módulo, responsable, jefe).
+- **Sonido en el maestro:** cuarto canal `sonido` por tipo; sin sonido el push
+  llega en silencio (canal `tasks_silent`). Críticos siempre suenan. El
+  silencio que ya marcaba cada módulo (`silenciosa`) se conserva.
+- **Campana apagada:** si el maestro apaga la campana de un tipo no crítico,
+  el servidor manda el push una vez y borra la notificación; si apaga también
+  el push, la borra sin enviar.
+- **Preferencias personales:** `TBL_NOTIFICACIONES_PREFERENCIAS/{userDocId}`
+  (regla: solo la propia persona). Pantalla "Mis avisos" (icono en
+  Notificaciones): silenciar push o sonido de lo informativo. Nunca activa lo
+  que la empresa apagó ni toca críticos ni campana (`planDeEntrega`).
+- Cambió el flujo: el filtro del maestro ya no está en `processPushQueueItem`
+  sino en `onNotificationCreated` (los reintentos usan el plan inicial).
+- **Sin verificar:** Web (390/768/1024/1366), Android e iOS, escala de texto y
+  teclado en "Mis avisos" y en el panel del maestro; compilación TS/Dart.
+- **Pendiente:** seguridad (reglas de `TBL_NOTIFICACIONES`, `registerDeviceToken`).

@@ -140,6 +140,7 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
   String _purchaseNewSupplierListId = '';
   String _planillasTesoreriaAuditoriaListId = '';
   String _planillasAuditoriaGerenciaListId = '';
+  String _planillasGerenciaTesoreriaListId = '';
   String _interventoriaNuevaActaListId = '';
   String _selectedTemplateKey = 'correo_alerta';
   Map<String, Map<String, dynamic>> _messageTemplates = {};
@@ -245,6 +246,8 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
             (routes['planillas_tesoreria_auditoria'] ?? '').toString();
         _planillasAuditoriaGerenciaListId =
             (routes['planillas_auditoria_gerencia'] ?? '').toString();
+        _planillasGerenciaTesoreriaListId =
+            (routes['planillas_gerencia_tesoreria'] ?? '').toString();
         _interventoriaNuevaActaListId =
             (routes['interventoria_nueva_acta'] ?? '').toString();
       });
@@ -1321,6 +1324,20 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
                   selectedId: _planillasAuditoriaGerenciaListId,
                   onChanged: (value) =>
                       setState(() => _planillasAuditoriaGerenciaListId = value),
+                ),
+                const Divider(height: 30),
+                _routeListSelector(
+                  title: 'Planillas · Gerencia a Tesorería',
+                  description:
+                      'Se envía cuando Gerencia firma la planilla y Tesorería ya puede subir los pagos.',
+                  moduleId: 'planillas_pago',
+                  routeId: 'planillas_gerencia_tesoreria',
+                  icon: Icons.payments_outlined,
+                  lists: activeLists,
+                  selectedId: _planillasGerenciaTesoreriaListId,
+                  onChanged: (value) => setState(
+                    () => _planillasGerenciaTesoreriaListId = value,
+                  ),
                 ),
                 const Divider(height: 30),
                 _routeListSelector(

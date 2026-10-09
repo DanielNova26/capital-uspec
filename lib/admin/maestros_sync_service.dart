@@ -9,7 +9,14 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 
 /// Paneles de configuración que viven en Admin (no en el módulo).
-enum PanelAdminModulo { compras, visitas, correo, tokensDian, whatsapp }
+enum PanelAdminModulo {
+  compras,
+  visitas,
+  correo,
+  tokensDian,
+  whatsapp,
+  notificaciones,
+}
 
 class MaestroInfo {
   const MaestroInfo(this.id, this.nombre);
@@ -154,6 +161,16 @@ const kModulosMaestros = <ModuloMaestrosInfo>[
       MaestroInfo('TBL_TH_PLANTILLAS_DOCUMENTOS', 'Plantillas de documentos'),
       MaestroInfo('TBL_ZEUS_CONFIG', 'Valores por defecto de Zeus'),
     ],
+  ),
+  ModuloMaestrosInfo(
+    id: 'tareas',
+    nombre: 'Tareas y notificaciones',
+    icono: Icons.notifications_active_outlined,
+    color: Color(0xFF2563EB),
+    // Maestro de notificaciones: qué avisos salen por campana, push y
+    // WhatsApp en cada empresa. Se edita aquí y se copia a otras empresas.
+    panel: PanelAdminModulo.notificaciones,
+    maestros: [MaestroInfo('TBL_NOTIFICACIONES_CONFIG', 'Canales de notificación')],
   ),
   ModuloMaestrosInfo(
     id: 'correo',

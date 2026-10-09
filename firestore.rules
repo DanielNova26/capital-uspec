@@ -1507,6 +1507,20 @@ service cloud.firestore {
       allow delete: if gestionaRolesDeModulo(empresaId,'comprasdashboard');
     }
 
+    // Preferencias personales de aviso (9 oct 2026): cada persona silencia el
+    // push o el sonido de lo informativo. Solo las lee y las escribe ella.
+    match /TBL_NOTIFICACIONES_PREFERENCIAS/{userId} {
+      allow read, write: if isSignedIn() && userId == request.auth.token.userDocId;
+    }
+
+    // Maestro de notificaciones (9 oct 2026): un documento por empresa con los
+    // canales de cada tipo de aviso. Lo lee su personal; lo escribe Admin.
+    match /TBL_NOTIFICACIONES_CONFIG/{empresaId} {
+      allow get: if belongsToCompany(empresaId);
+      allow write: if belongsToCompany(empresaId)
+        && (tieneAppAdminEn(empresaId) || isDeveloper() || isDeveloperIn(empresaId));
+    }
+
     // Bitácora de Admin (Logs): migraciones, limpiezas, cierres,
     // multiempresa. Antes estaba en la regla general y cualquiera la leía,
     // la editaba o la borraba (29 sep 2026). Solo se agrega: nadie la cambia.
@@ -2393,7 +2407,7 @@ service cloud.firestore {
         && !esColeccionDeSuEmpresa(collection)
         && !esTablaDeRoles(collection)
         && !collection.matches('TBL_(TAREAS|TAREAS_CONTADORES'
-          + '|COMPRAS_ROLES|COMPRAS_CONFIG'
+          + '|COMPRAS_ROLES|COMPRAS_CONFIG|NOTIFICACIONES_CONFIG|NOTIFICACIONES_PREFERENCIAS'
           + '|WHATSAPP_CONFIG|WHATSAPP_AUDITORIA|WHATSAPP_META_ESTADOS'
           + '|CORREO_ALERTAS|CORREO_LISTADOS|CORREO_REGLAS|CORREO_ROLES'
           + '|GD_EXPEDIENTES|GD_TIPOS_DOCUMENTALES|GD_EXPEDIENTES_EVENTOS|GD_COLABORACION|GD_VINCULOS|GD_CONTADORES'

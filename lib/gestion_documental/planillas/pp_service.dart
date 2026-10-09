@@ -1166,6 +1166,17 @@ class PpService {
         'nombreAuditorFirmante': nombreActor,
       },
     );
+    // Auditoría devuelve la planilla: Tesorería debe corregirla.
+    await _notificar(
+      empresaId: empresaId,
+      planillaId: planillaId,
+      rolesDestino: [PpRoles.tesoreria],
+      titulo: 'Planilla observada por auditoría',
+      descripcion:
+          'Auditoría observó una planilla: ${observacion.trim()}',
+      actorId: actorId,
+      nombreActor: nombreActor,
+    );
 
     // Agregar la observación al array append
     await _planillas.doc(planillaId).update({
@@ -2046,6 +2057,16 @@ class PpService {
       observacion: comentario,
       camposExtra: camposExtra,
     );
+    // Firmada por Gerencia: Tesorería ya puede subir los pagos.
+    await _notificar(
+      empresaId: empresaId,
+      planillaId: planillaId,
+      rolesDestino: [PpRoles.tesoreria],
+      titulo: 'Planilla firmada por Gerencia',
+      descripcion: 'Una planilla fue firmada. Ya puedes subir los pagos.',
+      actorId: actorId,
+      nombreActor: nombreActor,
+    );
 
     if (loteId.trim().isNotEmpty) {
       await _actualizarContadorLote(loteId, empresaId);
@@ -2129,6 +2150,17 @@ class PpService {
         'No se puede rechazar desde el estado actual: ${estado.etiqueta}',
       );
     }
+    await _notificar(
+      empresaId: empresaId,
+      planillaId: planillaId,
+      rolesDestino: [PpRoles.tesoreria],
+      titulo: estado == PpEstado.en_revision_auditoria
+          ? 'Planilla rechazada por auditoría'
+          : 'Planilla rechazada por Gerencia',
+      descripcion: 'Una planilla fue rechazada: ${motivo.trim()}',
+      actorId: actorId,
+      nombreActor: nombreActor,
+    );
 
     if (loteId.trim().isNotEmpty) {
       await _actualizarContadorLote(loteId, empresaId);

@@ -179,6 +179,14 @@ export const MODULOS_MAESTROS: ModuloMaestros[] = [
         tipo: "config"},
     ],
   },
+  {
+    id: "tareas", nombre: "Tareas y notificaciones",
+    maestros: [
+      // Maestro de notificaciones: canales de cada tipo de aviso.
+      {id: "TBL_NOTIFICACIONES_CONFIG", nombre: "Canales de notificación",
+        tipo: "config"},
+    ],
+  },
 ];
 
 // ─── Ayudas puras (probadas en test/maestros.test.js) ────────────────────────

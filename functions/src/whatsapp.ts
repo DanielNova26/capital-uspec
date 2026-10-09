@@ -6,6 +6,7 @@
  * nunca se devuelve al cliente.
  */
 import * as functions from "firebase-functions/v1";
+import {whatsappActivoParaRuta} from "./notification_catalog";
 import * as admin from "firebase-admin";
 import {appsDeEmpresa, raizEsDeEmpresa} from "./apps_por_empresa";
 import {
@@ -39,6 +40,7 @@ const SUPPORTED_ROUTES = new Map<string, string>([
   [PURCHASE_NEW_SUPPLIER_ROUTE, "compras"],
   ["planillas_tesoreria_auditoria", "planillas_pago"],
   ["planillas_auditoria_gerencia", "planillas_pago"],
+  ["planillas_gerencia_tesoreria", "planillas_pago"],
   ["interventoria_nueva_acta", "interventoria"],
 ]);
 
@@ -1418,6 +1420,14 @@ export async function sendWhatsAppRoute(input: {
   const config = await loadRuntimeConfig(input.empresaId);
   if (!config.enabled) return skip("whatsapp_deshabilitado");
   if (config.modules[moduleId] !== true) return skip("modulo_apagado", { moduleId });
+  // Maestro de notificaciones: la empresa puede apagar el canal WhatsApp.
+  const maestro = await db()
+    .collection("TBL_NOTIFICACIONES_CONFIG")
+    .doc(input.empresaId)
+    .get();
+  if (!whatsappActivoParaRuta(routeId, maestro.exists ? maestro.data() : null)) {
+    return skip("canal_desactivado_en_maestro", { routeId });
+  }
   const listId = text(config.routes[routeId]);
   if (!listId) return skip("ruta_sin_lista");
   const list = await db().collection(LIST_COLLECTION).doc(listId).get();

@@ -9,6 +9,7 @@ import 'package:todo/theme/app_typography.dart';
 import 'package:intl/intl.dart';
 import 'package:todo/widgets/empty_state_widget.dart';
 import 'package:todo/widgets/task_numero_aviso.dart';
+import 'notification_preferences_screen.dart';
 import 'package:todo/widgets/user_avatar.dart';
 import '../core/task_route_guard.dart';
 import '../facturacion/facturacion_navigation.dart';
@@ -296,6 +297,15 @@ class NotificationsScreen extends StatelessWidget {
           elevation: 0,
           centerTitle: false,
           actions: [
+            IconButton(
+              tooltip: 'Mis avisos',
+              icon: const Icon(Icons.tune_rounded),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => NotificationPreferencesScreen(userId: userId),
+                ),
+              ),
+            ),
             TextButton.icon(
               onPressed: () => _markAllAsRead(userId, empresaId),
               icon: const Icon(Icons.done_all, size: 18),

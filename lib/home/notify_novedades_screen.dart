@@ -14,7 +14,6 @@ import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -24,6 +23,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:todo/utils/task_status.dart';
 import 'package:todo/widgets/task_action_context_card.dart';
 
+import '../services/company_branding_service.dart';
 import '../services/task_service.dart';
 import 'complete_task_screen.dart' show CompleteTaskScreen;
 
@@ -212,7 +212,7 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
 
   Future<Uint8List?> _buildWatermarkedBytes({
     required ui.Image base,
-    required String logoAsset,
+    Uint8List? logoBytes,
     required String header,
     required String title,
     required String who,
@@ -220,9 +220,10 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
   }) async {
     ui.Image? logo;
     try {
-      final lb = await rootBundle.load(logoAsset);
-      final lc = await ui.instantiateImageCodec(lb.buffer.asUint8List());
-      logo = (await lc.getNextFrame()).image;
+      if (logoBytes != null && logoBytes.isNotEmpty) {
+        final lc = await ui.instantiateImageCodec(logoBytes);
+        logo = (await lc.getNextFrame()).image;
+      }
     } catch (_) {}
 
     final rec = ui.PictureRecorder();
@@ -324,7 +325,9 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
 
       final wm = await _buildWatermarkedBytes(
         base: img,
-        logoAsset: 'assets/logo.png',
+        logoBytes: await CompanyBrandingService().loadLogoBytes(
+          (_task?['empresaId'] ?? _task?['empresa_id'] ?? '').toString(),
+        ),
         header: 'Novedad',
         title: _taskTitle ?? 'Tarea',
         who: widget.currentUserId,
