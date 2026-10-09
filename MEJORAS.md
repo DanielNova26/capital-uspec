@@ -10598,3 +10598,30 @@ empresa (`TBL_EMPRESAS.logoUrl`), nunca `assets/logo.png`.
    destinatarios correctos por empresa; revisan habilitación (Planillas) o
    usan al asignado/propietario (Visitas/Nutrición).
 10. Pagos, Biblioteca y Gerencia no generan notificaciones propias.
+
+## MAESTRO DE NOTIFICACIONES — fase 1 (9 oct 2026)
+Pedido del usuario: un maestro que regule los tipos de aviso y por qué canal
+llegan (campana, push, WhatsApp), por empresa y con copia entre empresas;
+edita Admin y los avisos críticos no se apagan.
+**Hecho (Claude, sin poder compilar/probar: faltan Flutter y node_modules):**
+- `functions/src/notification_catalog.ts`: catálogo de tipos (clave, módulo,
+  críticos, valores por defecto) y `canalesDe(tipo, config)`. Config por
+  empresa en `TBL_NOTIFICACIONES_CONFIG/{empresaId}`:
+  `tipos.{clave}.{app|push|whatsapp}`. Test: `test/notification_catalog.test.js`.
+- `index.ts` (`processPushQueueItem`): si la empresa apagó el push de un tipo,
+  la notificación queda solo en la campana (`in_app_only`). Críticos siempre
+  salen. Tipos fuera del catálogo se comportan como hasta ahora.
+- `firestore.rules`: regla propia de `TBL_NOTIFICACIONES_CONFIG` (lee el
+  personal de la empresa; escribe Admin/Desarrollo); excluida de la regla
+  general.
+- **Planillas de pago:** faltaba avisar a Tesorería. Ahora recibe aviso cuando
+  Auditoría observa, cuando Auditoría o Gerencia rechazan y cuando Gerencia
+  firma (ya puede subir los pagos). Ya existían Tesorería→Auditoría y
+  Auditoría→Gerencia.
+**Pendiente (fase 2):** panel Admin › Notificaciones (tabla tipo × canal,
+críticos bloqueados) y registrar el maestro en `kModulosMaestros` y
+`functions/src/maestros.ts` para "Copiar a otras empresas"; canal WhatsApp por
+tipo conectado a las rutas de `whatsapp.ts` (hoy `SUPPORTED_ROUTES`);
+destinatarios por tipo con el filtro central de inhabilitados; mover aquí el
+sonido/silencio (`notification_sound_policy.ts`); y los hallazgos de la
+revisión de notificaciones (reglas de `TBL_NOTIFICACIONES`, `registerDeviceToken`).

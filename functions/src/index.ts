@@ -2,6 +2,7 @@
 import * as functions from "firebase-functions/v1"; // compat v1
 import {createHash} from "crypto";
 import {motivoAccesoBloqueado} from "./acceso";
+import {canalesDe} from "./notification_catalog";
 
 // Autenticación privada de To-Do. La contraseña se valida exclusivamente en
 // servidor y la aplicación recibe una sesión Firebase individual.
@@ -641,6 +642,22 @@ async function processPushQueueItem(queueRef: admin.firestore.DocumentReference)
 
   if (!claimed) return;
   try {
+    // Maestro de notificaciones: la empresa puede apagar el push de un tipo
+    // (no el de los críticos). La campana queda siempre.
+    const empresaAviso = (claimed.data?.empresaId ?? "").toString().trim();
+    if (empresaAviso) {
+      const cfg = await db.collection("TBL_NOTIFICACIONES_CONFIG").doc(empresaAviso).get();
+      if (!canalesDe(claimed.data?.type, cfg.exists ? cfg.data() : null).push) {
+        await updatePushDeliveryState(queueRef, claimed, {
+          state: "in_app_only",
+          attemptCount: claimed.attemptCount ?? 0,
+          lastError: "La empresa desactivó el push de este tipo de aviso.",
+          deliveredAt: admin.firestore.FieldValue.serverTimestamp(),
+          retryTokens: admin.firestore.FieldValue.delete(),
+        });
+        return;
+      }
+    }
     const tokens = claimed.retryTokens?.length ? claimed.retryTokens : await getTokensFor(claimed.userId);
     if (!tokens.length) {
       await updatePushDeliveryState(queueRef, claimed, {
