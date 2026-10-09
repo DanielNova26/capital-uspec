@@ -135,6 +135,14 @@ Capturas del usuario (Android, ancho ~390 px, módulo Gerencia › Interventorí
   - Nota: `dart format` en archivos que no estaban formateados añade cambios de
     estilo menores (Home › equipo, Login › instrucciones); no cambian el
     comportamiento.
+- **Versión 2.6.26+40 preparada** en `pubspec.yaml` y guía en
+  `docs/PUBLICAR_2.6.26.md` (merge a `main`, Web, Android e iOS).
+  `claude/wonderful-johnson-ewjir5` (Planes K2, 3 commits) se fusiona sin
+  conflictos con esta rama, **pero sola ya falla 21 pruebas** de
+  `interventoria_planes_test.dart` y `interventoria_planes_mejoras_test.dart`
+  (`main` las pasa) y desborda 56 px a 390 px con texto 1,6× en
+  `interventoria_planes_screen.dart:1536`. No se corrigió: queda para quien
+  mantiene esa rama, antes de integrarla.
 - Validación: Flutter 3.44.9 instalado en el entorno; `flutter analyze` sin
   errores en lo tocado (los avisos que salen ya existían); suite completa de
   1.631 pruebas aprobada.
