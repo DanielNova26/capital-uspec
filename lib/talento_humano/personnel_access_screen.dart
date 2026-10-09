@@ -768,28 +768,38 @@ class _PersonaCard extends StatelessWidget {
                             color: scheme.onSurfaceVariant,
                           ),
                         ),
+                        // Las etiquetas van bajo el nombre: en una sola fila
+                        // con el botón dejaban al nombre sin ancho en el
+                        // teléfono.
+                        if (!row.activo || row.soloTalentoHumano)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: [
+                                if (!row.activo)
+                                  Chip(
+                                    visualDensity: VisualDensity.compact,
+                                    label: const Text('Inactivo'),
+                                    labelStyle: theme.textTheme.labelSmall,
+                                  ),
+                                if (row.soloTalentoHumano)
+                                  Chip(
+                                    visualDensity: VisualDensity.compact,
+                                    avatar: const Icon(
+                                      Icons.badge_outlined,
+                                      size: 16,
+                                    ),
+                                    label: const Text('No opera en To-Do'),
+                                    labelStyle: theme.textTheme.labelSmall,
+                                  ),
+                              ],
+                            ),
+                          ),
                       ],
                     ),
                   ),
-                  if (!row.activo)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: Chip(
-                        visualDensity: VisualDensity.compact,
-                        label: const Text('Inactivo'),
-                        labelStyle: theme.textTheme.labelSmall,
-                      ),
-                    ),
-                  if (row.soloTalentoHumano)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: Chip(
-                        visualDensity: VisualDensity.compact,
-                        avatar: const Icon(Icons.badge_outlined, size: 16),
-                        label: const Text('No opera en To-Do'),
-                        labelStyle: theme.textTheme.labelSmall,
-                      ),
-                    ),
                   TextButton.icon(
                     onPressed: onEditar,
                     icon: const Icon(Icons.tune_rounded, size: 18),
@@ -833,8 +843,8 @@ class _PersonaCard extends StatelessWidget {
                               color: m.color.withValues(alpha: 0.30),
                             ),
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
+                          child: Wrap(
+                            crossAxisAlignment: WrapCrossAlignment.center,
                             children: [
                               Icon(m.icono, size: 13, color: m.color),
                               const SizedBox(width: 5),

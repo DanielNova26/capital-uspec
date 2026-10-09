@@ -1748,8 +1748,8 @@ class _TrackStep extends StatelessWidget {
           ),
           borderRadius: BorderRadius.circular(999),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
+        child: Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             Icon(
               done
@@ -2392,8 +2392,8 @@ class _FilterButton extends StatelessWidget {
         border: Border.all(color: _border),
         borderRadius: BorderRadius.circular(10),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           const Icon(Icons.filter_list_rounded, size: 17, color: _muted),
           const SizedBox(width: 6),

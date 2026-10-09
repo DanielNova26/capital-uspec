@@ -6,6 +6,7 @@ import '../core/hierarchy_order.dart';
 import '../utils/user_company.dart';
 import '../widgets/internal_module_layout.dart';
 import '../widgets/user_avatar.dart';
+import '../widgets/acciones_de_fila.dart';
 
 const Color _khPrimary = Color(0xffc28942);
 const Color _khSecondary = Color(0xffe19e4c);
@@ -548,33 +549,35 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
                         ],
                       ),
                     ),
-                    IconButton(
-                      icon: const Icon(
-                        Icons.group_outlined,
-                        color: Color(0xFF64748B),
+                    ...accionesDeFila(context, [
+                      IconButton(
+                        icon: const Icon(
+                          Icons.group_outlined,
+                          color: Color(0xFF64748B),
+                        ),
+                        tooltip: 'Ver personal',
+                        onPressed: () => _showAreaUsersDialog(
+                          _s(data['nombre']),
+                          (data['cedulas'] as List<dynamic>?) ?? [],
+                        ),
                       ),
-                      tooltip: 'Ver personal',
-                      onPressed: () => _showAreaUsersDialog(
-                        _s(data['nombre']),
-                        (data['cedulas'] as List<dynamic>?) ?? [],
+                      IconButton(
+                        icon: const Icon(
+                          Icons.edit_outlined,
+                          color: Color(0xFF64748B),
+                        ),
+                        onPressed: () => _openAreaDialog(doc: doc),
+                        tooltip: 'Editar',
                       ),
-                    ),
-                    IconButton(
-                      icon: const Icon(
-                        Icons.edit_outlined,
-                        color: Color(0xFF64748B),
+                      IconButton(
+                        icon: const Icon(
+                          Icons.delete_outline,
+                          color: Colors.redAccent,
+                        ),
+                        onPressed: () => _deleteArea(doc.id),
+                        tooltip: 'Eliminar',
                       ),
-                      onPressed: () => _openAreaDialog(doc: doc),
-                      tooltip: 'Editar',
-                    ),
-                    IconButton(
-                      icon: const Icon(
-                        Icons.delete_outline,
-                        color: Colors.redAccent,
-                      ),
-                      onPressed: () => _deleteArea(doc.id),
-                      tooltip: 'Eliminar',
-                    ),
+                    ]),
                   ],
                 ),
               );

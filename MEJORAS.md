@@ -51,6 +51,25 @@ Capturas del usuario (Android, ancho ~390 px, módulo Gerencia › Interventorí
     (por ejemplo ciudad y NIT del proveedor, marcas, títulos de tarjetas). No se
     cambiaron en masa: sin verlas en pantalla, `Expanded` podría lanzar errores
     de ancho sin límite. Se corrigen con capturas.
+- **Tercera pasada: Talento Humano e Interventoría.**
+  - 11 filas de icono + texto largo pasan de `Row` a `Wrap` (más dos más a mano en
+    Interventoría: área del hallazgo y filtro de fecha).
+  - 9 selectores sin `isExpanded` en Hoja de vida y Requisiciones de personal
+    (parte dentro de un `SizedBox` de 120 px, que sí acota el ancho).
+  - **Talento Humano › Acceso del personal**: las etiquetas "Inactivo" y "No opera
+    en To-Do" estaban en la misma fila que el nombre y el botón Cambiar; en 390 px
+    el nombre se quedaba sin ancho. Ahora las etiquetas van bajo el nombre.
+  - **Áreas y Cargos**: tres `IconButton` (144 px) por fila dejaban al nombre con
+    ~110 px. Nuevo `lib/widgets/acciones_de_fila.dart` (con prueba): por debajo de
+    520 px las acciones pasan a un menú «⋮» con las mismas opciones.
+  - Interventoría › Tablero de asignación: el título de cada grupo era un `Text`
+    sin `Flexible` junto al contador y el botón de acción; ahora se ajusta.
+  - Revisados y sin cambio: pestañas (todas de 2 elementos), `DataTable` de
+    Interventoría (ya paginadas), cabecera del PDF del acta y filas con `Expanded`.
+  - Sin tocar (están en una `Row`, `LayoutBuilder` o celda de tabla; `isExpanded`
+    allí lanzaría error de ancho sin límite): selectores en
+    `interventoria_dashboard_screen.dart` líneas ~1396, 2481, 3651, 4630, 8134,
+    9397 y 9415. Se corrigen con capturas de la pantalla afectada.
 - Validación: Flutter 3.44.9 instalado en el entorno; `flutter analyze` sin
   errores en lo tocado (los avisos que salen ya existían); suite completa de
   1.631 pruebas aprobada.

@@ -368,12 +368,16 @@ class _InterventoriaTableroAsignacionState
             children: [
               Icon(icono, size: 18, color: color),
               const SizedBox(width: 8),
-              Text(
-                titulo,
-                style: TextStyle(
-                  fontWeight: FontWeight.w900,
-                  fontSize: 15,
-                  color: color,
+              Flexible(
+                child: Text(
+                  titulo,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 15,
+                    color: color,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -1291,10 +1295,7 @@ class InterventoriaSelectorPersonaState
                         final sugerido = widget.sugeridosIds.contains(u.id);
                         return ListTile(
                           onTap: () => Navigator.pop(context, u),
-                          leading: UserAvatar(
-                            userId: u.id,
-                            nameHint: u.nombre,
-                          ),
+                          leading: UserAvatar(userId: u.id, nameHint: u.nombre),
                           title: Text(u.nombre),
                           subtitle: Text(
                             u.cargo.isEmpty ? 'Sin cargo registrado' : u.cargo,
@@ -1476,7 +1477,8 @@ class _ConfirmarAsignacionDialogState
   late AprobadorPropuesto _aprobador = widget.propuesto;
 
   String get _origen => switch (_aprobador.origen) {
-    OrigenAprobador.maestro => 'Según ${nombreMaestroDeActa(widget.hallazgo.tipoActa)}',
+    OrigenAprobador.maestro =>
+      'Según ${nombreMaestroDeActa(widget.hallazgo.tipoActa)}',
     OrigenAprobador.actual => 'Aprobador actual del hallazgo',
     OrigenAprobador.jefeInmediato =>
       'Jefe inmediato de ${widget.responsable.nombre}',
@@ -1534,10 +1536,16 @@ class _ConfirmarAsignacionDialogState
               persona.cargo.trim().isEmpty
                   ? persona.nombre
                   : '${persona.nombre} · ${persona.cargo}',
-              style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
+              style: const TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w700,
+              ),
             ),
             if (detalle.isNotEmpty)
-              Text(detalle, style: const TextStyle(fontSize: 11, color: _accent)),
+              Text(
+                detalle,
+                style: const TextStyle(fontSize: 11, color: _accent),
+              ),
           ],
         ),
       ),

@@ -7,6 +7,7 @@ import '../core/hierarchy_order.dart';
 import '../utils/user_company.dart';
 import '../widgets/internal_module_layout.dart';
 import '../widgets/user_avatar.dart';
+import '../widgets/acciones_de_fila.dart';
 
 const String _areasCollection = 'TBL_AREAS';
 const String _cargosCollection = 'TBL_CARGOS';
@@ -1223,54 +1224,56 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
                               ],
                             ),
                           ),
-                          IconButton(
-                            icon: const Icon(
-                              Icons.group_outlined,
-                              color: Color(0xFF64748B),
+                          ...accionesDeFila(context, [
+                            IconButton(
+                              icon: const Icon(
+                                Icons.group_outlined,
+                                color: Color(0xFF64748B),
+                              ),
+                              onPressed: () => _showUsersDialog(code),
+                              tooltip: 'Ver ocupantes',
                             ),
-                            onPressed: () => _showUsersDialog(code),
-                            tooltip: 'Ver ocupantes',
-                          ),
-                          IconButton(
-                            icon: const Icon(
-                              Icons.edit_outlined,
-                              color: Color(0xFF64748B),
+                            IconButton(
+                              icon: const Icon(
+                                Icons.edit_outlined,
+                                color: Color(0xFF64748B),
+                              ),
+                              onPressed: () => _openCargoForm(doc: d),
+                              tooltip: 'Editar',
                             ),
-                            onPressed: () => _openCargoForm(doc: d),
-                            tooltip: 'Editar',
-                          ),
-                          IconButton(
-                            icon: const Icon(
-                              Icons.delete_outline,
-                              color: Colors.redAccent,
-                            ),
-                            onPressed: () async {
-                              final ok = await showDialog<bool>(
-                                context: context,
-                                builder: (_) => AlertDialog(
-                                  title: const Text('Confirmar borrado'),
-                                  content: Text('¿Borrar cargo "$desc"?'),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () =>
-                                          Navigator.pop(context, false),
-                                      child: const Text('Cancelar'),
-                                    ),
-                                    ElevatedButton(
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.red,
+                            IconButton(
+                              icon: const Icon(
+                                Icons.delete_outline,
+                                color: Colors.redAccent,
+                              ),
+                              onPressed: () async {
+                                final ok = await showDialog<bool>(
+                                  context: context,
+                                  builder: (_) => AlertDialog(
+                                    title: const Text('Confirmar borrado'),
+                                    content: Text('¿Borrar cargo "$desc"?'),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, false),
+                                        child: const Text('Cancelar'),
                                       ),
-                                      onPressed: () =>
-                                          Navigator.pop(context, true),
-                                      child: const Text('Borrar'),
-                                    ),
-                                  ],
-                                ),
-                              );
-                              if (ok == true) await _deleteCargo(code);
-                            },
-                            tooltip: 'Eliminar',
-                          ),
+                                      ElevatedButton(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.red,
+                                        ),
+                                        onPressed: () =>
+                                            Navigator.pop(context, true),
+                                        child: const Text('Borrar'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                if (ok == true) await _deleteCargo(code);
+                              },
+                              tooltip: 'Eliminar',
+                            ),
+                          ]),
                         ],
                       ),
                     );

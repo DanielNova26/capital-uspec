@@ -2390,7 +2390,8 @@ class _HallazgoFormState extends State<_HallazgoForm> {
                       ],
                       if (h.dptoEncargado.isNotEmpty) ...[
                         const SizedBox(height: 8),
-                        Row(
+                        Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
                             const Icon(
                               Icons.domain_rounded,
@@ -3321,8 +3322,8 @@ class _TareaEstadoMiniState extends State<_TareaEstadoMini> {
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(color: color.withValues(alpha: 0.35)),
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
+              child: Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   Icon(icon, size: 11, color: color),
                   const SizedBox(width: 4),
@@ -3350,8 +3351,8 @@ class _TareaEstadoMiniState extends State<_TareaEstadoMini> {
                     color: const Color(0xFF64748B).withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
+                  child: Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       const Icon(
                         Icons.attach_file_rounded,
@@ -4042,8 +4043,8 @@ class _LegendaDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         Container(
           width: 10,
@@ -5419,8 +5420,8 @@ class _DetailChip extends StatelessWidget {
         color: const Color(0xFFF1F5F9),
         borderRadius: BorderRadius.circular(999),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Icon(icon, size: 14, color: const Color(0xFF475569)),
           const SizedBox(width: 6),
@@ -9671,8 +9672,8 @@ class _AdjuntosDeTareaState extends State<_AdjuntosDeTarea> {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: color.withValues(alpha: 0.35)),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Icon(icon, size: 12, color: color),
           const SizedBox(width: 5),
@@ -11289,8 +11290,8 @@ class _FechaTile extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
           color: active ? _kAccent.withValues(alpha: 0.07) : Colors.white,
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
+        child: Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             Icon(
               Icons.calendar_today_rounded,

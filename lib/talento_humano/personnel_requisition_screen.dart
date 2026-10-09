@@ -436,6 +436,7 @@ class _PersonnelRequisitionScreenState
           ),
           const SizedBox(height: 16),
           DropdownButtonFormField<PersonnelRequisitionStage?>(
+            isExpanded: true,
             initialValue: _stageFilter,
             decoration: const InputDecoration(
               labelText: 'Etapa',
@@ -2151,6 +2152,7 @@ class _StageDialogState extends State<_StageDialog> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 DropdownButtonFormField<PersonnelRequisitionStage>(
+                  isExpanded: true,
                   initialValue: _stage,
                   decoration: const InputDecoration(
                     labelText: 'Etapa actual',
@@ -2200,6 +2202,7 @@ class _StageDialogState extends State<_StageDialog> {
                 ),
                 const SizedBox(height: 14),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: _result,
                   decoration: const InputDecoration(
                     labelText: 'Resultado del avance',
@@ -2325,6 +2328,7 @@ class _HireDialogState extends State<_HireDialog> {
                     SizedBox(
                       width: 120,
                       child: DropdownButtonFormField<String>(
+                        isExpanded: true,
                         initialValue: _documentType,
                         decoration: const InputDecoration(
                           labelText: 'Tipo',
@@ -2510,6 +2514,7 @@ class _CandidateDialogState extends State<_CandidateDialog> {
                     SizedBox(
                       width: 120,
                       child: DropdownButtonFormField<String>(
+                        isExpanded: true,
                         initialValue: _documentType,
                         decoration: const InputDecoration(
                           labelText: 'Tipo',
@@ -2535,7 +2540,8 @@ class _CandidateDialogState extends State<_CandidateDialog> {
                         inputFormatters: [digitsOnlyFormatter],
                         decoration: const InputDecoration(
                           labelText: 'Documento (opcional)',
-                          helperText: 'Si la hoja de vida no lo trae, déjalo '
+                          helperText:
+                              'Si la hoja de vida no lo trae, déjalo '
                               'vacío.',
                           border: OutlineInputBorder(),
                         ),
@@ -2580,6 +2586,7 @@ class _CandidateDialogState extends State<_CandidateDialog> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<PersonnelCandidateStage>(
+                  isExpanded: true,
                   initialValue: _stage,
                   decoration: const InputDecoration(
                     labelText: 'Entra en la etapa',
@@ -2711,6 +2718,7 @@ class _CandidateStageDialogState extends State<_CandidateStageDialog> {
               ),
               const SizedBox(height: 14),
               DropdownButtonFormField<PersonnelCandidateStage>(
+                isExpanded: true,
                 initialValue: _stage,
                 decoration: const InputDecoration(
                   labelText: 'Nueva etapa',
@@ -2944,8 +2952,8 @@ class _AnnexBadge extends StatelessWidget {
         color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Icon(
             isRequired
