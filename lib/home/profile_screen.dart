@@ -285,8 +285,8 @@ class _ProfileFeatureChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: _profilePrimary.withValues(alpha: 0.18)),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Icon(icon, size: 17, color: _profilePrimary),
           const SizedBox(width: 7),

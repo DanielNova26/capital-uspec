@@ -692,7 +692,9 @@ class _TeamScreenState extends State<TeamScreen>
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.5)),
+          borderSide: BorderSide(
+            color: scheme.outlineVariant.withValues(alpha: 0.5),
+          ),
         ),
         filled: true,
         fillColor: scheme.surface,
@@ -733,7 +735,9 @@ class _TeamScreenState extends State<TeamScreen>
                       bottom: 26,
                       child: Container(
                         width: 1.5,
-                        color: _colorForDepth(node.depth - 1).withValues(alpha: 0.35),
+                        color: _colorForDepth(
+                          node.depth - 1,
+                        ).withValues(alpha: 0.35),
                       ),
                     ),
                     Positioned(
@@ -742,7 +746,9 @@ class _TeamScreenState extends State<TeamScreen>
                       right: 0,
                       child: Container(
                         height: 1.5,
-                        color: _colorForDepth(node.depth - 1).withValues(alpha: 0.35),
+                        color: _colorForDepth(
+                          node.depth - 1,
+                        ).withValues(alpha: 0.35),
                       ),
                     ),
                     Positioned(
@@ -801,7 +807,9 @@ class _TeamScreenState extends State<TeamScreen>
                   vertical: 9,
                 ),
                 decoration: BoxDecoration(
-                  color: isSelected ? color.withValues(alpha: 0.12) : scheme.surface,
+                  color: isSelected
+                      ? color.withValues(alpha: 0.12)
+                      : scheme.surface,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
                     color: isSelected
@@ -876,7 +884,9 @@ class _TeamScreenState extends State<TeamScreen>
                               style: TextStyle(
                                 fontFamily: kArial,
                                 fontSize: 10,
-                                color: scheme.onSurfaceVariant.withValues(alpha: 0.5),
+                                color: scheme.onSurfaceVariant.withValues(
+                                  alpha: 0.5,
+                                ),
                               ),
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -1028,7 +1038,8 @@ class _TeamScreenState extends State<TeamScreen>
           ),
           if (_selectedNombre != null) ...[
             const SizedBox(height: 6),
-            Row(
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Icon(
                   Icons.person_pin_outlined,
@@ -1105,7 +1116,11 @@ class _TeamScreenState extends State<TeamScreen>
       ),
       child: Column(
         children: [
-          Icon(icon, size: 44, color: scheme.onSurfaceVariant.withValues(alpha: 0.3)),
+          Icon(
+            icon,
+            size: 44,
+            color: scheme.onSurfaceVariant.withValues(alpha: 0.3),
+          ),
           const SizedBox(height: 10),
           Text(
             title,

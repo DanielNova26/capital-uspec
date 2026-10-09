@@ -446,6 +446,7 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen>
         ),
       );
       final status = DropdownButtonFormField<String>(
+        isExpanded: true,
         initialValue: _status,
         decoration: const InputDecoration(
           labelText: 'Estado',

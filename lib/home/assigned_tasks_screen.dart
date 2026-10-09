@@ -771,6 +771,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                       const SizedBox(height: 12),
                     ],
                     DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue: selectedCargoId,
                       decoration: const InputDecoration(
                         labelText: 'Cargo',
@@ -1916,8 +1917,8 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                   ? scheme.primary.withValues(alpha: 0.06)
                   : null,
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
+            child: Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Icon(
                   Icons.workspaces_rounded,

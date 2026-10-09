@@ -119,6 +119,22 @@ Capturas del usuario (Android, ancho ~390 px, módulo Gerencia › Interventorí
   - Pendiente: tarjetas de documento del panel de colaboración con tres botones
     de acción (`gd_colaboracion_panel.dart`, ~línea 665); no se pasaron al menú
     «⋮» porque uno va dentro de un `Tooltip` condicional.
+- **Séptima pasada: Tokens DIAN, WhatsApp, Login y Home.**
+  - **Login › Instrucciones de la hoja de vida**: en el teléfono las cuatro
+    tarjetas iban en una rejilla de una columna con proporción 2,25; el texto de
+    cada una desbordaba en 390 px o con letra grande. Ahora el teléfono usa una
+    columna simple y la rejilla de dos columnas queda solo para escritorio.
+  - 2 selectores sin `isExpanded` (Tokens DIAN: filtro de estado; Home: cargo al
+    asignar una tarea) y 4 filas de texto largo a `Wrap` (perfil, tareas creadas,
+    agrupar por área que asignó y «Viendo tareas de…» en el equipo).
+  - Revisado sin cambio: pestañas de Home (dos elementos o desplazables),
+    `DataTable` de resumen del equipo (paginada), tabla de Tokens DIAN (paginada),
+    selección de empresa al iniciar sesión y paneles de WhatsApp (sin filas
+    marcadas; los selectores ya se corrigieron en la pasada de Admin).
+  - El Home ya adapta las rejillas a la escala de texto (`mainAxisExtent`).
+  - Nota: `dart format` en archivos que no estaban formateados añade cambios de
+    estilo menores (Home › equipo, Login › instrucciones); no cambian el
+    comportamiento.
 - Validación: Flutter 3.44.9 instalado en el entorno; `flutter analyze` sin
   errores en lo tocado (los avisos que salen ya existían); suite completa de
   1.631 pruebas aprobada.
