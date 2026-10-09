@@ -10625,3 +10625,26 @@ tipo conectado a las rutas de `whatsapp.ts` (hoy `SUPPORTED_ROUTES`);
 destinatarios por tipo con el filtro central de inhabilitados; mover aquí el
 sonido/silencio (`notification_sound_policy.ts`); y los hallazgos de la
 revisión de notificaciones (reglas de `TBL_NOTIFICACIONES`, `registerDeviceToken`).
+
+## MAESTRO DE NOTIFICACIONES — fase 2 (9 oct 2026)
+**Hecho (Claude; sin Flutter ni node_modules no se compiló ni se corrieron tests):**
+- Panel Admin › Maestros por módulo › **Tareas y notificaciones**
+  (`notification_master_panel.dart`, `notification_master_service.dart`):
+  tabla tipo × canal (campana, push, WhatsApp) agrupada por módulo; críticos
+  con candado (solo WhatsApp se puede apagar); "Valores por defecto". Solo se
+  guardan los ajustes que difieren del defecto.
+- Catálogo espejo en Dart `lib/core/notification_catalog.dart`;
+  `test/core/notification_catalog_test.dart` falla si difiere del TS.
+- Registrado para "Copiar a otras empresas": módulo `tareas`,
+  maestro `TBL_NOTIFICACIONES_CONFIG` (config) en `maestros.ts` y
+  `kModulosMaestros`; nuevo `PanelAdminModulo.notificaciones`.
+- WhatsApp por tipo: `sendWhatsAppRoute` consulta el maestro y omite el envío
+  si la empresa apagó el canal (`canal_desactivado_en_maestro`).
+- Nueva ruta WhatsApp `planillas_gerencia_tesoreria` (Gerencia firma →
+  Tesorería sube pagos): `whatsapp.ts`, trigger `ppWhatsAppCambioFirma`
+  (estado `firmada`) y selector de lista en Admin › WhatsApp.
+**Pendiente:** destinatarios por tipo con filtro central de habilitados;
+sonido/silencio en el maestro; preferencias personales (silenciar lo
+informativo); aplicar el canal "campana" apagado (hoy la campana siempre
+guarda); reglas de `TBL_NOTIFICACIONES` y `registerDeviceToken`; verificar en
+Web (390/768/1024/1366), Android e iOS.

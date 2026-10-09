@@ -23,6 +23,8 @@ export interface TipoNotificacion {
   defecto?: Partial<Record<CanalNotificacion, boolean>>;
   /** Tipos (campo `type` de la notificación) que resuelven a esta clave. */
   tipos: string[];
+  /** Eventos de WhatsApp (rutas de `whatsapp.ts`) que gobierna este tipo. */
+  rutasWhatsapp?: string[];
 }
 
 export const CATALOGO_NOTIFICACIONES: TipoNotificacion[] = [
@@ -34,11 +36,15 @@ export const CATALOGO_NOTIFICACIONES: TipoNotificacion[] = [
   {clave: "tareas_aprobacion", modulo: "tareas", etiqueta: "Solicitud de finalización",
     critico: true, tipos: ["solicitud_finalizacion"]},
   {clave: "planillas_flujo", modulo: "planillas", etiqueta: "Flujo de planillas de pago",
-    critico: true, tipos: ["planillas_pago"]},
+    critico: true, tipos: ["planillas_pago"],
+    defecto: {whatsapp: true},
+    rutasWhatsapp: ["planillas_tesoreria_auditoria",
+      "planillas_auditoria_gerencia", "planillas_gerencia_tesoreria"]},
   {clave: "planillas_resumen", modulo: "planillas", etiqueta: "Resumen diario de planillas",
     tipos: ["planillas_pago_resumen"]},
   {clave: "compras_calidad", modulo: "compras", etiqueta: "Recepciones y proveedores para Calidad",
-    tipos: ["recepcion_cargada_calidad", "nuevo_proveedor"]},
+    tipos: ["recepcion_cargada_calidad", "nuevo_proveedor"],
+    defecto: {whatsapp: true}, rutasWhatsapp: ["compras_nuevo_proveedor"]},
   {clave: "compras_vigencias", modulo: "compras", etiqueta: "Documentos por vencer",
     tipos: ["documento_por_vencer"]},
   {clave: "facturacion", modulo: "facturacion", etiqueta: "Facturación",
@@ -50,7 +56,8 @@ export const CATALOGO_NOTIFICACIONES: TipoNotificacion[] = [
   {clave: "rutas", modulo: "rutas", etiqueta: "Rutas",
     tipos: ["rutas_evidencia_rechazada", "rutas_movilidad_alerta"]},
   {clave: "interventoria", modulo: "interventoria", etiqueta: "Interventoría",
-    tipos: ["interventoria_seguimiento", "nota_registrador"]},
+    tipos: ["interventoria_seguimiento", "nota_registrador"],
+    defecto: {whatsapp: true}, rutasWhatsapp: ["interventoria_nueva_acta"]},
   {clave: "gestion_documental", modulo: "gestion_documental", etiqueta: "Gestión documental",
     tipos: ["gestion_documental_observado", "gestion_documental_colaboracion"]},
   {clave: "talento_humano", modulo: "talento_humano", etiqueta: "Plazos disciplinarios",
@@ -100,4 +107,22 @@ export function canalesDe(
     out.push = true;
   }
   return out;
+}
+
+/**
+ * ¿El evento de WhatsApp está activo para la empresa? Una ruta que ningún
+ * tipo del catálogo gobierna sale como siempre.
+ * @param {string} rutaId Id de la ruta (`planillas_gerencia_tesoreria`...).
+ * @param {ConfigNotificaciones} config Documento de la empresa.
+ * @return {boolean} false si la empresa apagó el canal WhatsApp de ese tipo.
+ */
+export function whatsappActivoParaRuta(
+  rutaId: string,
+  config: ConfigNotificaciones
+): boolean {
+  const entrada = CATALOGO_NOTIFICACIONES.find(
+    (t) => t.rutasWhatsapp?.includes(rutaId)
+  );
+  if (!entrada) return true;
+  return canalesDe(entrada.tipos[0], config).whatsapp;
 }

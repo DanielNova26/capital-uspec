@@ -27,3 +27,15 @@ test('cada tipo de notificación pertenece a una sola clave', () => {
     }
   }
 });
+
+test('WhatsApp: la ruta de Gerencia a Tesorería se puede apagar desde el maestro', () => {
+  const {whatsappActivoParaRuta} = require('../lib/notification_catalog');
+  assert.equal(whatsappActivoParaRuta('planillas_gerencia_tesoreria', null), true);
+  const cfg = {tipos: {planillas_flujo: {whatsapp: false}}};
+  for (const r of ['planillas_tesoreria_auditoria', 'planillas_auditoria_gerencia',
+    'planillas_gerencia_tesoreria']) {
+    assert.equal(whatsappActivoParaRuta(r, cfg), false, r);
+  }
+  assert.equal(whatsappActivoParaRuta('interventoria_nueva_acta', cfg), true);
+  assert.equal(whatsappActivoParaRuta('ruta_desconocida', cfg), true);
+});
