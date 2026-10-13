@@ -550,6 +550,9 @@ const Set<String> kCamposPuesto = {
   'cargoJefe',
   'jefe_directo',
   'jefe_directo_id',
+  'jefeDirectoId',
+  'managerId',
+  'supervisorId',
   'jefe_cargo',
   'jefe_cargo_desc',
   'gruposInterventoria',
@@ -590,7 +593,17 @@ Map<String, dynamic> mergeCompanyScopedData(
   if (!raizEsDeEmpresa(data, empresaId)) {
     base.removeWhere((key, _) => kCamposPuesto.contains(key));
   }
-  return detail == null ? base : {...base, ...detail};
+  return detail == null
+      ? base
+      : {
+          ...base,
+          ...detail,
+          // Este mapa ya está particionado por empresa y tiene una única fuente
+          // en la raíz de Estructura. No aceptar una copia dentro del detalle.
+          if (base.containsKey('segundoJefePorEmpresa') ||
+              detail.containsKey('segundoJefePorEmpresa'))
+            'segundoJefePorEmpresa': base['segundoJefePorEmpresa'],
+        };
 }
 
 dynamic getScopedField(

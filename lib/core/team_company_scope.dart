@@ -1,4 +1,5 @@
 import 'package:todo/utils/user_company.dart';
+import 'direct_managers.dart';
 
 /// Reglas puras para construir un equipo sin mezclar empresas.
 ///
@@ -59,12 +60,29 @@ class TeamCompanyScope {
     final root = managerId.trim();
     if (company == null || root.isEmpty) return <String>{};
 
-    final managerByPerson = <String, String>{};
+    final managerByPerson = <String, Set<String>>{};
+    final legacyManagers = <String, String>{};
     for (final entry in people) {
       final personId = entry.key.trim();
       final scoped = scopedPerson(entry.value, company);
-      if (personId.isEmpty || scoped == null) continue;
-      managerByPerson[personId] = _managerId(scoped);
+      if (personId.isEmpty ||
+          scoped == null ||
+          !isPersonaActivaEnEmpresa(entry.value, company)) {
+        continue;
+      }
+      managerByPerson[personId] = directManagerIds(scoped, company);
+      if (primaryManagerId(scoped).isEmpty) {
+        legacyManagers[personId] = (scoped['jefe_directo'] ?? '')
+            .toString()
+            .trim();
+      }
+    }
+    // En algunos registros antiguos jefe_directo contenía una cédula y en
+    // otros un nombre. Solo aceptar el primero si identifica a una persona.
+    for (final entry in legacyManagers.entries) {
+      if (entry.value == root || managerByPerson.containsKey(entry.value)) {
+        managerByPerson[entry.key]!.add(entry.value);
+      }
     }
 
     final result = <String>{};
@@ -74,24 +92,12 @@ class TeamCompanyScope {
       final currentManager = queue.removeAt(0);
       if (!visitedManagers.add(currentManager)) continue;
       for (final entry in managerByPerson.entries) {
-        if (entry.value != currentManager || entry.key == root) continue;
+        if (!entry.value.contains(currentManager) || entry.key == root) {
+          continue;
+        }
         if (result.add(entry.key)) queue.add(entry.key);
       }
     }
     return result;
-  }
-
-  static String _managerId(Map<String, dynamic> data) {
-    for (final key in const [
-      'jefe_directo',
-      'jefeId',
-      'jefe_uid',
-      'managerId',
-      'supervisorId',
-    ]) {
-      final value = (data[key] ?? '').toString().trim();
-      if (value.isNotEmpty) return value;
-    }
-    return '';
   }
 }

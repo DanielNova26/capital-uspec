@@ -37,11 +37,13 @@ class HojaExcelConsulta {
   final String nombre;
   final List<String> columnas;
   final List<List<String>> filas;
+  final bool ajustarTexto;
 
   const HojaExcelConsulta({
     required this.nombre,
     required this.columnas,
     required this.filas,
+    this.ajustarTexto = false,
   });
 }
 
@@ -83,10 +85,33 @@ Uint8List construirExcelHojas(List<HojaExcelConsulta> hojas) {
         xl.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: 0),
       );
       cell.value = xl.TextCellValue(h.columnas[c]);
-      cell.cellStyle = encabezado;
+      cell.cellStyle = h.ajustarTexto
+          ? xl.CellStyle(
+              bold: true,
+              fontColorHex: xl.ExcelColor.white,
+              backgroundColorHex: xl.ExcelColor.fromHexString('#1F4E79'),
+              horizontalAlign: xl.HorizontalAlign.Center,
+              verticalAlign: xl.VerticalAlign.Center,
+              textWrapping: xl.TextWrapping.WrapText,
+            )
+          : encabezado;
     }
     for (final fila in h.filas) {
       sheet.appendRow(fila.map(xl.TextCellValue.new).toList());
+    }
+    if (h.ajustarTexto) {
+      sheet.setRowHeight(0, 42);
+      for (var r = 1; r <= h.filas.length; r++) {
+        sheet.setRowHeight(r, 60);
+        for (var c = 0; c < h.columnas.length; c++) {
+          sheet
+              .cell(xl.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: r))
+              .cellStyle = xl.CellStyle(
+            textWrapping: xl.TextWrapping.WrapText,
+            verticalAlign: xl.VerticalAlign.Top,
+          );
+        }
+      }
     }
     for (var c = 0; c < h.columnas.length; c++) {
       var ancho = h.columnas[c].length + 4;

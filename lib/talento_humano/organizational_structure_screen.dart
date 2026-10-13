@@ -11,6 +11,8 @@ import 'package:flutter_typeahead/flutter_typeahead.dart';
 import 'package:excel/excel.dart';
 import 'package:file_saver/file_saver.dart';
 import '../core/grupos_trabajo.dart';
+import '../core/direct_managers.dart';
+import 'talento_humano_roles.dart';
 import '../core/hierarchy_order.dart';
 import '../core/multiempresa_sync.dart';
 import '../widgets/internal_module_layout.dart';
@@ -356,6 +358,13 @@ class _OrganizationalStructureScreenState
   }
 
   String _superiorLabel(Map<String, dynamic> m) {
+    final segundo = secondManager(m, widget.empresaId);
+    if ((segundo['id'] ?? '').isNotEmpty) {
+      final principal = (m['jefeNombre'] ?? m['jefe_directo'] ?? '').toString();
+      final nombre =
+          _userCache[segundo['id']]?.nombre ?? segundo['nombre'] ?? '';
+      return [principal, nombre].where((v) => v.isNotEmpty).join(' / ');
+    }
     for (final k in [
       'jefe_cargo_desc',
       'cargoJefe',
@@ -1865,6 +1874,10 @@ class _OrganizationalStructureScreenState
     String selectedArea = initialArea;
     String selectedBossCode = initialBossCode;
     String selectedBossDirectId = initialBossDirectId;
+    final segundoInicial = secondManager(data, widget.empresaId);
+    var selectedSecondBossId = segundoInicial['id'] ?? '';
+    var selectedSecondBossName = segundoInicial['nombre'] ?? '';
+    final ctrSecondBoss = TextEditingController(text: selectedSecondBossName);
     // ── Accesos a módulos ──────────────────────────────────────────────────
     // Se resuelve antes de abrir el formulario para que Talento Humano decida
     // en el mismo acto qué va a usar la persona. Los módulos apagados para la
@@ -2101,8 +2114,9 @@ class _OrganizationalStructureScreenState
                 TypeAheadField<Map<String, String>>(
                   textFieldConfiguration: TextFieldConfiguration(
                     controller: ctrBossName,
+                    onChanged: (_) => selectedBossDirectId = '',
                     decoration: const InputDecoration(
-                      labelText: 'Jefe directo',
+                      labelText: 'Jefe directo principal',
                       hintText: 'Buscar por nombre o cédula…',
                     ),
                   ),
@@ -2163,6 +2177,50 @@ class _OrganizationalStructureScreenState
                       }
                     }
                   },
+                  minCharsForSuggestions: 0,
+                ),
+                const SizedBox(height: 8),
+                TypeAheadField<Map<String, String>>(
+                  textFieldConfiguration: TextFieldConfiguration(
+                    controller: ctrSecondBoss,
+                    decoration: InputDecoration(
+                      labelText: 'Segundo jefe directo (opcional)',
+                      helperText:
+                          'Ambos verán a la persona en su equipo. El principal conserva las aprobaciones.',
+                      helperMaxLines: 3,
+                      suffixIcon: IconButton(
+                        tooltip: 'Quitar segundo jefe',
+                        icon: const Icon(Icons.clear),
+                        onPressed: () => setStateDialog(() {
+                          ctrSecondBoss.clear();
+                          selectedSecondBossId = '';
+                          selectedSecondBossName = '';
+                        }),
+                      ),
+                    ),
+                    onChanged: (_) {
+                      selectedSecondBossId = '';
+                      selectedSecondBossName = '';
+                    },
+                  ),
+                  suggestionsCallback: (pattern) => _bossCandidates(
+                    pattern: pattern == selectedSecondBossName ? '' : pattern,
+                    bossCargoName: '',
+                    bossCargoCode: '',
+                    excludeCedula: ctrId.text.trim(),
+                  ).where((m) => m['id'] != selectedBossDirectId).toList(),
+                  itemBuilder: (_, m) => ListTile(
+                    title: Text(m['nombre']!),
+                    subtitle: Text(m['cargo'] ?? ''),
+                  ),
+                  noItemsFoundBuilder: (_) => const ListTile(
+                    title: Text('No hay personal activo que coincida'),
+                  ),
+                  onSuggestionSelected: (m) => setStateDialog(() {
+                    selectedSecondBossId = m['id']!;
+                    selectedSecondBossName = m['nombre']!;
+                    ctrSecondBoss.text = selectedSecondBossName;
+                  }),
                   minCharsForSuggestions: 0,
                 ),
                 const SizedBox(height: 8),
@@ -2363,6 +2421,51 @@ class _OrganizationalStructureScreenState
               onPressed: () async {
                 final id = ctrId.text.trim();
                 if (id.isEmpty) return;
+                final jefeError =
+                    ctrBossName.text.trim().isNotEmpty &&
+                        selectedBossDirectId.isEmpty
+                    ? 'Selecciona el jefe directo principal de la lista.'
+                    : ctrSecondBoss.text.trim().isNotEmpty &&
+                          selectedSecondBossId.isEmpty
+                    ? 'Selecciona el segundo jefe de la lista.'
+                    : validateDirectManagers(
+                        personId: id,
+                        primaryId: selectedBossDirectId,
+                        secondId: selectedSecondBossId,
+                        managersByPerson: {
+                          for (final d in _companyDocs)
+                            _orgCedula(d): directManagerIds(
+                              _orgDataForCompany(d.data()),
+                              widget.empresaId,
+                            ),
+                        },
+                      );
+                if (jefeError != null) {
+                  ScaffoldMessenger.of(
+                    ctx,
+                  ).showSnackBar(SnackBar(content: Text(jefeError)));
+                  return;
+                }
+                final cambiaSegundo =
+                    selectedSecondBossId != (segundoInicial['id'] ?? '') ||
+                    selectedSecondBossName != (segundoInicial['nombre'] ?? '');
+                if (cambiaSegundo) {
+                  final nivel = await TalentoHumanoRolesService().load(
+                    userId: widget.userId,
+                    empresaId: widget.empresaId,
+                  );
+                  if (!ctx.mounted) return;
+                  if (!nivel.puedeGestionar) {
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Necesitas permiso de gestión de Talento Humano para cambiar la jefatura.',
+                        ),
+                      ),
+                    );
+                    return;
+                  }
+                }
                 final centroError = validatePersonnelCostCenterSelection(
                   texto: ctrCentro.text,
                   seleccion: selectedCentro,
@@ -2456,6 +2559,14 @@ class _OrganizationalStructureScreenState
                     'empresas': [widget.empresaId],
                     ...payload,
                     'empresasDetalle': {widget.empresaId: payload},
+                    if (cambiaSegundo) 'jefaturaEmpresaId': widget.empresaId,
+                    if (cambiaSegundo)
+                      'segundoJefePorEmpresa': {
+                        widget.empresaId: {
+                          'id': selectedSecondBossId,
+                          'nombre': selectedSecondBossName,
+                        },
+                      },
                     'createdAt': FieldValue.serverTimestamp(),
                   });
                 } else {
@@ -2463,6 +2574,12 @@ class _OrganizationalStructureScreenState
                   final update = <String, dynamic>{
                     'cedula': id,
                     'empresas': FieldValue.arrayUnion([widget.empresaId]),
+                    if (cambiaSegundo) 'jefaturaEmpresaId': widget.empresaId,
+                    if (cambiaSegundo)
+                      'segundoJefePorEmpresa.${widget.empresaId}': {
+                        'id': selectedSecondBossId,
+                        'nombre': selectedSecondBossName,
+                      },
                   };
                   for (final entry in payload.entries) {
                     update['empresasDetalle.${widget.empresaId}.${entry.key}'] =

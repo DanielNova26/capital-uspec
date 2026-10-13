@@ -730,6 +730,55 @@ service cloud.firestore {
             : 'administrador';
     }
 
+    // Segunda jefatura: única fuente en Estructura, particionada por empresa.
+    // El marcador identifica la única entrada que esta escritura puede tocar.
+    function segundoJefeValido(empresaId, data) {
+      let mapa = data.get('segundoJefePorEmpresa', {});
+      let jefe = mapa.get(empresaId, {});
+      let detalle = data.get('empresasDetalle', {}).get(empresaId, {});
+      let principal = detalle.get('jefeId', data.get('empresaId', '') == empresaId ? data.get('jefeId', '') : '');
+      return jefe is map && jefe.keys().hasOnly(['id', 'nombre'])
+        && jefe.get('id', '') is string && jefe.get('nombre', '') is string
+        && (jefe.get('id', '') == ''
+          || (jefe.id != data.get('cedula', '') && jefe.id != principal
+            && principal != '' && usuarioActivoParaTarea(empresaId, jefe.id)));
+    }
+
+    function cambiaSegundoJefePermitido(antes, despues) {
+      let a = antes.get('segundoJefePorEmpresa', {});
+      let d = despues.get('segundoJefePorEmpresa', {});
+      let empresaId = despues.get('jefaturaEmpresaId', '');
+      return a == d || (a is map && d is map && empresaId is string
+        && empresaId != '' && d.diff(a).affectedKeys().hasOnly([empresaId])
+        && (despues.get('empresaId', '') == empresaId
+          || empresaId in despues.get('empresas', []))
+        && (antes == {} || antes.get('empresaId', '') == empresaId
+          || empresaId in antes.get('empresas', []))
+        && gestionaSegundaJefatura(empresaId)
+        && segundoJefeValido(empresaId, despues));
+    }
+
+    function gestionaSegundaJefatura(empresaId) {
+      let rolePath = /databases/$(database)/documents/TBL_TALENTO_HUMANO_ROLES/$(empresaId + '_' + request.auth.token.userDocId);
+      return belongsToCompany(empresaId)
+        && ((tieneAppTalentoEn(empresaId) && (!exists(rolePath)
+          || (get(rolePath).data.get('empresaId', '') == empresaId
+            && get(rolePath).data.get('userId', '') == request.auth.token.userDocId
+            && estadoTexto(get(rolePath).data.get('rol', '')) in ['gestor', 'administrador'])))
+          || tieneAppAdminEn(empresaId) || isDeveloper() || isDeveloperIn(empresaId));
+    }
+
+    match /TBL_ESTRUCTURA_ORGANIZACIONAL/{personId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && cambiaSegundoJefePermitido({}, request.resource.data);
+      allow update: if isSignedIn() && cambiaSegundoJefePermitido(resource.data, request.resource.data);
+      allow delete: if isSignedIn() && (resource.data.get('segundoJefePorEmpresa', {}) == {}
+        || isDeveloper()
+        || (resource.data.get('segundoJefePorEmpresa', {}).keys().hasOnly([resource.data.get('empresaId', '')])
+          && belongsToCompany(resource.data.get('empresaId', ''))
+          && tieneAppAdminEn(resource.data.get('empresaId', ''))));
+    }
+
     match /TBL_TH_REQUERIMIENTOS_PERSONAL/{docId} {
       allow get: if resource == null || nivelTalentoEn(resource.data.empresaId) in
         ['consulta','solicitante','reclutador','gestor','administrador'];
@@ -2343,9 +2392,17 @@ service cloud.firestore {
     match /{collection}/{docId} {
       allow get: if esColeccionCompras(collection) && isSignedIn() && (resource == null || belongsToCompany(resource.data.empresaId));
       allow list: if esColeccionCompras(collection) && belongsToCompany(resource.data.empresaId);
-      allow create: if esColeccionCompras(collection) && comprasEscrituraEn(request.resource.data.empresaId, ['admin','calidad','compras','bodega']);
+      allow create: if esColeccionCompras(collection)
+        && (collection != 'TBL_COMPRAS_PROVEEDORES' || request.resource.data.get('esPequenoProductor', false) is bool)
+        && comprasEscrituraEn(request.resource.data.empresaId,
+          collection == 'TBL_COMPRAS_PROVEEDORES' && request.resource.data.get('esPequenoProductor', false) == true
+            ? ['admin','calidad','compras'] : ['admin','calidad','compras','bodega']);
       allow update: if esColeccionCompras(collection) && empresaSeConserva()
-        && comprasEscrituraEn(resource.data.empresaId, ['admin','calidad','compras','bodega']);
+        && (collection != 'TBL_COMPRAS_PROVEEDORES' || request.resource.data.get('esPequenoProductor', false) is bool)
+        && comprasEscrituraEn(resource.data.empresaId,
+          collection == 'TBL_COMPRAS_PROVEEDORES'
+            && request.resource.data.get('esPequenoProductor', false) != resource.data.get('esPequenoProductor', false)
+            ? ['admin','calidad','compras'] : ['admin','calidad','compras','bodega']);
       allow delete: if esColeccionCompras(collection) && comprasEscrituraEn(resource.data.empresaId, ['admin','compras','bodega']);
     }
 
@@ -2402,6 +2459,7 @@ service cloud.firestore {
     // 1000 (6 oct 2026: la lista de cien colecciones costaba cien).
     match /{collection}/{document=**} {
       allow read, write: if isSignedIn()
+        && collection != 'TBL_ESTRUCTURA_ORGANIZACIONAL'
         && !esColeccionCompras(collection)
         && !esColeccionNutricion(collection)
         && !esColeccionDeSuEmpresa(collection)

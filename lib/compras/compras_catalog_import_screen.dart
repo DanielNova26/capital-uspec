@@ -7,6 +7,8 @@ import '../services/compras_productos_excel_parser.dart';
 import '../services/compras_proveedores_excel_parser.dart';
 import 'compras_models.dart';
 import 'compras_service.dart';
+import 'compras_catalog_template.dart';
+import 'compras_excel_download.dart';
 
 /// Cargas operativas del catálogo. Las ejecuta el equipo de Compras desde su
 /// módulo; Admin conserva únicamente la configuración y la copia entre empresas.
@@ -39,11 +41,31 @@ class _ComprasCatalogImportScreenState
   String? _resultadoProveedores;
   String? _resultadoProductos;
 
+  Future<void> _descargarPlantilla({required bool proveedores}) async {
+    setState(() => _ocupado = true);
+    try {
+      await descargarExcelCompras(
+        nombreArchivo: proveedores
+            ? 'plantilla_proveedores'
+            : 'plantilla_productos',
+        bytes: construirPlantillaCatalogo(proveedores: proveedores),
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo descargar la plantilla: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _ocupado = false);
+    }
+  }
+
   Future<void> _elegir({required bool proveedores}) async {
     final picked = await FilePicker.platform.pickFiles(
       withData: true,
       type: FileType.custom,
-      allowedExtensions: ['xlsx', 'xlsm', 'xls'],
+      allowedExtensions: ['xlsx', 'xlsm'],
     );
     if (picked == null || picked.files.isEmpty || !mounted) return;
     final file = picked.files.first;
@@ -172,9 +194,16 @@ class _ComprasCatalogImportScreenState
                 OutlinedButton.icon(
                   onPressed: _ocupado
                       ? null
+                      : () => _descargarPlantilla(proveedores: proveedores),
+                  icon: const Icon(Icons.download_outlined),
+                  label: const Text('Descargar plantilla'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _ocupado
+                      ? null
                       : () => _elegir(proveedores: proveedores),
                   icon: const Icon(Icons.attach_file),
-                  label: Text(nombre ?? 'Seleccionar Excel'),
+                  label: const Text('Seleccionar Excel'),
                 ),
                 FilledButton.icon(
                   onPressed: _ocupado || nombre == null
@@ -185,6 +214,11 @@ class _ComprasCatalogImportScreenState
                 ),
               ],
             ),
+            if (nombre != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(nombre, softWrap: true),
+              ),
             if (resultado != null) ...[
               const SizedBox(height: 8),
               Text(resultado),
@@ -198,32 +232,34 @@ class _ComprasCatalogImportScreenState
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Cargar catálogo de Compras')),
-    body: Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 900),
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            const Text(
-              'Estas cargas son del equipo de Compras en la empresa activa. '
-              'Las marcas se crean y editan en la sección Marcas.',
-            ),
-            const SizedBox(height: 12),
-            _carga(
-              titulo: 'Proveedores',
-              detalle:
-                  'Columnas requeridas: NIT y RAZON SOCIAL. Se omite un '
-                  'NIT ya registrado en esta empresa.',
-              proveedores: true,
-            ),
-            _carga(
-              titulo: 'Productos',
-              detalle:
-                  'Columnas requeridas: NOMBRE_PRODUCTO, CATEGORIA y '
-                  'UNIDAD_MEDIDA. Se omite un código o nombre ya registrado.',
-              proveedores: false,
-            ),
-          ],
+    body: SafeArea(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 900),
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              const Text(
+                'Estas cargas son del equipo de Compras en la empresa activa. '
+                'Las marcas se crean y editan en la sección Marcas.',
+              ),
+              const SizedBox(height: 12),
+              _carga(
+                titulo: 'Proveedores',
+                detalle:
+                    'Columnas requeridas: NIT y RAZON SOCIAL. Se omite un '
+                    'NIT ya registrado en esta empresa. La plantilla incluye la marca de pequeño productor agropecuario.',
+                proveedores: true,
+              ),
+              _carga(
+                titulo: 'Productos',
+                detalle:
+                    'Columnas requeridas: NOMBRE_PRODUCTO, CATEGORIA y '
+                    'UNIDAD_MEDIDA. Se omite un código o nombre ya registrado.',
+                proveedores: false,
+              ),
+            ],
+          ),
         ),
       ),
     ),

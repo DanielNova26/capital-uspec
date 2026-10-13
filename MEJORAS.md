@@ -1,5 +1,51 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-13 — Dos jefes directos y plantillas de Compras (Codex)
+
+- Talento Humano › Estructura organizacional: segundo jefe directo opcional,
+  seleccionable entre el personal activo de la empresa. Permite quitarlo;
+  valida selección, personas distintas, autorreferencias y ciclos en el formulario.
+  El jefe actual queda como principal para las aprobaciones de un solo responsable.
+- La segunda relación tiene una sola fuente: `segundoJefePorEmpresa` en
+  `TBL_ESTRUCTURA_ORGANIZACIONAL`, con una entrada por empresa. No se copia al
+  puesto de otras empresas ni se duplica en Usuarios. Se muestra en estructura,
+  su exportación, la hoja de vida y el organigrama; Mi equipo recorre ambos jefes.
+  Conserva la lectura de relaciones históricas por identificador.
+- Reglas: gestionar la segunda jefatura requiere nivel gestor/administrador de
+  Talento Humano, Admin o Desarrollo y pertenencia habilitada; comprueba jefe
+  activo de la empresa, principal distinto y cambio de una sola empresa.
+  No modifica automáticamente asignaciones históricas ni producción.
+- Compras › Proveedores: casilla `Pequeño productor agropecuario`, independiente
+  de `Es proveedor local`, con referencia a Ley 2046 de 2020 y Decreto 248 de 2021.
+  Campo booleano `esPequenoProductor`, compatible con proveedores existentes,
+  visible en tarjeta, consulta y exportación. Editarlo conserva los permisos de
+  catálogo; Consultas/Bodega no pueden cambiarlo directamente en Firestore.
+- Cargar catálogo de Compras: botón `Descargar plantilla` para proveedores y
+  productos, hojas de carga vacías, instrucciones y catálogos reales de categorías
+  y unidades. El Excel de proveedores incluye la nueva marca. Se conserva NIT y
+  códigos de texto; se aceptan SI/SÍ/NO y se avisan clasificaciones desconocidas.
+  La importación no sobrescribe existentes, omite NIT repetidos dentro del archivo
+  y rechaza objetos de otra empresa antes de escribir.
+- Los módulos y maestros ya están en los catálogos comunes; no se crean apps,
+  roles ni colecciones nuevas. Proveedores sigue siendo un maestro operativo de
+  Compras y su copia controlada sigue en Admin, sin sobrescribir el destino.
+- Validación: pruebas de jerarquía, empresa secundaria, revocación, inactividad,
+  relaciones históricas, ida y vuelta de las dos plantillas, modelo de proveedor,
+  exportador y catálogo común. Pruebas de widgets del cargue en 390/768/1024/1366
+  píxeles, texto 1.6 y temas Android/iOS. Reglas verificadas en emulador, incluyendo
+  Admin, Desarrollo, gestor, consulta, app retirada, rol histórico y empresa ajena.
+  Resultado final: 39 pruebas Flutter y 15 de reglas aprobadas; compilación Web
+  correcta. Análisis de los archivos tocados sin errores, con 8 advertencias y
+  31 avisos de estilo preexistentes en las pantallas/servicios extensos.
+- Pendientes de validación: dispositivos Android/iPhone reales (descarga y selector
+  de archivos, teclado, áreas seguras), formularios completos con sesión real y
+  revisión visual en navegador. Los ciclos se validan en el formulario; las reglas
+  validan autorreferencias y duplicados, no recorren ciclos indirectos completos.
+  Las reglas generales preexistentes de Usuarios/lectura de Estructura no se
+  rediseñan en este cambio. No se desplegaron Web ni reglas a producción.
+- Referencia normativa consultada: [Decreto 248 de 2021, Función Pública](https://www.funcionpublica.gov.co/eva/gestornormativo/norma.php?i=159934).
+  La casilla identifica al proveedor; no certifica por sí sola el cumplimiento legal.
+
 Registro de cambios ejecutados por sesión de mejora. Objetivo: app nivel
 "SAP" — consistencia visual Web/Móvil, módulos conectados, usuarios siempre
 con nombre y foto (nunca cédula cruda ni letra suelta).

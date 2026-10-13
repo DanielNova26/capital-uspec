@@ -1,5 +1,6 @@
 // lib/talento_humano/hoja_de_vida_management_screen.dart
 import 'package:flutter/material.dart';
+import '../core/direct_managers.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:printing/printing.dart';
 import 'package:url_launcher/url_launcher_string.dart';
@@ -1247,7 +1248,11 @@ class _HojaDeVidaViewerScreenState extends State<HojaDeVidaViewerScreen> {
           ? const Center(
               child: Text('Este empleado aún no ha enviado su hoja de vida'),
             )
-          : _HvReadOnlyBody(data: _data!, orgData: _orgData),
+          : _HvReadOnlyBody(
+              data: _data!,
+              orgData: _orgData,
+              empresaId: widget.empresaId,
+            ),
       bottomNavigationBar: _loading || _data == null || _data!.isEmpty
           ? null
           : SafeArea(
@@ -1265,7 +1270,12 @@ class _HojaDeVidaViewerScreenState extends State<HojaDeVidaViewerScreen> {
 class _HvReadOnlyBody extends StatelessWidget {
   final Map<String, dynamic> data;
   final Map<String, dynamic>? orgData;
-  const _HvReadOnlyBody({required this.data, this.orgData});
+  final String empresaId;
+  const _HvReadOnlyBody({
+    required this.data,
+    this.orgData,
+    required this.empresaId,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1315,6 +1325,11 @@ class _HvReadOnlyBody extends StatelessWidget {
               _row('Cargo', orgData!['cargo'] ?? orgData!['cargoId']),
               _row('Área', orgData!['areaNombre'] ?? orgData!['area']),
               _row('Jefe directo', orgData!['jefe_directo']),
+              if ((secondManager(orgData!, empresaId)['id'] ?? '').isNotEmpty)
+                _row(
+                  'Segundo jefe directo',
+                  secondManager(orgData!, empresaId)['nombre'],
+                ),
               _row(
                 'Centro de costos',
                 orgData!['centro_nombre'] ?? orgData!['centroCostos'],

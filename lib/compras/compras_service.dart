@@ -375,6 +375,11 @@ class ComprasService {
     List<ProveedorDoc> proveedores,
   ) async {
     await _exigirEmpresa(empresaId, _catalogo, configuracion: true);
+    if (proveedores.any((p) => p.empresaId != empresaId)) {
+      throw ArgumentError(
+        'Todos los proveedores deben pertenecer a la empresa activa.',
+      );
+    }
 
     final snap = await _db
         .collection('TBL_COMPRAS_PROVEEDORES')
@@ -396,6 +401,7 @@ class ComprasService {
         continue;
       }
       final ref = _db.collection('TBL_COMPRAS_PROVEEDORES').doc();
+      nitsExistentes[p.nit] = ref.id;
       batch.set(ref, p.toMap());
       imported++;
       count++;
@@ -419,6 +425,11 @@ class ComprasService {
     List<ProductoDoc> productos,
   ) async {
     await _exigirEmpresa(empresaId, _catalogo, configuracion: true);
+    if (productos.any((p) => p.empresaId != empresaId)) {
+      throw ArgumentError(
+        'Todos los productos deben pertenecer a la empresa activa.',
+      );
+    }
 
     final snap = await _db
         .collection('TBL_COMPRAS_PRODUCTOS')

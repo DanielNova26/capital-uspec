@@ -739,6 +739,7 @@ class ProveedorDoc {
   final String ciudadCod;
   final String ciudad;
   final bool esLocal;
+  final bool esPequenoProductor;
   final List<String> categorias;
   final Map<String, DocAdjunto> documentos;
   final Timestamp createdAt;
@@ -761,6 +762,7 @@ class ProveedorDoc {
     this.ciudadCod = '',
     this.ciudad = '',
     this.esLocal = false,
+    this.esPequenoProductor = false,
     this.categorias = const [],
     this.documentos = const {},
     required this.createdAt,
@@ -787,6 +789,7 @@ class ProveedorDoc {
       ciudadCod: (m['ciudadCod'] ?? m['ciudadCodigo'] ?? '').toString(),
       ciudad: m['ciudad'] as String? ?? '',
       esLocal: m['esLocal'] as bool? ?? false,
+      esPequenoProductor: m['esPequenoProductor'] == true,
       categorias: List<String>.from(m['categorias'] as List? ?? []),
       documentos: rawDocs.map(
         (k, v) => MapEntry(k, DocAdjunto.fromMap(v as Map<String, dynamic>?)),
@@ -812,6 +815,7 @@ class ProveedorDoc {
     'ciudadCod': ciudadCod,
     'ciudad': ciudad,
     'esLocal': esLocal,
+    'esPequenoProductor': esPequenoProductor,
     'categorias': categorias,
     'documentos': documentos.map((k, v) => MapEntry(k, v.toMap())),
     'createdAt': createdAt,
@@ -836,6 +840,7 @@ class ProveedorDoc {
     String? ciudadCod,
     String? ciudad,
     bool? esLocal,
+    bool? esPequenoProductor,
     List<String>? categorias,
     Map<String, DocAdjunto>? documentos,
     Timestamp? createdAt,
@@ -857,6 +862,7 @@ class ProveedorDoc {
     ciudadCod: ciudadCod ?? this.ciudadCod,
     ciudad: ciudad ?? this.ciudad,
     esLocal: esLocal ?? this.esLocal,
+    esPequenoProductor: esPequenoProductor ?? this.esPequenoProductor,
     categorias: categorias ?? this.categorias,
     documentos: documentos ?? this.documentos,
     createdAt: createdAt ?? this.createdAt,

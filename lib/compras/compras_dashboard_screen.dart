@@ -5514,6 +5514,13 @@ class _ProveedorCard extends StatelessWidget {
                     ),
                 ],
               ),
+              if (proveedor.esPequenoProductor) ...[
+                const SizedBox(height: 6),
+                const Text(
+                  '✓ Pequeño productor agropecuario',
+                  style: TextStyle(color: kComprasGreen),
+                ),
+              ],
               if (proveedor.categorias.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Wrap(
@@ -5604,6 +5611,7 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
   bool _cargandoCiudades = false;
   String? _catalogoError;
   bool _esLocal = false;
+  bool _esPequenoProductor = false;
   List<String> _categorias = [];
   Map<String, DocAdjunto> _documentos = {};
   bool _guardando = false;
@@ -5641,6 +5649,7 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
     _departamentoNombre = p?.departamento;
     _ciudadCod = p?.ciudadCod;
     _esLocal = p?.esLocal ?? false;
+    _esPequenoProductor = p?.esPequenoProductor ?? false;
     _categorias = List.from(p?.categorias ?? []);
     _documentos = Map.from(p?.documentos ?? {});
     _cargarDepartamentos();
@@ -5811,6 +5820,7 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
         ciudadCod: _ciudadCod ?? '',
         ciudad: _normalizarNombre(_ciudadCtrl.text),
         esLocal: _esLocal,
+        esPequenoProductor: _esPequenoProductor,
         categorias: _categorias,
         documentos: _documentos,
         createdAt: widget.existing?.createdAt ?? Timestamp.now(),
@@ -6241,6 +6251,17 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
                     activeThumbColor: kComprasPrimary,
                     contentPadding: EdgeInsets.zero,
                     dense: true,
+                  ),
+                  CheckboxListTile(
+                    value: _esPequenoProductor,
+                    onChanged: (v) =>
+                        setState(() => _esPequenoProductor = v ?? false),
+                    title: const Text('Pequeño productor agropecuario'),
+                    subtitle: const Text(
+                      'Ley 2046 de 2020 · Decreto 248 de 2021',
+                    ),
+                    controlAffinity: ListTileControlAffinity.leading,
+                    contentPadding: EdgeInsets.zero,
                   ),
                   // ── Categorías ───────────────────────────────
                   _sectionHeader('Categorías de productos'),
@@ -14567,6 +14588,7 @@ class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
         'Departamento',
         'Ciudad',
         'Es Local',
+        'Pequeño productor agropecuario',
         'Categorías',
         ...docKeys.expand(
           (k) => [
@@ -14590,6 +14612,7 @@ class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
               p.departamento,
               p.ciudad,
               p.esLocal ? 'Sí' : 'No',
+              p.esPequenoProductor ? 'Sí' : 'No',
               p.categorias.join(', '),
               ...docKeys.expand((k) {
                 final doc = p.documentos[k];
@@ -14781,6 +14804,11 @@ class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
                             Icons.home_work,
                             'Tipo',
                             p.esLocal ? 'Local' : 'No local',
+                          ),
+                          _InfoRow(
+                            Icons.agriculture_outlined,
+                            'Pequeño productor agropecuario',
+                            p.esPequenoProductor ? 'Sí' : 'No',
                           ),
                           if (p.categorias.isNotEmpty) ...[
                             const SizedBox(height: 6),

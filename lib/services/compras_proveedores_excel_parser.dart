@@ -28,7 +28,9 @@ class ComprasProveedoresExcelParser {
     Sheet? sheet = _findSheet(excel);
     if (sheet == null || sheet.rows.isEmpty) {
       return const ComprasProveedoresExcelParseResult(
-          proveedores: [], skippedRows: 0);
+        proveedores: [],
+        skippedRows: 0,
+      );
     }
 
     final headers = sheet.rows.first
@@ -40,47 +42,63 @@ class ComprasProveedoresExcelParser {
 
     for (var i = 1; i < sheet.rows.length; i++) {
       final row = sheet.rows[i];
-      final isBlank =
-          row.every((c) => _cellToString(c?.value).trim().isEmpty);
+      final isBlank = row.every((c) => _cellToString(c?.value).trim().isEmpty);
       if (isBlank) continue;
 
       final map = <String, String>{};
       for (var j = 0; j < headers.length; j++) {
         final key = headers[j];
         if (key.isEmpty) continue;
-        final value =
-            j < row.length ? _cellToString(row[j]?.value).trim() : '';
+        final value = j < row.length ? _cellToString(row[j]?.value).trim() : '';
         map[key] = value;
       }
 
       final nit = _pick(map, ['nit']);
-      final razonSocial =
-          _pick(map, ['razonsocial', 'razon_social', 'razonsocial']);
+      final razonSocial = _pick(map, [
+        'razonsocial',
+        'razon_social',
+        'razonsocial',
+      ]);
 
       if (nit.isEmpty || razonSocial.isEmpty) {
         skipped++;
         continue;
       }
 
-      final esLocalRaw =
-          _pick(map, ['provlocal', 'prov_local', 'provlocal', 'eslocal'])
-              .toUpperCase();
-      final esLocal = esLocalRaw == 'SI' || esLocalRaw == 'S';
+      final esLocalRaw = _pick(map, [
+        'provlocal',
+        'prov_local',
+        'provlocal',
+        'eslocal',
+      ]).toUpperCase();
+      final esLocal = _booleano(esLocalRaw, i + 1, 'PROV. LOCAL');
+      final pequeno = _booleano(
+        _pick(map, ['PEQUENO PRODUCTOR AGROPECUARIO', 'esPequenoProductor']),
+        i + 1,
+        'PEQUENO PRODUCTOR AGROPECUARIO',
+      );
 
-      proveedores.add(ProveedorDoc(
-        empresaId: empresaId,
-        nit: nit,
-        razonSocial: razonSocial,
-        direccion: _pick(map, ['direccion']),
-        telefono: _pick(map, ['telefono']),
-        email: _pick(map, ['correo', 'email', 'correoelectronico']).toLowerCase(),
-        departamento: _pick(map, ['departamento']),
-        ciudad: _pick(map, ['ciudad']),
-        esLocal: esLocal,
-        categorias: const [],
-        documentos: const {},
-        createdAt: Timestamp.now(),
-      ));
+      proveedores.add(
+        ProveedorDoc(
+          empresaId: empresaId,
+          nit: nit,
+          razonSocial: razonSocial,
+          direccion: _pick(map, ['direccion']),
+          telefono: _pick(map, ['telefono']),
+          email: _pick(map, [
+            'correo',
+            'email',
+            'correoelectronico',
+          ]).toLowerCase(),
+          departamento: _pick(map, ['departamento']),
+          ciudad: _pick(map, ['ciudad']),
+          esLocal: esLocal,
+          esPequenoProductor: pequeno,
+          categorias: const [],
+          documentos: const {},
+          createdAt: Timestamp.now(),
+        ),
+      );
     }
 
     return ComprasProveedoresExcelParseResult(
@@ -93,7 +111,8 @@ class ComprasProveedoresExcelParser {
     // Intenta nombre exacto o canonicalizado
     for (final entry in excel.tables.entries) {
       final n = _canon(entry.key);
-      if (n == 'proveedores' || n == 'maestroproveedores' ||
+      if (n == 'proveedores' ||
+          n == 'maestroproveedores' ||
           n == 'maestro_proveedores') {
         return entry.value;
       }
@@ -102,8 +121,18 @@ class ComprasProveedoresExcelParser {
     return excel.tables.values.isNotEmpty ? excel.tables.values.first : null;
   }
 
-  String _pick(Map<String, String> map, List<String> keys,
-      {String fallback = ''}) {
+  bool _booleano(String value, int fila, String columna) {
+    final normal = _canon(value);
+    if (['si', 's', '1', 'true'].contains(normal)) return true;
+    if (['', 'no', 'n', '0', 'false'].contains(normal)) return false;
+    throw FormatException('Fila $fila: $columna debe ser SI o NO.');
+  }
+
+  String _pick(
+    Map<String, String> map,
+    List<String> keys, {
+    String fallback = '',
+  }) {
     for (final k in keys) {
       final v = map[_canon(k)] ?? '';
       if (v.trim().isNotEmpty) return v.trim();

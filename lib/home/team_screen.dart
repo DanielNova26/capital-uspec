@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:todo/state/empresa_scope.dart';
 import 'package:todo/core/hierarchy_order.dart';
 import 'package:todo/core/team_company_scope.dart';
+import 'package:todo/core/direct_managers.dart';
 import 'package:todo/utils/task_status.dart';
 import 'package:todo/utils/user_company.dart';
 import 'package:todo/widgets/user_avatar.dart';
@@ -23,6 +24,7 @@ class _OrgNode {
   final String areaKey;
   final String establecimiento;
   final String jefeId;
+  final String segundoJefeNombre;
   final int depth;
 
   const _OrgNode({
@@ -33,6 +35,7 @@ class _OrgNode {
     required this.areaKey,
     required this.establecimiento,
     required this.jefeId,
+    this.segundoJefeNombre = '',
     required this.depth,
   });
 }
@@ -283,7 +286,17 @@ class _TeamScreenState extends State<TeamScreen>
       _viewingAllCompany = _isGerenciaCargo(currentCargo);
 
       if (!_viewingAllCompany && currentAreaKey.isNotEmpty) {
-        byId.removeWhere((_, data) => _areaKeyOf(data) != currentAreaKey);
+        final subordinados = TeamCompanyScope.subordinateIds(
+          people: uniqueOrgDocs.entries.map(
+            (e) => MapEntry(e.key, e.value.data()),
+          ),
+          managerId: widget.currentUserId,
+          empresaId: emp,
+        );
+        byId.removeWhere(
+          (id, data) =>
+              _areaKeyOf(data) != currentAreaKey && !subordinados.contains(id),
+        );
       }
       final scopedIds = byId.keys.toSet();
 
@@ -335,6 +348,7 @@ class _TeamScreenState extends State<TeamScreen>
               'centroCostos',
             ]),
             jefeId: managerOf[id] ?? '',
+            segundoJefeNombre: secondManager(data, emp)['nombre'] ?? '',
             depth: depth,
           ),
         );
@@ -861,6 +875,12 @@ class _TeamScreenState extends State<TeamScreen>
                               color: isSelected ? color : scheme.onSurface,
                             ),
                           ),
+                          if (node.segundoJefeNombre.isNotEmpty)
+                            Text(
+                              'Segundo jefe: ${node.segundoJefeNombre}',
+                              style: const TextStyle(fontSize: 12),
+                              softWrap: true,
+                            ),
                           if (node.cargo.isNotEmpty)
                             Text(
                               node.cargo,

@@ -326,15 +326,16 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
               .limit(800),
         );
       }
-      porResponsables(
-        _personas.porId.values
+      porResponsables({
+        ..._subordinados,
+        ..._personas.porId.values
             .where(
               (p) => opcion == null
                   ? p.areaId == _miAreaId
                   : opcion.contiene(p.areaId),
             )
             .map((p) => p.id),
-      );
+      });
     } else {
       porResponsables(_subordinados);
     }
