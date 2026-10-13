@@ -221,7 +221,16 @@ export async function consultarPlanes(input: DatosPlan, a: Actor): Promise<Datos
       const p = d.data();
       const items = await db().collection(ITEMS_COL).where("planId", "==", d.id).get();
       const own = items.docs.map((i) => i.data()).filter((i) => i.empresaId === a.empresaId);
-      return {id: d.id, ...plain(p), establecimientos: [...new Set(own.map((i) => s(i.establecimiento)))],
+      const presentados = (i: DatosPlan, e: string) => Boolean(i[`${e}Presentado`]);
+      const revision = (i: DatosPlan, e: string) => (i[`${e}Revision`] as DatosPlan | undefined)?.estado;
+      const avance = {
+        total: own.length,
+        presentados: own.filter((i) => presentados(i, "respuesta") && presentados(i, "soportes")).length,
+        porRevisar: own.filter((i) => revision(i, "respuesta") === "por_revisar" || revision(i, "soportes") === "por_revisar").length,
+        devueltos: own.filter((i) => revision(i, "respuesta") === "devuelto" || revision(i, "soportes") === "devuelto").length,
+        sinIniciar: own.filter((i) => !(i.respuestaVersion > 0) && !(i.soportesVersion > 0)).length,
+      };
+      return {id: d.id, ...plain(p), avance, establecimientos: [...new Set(own.map((i) => s(i.establecimiento)))],
         grupos: [...new Set(await Promise.all(own.map(grupo)))]};
     }));
     return {planes, cursor: snap.size > 50 ? docs[49].id : null};
@@ -231,6 +240,11 @@ export async function consultarPlanes(input: DatosPlan, a: Actor): Promise<Datos
     let q = db().collection("TBL_INTERVENTORIA_HALLAZGOS").where("empresaId", "==", a.empresaId).orderBy(admin.firestore.FieldPath.documentId()).limit(101);
     if (input.cursor) q = q.startAfter(id(input.cursor));
     const snap = await q.get(); const docs = snap.docs.slice(0, 100);
+    const vinculados = new Set<string>();
+    if (s(input.planId)) {
+      const own = await db().collection(ITEMS_COL).where("planId", "==", id(input.planId)).get();
+      own.docs.forEach((i) => { if (i.data().empresaId === a.empresaId) vinculados.add(s(i.data().hallazgoId)); });
+    }
     const candidatos = await Promise.all(docs.map(async (h) => {
       const d = h.data();
       const [visitaDoc, tareaDoc] = await Promise.all([
@@ -245,7 +259,8 @@ export async function consultarPlanes(input: DatosPlan, a: Actor): Promise<Datos
         responsable: tareaValida ? s(tarea.asignado_nombre || tarea.assignedToName) : "Sin tarea asignada vigente",
         tareaId: tareaValida ? s(d.tareaId) : "", visitaId: s(d.visitaId),
         idVisitaK2: visita?.empresaId === a.empresaId ? s(visita.idVisitaK2) : "",
-        grupo: await grupo(d), fechaActa: plain(visita?.fechaVisita || d.fechaHallazgo)};
+        grupo: await grupo(d), fechaActa: plain(visita?.fechaVisita || d.fechaHallazgo),
+        vinculado: vinculados.has(h.id)};
     }));
     // Preserve the raw cursor even when this page has no identified visits.
     return {candidatos: candidatos.filter((c) => c.idVisitaK2), cursor: snap.size > 100 ? docs[99].id : null};
@@ -277,10 +292,15 @@ export async function consultarPlanes(input: DatosPlan, a: Actor): Promise<Datos
 
 export async function crearPlan(input: DatosPlan, a: Actor) {
   calidad(a);
-  const numero = s(input.numero).toUpperCase(); const csc = s(input.csc).toUpperCase();
-  if (!/^PM-[A-Z0-9-]{1,40}$/.test(numero) || !/^CRF-K2-[A-Z0-9-]{1,70}$/.test(csc)) err("Indica el número PM y el CSC de notificación de K2.");
+  // Códigos generales: K2 cambia el formato con frecuencia, así que solo se
+  // exige un texto legible. El CSC es opcional y, si falta, se usa el número.
+  const CODIGO = /^[\p{L}\p{N}][\p{L}\p{N} ._\-/#]{0,119}$/u;
+  const numero = s(input.numero).replace(/\s+/g, " ").toUpperCase();
+  const csc = s(input.csc).replace(/\s+/g, " ").toUpperCase() || numero;
+  if (!numero || !CODIGO.test(numero)) err("Indica el número del plan de mejora (letras, números, guiones o puntos).");
+  if (!CODIGO.test(csc)) err("El CSC de notificación solo admite letras, números, guiones, puntos y barras.");
   const fechas = fechasPlan(input);
-  const ref = db().collection(PLANES_COL).doc(hash(`${a.empresaId}|${csc}`));
+  const ref = db().collection(PLANES_COL).doc(hash(`${a.empresaId}|${csc.replace(/\s/g, "")}`));
   await db().runTransaction(async (tx) => {
     if ((await tx.get(ref)).exists) err("Ya existe un plan para esa notificación.", "already-exists");
     tx.create(ref, {empresaId: a.empresaId, numero, csc, ...fechas, creadoPor: a.id,

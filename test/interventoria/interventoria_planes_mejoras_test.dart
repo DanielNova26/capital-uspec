@@ -316,6 +316,8 @@ void main() {
           tester.view.resetViewInsets();
           await tester.pumpAndSettle();
         }
+        await tester.ensureVisible(find.byType(CheckboxListTile).first);
+        await tester.pumpAndSettle();
         await tester.tap(find.byType(CheckboxListTile).first);
         await tester.pumpAndSettle();
         await tester.tap(find.text('Vincular 1 hallazgos (máx. 40 por vez)'));

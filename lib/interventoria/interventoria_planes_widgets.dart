@@ -218,13 +218,20 @@ class PlanFiltros {
                   planDia(fecha).compareTo(planDia(fechas!.end)) <= 0));
     }).toList();
     result.sort((a, b) {
+      // Establecimiento → acta → numeral: los hallazgos de una misma visita
+      // quedan juntos y en el orden del acta.
       final first = orden == 'Fecha más reciente'
           ? planText(b, 'fechaActa').compareTo(planText(a, 'fechaActa'))
           : planText(a, 'establecimiento').toLowerCase().compareTo(
               planText(b, 'establecimiento').toLowerCase(),
             );
-      return first != 0
-          ? first
+      if (first != 0) return first;
+      final acta = planText(
+        a,
+        'idVisitaK2',
+      ).compareTo(planText(b, 'idVisitaK2'));
+      return acta != 0
+          ? acta
           : compararNumerales(planText(a, 'numeral'), planText(b, 'numeral'));
     });
     return result;
@@ -444,4 +451,84 @@ class PlanResumen extends StatelessWidget {
       }).toList(),
     ),
   );
+}
+
+/// Cuenta el avance de un plan a partir de sus hallazgos (misma forma que
+/// `avance` en el listado del servidor).
+Map<String, int> planAvanceDe(List<PlanData> items) {
+  String revision(PlanData i, String e) =>
+      planText(planMap(i['${e}Revision']), 'estado');
+  return {
+    'total': items.length,
+    'presentados': items
+        .where(
+          (i) =>
+              i['respuestaPresentado'] != null &&
+              i['soportesPresentado'] != null,
+        )
+        .length,
+    'porRevisar': items
+        .where(
+          (i) =>
+              revision(i, 'respuesta') == 'por_revisar' ||
+              revision(i, 'soportes') == 'por_revisar',
+        )
+        .length,
+    'devueltos': items
+        .where(
+          (i) =>
+              revision(i, 'respuesta') == 'devuelto' ||
+              revision(i, 'soportes') == 'devuelto',
+        )
+        .length,
+    'sinIniciar': items
+        .where(
+          (i) =>
+              ((i['respuestaVersion'] as num?) ?? 0) <= 0 &&
+              ((i['soportesVersion'] as num?) ?? 0) <= 0,
+        )
+        .length,
+  };
+}
+
+/// Barra de avance del plan: cuántos hallazgos ya se presentaron en K2 y qué
+/// falta por revisar o corregir.
+class PlanAvanceBarra extends StatelessWidget {
+  const PlanAvanceBarra({
+    super.key,
+    required this.avance,
+    this.compacto = false,
+  });
+  final Map<String, dynamic> avance;
+  final bool compacto;
+  int _n(String k) => (avance[k] as num?)?.toInt() ?? 0;
+  @override
+  Widget build(BuildContext context) {
+    final total = _n('total'), listos = _n('presentados');
+    final partes = <String>[
+      if (_n('porRevisar') > 0) '${_n('porRevisar')} por revisar',
+      if (_n('devueltos') > 0) '${_n('devueltos')} con correcciones',
+      if (_n('sinIniciar') > 0) '${_n('sinIniciar')} sin iniciar',
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: LinearProgressIndicator(
+            minHeight: compacto ? 6 : 10,
+            value: total == 0 ? 0 : listos / total,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          total == 0
+              ? 'Sin hallazgos vinculados'
+              : '$listos de $total presentados en K2'
+                    '${partes.isEmpty ? '' : ' · ${partes.join(' · ')}'}',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ],
+    );
+  }
 }

@@ -10905,3 +10905,32 @@ no se compiló ni se corrieron tests.
 - **Sin verificar:** Web (390/768/1024/1366), Android e iOS, escala de texto y
   teclado en "Mis avisos" y en el panel del maestro; compilación TS/Dart.
 - **Pendiente:** seguridad (reglas de `TBL_NOTIFICACIONES`, `registerDeviceToken`).
+
+## INTERVENTORÍA › PLANES DE MEJORA — flujo integrado (13 oct 2026)
+- **Creación más general:** el servidor ya no exige `PM-…` ni `CRF-K2-…`;
+  basta un número legible (letras, números, espacio, `-_./#`, hasta 120). El
+  código de notificación es opcional (si falta se usa el número). La
+  duplicidad se sigue evitando por empresa + código normalizado.
+- **Listado con estado y avance:** cada plan muestra estado de gestión, barra
+  de avance (presentados en K2 / por revisar / con correcciones / sin
+  iniciar; `avance` viene de `listar`) y plazos. Paginado de a 20.
+- **Un solo lugar de trabajo:** se eliminó la pestaña "Expediente y
+  descuentos". Cada hallazgo del plan se abre en su desplegable con
+  compromiso, soportes, fuentes de la tarea y revisión (`PlanItemPanel`; la
+  pantalla de la tarea sigue usando `PlanItemScreen`). Expediente e historial
+  quedan al final de la misma página. Hallazgos agrupados por establecimiento
+  → acta → numeral.
+- **Vincular:** selector con actas por establecimiento (visitas previas),
+  casilla por acta, selección conservada entre filtros/páginas (varios
+  establecimientos a la vez, máx. 40 por envío) y marca "Ya vinculado"
+  (`candidatos` recibe `planId`).
+- **Calidad** puede escribir compromiso, adjuntar soportes y traer fuentes
+  directamente en el plan (el servidor ya lo permitía; ahora está en la
+  misma pantalla).
+- **Sin reproducir:** el reporte de "no deja escribir" no se pudo reproducir
+  en pruebas; se añadieron ayudas visibles (mínimos de caracteres, "Guardar"
+  deshabilitado solo con motivo claro) y el selector dejó de usar alturas
+  fijas que se aplastaban con el teclado. Si persiste, indicar en qué campo.
+- Validado: `flutter test test/interventoria` (285 OK), `npm test` en
+  `functions` (190 OK), `tsc`. **Sin verificar:** Web/Android/iOS en
+  dispositivo real (390/768/1024/1366, escala de texto y teclado).
