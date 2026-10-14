@@ -11,6 +11,7 @@ const {
 const {
   arrayUnion,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   and,
@@ -739,4 +740,30 @@ test("Tareas por aprobar consulta también lo que asignó la persona", async () 
       where("empresaId", "==", "EMP_A")
     )
   )));
+});
+
+// ── Documento "Tareas - septiembre 05 de 2026" ─────────────────────────────
+
+test("tareas repetitivas: solo quien asigna crea, lee, pausa y borra su plantilla", async () => {
+  const plantilla = (extra = {}) => ({
+    titulo: "Informe semanal",
+    empresaId: "EMP_A",
+    creador_id: "alice",
+    asignado_uid: "destino",
+    activa: true,
+    recurrencia: {frecuencia: "semanal", diasSemana: [1], diaMes: 1},
+    ...extra,
+  });
+  await assertSucceeds(setDoc(doc(auth("alice"), "TBL_TAREAS_RECURRENTES/p1"), plantilla()));
+  // Nadie la crea a nombre de otro, ni para otra empresa, ni a un retirado.
+  await assertFails(setDoc(doc(auth("jefe"), "TBL_TAREAS_RECURRENTES/p2"), plantilla()));
+  await assertFails(setDoc(doc(auth("alice"), "TBL_TAREAS_RECURRENTES/p3"), plantilla({empresaId: "EMP_B"})));
+  await assertFails(setDoc(doc(auth("alice"), "TBL_TAREAS_RECURRENTES/p4"), plantilla({asignado_uid: "retirado"})));
+  await assertSucceeds(getDoc(doc(auth("alice"), "TBL_TAREAS_RECURRENTES/p1")));
+  await assertFails(getDoc(doc(auth("jefe"), "TBL_TAREAS_RECURRENTES/p1")));
+  // Solo pausar o reanudar.
+  await assertSucceeds(updateDoc(doc(auth("alice"), "TBL_TAREAS_RECURRENTES/p1"), {activa: false}));
+  await assertFails(updateDoc(doc(auth("alice"), "TBL_TAREAS_RECURRENTES/p1"), {asignado_uid: "jefe"}));
+  await assertFails(updateDoc(doc(auth("jefe"), "TBL_TAREAS_RECURRENTES/p1"), {activa: true}));
+  await assertSucceeds(deleteDoc(doc(auth("alice"), "TBL_TAREAS_RECURRENTES/p1")));
 });

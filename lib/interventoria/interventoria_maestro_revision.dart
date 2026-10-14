@@ -60,6 +60,11 @@ class _InterventoriaMaestroRevisionState
   bool _soloProblemas = true;
   bool _generando = false;
 
+  /// Reasignación por grupos (14 oct 2026): vista previa y estado de los botones.
+  PrevisionReasignacionGrupos? _previsionGrupos;
+  bool _revisandoGrupos = false;
+  bool _reasignandoGrupos = false;
+
   List<String> _catalogo = const [];
   List<InterventoriaUsuario> _activos = const [];
   List<InterventoriaUsuario> _asignables = const [];
@@ -1061,7 +1066,192 @@ class _InterventoriaMaestroRevisionState
     }
   }
 
-  Widget _vistaPendientes() {
+  Widget _vistaPendientes() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      if (widget.canEdit) ...[
+        _seccionReasignarGrupos(),
+        const SizedBox(height: 14),
+      ],
+      _vistaSinTarea(),
+    ],
+  );
+
+  // ── Reasignar por grupos ───────────────────────────────────────────────────
+
+  Widget _seccionReasignarGrupos() {
+    final p = _previsionGrupos;
+    return _Seccion(
+      titulo: 'Reasignar por grupos',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'Vuelve a aplicar el maestro a las tareas ya creadas: cargo, '
+            'establecimiento y el grupo que Talento Humano le asignó a cada '
+            'persona. Pasa a su nuevo responsable las tareas que aún no se han '
+            'iniciado, retira el aviso de quien la pierde y avisa UNA vez a '
+            'cada nuevo responsable. No toca las tareas iniciadas ni las que '
+            'alguien asignó a mano.',
+            style: TextStyle(fontSize: 13, height: 1.4),
+          ),
+          if (p != null) ...[
+            const SizedBox(height: 12),
+            _FilaConteo(
+              texto: 'Se reasignarían',
+              valor: p.cambios.length,
+              color: p.cambios.isEmpty ? _kOk : _kAccent,
+            ),
+            for (final e in p.otras.entries)
+              _FilaConteo(
+                texto: etiquetaDecisionReasignacion(e.key),
+                valor: e.value,
+                color: e.key == DecisionReasignacionGrupo.sinCambio
+                    ? _kOk
+                    : _kAviso,
+              ),
+            if (p.cambios.isNotEmpty) ...[
+              const Divider(height: 20),
+              PagedListSection<ReasignacionPorGrupo>(
+                items: p.cambios,
+                etiqueta: 'tareas',
+                itemBuilder: (context, c, _) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Text(
+                    '${c.hallazgo.centroCostoNombre} · '
+                    '${c.hallazgo.numeralParaMatriz}: '
+                    '${c.anteriorNombre.isEmpty ? 'sin responsable' : c.anteriorNombre}'
+                    ' → ${c.nuevoNombre}',
+                    style: const TextStyle(fontSize: 12.5, height: 1.3),
+                  ),
+                ),
+              ),
+            ],
+          ],
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: _revisandoGrupos || _reasignandoGrupos
+                    ? null
+                    : _revisarGrupos,
+                icon: _revisandoGrupos
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.manage_search_rounded),
+                label: Text(
+                  _revisandoGrupos ? 'Revisando…' : 'Revisar cambios',
+                ),
+              ),
+              FilledButton.icon(
+                onPressed: _reasignandoGrupos || p == null || p.cambios.isEmpty
+                    ? null
+                    : _reasignarGrupos,
+                icon: _reasignandoGrupos
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.groups_2_outlined),
+                label: Text(
+                  _reasignandoGrupos
+                      ? 'Reasignando…'
+                      : 'Reasignar por grupos'
+                            '${p == null ? '' : ' (${p.cambios.length})'}',
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _revisarGrupos() async {
+    setState(() => _revisandoGrupos = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final p = await widget.service.previsualizarReasignacionPorGrupos(
+        widget.empresaId,
+      );
+      if (!mounted) return;
+      setState(() => _previsionGrupos = p);
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          backgroundColor: _kPeligro,
+          content: Text('No se pudo revisar: $e'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _revisandoGrupos = false);
+    }
+  }
+
+  Future<void> _reasignarGrupos() async {
+    final p = _previsionGrupos;
+    if (p == null || p.cambios.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reasignar por grupos'),
+        content: Text(
+          'Se pasarán ${p.cambios.length} tareas a quien hoy corresponde según '
+          'su cargo, establecimiento y grupo. Quien las pierde dejará de verlas '
+          'y cada nuevo responsable recibe un solo aviso.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Reasignar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _reasignandoGrupos = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final r = await widget.service.reasignarTareasPorGrupos(
+        empresaId: widget.empresaId,
+        creadorId: widget.userId,
+      );
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          backgroundColor: r.errores.isEmpty ? _kOk : _kAviso,
+          content: Text(
+            '${r.creadas} ${r.creadas == 1 ? 'tarea reasignada' : 'tareas reasignadas'}'
+            ', ${r.avisos} ${r.avisos == 1 ? 'aviso enviado' : 'avisos enviados'}'
+            '${r.errores.isEmpty ? '.' : '. ${r.errores.length} con error: ${r.errores.first}'}',
+          ),
+        ),
+      );
+      await _cargar();
+      await _revisarGrupos();
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          backgroundColor: _kPeligro,
+          content: Text('No se pudo reasignar: $e'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _reasignandoGrupos = false);
+    }
+  }
+
+  Widget _vistaSinTarea() {
     final p = _prevision;
     if (p == null || p.total == 0) {
       return const _Aviso(

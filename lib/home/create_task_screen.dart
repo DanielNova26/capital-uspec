@@ -23,6 +23,7 @@ import '../core/org_context_resolver.dart';
 import '../core/hierarchy_order.dart';
 import '../core/task_assignment_options.dart';
 import '../core/task_contract.dart';
+import '../core/task_recurrencia.dart';
 import '../core/area_directory.dart';
 import '../widgets/dictado_dialog.dart';
 
@@ -324,6 +325,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   String _priority = 'media';
   DateTime? _deadline;
   bool _requiresAttachment = true;
+  TaskRecurrencia _recurrencia = TaskRecurrencia.ninguna;
 
   // ==================== Selecciones ====================
   String? _areaId;
@@ -587,6 +589,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     if ((_areaId ?? '').trim().isEmpty) 'área',
     if (_cargoFiltro.trim().isEmpty || _cargoFiltro == 'todos') 'cargo',
     if (_asignadoUid == null) 'persona asignada',
+    if (_recurrencia.incompleta) 'día de la repetición',
   ];
 
   @override
@@ -1816,6 +1819,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
           .add(normalizedPayload);
       // onTaskCreated genera la notificación in-app y el push para asignado/jefe.
 
+      await _guardarPlantillaRecurrente(normalizedPayload);
+
       _photo = null;
       _pickedFiles.clear();
 
@@ -1834,6 +1839,173 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       }
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  /// Selector de repetición (diaria, semanal con días, mensual con día).
+  Widget _construirRepeticion() {
+    final r = _recurrencia;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        DropdownButtonFormField<TaskFrecuencia>(
+          isExpanded: true,
+          initialValue: r.frecuencia,
+          decoration: const InputDecoration(
+            labelText: 'Repetir',
+            border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.repeat_rounded),
+          ),
+          items: const [
+            DropdownMenuItem(
+              value: TaskFrecuencia.ninguna,
+              child: Text('No se repite'),
+            ),
+            DropdownMenuItem(
+              value: TaskFrecuencia.diaria,
+              child: Text('Todos los días'),
+            ),
+            DropdownMenuItem(
+              value: TaskFrecuencia.semanal,
+              child: Text('Cada semana (elegir días)'),
+            ),
+            DropdownMenuItem(
+              value: TaskFrecuencia.mensual,
+              child: Text('Cada mes (elegir día)'),
+            ),
+          ],
+          onChanged: (v) => setState(() {
+            final f = v ?? TaskFrecuencia.ninguna;
+            final base = _deadline ?? DateTime.now();
+            _recurrencia = TaskRecurrencia(
+              frecuencia: f,
+              diasSemana: f == TaskFrecuencia.semanal
+                  ? {base.weekday}
+                  : const {},
+              diaMes: base.day,
+            );
+          }),
+        ),
+        if (r.frecuencia == TaskFrecuencia.semanal) ...[
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (var d = 1; d <= 7; d++)
+                FilterChip(
+                  label: Text(kNombresDiaSemana[d - 1]),
+                  selected: r.diasSemana.contains(d),
+                  onSelected: (on) => setState(() {
+                    final dias = {...r.diasSemana};
+                    on ? dias.add(d) : dias.remove(d);
+                    _recurrencia = TaskRecurrencia(
+                      frecuencia: r.frecuencia,
+                      diasSemana: dias,
+                      diaMes: r.diaMes,
+                    );
+                  }),
+                ),
+            ],
+          ),
+        ],
+        if (r.frecuencia == TaskFrecuencia.mensual) ...[
+          const SizedBox(height: 8),
+          DropdownButtonFormField<int>(
+            isExpanded: true,
+            initialValue: r.diaMes,
+            decoration: const InputDecoration(
+              labelText: 'Día del mes',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.calendar_month_outlined),
+            ),
+            items: [
+              for (var d = 1; d <= 31; d++)
+                DropdownMenuItem(value: d, child: Text('Día $d')),
+            ],
+            onChanged: (v) => setState(
+              () => _recurrencia = TaskRecurrencia(
+                frecuencia: r.frecuencia,
+                diasSemana: r.diasSemana,
+                diaMes: v ?? r.diaMes,
+              ),
+            ),
+          ),
+        ],
+        if (r.repite)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              '${r.descripcion}: se crea una tarea igual con el mismo '
+              'responsable y el mismo plazo. La de hoy se crea ahora. '
+              'Los meses cortos usan su último día.',
+              style: const TextStyle(fontSize: 12, color: Colors.black54),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// Guarda la plantilla de la tarea repetitiva; el servidor crea cada día
+  /// las tareas que tocan. Si falla no deshace la tarea ya creada.
+  Future<void> _guardarPlantillaRecurrente(Map<String, dynamic> tarea) async {
+    final r = _recurrencia;
+    final limite = _deadline;
+    if (!r.repite || r.incompleta || limite == null) return;
+    final proxima = r.siguienteDespuesDe(DateTime.now());
+    if (proxima == null) return;
+    final hoy = DateTime.now();
+    final plazo = DateTime(
+      limite.year,
+      limite.month,
+      limite.day,
+    ).difference(DateTime(hoy.year, hoy.month, hoy.day)).inDays;
+    const copiar = [
+      'titulo',
+      'descripcion',
+      'prioridad',
+      'requiere_adjunto',
+      'areaId',
+      'areaNombre',
+      'cargoFiltro',
+      'asignado_uid',
+      'asignado_nombre',
+      'asignado_cargo_id',
+      'asignado_cargo_nombre',
+      'jefe_uid',
+      'jefe_nombre',
+      'creador_id',
+      'creador_nombre',
+      'aprobador_uid',
+      'aprobador_nombre',
+      'empresaId',
+      'empresas',
+    ];
+    final plantilla = <String, dynamic>{
+      for (final k in copiar)
+        if (tarea[k] != null) k: tarea[k],
+      'recurrencia': r.toMap(),
+      'plazoDias': plazo < 0 ? 0 : plazo,
+      'horaLimite':
+          '${limite.hour.toString().padLeft(2, '0')}:${limite.minute.toString().padLeft(2, '0')}',
+      'proximaEjecucion': Timestamp.fromDate(proxima),
+      'activa': true,
+      'createdAt': FieldValue.serverTimestamp(),
+    };
+    try {
+      await FirebaseFirestore.instance
+          .collection(kCollTareasRecurrentes)
+          .add(plantilla);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'La tarea se creó, pero no se pudo programar la repetición: $e',
+            ),
+          ),
+        );
+      }
     }
   }
 
@@ -2175,6 +2347,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                           onChanged: (v) =>
                               setState(() => _requiresAttachment = v),
                         ),
+                        const SizedBox(height: 12),
+                        _construirRepeticion(),
                         const SizedBox(height: 12),
 
                         Row(

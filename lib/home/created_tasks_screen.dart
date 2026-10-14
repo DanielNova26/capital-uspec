@@ -579,6 +579,50 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     return true;
   }
 
+  /// Cabecera del detalle de una respuesta: número, fechas y quien asignó,
+  /// para decidir sin volver a la tarjeta (5 oct 2026: "ver detalle de la
+  /// respuesta, fecha de la tarea").
+  Widget _datosDeLaTarea(Map<String, dynamic> t) {
+    final numero = taskNumeroTexto(t);
+    final asignada = taskFechaAsignacion(t);
+    final limite = _toDate(t['fecha_limite'] ?? t['dueDate']);
+    final terminada = taskFechaTerminacionResponsable(t);
+    final fmt = DateFormat('dd/MM/yyyy');
+    final asignador = taskAsignador(t);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          if (numero.isNotEmpty)
+            _ReassignMetaPill(icon: Icons.tag_rounded, label: numero),
+          if (asignada != null)
+            _ReassignMetaPill(
+              icon: Icons.event_available_outlined,
+              label: 'Asignada: ${fmt.format(asignada)}',
+            ),
+          if (limite != null)
+            _ReassignMetaPill(
+              icon: Icons.event_outlined,
+              label: 'Fecha límite: ${fmt.format(limite)}',
+            ),
+          if (terminada != null)
+            _ReassignMetaPill(
+              icon: Icons.task_alt_rounded,
+              label:
+                  'Terminada: ${DateFormat('dd/MM/yyyy HH:mm').format(terminada)}',
+            ),
+          if (asignador.nombre.isNotEmpty)
+            _ReassignMetaPill(
+              icon: Icons.person_outline_rounded,
+              label: 'Asignó: ${asignador.nombre}',
+            ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _showCollectionDialog({
     required String title,
     required String taskId,
@@ -620,6 +664,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                   ),
                 ),
                 const Divider(height: 1),
+                if (tarea != null) _datosDeLaTarea(tareaData),
                 Expanded(
                   child: docs.isEmpty
                       ? const Center(
@@ -2034,6 +2079,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                           title: 'Evidencias de finalización',
                           taskId: doc.id,
                           collection: 'finalizacion',
+                          tarea: data,
                         );
                       },
                     ),
@@ -2392,6 +2438,12 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
             label:
                 'Terminada el ${DateFormat('dd/MM/yyyy HH:mm').format(terminoEl)}',
             icon: Icons.task_alt_rounded,
+          ),
+        if (widget.approvalMode && taskFechaAsignacion(m) != null)
+          TaskCardChip(
+            label:
+                'Asignada el ${DateFormat('dd/MM/yyyy').format(taskFechaAsignacion(m)!)}',
+            icon: Icons.event_available_outlined,
           ),
         if (areaName.isNotEmpty)
           TaskCardChip(

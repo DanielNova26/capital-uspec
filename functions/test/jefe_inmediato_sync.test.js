@@ -61,9 +61,19 @@ test('no toca tareas cerradas, de otra empresa, de otro jefe ni de Interventorí
   assert.equal(debeCambiarJefe({...base, empresaId: 'emp2'}, cambio), false);
   assert.equal(debeCambiarJefe({...base, jefe_uid: 'otro'}, cambio), false);
   assert.equal(
-    debeCambiarJefe({...base, sourceModule: 'interventoria'}, cambio),
+    debeCambiarJefe({...base, sourceModule: 'interventoria', origenAprobador: 'maestro'}, cambio),
     false,
   );
+});
+
+test('Interventoría sigue al jefe solo si el aprobador salió de la jefatura', () => {
+  const base = {empresaId: 'emp1', estado: 'por_aprobar', jefe_uid: 'j1', sourceModule: 'interventoria'};
+  // Tareas creadas antes de la marca y las que la traen como jefeInmediato.
+  assert.equal(debeCambiarJefe(base, cambio), true);
+  assert.equal(debeCambiarJefe({...base, origenAprobador: 'jefeInmediato'}, cambio), true);
+  for (const origen of ['maestro', 'elegido', 'actual']) {
+    assert.equal(debeCambiarJefe({...base, origenAprobador: origen}, cambio), false);
+  }
 });
 
 test('una tarea por aprobar sigue activa y cambia de aprobador', () => {
@@ -82,4 +92,23 @@ test('un aprobador elegido a propósito se conserva', () => {
   const upd = actualizacionJefe({jefe_uid: 'j1', aprobador_uid: 'gerente'}, cambio);
   assert.equal(upd.jefe_uid, 'j2');
   assert.equal('aprobador_uid' in upd, false);
+});
+
+test('sincronizar: solo abiertas con jefe distinto al vigente del responsable', () => {
+  const {planSincronizacionJefes} = require('../lib/jefe_inmediato_sync');
+  const jefes = new Map([['alex', {id: 'richar', nombre: 'Richar'}], ['sin', {id: '', nombre: ''}]]);
+  const t = (id, extra) => ({id, data: {empresaId: 'emp1', estado: 'en_progreso', asignado_uid: 'alex', jefe_uid: 'viejo', ...extra}});
+  const plan = planSincronizacionJefes([
+    t('a', {}),
+    t('b', {jefe_uid: 'richar'}),
+    t('c', {estado: 'finalizado'}),
+    t('d', {jefe_uid: ''}),
+    t('e', {sourceModule: 'interventoria', origenAprobador: 'maestro'}),
+    t('f', {sourceModule: 'interventoria'}),
+    t('g', {asignado_uid: 'sin'}),
+    t('h', {empresaId: 'emp2'}),
+  ], jefes, 'emp1');
+  assert.deepEqual(plan.map((p) => p.tareaId), ['a', 'f']);
+  assert.equal(plan[0].cambio.anteriorId, 'viejo');
+  assert.equal(plan[0].cambio.nuevo.id, 'richar');
 });

@@ -2544,13 +2544,35 @@ class ComprasService {
   /// Compras —si quien subió el documento es una de ellas, se queda con él—;
   /// (2) si nadie tiene ese cargo, el rol Compras del módulo, con la misma
   /// preferencia; (3) quien subió el documento, como antes.
+  ///
+  /// Con [soloSiSubidorActivo] (tareas "Corregir documento", 14 oct 2026: "las
+  /// que no son mías") la tarea es de quien subió el documento mientras siga
+  /// activo en la empresa; el Analista de Compras queda de respaldo.
   Future<({String id, String nombre})> _responsableRevisionDocumental({
     required String empresaId,
     required String preferido,
+    bool soloSiSubidorActivo = false,
   }) async {
     final subidor = preferido.trim();
     final empresa = empresaId.trim();
     if (empresa.isEmpty) return (id: subidor, nombre: '');
+    if (soloSiSubidorActivo && subidor.isNotEmpty) {
+      try {
+        final doc = await _db.collection('TBL_USUARIOS').doc(subidor).get();
+        final m = doc.data();
+        if (m != null &&
+            userBelongsToEmpresa(m, empresa) &&
+            esPersonaAsignable(m, empresa)) {
+          final nombre = [
+            (m['nombres'] ?? m['primerNombre'] ?? '').toString().trim(),
+            (m['apellidos'] ?? m['primerApellido'] ?? '').toString().trim(),
+          ].where((e) => e.isNotEmpty).join(' ');
+          return (id: subidor, nombre: nombre);
+        }
+      } catch (e) {
+        debugPrint('[Compras] subidor no resuelto: $e');
+      }
+    }
     try {
       final usuarios = <String, Map<String, dynamic>>{};
       for (final snap in await Future.wait([
@@ -2808,13 +2830,15 @@ class ComprasService {
       // No bloquear el rechazo si falla el fan-out a Calidad.
     }
 
-    // 3) Tarea de corrección para el Analista de Compras (3 oct 2026); si la
-    //    empresa no tiene ese cargo ni rol Compras, para quien lo subió.
+    // 3) Tarea de corrección para quien subió el documento si sigue activo
+    //    (14 oct 2026); si no, el Analista de Compras (3 oct 2026) y, sin ese
+    //    cargo ni rol Compras, quien lo subió.
     if (subidor.isNotEmpty) {
       try {
         final responsable = await _responsableRevisionDocumental(
           empresaId: empresaId,
           preferido: subidor,
+          soloSiSubidorActivo: true,
         );
         await _tasks.createTaskEs(
           titulo: 'Corregir documento: $docLabel',

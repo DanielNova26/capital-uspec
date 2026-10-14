@@ -2380,6 +2380,25 @@ service cloud.firestore {
       }
     }
 
+    // Plantillas de tareas repetitivas (5 oct 2026): las crea quien asigna la
+    // tarea y las recorre cada día `tareasRecurrentesGenerar` (Functions).
+    // El cliente solo las crea, las lee y las pausa o reanuda (`activa`).
+    match /TBL_TAREAS_RECURRENTES/{plantillaId} {
+      allow read: if resource.data.get('creador_id', '') == request.auth.token.userDocId
+        && belongsToCompany(resource.data.get('empresaId', ''));
+      allow create: if request.resource.data.get('creador_id', '') == request.auth.token.userDocId
+        && request.resource.data.get('activa', false) == true
+        && belongsToCompany(request.resource.data.get('empresaId', ''))
+        && tieneAppTareasEn(request.resource.data.get('empresaId', ''))
+        && usuarioActivoParaTarea(request.resource.data.get('empresaId', ''),
+          request.resource.data.get('asignado_uid', ''));
+      allow update: if resource.data.get('creador_id', '') == request.auth.token.userDocId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['activa'])
+        && belongsToCompany(resource.data.get('empresaId', ''));
+      allow delete: if resource.data.get('creador_id', '') == request.auth.token.userDocId
+        && belongsToCompany(resource.data.get('empresaId', ''));
+    }
+
     // ── Colecciones agrupadas en un `match` con comodín ──────────────────
     // Van al final, justo antes de la regla general (6 oct 2026). Firestore
     // evalúa las reglas que coinciden en el orden del archivo y suma lo que
@@ -2464,7 +2483,7 @@ service cloud.firestore {
         && !esColeccionNutricion(collection)
         && !esColeccionDeSuEmpresa(collection)
         && !esTablaDeRoles(collection)
-        && !collection.matches('TBL_(TAREAS|TAREAS_CONTADORES'
+        && !collection.matches('TBL_(TAREAS|TAREAS_CONTADORES|TAREAS_RECURRENTES'
           + '|COMPRAS_ROLES|COMPRAS_CONFIG|NOTIFICACIONES_CONFIG|NOTIFICACIONES_PREFERENCIAS'
           + '|WHATSAPP_CONFIG|WHATSAPP_AUDITORIA|WHATSAPP_META_ESTADOS'
           + '|CORREO_ALERTAS|CORREO_LISTADOS|CORREO_REGLAS|CORREO_ROLES'

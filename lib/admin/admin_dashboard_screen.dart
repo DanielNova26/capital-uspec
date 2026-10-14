@@ -1,4 +1,5 @@
 import 'task_numeracion_card.dart';
+import 'task_jefes_sync_card.dart';
 import 'purchase_module_role.dart';
 import 'purchase_module_roles_repository.dart';
 import 'purchase_module_roles_panel.dart';
@@ -9618,6 +9619,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       grupos: _catalogoGrupos,
       centros: _centros,
       usuarios: _matrixCompanyUsers(empresaId),
+      sincronizar: (cambios) async {
+        if (_empresaId != null && _empresaId != empresaId) return;
+        await InterventoriaService().aplicarCambiosCobertura(
+          empresaId: empresaId,
+          cambios: cambios,
+          nombresCentro: {for (final c in _centros) c.centroId: c.nombre},
+        );
+        // La lista de personas se cargó una vez: se vuelve a leer para que el
+        // tablero ya no muestre como pendiente lo que acaba de sincronizar.
+        final users = await _repo.loadUsersByEmpresa(empresaId);
+        if (!mounted || _empresaId != empresaId) return;
+        setState(() => _users = users);
+      },
       guardar:
           ({
             String? id,
@@ -11466,6 +11480,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         // Número de las visitas que ya existían (5 oct 2026).
         TaskNumeracionCard.visitas(
           key: ValueKey('numeracion-visitas-${_empresaId ?? ''}'),
+          empresaId: _empresaId ?? '',
+        ),
+        const SizedBox(height: 12),
+        // Jefe de las tareas abiertas tras un cambio de jefe inmediato
+        // (14 oct 2026).
+        TaskJefesSyncCard(
+          key: ValueKey('jefes-tareas-${_empresaId ?? ''}'),
           empresaId: _empresaId ?? '',
         ),
         const SizedBox(height: 12),

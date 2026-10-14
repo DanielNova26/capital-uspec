@@ -24,7 +24,10 @@ import '../widgets/paged_list.dart';
 import '../widgets/user_avatar.dart';
 import '../utils/user_company.dart' show mergeCompanyScopedData;
 import 'admin_repository.dart';
+import '../interventoria/interventoria_revision_maestro.dart'
+    show CambioCobertura;
 import 'grupo_empresa_dialog.dart';
+import 'grupos_sincronizacion.dart';
 
 const String _kFont = 'Arial';
 const Color _kAccent = Color(0xFF3B82F6);
@@ -49,6 +52,10 @@ class AdminGruposEmpresaPanel extends StatelessWidget {
   })
   guardar;
 
+  /// Agrega a cada persona el grupo de sus establecimientos. Sin esto el
+  /// tablero de sincronización no se muestra.
+  final Future<void> Function(List<CambioCobertura> cambios)? sincronizar;
+
   const AdminGruposEmpresaPanel({
     super.key,
     required this.grupos,
@@ -56,6 +63,7 @@ class AdminGruposEmpresaPanel extends StatelessWidget {
     required this.usuarios,
     required this.empresaId,
     required this.guardar,
+    this.sincronizar,
   });
 
   Future<void> _editar(BuildContext context, ComprasGrupoDoc? g) async {
@@ -197,6 +205,14 @@ class AdminGruposEmpresaPanel extends StatelessWidget {
             ),
           ),
         ],
+        if (sincronizar != null)
+          GruposSincronizacionSeccion(
+            empresaId: empresaId,
+            grupos: grupos,
+            centros: centros,
+            usuarios: usuarios,
+            sincronizar: sincronizar!,
+          ),
         const SizedBox(height: 12),
         if (ordenados.isEmpty)
           const Padding(

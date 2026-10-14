@@ -19,9 +19,15 @@ Map<String, dynamic> _tarea([Map<String, dynamic> extra = const {}]) => {
 
 void main() {
   group('aprobador efectivo', () {
-    test('es el aprobador guardado', () {
-      expect(taskAprobadorId(_tarea()), 'zuly');
-      expect(taskAprobadorNombre(_tarea()), 'Zuly Cervantes');
+    test('la finalización la aprueba quien asignó la tarea', () {
+      expect(taskAprobadorId(_tarea()), 'oscar');
+      expect(taskAprobadorNombre(_tarea()), 'Oscar Cano');
+    });
+
+    test('la reasignación en espera la aprueba el aprobador guardado', () {
+      final t = _tarea({'solicitud_reasignacion_estado': 'pendiente'});
+      expect(taskAprobadorId(t), 'zuly');
+      expect(taskAprobadorNombre(t), 'Zuly Cervantes');
     });
 
     test(
@@ -46,6 +52,11 @@ void main() {
         'creador_id': kCreadorInterventoria,
       });
       expect(taskAprobadorId(t), '');
+      // Con aprobador guardado, decide ese.
+      expect(
+        taskAprobadorId(_tarea({'creador_id': kCreadorInterventoria})),
+        'zuly',
+      );
     });
   });
 
@@ -56,8 +67,8 @@ void main() {
         'estado': 'por_aprobar',
         'solicitud_finalizacion_estado': 'pendiente',
       });
-      expect(taskEsperaDecisionDe(porAprobar, {'zuly'}), isTrue);
-      expect(taskEsperaDecisionDe(porAprobar, {'oscar'}), isFalse);
+      expect(taskEsperaDecisionDe(porAprobar, {'oscar'}), isTrue);
+      expect(taskEsperaDecisionDe(porAprobar, {'zuly'}), isFalse);
       final reasignacion = _tarea({
         'solicitud_reasignacion_estado': 'pendiente',
       });
@@ -82,11 +93,15 @@ void main() {
   });
 
   test('avisos de seguimiento: emisor y aprobador, sin quien actúa', () {
-    expect(taskDestinatariosSeguimiento(_tarea(), excluir: 'yimmy'), {
-      'oscar',
-      'zuly',
-    });
-    expect(taskDestinatariosSeguimiento(_tarea(), excluir: 'zuly'), {'oscar'});
+    expect(taskDestinatariosSeguimiento(_tarea(), excluir: 'yimmy'), {'oscar'});
+    expect(
+      taskDestinatariosSeguimiento(
+        _tarea(),
+        excluir: 'yimmy',
+        incluirJefe: true,
+      ),
+      {'oscar', 'zuly'},
+    );
     final interventoria = _tarea({'creador_id': kCreadorInterventoria});
     expect(taskDestinatariosSeguimiento(interventoria, excluir: 'yimmy'), {
       'zuly',

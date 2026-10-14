@@ -666,8 +666,9 @@ class _ConceptoSanitarioFormState extends State<_ConceptoSanitarioForm> {
       var registradoPorNombre = editar?.registradoPorNombre ?? '';
       if (registradoPor.isEmpty) {
         registradoPor = widget.userId;
-        registradoPorNombre =
-            (await UserDirectory.instance.resolve(widget.userId)).nombre;
+        registradoPorNombre = (await UserDirectory.instance.resolve(
+          widget.userId,
+        )).nombre;
       }
       await widget.service.guardarConceptoSanitario(
         InterventoriaConceptoSanitario(

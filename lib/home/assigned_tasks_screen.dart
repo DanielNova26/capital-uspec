@@ -997,6 +997,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       final recipients = taskDestinatariosSeguimiento(
         taskData,
         excluir: widget.userId,
+        incluirJefe: true,
       );
       if (recipients.isNotEmpty) {
         try {

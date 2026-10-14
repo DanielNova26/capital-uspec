@@ -56,10 +56,14 @@ export function creadorDeTarea(data: Datos | undefined): string {
 export function aprobadorDeTarea(data: Datos | undefined): string {
   const responsable = responsableDeTarea(data);
   const creador = creadorDeTarea(data);
+  const quienAsigno = creador === CREADOR_INTERVENTORIA ? "" : creador;
+  const reasignando =
+    texto(data?.solicitud_reasignacion_estado).toLowerCase() === "pendiente";
   const candidatos = [
+    reasignando ? "" : quienAsigno,
     primero(data?.aprobador_uid, data?.approverId),
     primero(data?.jefe_uid, data?.bossId),
-    creador === CREADOR_INTERVENTORIA ? "" : creador,
+    reasignando ? quienAsigno : "",
   ].filter((c) => c);
   for (const candidato of candidatos) {
     if (candidato !== responsable) return candidato;
@@ -72,17 +76,27 @@ export function aprobadorDeTarea(data: Datos | undefined): string {
  * aprueba, sin quien hizo la acción.
  * @param {Datos | undefined} data Tarea.
  * @param {string} excluir Id de quien hizo la acción.
+ * @param {boolean} incluirJefe Suma al aprobador guardado o jefe inmediato.
  * @return {string[]} Destinatarios sin repetir.
  */
 export function destinatariosSeguimiento(
   data: Datos | undefined,
-  excluir = ""
+  excluir = "",
+  incluirJefe = false
 ): string[] {
   const out = new Set<string>();
   const creador = creadorDeTarea(data);
   if (creador && creador !== CREADOR_INTERVENTORIA) out.add(creador);
   const aprobador = aprobadorDeTarea(data);
   if (aprobador && aprobador !== CREADOR_INTERVENTORIA) out.add(aprobador);
+  if (incluirJefe) {
+    for (const jefe of [
+      primero(data?.aprobador_uid, data?.approverId),
+      primero(data?.jefe_uid, data?.bossId),
+    ]) {
+      if (jefe && jefe !== CREADOR_INTERVENTORIA) out.add(jefe);
+    }
+  }
   out.delete(texto(excluir));
   return [...out];
 }

@@ -42,18 +42,27 @@ String _jefeGuardado(Map<String, dynamic> data) =>
 /// Quien decide hoy sobre la tarea: aprueba la finalización y la
 /// reasignación.
 ///
-/// Orden: `aprobador_uid` (contrato v2), `jefe_uid` (históricas) y quien la
-/// asignó. Nunca el propio responsable: una tarea que se reasignó antes de
+/// - **Finalización**: quien asignó la tarea (5 oct 2026: "debe ser Jessica
+///   Ramírez quien la apruebe, usuario que asigna"), no el jefe del
+///   responsable. Si la asignó el creador automático de Interventoría (que no
+///   es una persona) decide el aprobador guardado.
+/// - **Reasignación en espera**: el aprobador guardado (el jefe inmediato del
+///   responsable) y, en su defecto, quien asignó.
+///
+/// Orden del aprobador guardado: `aprobador_uid` (contrato v2) y `jefe_uid`
+/// (históricas). Nunca el propio responsable: una tarea reasignada antes de
 /// octubre 2026 conserva como aprobador al jefe del responsable anterior, y si
 /// ese jefe es el nuevo responsable terminaba aprobando su propio trabajo
-/// (tarea 2090). En ese caso decide quien la asignó.
+/// (tarea 2090).
 String taskAprobadorId(Map<String, dynamic> data) {
   final responsable = taskResponsableId(data);
   final creador = taskCreadorId(data);
+  final quienAsigno = creador == kCreadorInterventoria ? '' : creador;
+  final guardados = [_aprobadorGuardado(data), _jefeGuardado(data)];
   final candidatos = [
-    _aprobadorGuardado(data),
-    _jefeGuardado(data),
-    if (creador != kCreadorInterventoria) creador,
+    if (!taskReasignacionPendiente(data)) quienAsigno,
+    ...guardados,
+    if (taskReasignacionPendiente(data)) quienAsigno,
   ].where((c) => c.isNotEmpty).toList();
   for (final candidato in candidatos) {
     if (candidato != responsable) return candidato;
@@ -65,6 +74,10 @@ String taskAprobadorId(Map<String, dynamic> data) {
 String taskAprobadorNombre(Map<String, dynamic> data) {
   final id = taskAprobadorId(data);
   if (id.isEmpty) return '';
+  if (id == taskCreadorId(data)) {
+    final nombre = _primero([data['creador_nombre'], data['creatorName']]);
+    if (nombre.isNotEmpty) return nombre;
+  }
   if (id == _aprobadorGuardado(data)) {
     final nombre = _primero([data['aprobador_nombre'], data['approverName']]);
     if (nombre.isNotEmpty) return nombre;
@@ -105,9 +118,14 @@ bool taskEsperaDecisionDe(Map<String, dynamic> data, Iterable<String> ids) {
 /// finalización, solicitud de reasignación): quien asignó la tarea y quien
 /// la aprueba. Nunca a quien hizo la acción ni al creador automático de
 /// Interventoría.
+///
+/// Con [incluirJefe] (solicitud de reasignación) también el aprobador guardado
+/// o jefe inmediato, que es quien la decide aunque la finalización la apruebe
+/// quien asignó.
 Set<String> taskDestinatariosSeguimiento(
   Map<String, dynamic> data, {
   String? excluir,
+  bool incluirJefe = false,
 }) {
   final out = <String>{};
   final creador = taskCreadorId(data);
@@ -115,6 +133,11 @@ Set<String> taskDestinatariosSeguimiento(
   final aprobador = taskAprobadorId(data);
   if (aprobador.isNotEmpty && aprobador != kCreadorInterventoria) {
     out.add(aprobador);
+  }
+  if (incluirJefe) {
+    for (final jefe in [_aprobadorGuardado(data), _jefeGuardado(data)]) {
+      if (jefe.isNotEmpty && jefe != kCreadorInterventoria) out.add(jefe);
+    }
   }
   final fuera = _t(excluir);
   if (fuera.isNotEmpty) out.remove(fuera);
@@ -188,8 +211,13 @@ Map<String, String> taskAprobadorTrasReasignar({
     aprobadorNombre = _primero([tarea['creador_nombre'], tarea['creatorName']]);
   } else {
     // Sin nadie más: se conserva el aprobador que tenía.
-    aprobador = taskAprobadorId(tarea);
-    aprobadorNombre = taskAprobadorNombre(tarea);
+    aprobador = _primero([_aprobadorGuardado(tarea), _jefeGuardado(tarea)]);
+    aprobadorNombre = _primero([
+      tarea['aprobador_nombre'],
+      tarea['approverName'],
+      tarea['jefe_nombre'],
+      tarea['bossName'],
+    ]);
   }
   return {
     'jefe_uid': jefe == nuevo ? '' : jefe,

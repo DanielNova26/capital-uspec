@@ -23,7 +23,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.tareasReemplazarJefeInmediato = void 0;
+exports.tareasSincronizarJefes = exports.tareasReemplazarJefeInmediato = void 0;
 exports.empresasDe = empresasDe;
 exports.raizEsDeEmpresa = raizEsDeEmpresa;
 exports.jefeEnEmpresa = jefeEnEmpresa;
@@ -32,6 +32,7 @@ exports.tareaActiva = tareaActiva;
 exports.aprobadorFijadoPorModulo = aprobadorFijadoPorModulo;
 exports.debeCambiarJefe = debeCambiarJefe;
 exports.actualizacionJefe = actualizacionJefe;
+exports.planSincronizacionJefes = planSincronizacionJefes;
 /**
  * Cambio de jefe inmediato → reemplazo en las tareas activas (28 sep 2026).
  *
@@ -46,12 +47,15 @@ exports.actualizacionJefe = actualizacionJefe;
  * jefe se cambia desde varios sitios; aquí se cubren todos.
  *
  * Solo se reemplaza donde el jefe de la tarea ERA el jefe inmediato anterior.
- * Las tareas de Interventoría no se tocan: su aprobador sale del maestro de
- * numerales (o se elige a mano), no de la jefatura de quien responde.
+ * Las tareas de Interventoría cuyo aprobador salió del maestro de numerales o
+ * se eligió a mano no se tocan; las que lo tomaron de la jefatura de quien
+ * responde (`origenAprobador` = jefeInmediato, o sin marca en las anteriores
+ * al 14 oct 2026) siguen el cambio, y su hallazgo también.
  */
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 const crypto_1 = require("crypto");
+const security_admin_1 = require("./security_admin");
 const REGION = "us-central1";
 const TAREAS = "TBL_TAREAS";
 const USERS = "TBL_USUARIOS";
@@ -186,11 +190,15 @@ function esDeEmpresa(tarea, empresaId) {
 /**
  * ¿El aprobador de la tarea lo fija su módulo y no la jefatura?
  * @param {Datos} tarea Tarea.
- * @return {boolean} true para Interventoría.
+ * @return {boolean} true para Interventoría con aprobador del maestro, elegido
+ *   a mano o ya asignado al hallazgo.
  */
 function aprobadorFijadoPorModulo(tarea) {
     const modulo = texto(tarea.sourceModule || tarea.origen).toLowerCase();
-    return modulo === "interventoria";
+    if (modulo !== "interventoria")
+        return false;
+    const origen = texto(tarea.origenAprobador).toLowerCase();
+    return ["maestro", "elegido", "actual"].includes(origen);
 }
 /**
  * ¿Esta tarea debe pasar al jefe nuevo?
@@ -240,6 +248,75 @@ function nombreUsuario(data, id) {
     }
     return nombres || texto(data.displayName, 160) || id;
 }
+/**
+ * Pasa las tareas [afectadas] de [responsableId] al jefe nuevo, mantiene el
+ * hallazgo de Interventoría y le avisa al jefe nuevo.
+ * @param {FirebaseFirestore.Firestore} db Firestore.
+ * @param {string} responsableId Cédula del responsable.
+ * @param {string} empleado Nombre del responsable.
+ * @param {CambioJefe} cambio Cambio de jefe (con el nombre del jefe nuevo).
+ * @param {FirebaseFirestore.QueryDocumentSnapshot[]} afectadas Tareas a pasar.
+ * @return {Promise<void>} Termina al escribir tareas y aviso.
+ */
+async function reemplazarJefeEnTareas(db, responsableId, empleado, cambio, afectadas) {
+    const nuevo = cambio.nuevo;
+    for (let i = 0; i < afectadas.length; i += 400) {
+        const batch = db.batch();
+        for (const doc of afectadas.slice(i, i + 400)) {
+            const data = doc.data();
+            // El hallazgo de Interventoría guarda el aprobador: se mantiene igual.
+            if (texto(data.sourceEntityCollection) === "TBL_INTERVENTORIA_HALLAZGOS" &&
+                texto(data.sourceEntityId)) {
+                batch.update(db.collection("TBL_INTERVENTORIA_HALLAZGOS").doc(texto(data.sourceEntityId)), {
+                    aprobadorId: nuevo.id,
+                    aprobadorNombre: nuevo.nombre,
+                });
+            }
+            batch.update(doc.ref, {
+                ...actualizacionJefe(data, cambio),
+                // Las reglas de Tareas miran `participantes_uid` para dejar
+                // actuar a quien interviene en la tarea.
+                ...(Array.isArray(data.participantes_uid) ?
+                    { participantes_uid: admin.firestore.FieldValue.arrayUnion(nuevo.id) } :
+                    {}),
+                lastEventAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        }
+        await batch.commit();
+    }
+    const ids = afectadas.map((d) => d.id).sort();
+    const n = ids.length;
+    const notifId = (0, crypto_1.createHash)("sha256")
+        .update(`jefe_reemplazado|${responsableId}|${cambio.empresaId}|${nuevo.id}|${ids.join(",")}`)
+        .digest("hex");
+    await db.collection(NOTIFICATIONS).doc(nuevo.id)
+        .collection("notifications").doc(notifId).set({
+        id: notifId,
+        title: n === 1 ?
+            `Ahora supervisas una tarea de ${empleado}` :
+            `Ahora supervisas ${n} tareas de ${empleado}`,
+        description: `Quedaste como jefe inmediato de ${empleado}. ` +
+            (n === 1 ?
+                "Su tarea activa pasó a tu cargo: te tocará aprobarla." :
+                `Sus ${n} tareas activas pasaron a tu cargo: te tocará aprobarlas.`),
+        type: "task_jefe_reemplazado",
+        taskId: ids[0],
+        module: "tareas",
+        empresaId: cambio.empresaId,
+        fromId: responsableId,
+        fromName: empleado,
+        read: false,
+        createdAt: admin.firestore.Timestamp.now(),
+    });
+    console.log("[reemplazarJefeEnTareas]", responsableId, cambio.empresaId, `${cambio.anteriorId} -> ${nuevo.id}`, `${n} tarea(s)`);
+}
+async function nombreDelJefe(db, nuevo) {
+    if (nuevo.nombre)
+        return nuevo;
+    const jefe = await db.collection(USERS).doc(nuevo.id).get();
+    return { id: nuevo.id, nombre: nombreUsuario(jefe.data() || {}, nuevo.id) };
+}
 exports.tareasReemplazarJefeInmediato = functions
     .region(REGION)
     .firestore.document(`${USERS}/{userId}`)
@@ -260,53 +337,96 @@ exports.tareasReemplazarJefeInmediato = functions
         const afectadas = tareas.docs.filter((d) => debeCambiarJefe(d.data(), cambio));
         if (!afectadas.length)
             continue;
-        let nuevo = cambio.nuevo;
-        if (!nuevo.nombre) {
-            const jefe = await db.collection(USERS).doc(nuevo.id).get();
-            nuevo = { id: nuevo.id, nombre: nombreUsuario(jefe.data() || {}, nuevo.id) };
-        }
-        const conNombre = { ...cambio, nuevo };
-        for (let i = 0; i < afectadas.length; i += 400) {
-            const batch = db.batch();
-            for (const doc of afectadas.slice(i, i + 400)) {
-                const data = doc.data();
-                batch.update(doc.ref, {
-                    ...actualizacionJefe(data, conNombre),
-                    // Las reglas de Tareas miran `participantes_uid` para dejar
-                    // actuar a quien interviene en la tarea.
-                    ...(Array.isArray(data.participantes_uid) ?
-                        { participantes_uid: admin.firestore.FieldValue.arrayUnion(nuevo.id) } :
-                        {}),
-                    lastEventAt: admin.firestore.FieldValue.serverTimestamp(),
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                });
-            }
-            await batch.commit();
-        }
-        const ids = afectadas.map((d) => d.id).sort();
-        const n = ids.length;
-        const notifId = (0, crypto_1.createHash)("sha256")
-            .update(`jefe_reemplazado|${userId}|${cambio.empresaId}|${nuevo.id}|${ids.join(",")}`)
-            .digest("hex");
-        await db.collection(NOTIFICATIONS).doc(nuevo.id)
-            .collection("notifications").doc(notifId).set({
-            id: notifId,
-            title: n === 1 ?
-                `Ahora supervisas una tarea de ${empleado}` :
-                `Ahora supervisas ${n} tareas de ${empleado}`,
-            description: `Quedaste como jefe inmediato de ${empleado}. ` +
-                (n === 1 ?
-                    "Su tarea activa pasó a tu cargo: te tocará aprobarla." :
-                    `Sus ${n} tareas activas pasaron a tu cargo: te tocará aprobarlas.`),
-            type: "task_jefe_reemplazado",
-            taskId: ids[0],
-            module: "tareas",
-            empresaId: cambio.empresaId,
-            fromId: userId,
-            fromName: empleado,
-            read: false,
-            createdAt: admin.firestore.Timestamp.now(),
-        });
-        console.log("[tareasReemplazarJefeInmediato]", userId, cambio.empresaId, `${cambio.anteriorId} -> ${nuevo.id}`, `${n} tarea(s)`);
+        const nuevo = await nombreDelJefe(db, cambio.nuevo);
+        await reemplazarJefeEnTareas(db, userId, empleado, { ...cambio, nuevo }, afectadas);
     }
+});
+/**
+ * Qué tareas abiertas de la empresa tienen un jefe distinto al jefe inmediato
+ * que hoy tiene su responsable. No toca las que no tienen jefe guardado
+ * (Visitas: aprueba quien asignó) ni las de Interventoría con aprobador del
+ * maestro o elegido a mano.
+ * @param {TareaSincronizable[]} tareas Tareas de la empresa.
+ * @param {Map<string, JefeEnEmpresa>} jefes Jefe actual por responsable.
+ * @param {string} empresaId Empresa.
+ * @return {PlanSincronizacion[]} Cambios a aplicar.
+ */
+function planSincronizacionJefes(tareas, jefes, empresaId) {
+    const plan = [];
+    for (const { id, data } of tareas) {
+        if (!tareaActiva(data) || !esDeEmpresa(data, empresaId))
+            continue;
+        if (aprobadorFijadoPorModulo(data))
+            continue;
+        const responsable = texto(data.asignado_uid || data.assignedTo);
+        const jefe = jefes.get(responsable);
+        const actual = texto(data.jefe_uid || data.bossId);
+        if (!jefe || !jefe.id || jefe.id === responsable)
+            continue;
+        if (!actual || actual === jefe.id)
+            continue;
+        plan.push({
+            tareaId: id,
+            responsableId: responsable,
+            cambio: { empresaId, anteriorId: actual, nuevo: jefe },
+        });
+    }
+    return plan;
+}
+/**
+ * Sincronizar jefes de las tareas abiertas (Admin › Migraciones), por empresa
+ * y revisable: `aplicar: false` solo cuenta; `aplicar: true` las pasa al
+ * jefe inmediato vigente de cada responsable. Cubre lo que el disparador no
+ * alcanzó (cambios hechos antes de él o en tareas de Interventoría).
+ */
+exports.tareasSincronizarJefes = functions
+    .region(REGION)
+    .runWith({ timeoutSeconds: 540, memory: "1GB" })
+    .https.onCall(async (data, context) => {
+    const caller = await (0, security_admin_1.requireAdmin)(data, context);
+    const empresaId = caller.empresaId;
+    const aplicar = data?.aplicar === true;
+    const db = admin.firestore();
+    const snap = await db.collection(TAREAS).where("empresaId", "==", empresaId).get();
+    const abiertas = snap.docs.filter((d) => tareaActiva(d.data()));
+    const responsables = [...new Set(abiertas
+            .map((d) => texto(d.data().asignado_uid || d.data().assignedTo))
+            .filter((r) => r))];
+    const usuarios = new Map();
+    for (let i = 0; i < responsables.length; i += 300) {
+        const refs = responsables.slice(i, i + 300).map((r) => db.collection(USERS).doc(r));
+        for (const u of await db.getAll(...refs))
+            if (u.exists)
+                usuarios.set(u.id, u.data() || {});
+    }
+    const jefes = new Map();
+    for (const [id, u] of usuarios)
+        jefes.set(id, jefeEnEmpresa(u, empresaId));
+    const plan = planSincronizacionJefes(abiertas.map((d) => ({ id: d.id, data: d.data() })), jefes, empresaId);
+    const resumen = {
+        abiertas: abiertas.length,
+        desactualizadas: plan.length,
+        personas: new Set(plan.map((p) => p.responsableId)).size,
+    };
+    if (!aplicar || plan.length === 0)
+        return { ...resumen, actualizadas: 0, aplicado: false };
+    const porGrupo = new Map();
+    for (const p of plan) {
+        const clave = `${p.responsableId}|${p.cambio.anteriorId}|${p.cambio.nuevo.id}`;
+        porGrupo.set(clave, [...(porGrupo.get(clave) ?? []), p]);
+    }
+    const porId = new Map(snap.docs.map((d) => [d.id, d]));
+    let actualizadas = 0;
+    for (const grupo of porGrupo.values()) {
+        const primero = grupo[0];
+        const nuevo = await nombreDelJefe(db, primero.cambio.nuevo);
+        const afectadas = grupo
+            .map((p) => porId.get(p.tareaId))
+            .filter((d) => !!d);
+        const empleado = nombreUsuario(usuarios.get(primero.responsableId) || {}, primero.responsableId);
+        await reemplazarJefeEnTareas(db, primero.responsableId, empleado, { ...primero.cambio, nuevo }, afectadas);
+        actualizadas += afectadas.length;
+    }
+    console.log("[tareasSincronizarJefes]", empresaId, caller.userDocId, actualizadas);
+    return { ...resumen, actualizadas, aplicado: true };
 });

@@ -440,7 +440,10 @@ AprobadorPropuesto resolverAprobadorAsignacion({
 ///
 /// Si salió de la regla, el cargo tal como lo nombra el maestro; si se eligió
 /// a mano o es el jefe inmediato, el cargo real de esa persona.
-String cargoDelAprobador(AprobadorPropuesto propuesto, {String cargoRegla = ''}) {
+String cargoDelAprobador(
+  AprobadorPropuesto propuesto, {
+  String cargoRegla = '',
+}) {
   final persona = propuesto.persona;
   if (persona == null) return '';
   if (propuesto.origen == OrigenAprobador.maestro &&
@@ -1559,9 +1562,7 @@ class InterventoriaService {
 
   Future<String> guardarVisita(InterventoriaVisita visita) async {
     if (visita.idVisitaK2.trim().isEmpty) {
-      throw ArgumentError(
-        'Indica el número de acta.',
-      );
+      throw ArgumentError('Indica el número de acta.');
     }
     final ref = visita.id.isEmpty
         ? _db.collection('TBL_INTERVENTORIA_VISITAS').doc()
@@ -2789,7 +2790,9 @@ class InterventoriaService {
         centrosPorGrupo
             .putIfAbsent(clave, () => <String>{})
             .addAll(
-              centros.map((c) => c.toString().trim()).where((c) => c.isNotEmpty),
+              centros
+                  .map((c) => c.toString().trim())
+                  .where((c) => c.isNotEmpty),
             );
       }
     } catch (_) {
@@ -3309,6 +3312,155 @@ class InterventoriaService {
       creadorId: creadorId,
       creadorNombre: creadorNombre,
     );
+  }
+
+  /// Qué tareas automáticas cambiarían de responsable si se aplicaran hoy los
+  /// grupos de Talento Humano (`gruposInterventoria`), el cargo de la regla y
+  /// el establecimiento del hallazgo. No escribe nada.
+  Future<PrevisionReasignacionGrupos> previsualizarReasignacionPorGrupos(
+    String empresaId,
+  ) => enLote(() => _planearReasignacionPorGrupos(empresaId));
+
+  Future<PrevisionReasignacionGrupos> _planearReasignacionPorGrupos(
+    String empresaId,
+  ) async {
+    final hallazgosSnap = await _db
+        .collection('TBL_INTERVENTORIA_HALLAZGOS')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+    final tareasSnap = await _db
+        .collection('TBL_TAREAS')
+        .where('empresaId', isEqualTo: empresaId)
+        .where('sourceModule', isEqualTo: 'interventoria')
+        .get();
+    final tareas = {for (final d in tareasSnap.docs) d.id: d.data()};
+    final activos = {
+      for (final u in await _usuariosDeEmpresa(
+        empresaId,
+        soloAsignables: false,
+      ))
+        u.id,
+    };
+    final cambios = <ReasignacionPorGrupo>[];
+    final otras = <DecisionReasignacionGrupo, int>{};
+    String texto(Object? v) => (v ?? '').toString().trim();
+
+    for (final doc in hallazgosSnap.docs) {
+      final hallazgo = InterventoriaHallazgo.fromMap(doc.id, doc.data());
+      final tareaId = hallazgo.tareaId.trim();
+      if (tareaId.isEmpty || hallazgo.isSubsanado) continue;
+      final tarea = tareas[tareaId];
+      if (tarea == null) continue;
+      final sugerida = await resolverAsignacionPorNumeral(
+        empresaId: empresaId,
+        numeral: hallazgo.numeralParaMatriz,
+        centroCostoId: hallazgo.centroCostoId,
+        desde: hallazgo.fechaHallazgo.toDate(),
+        tipoActa: hallazgo.tipoActa,
+      );
+      final decision = decidirReasignacionPorGrupo(
+        tarea: tarea,
+        responsable: sugerida?.responsable,
+        aprobador: sugerida?.aprobador,
+        activosIds: activos,
+      );
+      if (decision != DecisionReasignacionGrupo.reasignar) {
+        otras[decision] = (otras[decision] ?? 0) + 1;
+        continue;
+      }
+      final nuevo = sugerida!.responsable!;
+      cambios.add(
+        ReasignacionPorGrupo(
+          hallazgo: hallazgo,
+          taskId: tareaId,
+          anteriorId: texto(tarea['asignado_uid'] ?? tarea['assignedTo']),
+          anteriorNombre: texto(
+            tarea['asignado_nombre'] ?? tarea['assignedToName'],
+          ),
+          nuevoId: nuevo.id,
+          nuevoNombre: nuevo.nombre,
+          numeroTarea: int.tryParse(texto(tarea['numero'])),
+          anteriorAprobadorId: texto(
+            tarea['aprobador_uid'] ?? tarea['jefe_uid'],
+          ),
+          nuevoAprobadorId: sugerida.aprobador?.id ?? '',
+        ),
+      );
+    }
+    return PrevisionReasignacionGrupos(cambios: cambios, otras: otras);
+  }
+
+  /// Reasigna las tareas automáticas aún sin iniciar a quien hoy corresponde
+  /// por cargo, establecimiento y grupo. Recrea la tarea con el mismo id (y
+  /// conserva su número), borra los avisos de quien la pierde y manda UN aviso
+  /// por persona a quien la recibe. Las tareas iniciadas o asignadas a mano no
+  /// se tocan. Idempotente: una segunda pasada ya no encuentra cambios.
+  Future<InterventoriaAutoAsignacionResultado> reasignarTareasPorGrupos({
+    required String empresaId,
+    required String creadorId,
+    String creadorNombre = '',
+  }) => enLote(() async {
+    final plan = await _planearReasignacionPorGrupos(empresaId);
+    var hechas = 0;
+    final errores = <String>[];
+    final creadas = <InterventoriaTareaCreada>[];
+    for (final cambio in plan.cambios) {
+      try {
+        final taskId = await crearTareaYNotificarHallazgo(
+          hallazgo: cambio.hallazgo,
+          creadorId: creadorId,
+          creadorNombre: creadorNombre,
+          notificarCreacion: false,
+          alCrear: creadas.add,
+        );
+        if (taskId == null || taskId.trim().isEmpty) {
+          errores.add(
+            '${cambio.hallazgo.numeralParaMatriz}: no se creó la tarea',
+          );
+          continue;
+        }
+        final numero = cambio.numeroTarea;
+        if (numero != null && numero > 0) {
+          try {
+            await _db.collection('TBL_TAREAS').doc(taskId).update({
+              'numero': numero,
+            });
+          } catch (_) {}
+        }
+        await _borrarAvisosDeTarea(cambio.personasQueLaPierden, cambio.taskId);
+        hechas++;
+      } catch (error) {
+        errores.add('${cambio.hallazgo.numeralParaMatriz}: $error');
+      }
+    }
+    final avisos = await enviarAvisosAsignacion(creadas);
+    return InterventoriaAutoAsignacionResultado(
+      creadas: hechas,
+      pendientes: errores.length,
+      errores: errores,
+      avisos: avisos,
+    );
+  });
+
+  /// Quita de la bandeja de [personas] los avisos de [tareaId]. No bloquea la
+  /// reasignación si alguno no se puede borrar.
+  Future<void> _borrarAvisosDeTarea(
+    Iterable<String> personas,
+    String tareaId,
+  ) async {
+    for (final persona in personas) {
+      try {
+        final snap = await _db
+            .collection(TaskService.notifsRoot)
+            .doc(persona)
+            .collection('notifications')
+            .where('taskId', isEqualTo: tareaId)
+            .get();
+        for (final d in snap.docs) {
+          await d.reference.delete();
+        }
+      } catch (_) {}
+    }
   }
 
   /// Hallazgos abiertos de la empresa que todavía no tienen tarea: lo que
@@ -4047,6 +4199,9 @@ class InterventoriaService {
         'ejecutadoPorId': creadorId,
         'ejecutadoPorNombre': creadorNombreReal,
         'aprobadorId': aprobador.id,
+        // De dónde salió el aprobador: solo el que viene de la jefatura
+        // sigue el cambio de jefe inmediato (`tareasReemplazarJefeInmediato`).
+        'origenAprobador': propuesto.origen.name,
         // Marca que permite reasignación directa sin aprobación extra
         'permite_reasignacion_director': true,
         // En lote el aviso es uno por persona al final (`_asignarEnLote`);

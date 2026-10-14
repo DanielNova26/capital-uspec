@@ -339,6 +339,19 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
     } else {
       porResponsables(_subordinados);
     }
+    if (!_soyGerente) {
+      // Respaldo para quien lidera gente que la estructura organizacional no
+      // le enlaza (5 oct 2026: al contador no le salían las tareas de su
+      // equipo): las tareas cuyo jefe o aprobador guardado es esta persona.
+      for (final campo in const ['jefe_uid', 'aprobador_uid']) {
+        consultas.add(
+          db
+              .where(campo, isEqualTo: widget.currentUserId)
+              .where('empresaId', isEqualTo: empresa)
+              .limit(800),
+        );
+      }
+    }
     return consultas;
   }
 
@@ -464,6 +477,8 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
 
   List<_Doc> _abiertas(List<_Doc> docs) => docs.where((d) {
     final m = d.data();
+    // Las propias no son del equipo (salvo Gerencia, que ve la empresa).
+    if (!_soyGerente && _responsableDe(m) == widget.currentUserId) return false;
     return TeamCompanyScope.taskBelongsToCompany(m, _empresaId) &&
         taskEstadoVisible(m) != TaskEstadoVisible.terminada;
   }).toList();

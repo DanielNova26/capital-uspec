@@ -24,7 +24,9 @@ const tarea = (extra = {}) => ({
 });
 
 test('el aprobador nunca es el responsable', () => {
-  assert.equal(aprobadorDeTarea(tarea()), 'zuly');
+  // La finalización la aprueba quien asignó; la reasignación, el jefe.
+  assert.equal(aprobadorDeTarea(tarea()), 'oscar');
+  assert.equal(aprobadorDeTarea(tarea({solicitud_reasignacion_estado: 'pendiente'})), 'zuly');
   // Reasignada a quien era el aprobador: decide quien la asignó (tarea 2090).
   assert.equal(aprobadorDeTarea(tarea({asignado_uid: 'zuly'})), 'oscar');
   // Visitas: sin jefe, aprueba quien la asignó.
@@ -35,8 +37,9 @@ test('el aprobador nunca es el responsable', () => {
   );
 });
 
-test('la finalización avisa al aprobador y a quien asignó', () => {
-  assert.deepEqual(destinatariosSeguimiento(tarea(), 'yimmy').sort(), ['oscar', 'zuly']);
+test('la finalización avisa a quien asignó; la reasignación, también al jefe', () => {
+  assert.deepEqual(destinatariosSeguimiento(tarea(), 'yimmy'), ['oscar']);
+  assert.deepEqual(destinatariosSeguimiento(tarea(), 'yimmy', true).sort(), ['oscar', 'zuly']);
   assert.deepEqual(destinatariosSeguimiento(tarea({creador_id: 'zuly'}), 'yimmy'), ['zuly']);
   assert.deepEqual(
     destinatariosSeguimiento(tarea({creador_id: CREADOR_INTERVENTORIA}), 'yimmy'),

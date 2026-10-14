@@ -1,3 +1,4 @@
+import '../core/task_origen.dart';
 import 'interventoria_actas_catalogo.dart';
 import 'interventoria_models.dart';
 import 'interventoria_numerales_catalogo.dart';
@@ -664,6 +665,122 @@ List<CorreccionResponsable> responsablesDesactualizados({
     );
   }
   return out;
+}
+
+// ── Reasignación por grupos ────────────────────────────────────────────────
+
+/// Qué hacer con una tarea ya creada cuando cambian los grupos de las
+/// personas (14 oct 2026). Solo [reasignar] toca la tarea.
+enum DecisionReasignacionGrupo {
+  reasignar,
+  sinCambio,
+
+  /// La eligió una persona a mano o el responsable la pasó desde "Mis tareas":
+  /// una decisión humana no se pisa con la regla.
+  manual,
+
+  /// Ya tiene avance (no está "pendiente"): moverla perdería su historial.
+  enCurso,
+
+  /// El maestro no resuelve responsable hoy.
+  sinResponsable,
+
+  /// Nadie cubre el establecimiento por grupo o por centro y quien la tiene
+  /// sigue activo: se queda donde está en vez de saltar a un cargo corporativo.
+  sinCobertura,
+}
+
+String etiquetaDecisionReasignacion(DecisionReasignacionGrupo d) => switch (d) {
+  DecisionReasignacionGrupo.reasignar => 'Se reasignan',
+  DecisionReasignacionGrupo.sinCambio => 'Ya están con quien corresponde',
+  DecisionReasignacionGrupo.manual =>
+    'Asignadas a mano o reasignadas por el responsable',
+  DecisionReasignacionGrupo.enCurso => 'Ya iniciadas (se conservan)',
+  DecisionReasignacionGrupo.sinResponsable =>
+    'El maestro no resuelve responsable',
+  DecisionReasignacionGrupo.sinCobertura =>
+    'Nadie del grupo cubre el establecimiento',
+};
+
+/// Decide si una tarea automática de Interventoría debe pasar a quien hoy
+/// resuelve el maestro (cargo + establecimiento + grupo de Talento Humano).
+///
+/// [responsable] y [aprobador] son lo que resuelve la regla ahora;
+/// [activosIds] las personas habilitadas hoy en la empresa.
+DecisionReasignacionGrupo decidirReasignacionPorGrupo({
+  required Map<String, dynamic> tarea,
+  required InterventoriaPersona? responsable,
+  required InterventoriaPersona? aprobador,
+  required Set<String> activosIds,
+}) {
+  String texto(Object? v) => (v ?? '').toString().trim();
+  if (!esAsignacionAutomaticaDeModulo(tarea) || tarea['reasignado'] == true) {
+    return DecisionReasignacionGrupo.manual;
+  }
+  if (responsable == null) return DecisionReasignacionGrupo.sinResponsable;
+  final actual = texto(tarea['asignado_uid'] ?? tarea['assignedTo']);
+  final aprobadorActual = texto(tarea['aprobador_uid'] ?? tarea['jefe_uid']);
+  final cambiaResponsable = responsable.id != actual;
+  final cambiaAprobador = aprobador != null && aprobador.id != aprobadorActual;
+  if (!cambiaResponsable && !cambiaAprobador) {
+    return DecisionReasignacionGrupo.sinCambio;
+  }
+  if (texto(tarea['estado']).toLowerCase() != 'pendiente') {
+    return DecisionReasignacionGrupo.enCurso;
+  }
+  if (cambiaResponsable &&
+      !responsable.delCentro &&
+      activosIds.contains(actual)) {
+    return DecisionReasignacionGrupo.sinCobertura;
+  }
+  return DecisionReasignacionGrupo.reasignar;
+}
+
+/// Una tarea que la reasignación por grupos movería (o movió).
+class ReasignacionPorGrupo {
+  final InterventoriaHallazgo hallazgo;
+  final String taskId;
+  final String anteriorId;
+  final String anteriorNombre;
+  final String nuevoId;
+  final String nuevoNombre;
+  final int? numeroTarea;
+  final String anteriorAprobadorId;
+  final String nuevoAprobadorId;
+
+  const ReasignacionPorGrupo({
+    required this.hallazgo,
+    required this.taskId,
+    required this.anteriorId,
+    required this.anteriorNombre,
+    required this.nuevoId,
+    required this.nuevoNombre,
+    this.numeroTarea,
+    this.anteriorAprobadorId = '',
+    this.nuevoAprobadorId = '',
+  });
+
+  /// Personas que dejan de tener esta tarea y deben perder su aviso.
+  Set<String> get personasQueLaPierden => {
+    if (anteriorId.isNotEmpty && anteriorId != nuevoId) anteriorId,
+    if (anteriorAprobadorId.isNotEmpty &&
+        anteriorAprobadorId != nuevoAprobadorId &&
+        anteriorAprobadorId != nuevoId)
+      anteriorAprobadorId,
+  };
+}
+
+/// Vista previa de la reasignación por grupos.
+class PrevisionReasignacionGrupos {
+  final List<ReasignacionPorGrupo> cambios;
+  final Map<DecisionReasignacionGrupo, int> otras;
+
+  const PrevisionReasignacionGrupos({
+    this.cambios = const [],
+    this.otras = const {},
+  });
+
+  int get total => cambios.length + otras.values.fold(0, (a, b) => a + b);
 }
 
 // ── 3. Hallazgos sin tarea ─────────────────────────────────────────────────

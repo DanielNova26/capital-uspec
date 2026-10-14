@@ -1,5 +1,34 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-14 — Admin › Grupos: sincronización de personas (Claude)
+
+- Admin › Gestión interna › Grupos: tablero "Sincronización de personas"
+  (`lib/admin/grupos_sincronizacion.dart`). Cruza establecimiento → grupo
+  (Admin) con los establecimientos de cada persona (Talento Humano). Estados:
+  por sincronizar, establecimiento sin grupo, sin establecimiento, en orden;
+  además marca grupos "de más" sin quitarlos.
+- "Sincronizar grupos" solo AGREGA `gruposInterventoria` (reusa
+  `aplicarCambiosCobertura`: TBL_USUARIOS y espejos). No quita grupos ni mueve
+  tareas; luego se usa "Reasignar por grupos" en Interventoría.
+- Los grupos inactivos no sincronizan. Prueba `grupos_sincronizacion_test`.
+- Sin verificar visualmente en Web ancho/estrecho, Android ni iOS.
+
+## 2026-10-14 — Interventoría: reasignar por grupos (Claude)
+
+- Maestro › Revisión › Hallazgos sin tarea: sección "Reasignar por grupos" con
+  "Revisar cambios" (vista previa, no escribe) y "Reasignar por grupos".
+  Reaplica el maestro (cargo + establecimiento + `gruposInterventoria` de
+  Talento Humano) a tareas automáticas ya creadas: recrea la tarea con el mismo
+  id, conserva su número, borra los avisos de quien la pierde y manda un solo
+  aviso por nuevo responsable (aprobador en silencio).
+- No toca tareas iniciadas, subsanadas, asignadas a mano ni reasignadas desde
+  "Mis tareas"; tampoco las pasa a un cargo corporativo si quien las tiene sigue
+  activo y nadie cubre la sede. Idempotente. Lógica en
+  `decidirReasignacionPorGrupo`; prueba `interventoria_reasignacion_grupos_test`.
+- Pendiente de verificar con datos reales por empresa; el borrado de avisos
+  ajenos depende de reglas de `TBL_NOTIFICACIONES` (best effort, no bloquea).
+  Web ancho estrecho/amplio, Android e iOS no verificados visualmente.
+
 ## 2026-10-14 — Interventoría: correcciones del documento del 10 de octubre (Codex)
 
 - Se integran, con autorización expresa del usuario, los avances locales de
@@ -10959,3 +10988,117 @@ no se compiló ni se corrieron tests.
 - **Sin verificar:** Web (390/768/1024/1366), Android e iOS, escala de texto y
   teclado en "Mis avisos" y en el panel del maestro; compilación TS/Dart.
 - **Pendiente:** seguridad (reglas de `TBL_NOTIFICACIONES`, `registerDeviceToken`).
+
+## 2026-10-14 — Tareas: documentos "Tareas - septiembre 04 y 05 de 2026" (Claude)
+
+Pedido del usuario: "mejorar lo de tareas como se indica en el Word". El
+documento del 04 es el mismo ya atendido el 5 oct (ver arriba: números en
+avisos, Crear tarea, reasignación, avance/novedad, historial, Interventoría,
+"No opera en To-Do"); no se repitió trabajo. Lo nuevo es el del 05.
+
+- **Aprobador de la finalización = quien asignó la tarea**
+  (`taskAprobadorId`, espejo `aprobadorDeTarea` en `tareas_avisos.ts`). Antes
+  decidía el jefe del responsable: la tarea 2164 (asignó Jessica Ramírez a
+  Camila Sabogal) le salía en "Por aprobar" al jefe. Ahora le sale a Jessica;
+  el jefe ya no la ve ahí. Con una **reasignación en espera** sigue decidiendo
+  el aprobador guardado (jefe inmediato), como pide el documento del 04. Las
+  tareas del creador automático de Interventoría conservan su aprobador
+  guardado. La solicitud de reasignación avisa a quien asignó **y** al jefe
+  (`incluirJefe`); avance, novedad y finalización avisan a quien asignó.
+  Tras aprobar una reasignación, el aprobador guardado sigue siendo el jefe
+  del nuevo responsable (sin cambio). **Decisión que conviene confirmar:** el
+  jefe ya no es aprobador de finalizaciones de tareas manuales.
+- **Por aprobar**: la tarjeta muestra "Asignada el dd/MM/yyyy" (junto a la
+  fecha límite y el N.º, que sale si la tarea ya está numerada; las de
+  Interventoría anteriores a la numeración no lo tienen hasta correr Admin ›
+  Migraciones › "Número interno de tareas"). "Ver comentario y evidencias"
+  abre con una cabecera: N.º, asignada, fecha límite, terminada y quién asignó.
+- **Tareas de mi equipo**: además de las personas a cargo según la estructura,
+  se listan las tareas cuyo `jefe_uid` o `aprobador_uid` es la persona
+  (respaldo para quien lidera gente que la estructura no le enlaza; el caso
+  del Contador). No se pudo reproducir con datos reales: si sigue vacío, hace
+  falta ver su ficha en `TBL_ESTRUCTURA_ORGANIZACIONAL` (jefe de sus auxiliares).
+  Las tareas propias no cuentan como del equipo (salvo Gerencia).
+- **Tareas repetitivas** (nuevo). Crear tarea › "Repetir": no se repite,
+  todos los días, cada semana (días a elegir: lunes, jueves…) o cada mes (día
+  1–31; en meses cortos, el último día). La tarea de hoy se crea normal y se
+  guarda una plantilla en `TBL_TAREAS_RECURRENTES`; la función programada
+  `tareasRecurrentesGenerar` (05:00 Bogotá) crea la tarea de cada día que toca
+  con el mismo responsable, aprobador, prioridad, evidencias y plazo (días
+  entre creación y límite). Id `rec_{plantilla}_{aaaammdd}` (no duplica si
+  corre dos veces), no acumula atrasadas, omite si el responsable ya no
+  existe o está inactivo y se desactiva sola si no hay próxima fecha. Cálculo
+  compartido: `lib/core/task_recurrencia.dart` ↔ `functions/src/tareas_recurrentes.ts`.
+  Reglas: solo quien asigna crea, lee, pausa (`activa`) y borra su plantilla
+  (excluida de la regla general). Índice nuevo `activa + proximaEjecucion`.
+  **Falta**: pantalla para ver, pausar o borrar las repeticiones (hoy solo por
+  consola); la plantilla no copia adjuntos de la tarea original.
+- **Respuestas a las preguntas del documento (sin cambio de código):**
+  - *¿Cómo se notifica la devolución de actas?* `devolverActaParaCorreccion`
+    deja el acta en "Devuelta" y crea una tarea de corrección para el
+    administrador del establecimiento (cargo de la matriz); `onTaskCreated` le
+    avisa a esa persona. No se avisa a quien cargó el acta si es otra: solo
+    ve el cartel "Devuelta" en el histórico. Si el establecimiento no tiene
+    ese cargo, el acta vuelve igual y no hay tarea.
+  - *Tareas "Corregir documento" de Revisión de Calidad que no son de la
+    persona:* `_notificarYTareaRechazo` (Compras) las asigna al **Analista de
+    Compras** de la empresa (quien subió el documento si es analista; si no,
+    el primero por orden alfabético; sin analista, rol Compras o quien subió).
+    Por eso un analista recibe todas las de la empresa, incluidos los
+    documentos de productos de prueba (Ferretería Prueba, Pescado
+    Porcionado). Si se prefiere asignarlas a quien subió el documento, es un
+    cambio de regla de negocio: no se hizo sin confirmación.
+  - *"Tarea asignada por una persona distinta a Oscar Cano":* era el caso de
+    la tarea 2164 de arriba (la veía Oscar como jefe); queda resuelto con el
+    nuevo aprobador.
+- **Pendiente**: "revisar errores de fecha en acta" (Visitas/Interventoría,
+  capturas con "Subida el 08/10/2026 05:37" para una visita del 07/10 y
+  "última acta" 09/10 y 10/10): sin el acta concreta no se puede decir cuál
+  es el error; hace falta un ejemplo (establecimiento y fecha esperada).
+- **Validación**: `flutter test` 1694/1694; Functions `npm test` 196/196;
+  reglas en emulador `tareas_rules.rules.js` 19/19 (1 nueva); ESLint sin
+  errores en lo nuevo. Sin verificación visual en Web 390/768/1024/1366,
+  texto ampliado, Android ni iOS (solo pruebas).
+- **Despliegue**: Functions `onTaskUpdated`/`onTaskCreated` (destinatarios),
+  nueva `tareasRecurrentesGenerar`, reglas, índice y Web. Sin reglas, la
+  repetición falla al guardar la plantilla (la tarea sí se crea).
+- **Actualización 14 oct — "Corregir documento" (Revisión de Calidad):** por
+  decisión del usuario, la tarea de un documento rechazado se asigna a quien
+  lo subió si sigue activo y asignable en la empresa; el Analista de Compras
+  (y luego rol Compras) queda solo de respaldo
+  (`_responsableRevisionDocumental(soloSiSubidorActivo: true)`). Las tareas de
+  "Completar requerimiento" y demás flujos siguen con el Analista. Las ya
+  creadas no se reasignan. Sin prueba unitaria nueva (depende de Firestore).
+- **Actualización 14 oct — cambio de jefe desde Talento Humano y Por aprobar
+  (Interventoría):** al pasar a Alex de un jefe a Richar en TH (estructura
+  organizacional → `TBL_USUARIOS.empresasDetalle.{empresa}.jefeId`), el
+  disparador `tareasReemplazarJefeInmediato` sí corre, pero excluía **todas** las
+  tareas de Interventoría, así que el jefe anterior seguía viendo sus tareas
+  en "Por aprobar". Ahora esas tareas siguen el cambio cuando el aprobador salió
+  de la jefatura: nueva marca `origenAprobador` (maestro | elegido | actual |
+  jefeInmediato) en tareas nuevas; las de maestro, elegido o actual no se
+  tocan; las anteriores a la marca (sin ella) sí se reemplazan si su jefe era el
+  anterior. También se actualiza `aprobadorId/aprobadorNombre` del hallazgo.
+  **No corrige lo ya cambiado:** el disparador solo reacciona a un cambio de
+  jefe nuevo. Para las tareas actuales de Alex: volver a poner a Richar tras
+  poner un jefe distinto en TH, o usar "Cambiar aprobador" del hallazgo en
+  Interventoría (`interventoriaCambiarAprobador`). Despliegue: Functions
+  `tareasReemplazarJefeInmediato`. Pruebas: Functions 197/197.
+- **Actualización 14 oct — Admin › Migraciones › "Sincronizar jefes de las
+  tareas"** (`lib/admin/task_jefes_sync_card.dart`, callable
+  `tareasSincronizarJefes` en `jefe_inmediato_sync.ts`). Por empresa activa y en
+  dos pasos (Revisar → Sincronizar tareas, solo Admin/Desarrollo de la empresa):
+  toma cada tarea abierta, compara su `jefe_uid` con el jefe inmediato vigente
+  del responsable (`TBL_USUARIOS`) y, si difieren, la pasa al jefe vigente con la
+  misma lógica del disparador (aprobador solo si seguía al jefe anterior,
+  hallazgo de Interventoría al día, aviso al jefe nuevo). No toca cerradas, sin
+  jefe guardado (Visitas), ni Interventoría con aprobador del maestro/elegido a
+  mano. Sirve para corregir las tareas ya desactualizadas (caso Alex/Richar) sin
+  repetir el cambio en Talento Humano. Despliegue: Functions
+  `tareasSincronizarJefes` + Web. Pruebas Functions 198/198; sin prueba de widget
+  ni verificación visual de la tarjeta.
+- **Versión 14 oct:** `pubspec.yaml` pasa de 2.6.26+40 a **2.6.27+41** (Tareas:
+  aprobador, repetitivas, jefe en Interventoría y sincronizar jefes). Sin guía de
+  publicación nueva ni entrega a tiendas móviles: la Web y las Functions se
+  despliegan; las apps móviles necesitan compilar 2.6.27+41 para recibir los
+  cambios de pantalla.

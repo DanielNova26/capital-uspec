@@ -1,6 +1,14 @@
 {
   "indexes": [
     {
+      "collectionGroup": "TBL_TAREAS_RECURRENTES",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "activa", "order": "ASCENDING"},
+        {"fieldPath": "proximaEjecucion", "order": "ASCENDING"}
+      ]
+    },
+    {
       "collectionGroup": "TBL_VISITAS",
       "queryScope": "COLLECTION",
       "fields": [
