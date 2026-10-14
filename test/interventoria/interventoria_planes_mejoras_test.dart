@@ -234,6 +234,18 @@ void main() {
                   child: PlanDetalle(
                     planId: 'p',
                     request: (input) async {
+                      if (input['accion'] == 'actasCandidatas')
+                        return {
+                          'actas': [
+                            {
+                              'id': 'v',
+                              'establecimientoId': 'armenia',
+                              'establecimiento': 'Armenia',
+                              'idVisitaK2': 'ACT-123',
+                              'fechaActa': '2026-10-08',
+                            },
+                          ],
+                        };
                       if (input['accion'] == 'candidatos')
                         return {
                           'candidatos':
@@ -249,6 +261,7 @@ void main() {
                                   .map(
                                     (r) => {
                                       ...r,
+                                      'visitaId': 'v',
                                       'tareaId': 't',
                                       'idVisitaK2': r['id'] == 'sin-acta'
                                           ? ''
@@ -307,17 +320,21 @@ void main() {
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
         expect(find.textContaining('Visita sin identificar'), findsNothing);
+        expect(find.byType(CheckboxListTile), findsNothing);
+        await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Armenia').last);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byType(DropdownButtonFormField<String>).last);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Acta ACT-123 · 2026-10-08').last);
+        await tester.pumpAndSettle();
         expect(find.byType(CheckboxListTile), findsNWidgets(3));
-        if (width == 390) {
-          tester.view.viewInsets = const FakeViewPadding(bottom: 320);
-          await tester.enterText(find.byType(TextField).first, 'Armenia');
-          await tester.pumpAndSettle();
-          expect(tester.takeException(), isNull);
-          tester.view.resetViewInsets();
-          await tester.pumpAndSettle();
-        }
         await tester.tap(find.byType(CheckboxListTile).first);
         await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.text('Vincular 1 hallazgos (máx. 40 por vez)'),
+        );
         await tester.tap(find.text('Vincular 1 hallazgos (máx. 40 por vez)'));
         await tester.pumpAndSettle();
         expect(selected, ['c']);

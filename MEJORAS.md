@@ -1,5 +1,59 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-14 — Interventoría: correcciones del documento del 10 de octubre (Codex)
+
+- Se integran, con autorización expresa del usuario, los avances locales de
+  Planes de mejora y su PDF. Se conserva fuera de este cambio el trabajo local
+  de otros módulos y los archivos generados de plataformas.
+- Estado de actividad `Terminado` también en el resumen (ya no `Listos`). Las
+  tarjetas de la lista lateral muestran el estado del plan con color y se
+  actualizan después de editar sus entregas o su seguimiento. `Listo para K2`
+  sigue indicando una entrega aprobada pendiente de presentación, que no es
+  una actividad terminada.
+- Códigos generales para plan y notificación: sin prefijos PM/CRF-K2 obligatorios,
+  con límites de 80/120 caracteres, normalización a mayúsculas y unicidad de
+  la notificación por empresa. No se migran ni sobrescriben datos existentes.
+- Selección Establecimiento → Acta → Hallazgos, numerales en orden numérico y
+  navegador por numeral. La selección conserva hallazgos de varias actas;
+  escritorio muestra vista previa lateral agrupada por establecimiento y
+  móvil un resumen desplegable. Vincular mantiene abierta la pantalla, confirma
+  el resultado y deshabilita lo ya vinculado; el usuario tiene botón Cerrar.
+  Un error conserva la selección para reintentar; se avisa el límite de 40.
+- Preparación del compromiso, respuesta de Calidad y soportes integrada en el
+  mismo detalle del plan, reutilizando el editor y las validaciones de Tareas.
+  La respuesta aprobada de la tarea conserva su origen y se incorpora por id;
+  requiere aprobación explícita vigente del aprobador antes de enviar/revisar.
+- Eliminar plan y retirar hallazgo solo para gestores vigentes de la empresa.
+  Backend y UI impiden eliminar actividades terminadas (compromiso y soportes
+  presentados); tampoco se puede retirarlas para eludir el bloqueo del plan.
+  Retirada lógica transaccional: conserva historial/evidencias, quita vínculos
+  activos y avisos futuros, sin borrar la tarea ni el hallazgo original del acta.
+  Volver a vincular inicia nuevas entregas sin restaurar aprobaciones anteriores.
+  El código de notificación de un plan eliminado sigue reservado por trazabilidad.
+- Generar PDF del plan completo, del compromiso y de respuesta/soportes por
+  hallazgo. Orden por establecimiento, acta y numeral; incluye anexos donde
+  corresponde. Permite borradores identificados como pendientes; descargar
+  nunca registra presentación ni aprobación. Se conservan ZIP de entregas
+  aprobadas y expediente histórico. Códigos largos ajustan cabecera y pie.
+- Sin nuevos módulos, roles, maestros ni fuentes de configuración: se conserva
+  `interventoriadashboard`, el catálogo común y la protección por callable;
+  Firestore directo y sus subcolecciones continúan cerrados al cliente.
+- Validación: suite general de Interventoría y catálogo de maestros 305/305;
+  matriz ampliada final 16/16 y regresión de pantallas 21/21 (312 casos Flutter
+  distintos en conjunto). Formularios reales a 390, 768, 1024 y 1366, texto 1.6,
+  configuraciones Android/iOS, áreas seguras y teclado simulado. Servidor:
+  33/33 con emuladores Firestore + Storage, sin omitidas; 8/8 de política pura.
+  Incluye acceso histórico, revocación, reactivación, empresa secundaria,
+  eliminación, revisiones, respuestas, cifrado y exportación. TypeScript compila;
+  ESLint sin errores (16 advertencias de longitud en el archivo integrado).
+  Análisis Flutter sin incidencias; compilación Web release correcta. El sondeo
+  opcional WASM avisa incompatibilidades de dependencias preexistentes, sin
+  impedir el build JavaScript. Revisión visual de pantallas y cinco páginas PDF,
+  incluida respuesta extensa.
+- Pendientes reales: prueba de uso en navegador y dispositivos Android/iPhone
+  reales (cámara, permisos, descarga nativa y teclado del sistema). No se ha
+  desplegado Hosting ni Functions ni modificado datos de producción en esta sesión.
+
 ## 2026-10-13 — Dos jefes directos y plantillas de Compras (Codex)
 
 - Talento Humano › Estructura organizacional: segundo jefe directo opcional,

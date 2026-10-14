@@ -101,7 +101,8 @@ class PlanColumnas extends StatelessWidget {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, c) {
-      if (c.maxWidth < 900 || children.length < 2) {
+      if (c.maxWidth < (children.length > 2 ? 1120 : 900) ||
+          children.length < 2) {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: children,
@@ -121,11 +122,14 @@ class PlanColumnas extends StatelessWidget {
 }
 
 String planSemaforo(PlanData item) {
-  if (item['respuestaPresentado'] != null && item['soportesPresentado'] != null)
+  if (item['respuestaPresentado'] != null &&
+      item['soportesPresentado'] != null) {
     return 'Terminado';
+  }
   if ((item['respuestaVersion'] as num? ?? 0) > 0 ||
-      (item['soportesVersion'] as num? ?? 0) > 0)
+      (item['soportesVersion'] as num? ?? 0) > 0) {
     return 'En gestión';
+  }
   return 'Sin iniciar';
 }
 
@@ -415,7 +419,11 @@ class PlanResumen extends StatelessWidget {
             ? Colors.red.shade800
             : Colors.orange.shade900;
         return Container(
-          width: (c.maxWidth - 24) / 3,
+          width:
+              c.maxWidth < 480 ||
+                  MediaQuery.textScalerOf(context).scale(1) > 1.3
+              ? c.maxWidth
+              : (c.maxWidth - 24) / 3,
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: color.withValues(alpha: .08),
@@ -432,16 +440,128 @@ class PlanResumen extends StatelessWidget {
               ),
               Text(
                 estado == 'Terminado'
-                    ? 'Listos'
+                    ? 'Terminados'
                     : estado == 'Sin iniciar'
                     ? 'Por hacer'
-                    : 'En curso',
+                    : 'En gestión',
                 style: TextStyle(color: color, fontWeight: FontWeight.w600),
               ),
             ],
           ),
         );
       }).toList(),
+    ),
+  );
+}
+
+/// Datos compartidos con composición horizontal en escritorio y vertical compacta.
+class PlanContextoHallazgo extends StatelessWidget {
+  const PlanContextoHallazgo({super.key, required this.item});
+  final PlanData item;
+  @override
+  Widget build(BuildContext context) => PlanColumnas(
+    children: [
+      PlanBloque(
+        title: 'Datos generales',
+        icon: Icons.assignment_outlined,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${item['establecimiento'] ?? ''}',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            SelectableText(
+              'Acta ${item['idVisitaK2'] ?? ''} · ${planText(item, 'fechaActa').split('T').first}',
+            ),
+            SelectableText(
+              'Tarea ${item['numeroTarea'] ?? ''}',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            Text('Responsable: ${item['responsableNombre'] ?? 'Sin asignar'}'),
+            Text('Aprueba: ${item['aprobadorNombre'] ?? 'Sin información'}'),
+            Text('Estado de tarea: ${item['tareaEstado'] ?? 'Por consultar'}'),
+            if (planText(item, 'limiteSubsanacion').isNotEmpty)
+              Text(
+                'Plazo de subsanación: ${planText(item, 'limiteSubsanacion').split('T').first}',
+              ),
+            PlanEstadoChip(planSemaforo(item)),
+          ],
+        ),
+      ),
+      PlanBloque(
+        title: 'Hallazgo · ${item['numeral'] ?? ''}',
+        icon: Icons.fact_check_outlined,
+        color: const Color(0xffa13d3d),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SelectableText(planText(item, 'descripcion')),
+            const SizedBox(height: 12),
+            const Text(
+              'Observación de interventoría',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Color(0xffa13d3d),
+              ),
+            ),
+            const SizedBox(height: 6),
+            SelectableText(
+              planText(item, 'observacionInterventoria').isEmpty
+                  ? 'Sin observación registrada.'
+                  : planText(item, 'observacionInterventoria'),
+              style: const TextStyle(color: Color(0xffa13d3d)),
+            ),
+          ],
+        ),
+      ),
+      PlanBloque(
+        title: 'Soportes del hallazgo',
+        icon: Icons.attach_file,
+        color: const Color(0xff465aa5),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${planList(item['evidencias']).length} archivos incorporados',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            Text('Compromiso: ${planEstado(item, 'respuesta')}'),
+            Text('Soportes: ${planEstado(item, 'soportes')}'),
+            if (item['tareaAprobada'] != true)
+              const Padding(
+                padding: EdgeInsets.only(top: 10),
+                child: Text(
+                  'Pendiente de aprobación de la tarea. El aprobador debe resolverla en Tareas o Subsanaciones antes de enviar entregas a Calidad.',
+                  style: TextStyle(color: Color(0xffa13d3d)),
+                ),
+              ),
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
+class PlanAyuda extends StatelessWidget {
+  const PlanAyuda(this.message, {super.key});
+  final String message;
+  @override
+  Widget build(BuildContext context) => IconButton(
+    tooltip: message,
+    icon: const Icon(Icons.help_outline, size: 20),
+    onPressed: () => showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Ayuda'),
+        content: SingleChildScrollView(child: Text(message)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Entendido'),
+          ),
+        ],
+      ),
     ),
   );
 }

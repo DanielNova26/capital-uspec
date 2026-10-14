@@ -23,7 +23,7 @@ class PlanFuentesPanel extends StatefulWidget {
   final PlanRequest request;
   final Future<void> Function() onChanged;
   final Future<void> Function(PlanData)? onOpen;
-  final ValueChanged<String>? onUseText;
+  final ValueChanged<PlanData>? onUseText;
   final bool enabled;
   final bool selector;
 
@@ -167,11 +167,12 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
         };
       }
       await InterventoriaPlanesService.guardarArchivo(data);
-      if (mounted && reducir)
+      if (mounted && reducir) {
         setState(
           () => _result =
               'Copia descargada de hasta 5 MB. Revisa su legibilidad y adjúntala como soporte.',
         );
+      }
     } catch (e) {
       if (mounted) setState(() => _result = e.toString());
     } finally {
@@ -238,15 +239,18 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
             ),
           const SizedBox(height: 16),
         ],
-        Text(
-          'Fuentes de la tarea aprobada',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        const Text(
-          'Solo se muestran fuentes de tareas aprobadas. Marca los archivos que '
-          'deben acompañar la subsanación. El acta original aporta contexto; '
-          'no demuestra por sí sola que el hallazgo se corrigió. '
-          'Máximo 12 soportes por hallazgo, de hasta 5 MB cada uno.',
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Respuesta y archivos aprobados',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+            const PlanAyuda(
+              'Solo se muestran fuentes de tareas aprobadas. Incorpora la respuesta y selecciona los archivos que deben acompañar la subsanación. El acta original aporta contexto. Máximo 12 soportes de hasta 5 MB cada uno.',
+            ),
+          ],
         ),
         Wrap(
           spacing: 8,
@@ -422,56 +426,14 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              '${item['establecimiento']} · Hallazgo ${item['numeral']}',
-              style: Theme.of(context).textTheme.titleSmall,
-            ),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                PlanEstadoChip(planSemaforo(item)),
-                Chip(
-                  avatar: const Icon(Icons.format_list_numbered, size: 16),
-                  label: Text('Numeral ${item['numeral']}'),
-                ),
-              ],
-            ),
             if (widget.selector)
-              ExpansionTile(
-                tilePadding: EdgeInsets.zero,
-                title: const Text('Descripción del hallazgo'),
-                children: [SelectableText(planText(item, 'descripcion'))],
-              )
-            else
-              SelectableText(planText(item, 'descripcion')),
-            Text('Acta ${item['idVisitaK2']} · Tarea ${item['numeroTarea']}'),
-            Text(
-              'Estado de tarea: ${source?['tareaEstado'] ?? item['tareaEstado'] ?? 'Consultando'} · Aprueba: ${source?['aprobadorNombre'] ?? item['aprobadorNombre'] ?? 'Consultando'}',
-            ),
-            if (planText(source ?? {}, 'motivo').isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Text(planText(source!, 'motivo')),
+              PlanContextoHallazgo(item: {...item, ...?source}),
+            if (!widget.selector)
+              Text(
+                'Responsable actual: ${name.isEmpty ? 'Sin responsable' : name}',
               ),
-            Wrap(
-              spacing: 8,
-              children: [
-                TextButton.icon(
-                  icon: const Icon(Icons.copy, size: 16),
-                  label: const Text('Copiar hallazgo'),
-                  onPressed: () => Clipboard.setData(
-                    ClipboardData(text: planText(item, 'descripcion')),
-                  ),
-                ),
-              ],
-            ),
-            Text(
-              'Responsable actual: ${name.isEmpty ? 'Sin responsable' : name}',
-            ),
-            Text(
-              'Respuesta: ${planEstado(item, 'respuesta')} · Soportes: ${planEstado(item, 'soportes')}',
-            ),
+            if (planText(source ?? {}, 'motivo').isNotEmpty)
+              Text(planText(source!, 'motivo')),
             if (widget.onOpen != null)
               Align(
                 alignment: Alignment.centerLeft,
@@ -525,6 +487,7 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
               ExpansionTile(
                 tilePadding: EdgeInsets.zero,
                 title: const Text('Respuestas y seguimiento existentes'),
+                initiallyExpanded: true,
                 children: [
                   for (final text in planList(source?['avances']))
                     Padding(
@@ -536,7 +499,7 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
                           SelectableText(planText(text, 'message')),
                           TextButton.icon(
                             icon: const Icon(Icons.copy, size: 16),
-                            label: const Text('Copiar texto aprobado'),
+                            label: const Text('Copiar respuesta de la tarea'),
                             onPressed: () => Clipboard.setData(
                               ClipboardData(text: planText(text, 'message')),
                             ),
@@ -547,11 +510,11 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
                               alignment: Alignment.centerLeft,
                               child: TextButton(
                                 onPressed: editable
-                                    ? () => widget.onUseText!(
-                                        planText(text, 'message'),
-                                      )
+                                    ? () => widget.onUseText!(text)
                                     : null,
-                                child: const Text('Usar texto en subsanación'),
+                                child: const Text(
+                                  'Incorporar respuesta al plan',
+                                ),
                               ),
                             ),
                         ],

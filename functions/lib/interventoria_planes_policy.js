@@ -3,6 +3,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ESTADOS_PLAN = exports.ROLES_GESTORES_PLANES = exports.ROL_CALIDAD_PLANES = exports.APP_PLANES = exports.ITEMS_COL = exports.PLANES_COL = void 0;
 exports.grupoCentroPlan = grupoCentroPlan;
 exports.tareaAprobadaParaPlan = tareaAprobadaParaPlan;
+exports.exigirTareaAprobada = exigirTareaAprobada;
+exports.estadoGestionAutomatico = estadoGestionAutomatico;
 exports.diaValido = diaValido;
 exports.sumarDiasPlan = sumarDiasPlan;
 exports.hoyColombia = hoyColombia;
@@ -33,8 +35,17 @@ function grupoCentroPlan(data) {
 }
 function tareaAprobadaParaPlan(t) {
     return t.estado === "finalizado" &&
-        !["pendiente", "rechazado"].includes(t.solicitud_finalizacion_estado) &&
+        t.solicitud_finalizacion_estado === "aprobado" &&
         t.reasignacion_estado !== "pendiente";
+}
+function exigirTareaAprobada(t) {
+    if (!tareaAprobadaParaPlan(t))
+        throw Error("La tarea debe estar aprobada por su aprobador antes de enviar o presentar la respuesta del plan.");
+}
+function estadoGestionAutomatico(estado, items) {
+    if (!["recibido", "en_gestion"].includes(estado))
+        return estado;
+    return items.length > 0 && items.every((i) => Number(i.respuestaVersion) > 0 || Number(i.soportesVersion) > 0) ? "en_gestion" : "recibido";
 }
 function diaValido(value) {
     const s = typeof value === "string" ? value : "";

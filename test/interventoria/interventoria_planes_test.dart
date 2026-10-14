@@ -308,6 +308,11 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.textContaining('2026-10-10'),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.textContaining('2026-10-10'), findsOneWidget);
     expect(find.text('Satisfactorio'), findsNothing);
     expect(find.text('Registrar presentación en K2'), findsNothing);

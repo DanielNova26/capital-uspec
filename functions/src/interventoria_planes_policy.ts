@@ -22,8 +22,17 @@ export function grupoCentroPlan(data: DatosPlan): string {
 
 export function tareaAprobadaParaPlan(t: DatosPlan): boolean {
   return t.estado === "finalizado" &&
-    !["pendiente", "rechazado"].includes(t.solicitud_finalizacion_estado) &&
+    t.solicitud_finalizacion_estado === "aprobado" &&
     t.reasignacion_estado !== "pendiente";
+}
+
+export function exigirTareaAprobada(t: DatosPlan): void {
+  if (!tareaAprobadaParaPlan(t)) throw Error("La tarea debe estar aprobada por su aprobador antes de enviar o presentar la respuesta del plan.");
+}
+
+export function estadoGestionAutomatico(estado: string, items: DatosPlan[]): string {
+  if (!["recibido", "en_gestion"].includes(estado)) return estado;
+  return items.length > 0 && items.every((i) => Number(i.respuestaVersion) > 0 || Number(i.soportesVersion) > 0) ? "en_gestion" : "recibido";
 }
 
 export function diaValido(value: unknown): string {

@@ -2,14 +2,15 @@ import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
 import {createHash, randomUUID, randomBytes, createCipheriv, createDecipheriv} from "crypto";
 import {aprobadorDeTarea} from "./tareas_avisos";
-import {PDFDocument, StandardFonts} from "pdf-lib";
+import {PDFDocument} from "pdf-lib";
+import {fichaPlanPdf} from "./interventoria_planes_pdf";
 import JSZip from "jszip";
 import {empresasSeleccionables} from "./acceso";
 import {appsDeEmpresa} from "./apps_por_empresa";
 import {isInterventoriaDeveloper} from "./interventoria_deletion";
 import {APP_PLANES, ROLES_GESTORES_PLANES, PLANES_COL, ITEMS_COL, DatosPlan,
   ESTADOS_PLAN, grupoCentroPlan, tareaAprobadaParaPlan, fechasPlan, validarCompromiso, validarRevision, validarPresentacion,
-  etapaAprobada, hoyColombia, diasRestantesPlan, diaValido} from "./interventoria_planes_policy";
+  etapaAprobada, hoyColombia, diasRestantesPlan, diaValido, exigirTareaAprobada, estadoGestionAutomatico} from "./interventoria_planes_policy";
 
 const db = () => admin.firestore();
 const s = (v: unknown) => String(v ?? "").trim();
@@ -56,6 +57,7 @@ function calidad(a: Actor) {
 }
 function empresa(d: DatosPlan | undefined, a: Actor): asserts d is DatosPlan {
   if (!d || d.empresaId !== a.empresaId) err("El registro no existe en la empresa activa.", "permission-denied");
+  if (d?.eliminado === true) err("El registro fue retirado del plan de mejora.");
 }
 async function tareaItem(d: DatosPlan, a: Actor, tx?: FirebaseFirestore.Transaction) {
   const ref = db().collection("TBL_TAREAS").doc(id(d.tareaId));
@@ -103,6 +105,14 @@ async function resumenTarea(t: DatosPlan, a: Actor): Promise<DatosPlan> {
     tareaEstado: s(t.estado), tareaAprobada: tareaAprobadaParaPlan(t)};
 }
 
+async function contextoHallazgo(item: DatosPlan, a: Actor): Promise<DatosPlan> {
+  const h = (await db().collection("TBL_INTERVENTORIA_HALLAZGOS").doc(id(item.hallazgoId)).get()).data();
+  empresa(h, a);
+  if (h.visitaId !== item.visitaId || h.tareaId !== item.tareaId) err("Cambió la tarea de la subsanación. Revisa su vinculación al plan.");
+  return {observacionInterventoria: s(item.observacionInterventoria || h.observaciones),
+    subsanacionEstado: s(h.estado), limiteSubsanacion: plain(h.fechaLimite) || ""};
+}
+
 async function destinatariosPlan(a: Actor, p: DatosPlan): Promise<string[]> {
   const ids = new Set(await gestores(a));
   for (const uid of [p.creadoPor, p.responsableK2Id]) {
@@ -141,7 +151,8 @@ async function seguimientoPlan(input: DatosPlan, a: Actor) {
         err("Registra primero la presentación real de respuestas y soportes de todos los hallazgos en K2.");
       }
     }
-    const cambio = {estadoGestion: estado, responsableK2Id: uid, responsableK2Nombre: responsible.nombre};
+    const currentItems = await tx.get(db().collection(ITEMS_COL).where("planId", "==", ref.id));
+    const cambio = {estadoGestion: estadoGestionAutomatico(estado, currentItems.docs.map((d) => d.data())), responsableK2Id: uid, responsableK2Nombre: responsible.nombre};
     tx.update(ref, {...cambio, updatedAt: admin.firestore.Timestamp.now()});
     audit(tx, ref, a, "seguimiento", {anterior: {estadoGestion: p.estadoGestion || "recibido",
       responsableK2Id: p.responsableK2Id || p.creadoPor}, cambio, motivo});
@@ -174,7 +185,7 @@ async function agendaPlanes(a: Actor) {
   }
   const eventos: DatosPlan[] = [];
   for (const p of plans) {
-    const plan = p.data(); if (!plan || plan.empresaId !== a.empresaId) continue;
+    const plan = p.data(); if (!plan || plan.empresaId !== a.empresaId || plan.eliminado === true) continue;
     const items: DatosPlan[] = a.calidad ?
       (await db().collection(ITEMS_COL).where("planId", "==", p.id).get()).docs
         .map((d) => d.data()).filter((i) => i.empresaId === a.empresaId) : ownItems.get(p.id) || [];
@@ -211,24 +222,43 @@ async function gruposDeEstablecimientos(a: Actor) {
 }
 
 export async function consultarPlanes(input: DatosPlan, a: Actor): Promise<DatosPlan> {
+  if (input.accion === "actasCandidatas") {
+    calidad(a);
+    // Only visit metadata is loaded here; findings are queried after selecting a visit.
+    let q = db().collection("TBL_INTERVENTORIA_VISITAS").where("empresaId", "==", a.empresaId)
+      .orderBy(admin.firestore.FieldPath.documentId()).limit(501);
+    if (input.cursor) q = q.startAfter(id(input.cursor));
+    const snap = await q.get(); const docs = snap.docs.slice(0, 500);
+    const actas = docs.map((d) => ({id: d.id, idVisitaK2: s(d.data().idVisitaK2),
+      establecimiento: s(d.data().subcentroNombre || d.data().centroCostoNombre),
+      establecimientoId: s(d.data().subcentroId || d.data().centroCostoId) || s(d.data().subcentroNombre || d.data().centroCostoNombre),
+      fechaActa: plain(d.data().fechaVisita) || ""})).filter((d) => d.idVisitaK2);
+    return {actas, cursor: snap.size > 500 ? docs[499].id : null};
+  }
   const grupo = a.calidad ? await gruposDeEstablecimientos(a) : async (_d: DatosPlan) => "";
   if (input.accion === "listar") {
     calidad(a);
     let q = db().collection(PLANES_COL).where("empresaId", "==", a.empresaId).orderBy(admin.firestore.FieldPath.documentId()).limit(51);
     if (input.cursor) q = q.startAfter(id(input.cursor));
     const snap = await q.get(); const docs = snap.docs.slice(0, 50);
-    const planes = await Promise.all(docs.map(async (d) => {
+    const planes = await Promise.all(docs.filter((d) => d.data().eliminado !== true).map(async (d) => {
       const p = d.data();
       const items = await db().collection(ITEMS_COL).where("planId", "==", d.id).get();
       const own = items.docs.map((i) => i.data()).filter((i) => i.empresaId === a.empresaId);
-      return {id: d.id, ...plain(p), establecimientos: [...new Set(own.map((i) => s(i.establecimiento)))],
+      return {id: d.id, ...plain(p), estadoGestion: estadoGestionAutomatico(p.estadoGestion || "recibido", own), establecimientos: [...new Set(own.map((i) => s(i.establecimiento)))],
         grupos: [...new Set(await Promise.all(own.map(grupo)))]};
     }));
     return {planes, cursor: snap.size > 50 ? docs[49].id : null};
   }
   if (input.accion === "candidatos") {
     calidad(a);
-    let q = db().collection("TBL_INTERVENTORIA_HALLAZGOS").where("empresaId", "==", a.empresaId).orderBy(admin.firestore.FieldPath.documentId()).limit(101);
+    let base = db().collection("TBL_INTERVENTORIA_HALLAZGOS").where("empresaId", "==", a.empresaId);
+    if (input.visitaId) {
+      const v = (await db().collection("TBL_INTERVENTORIA_VISITAS").doc(id(input.visitaId)).get()).data(); empresa(v, a);
+      if (!s(v.idVisitaK2)) err("El acta no tiene número.");
+      base = base.where("visitaId", "==", id(input.visitaId));
+    }
+    let q = base.orderBy(admin.firestore.FieldPath.documentId()).limit(101);
     if (input.cursor) q = q.startAfter(id(input.cursor));
     const snap = await q.get(); const docs = snap.docs.slice(0, 100);
     const candidatos = await Promise.all(docs.map(async (h) => {
@@ -241,7 +271,7 @@ export async function consultarPlanes(input: DatosPlan, a: Actor): Promise<Datos
       const tareaValida = tarea?.empresaId === a.empresaId &&
         s(tarea.hallazgoId || tarea.sourceEntityId) === h.id && s(tarea.sourceModule || tarea.origen) === "interventoria";
       return {id: h.id, establecimiento: s(d.subcentroNombre || d.centroCostoNombre),
-        numeral: s(d.numeralActa || d.numeroHallazgo), descripcion: s(d.descripcion),
+        numeral: s(d.numeralActa || d.numeroHallazgo), descripcion: s(d.descripcion), observacionInterventoria: s(d.observaciones),
         responsable: tareaValida ? s(tarea.asignado_nombre || tarea.assignedToName) : "Sin tarea asignada vigente",
         tareaId: tareaValida ? s(d.tareaId) : "", visitaId: s(d.visitaId),
         idVisitaK2: visita?.empresaId === a.empresaId ? s(visita.idVisitaK2) : "",
@@ -258,7 +288,7 @@ export async function consultarPlanes(input: DatosPlan, a: Actor): Promise<Datos
       const d = doc.data(); if (d.empresaId !== a.empresaId) continue;
       const task = await tareaItem(d, a);
       const p = (await db().collection(PLANES_COL).doc(d.planId).get()).data(); empresa(p, a);
-      items.push({id: doc.id, ...plain(d), ...await resumenTarea(task.data, a), plan: plain(p)});
+      items.push({id: doc.id, ...plain(d), ...await contextoHallazgo(d, a), ...await resumenTarea(task.data, a), plan: plain(p)});
     }
     return {items, calidad: a.calidad};
   }
@@ -269,16 +299,19 @@ export async function consultarPlanes(input: DatosPlan, a: Actor): Promise<Datos
   const items = await Promise.all(snap.docs.map(async (d) => {
     const item = d.data(); empresa(item, a);
     const t = (await db().collection("TBL_TAREAS").doc(id(item.tareaId)).get()).data();
-    return {id: d.id, ...plain(item), grupo: await grupo(item), ...await resumenTarea(t || {}, a)};
+    return {id: d.id, ...plain(item), ...await contextoHallazgo(item, a), grupo: await grupo(item), ...await resumenTarea(t || {}, a)};
   }));
   const historial = await db().collection(PLANES_COL).doc(planId).collection("historial").orderBy("fecha", "desc").limit(100).get();
-  return {plan: {id: planId, ...plain(p)}, items, historial: historial.docs.map((d) => plain(d.data()))};
+  return {plan: {id: planId, ...plain(p), estadoGestion: estadoGestionAutomatico(p.estadoGestion || "recibido", items)}, items, historial: historial.docs.map((d) => plain(d.data()))};
 }
 
 export async function crearPlan(input: DatosPlan, a: Actor) {
   calidad(a);
   const numero = s(input.numero).toUpperCase(); const csc = s(input.csc).toUpperCase();
-  if (!/^PM-[A-Z0-9-]{1,40}$/.test(numero) || !/^CRF-K2-[A-Z0-9-]{1,70}$/.test(csc)) err("Indica el número PM y el CSC de notificación de K2.");
+  const control = [...numero + csc].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127);
+  if (!numero || numero.length > 80 || !csc || csc.length > 120 || control) {
+    err("Indica el código del plan (hasta 80 caracteres) y el de notificación (hasta 120), sin saltos de línea.");
+  }
   const fechas = fechasPlan(input);
   const ref = db().collection(PLANES_COL).doc(hash(`${a.empresaId}|${csc}`));
   await db().runTransaction(async (tx) => {
@@ -304,7 +337,8 @@ export async function vincularHallazgos(input: DatosPlan, a: Actor) {
     const nuevos: Array<{ref: FirebaseFirestore.DocumentReference; data: DatosPlan; responsable: string}> = [];
     for (const hid of ids) {
       const ir = db().collection(ITEMS_COL).doc(hash(`${planId}|${hid}`));
-      if ((await tx.get(ir)).exists) continue;
+      const anterior = (await tx.get(ir)).data();
+      if (anterior && anterior.eliminado !== true) continue;
       const h = (await tx.get(db().collection("TBL_INTERVENTORIA_HALLAZGOS").doc(hid))).data(); empresa(h, a);
       if (!h.tareaId || !h.visitaId) err("Cada hallazgo debe tener visita y tarea asignada.");
       const v = (await tx.get(db().collection("TBL_INTERVENTORIA_VISITAS").doc(id(h.visitaId)))).data(); empresa(v, a);
@@ -317,7 +351,7 @@ export async function vincularHallazgos(input: DatosPlan, a: Actor) {
       nuevos.push({ref: ir, responsable, data: {empresaId: a.empresaId, planId,
         hallazgoId: hid, tareaId: h.tareaId, visitaId: h.visitaId, idVisitaK2: s(v.idVisitaK2),
         establecimiento: s(h.subcentroNombre || h.centroCostoNombre),
-        numeral: s(h.numeralActa || h.numeroHallazgo), descripcion: s(h.descripcion),
+        numeral: s(h.numeralActa || h.numeroHallazgo), descripcion: s(h.descripcion), observacionInterventoria: s(h.observaciones),
         fechaActa: v.fechaVisita, centroCostoId: s(h.centroCostoId || v.centroCostoId), grupo: await grupo(h), categoria: s(h.grupoId), numeroTarea: tarea.data.numero ?? tarea.data.numeroTarea ?? "",
         respuestaVersion: 0, soportesVersion: 0, evidencias: [],
         respuestaRevision: {estado: "pendiente"}, soportesRevision: {estado: "pendiente"},
@@ -325,16 +359,51 @@ export async function vincularHallazgos(input: DatosPlan, a: Actor) {
     }
     if ((p.cantidad || 0) + nuevos.length > 200) err("Un plan admite hasta 200 hallazgos.");
     for (const n of nuevos) {
-      tx.create(n.ref, n.data);
+      tx.set(n.ref, n.data);
       notice(tx, n.responsable, `plan-asignado:${n.ref.id}`, a, `${p.numero}: respuesta y soportes`,
         `Respuesta hasta ${p.limiteRespuesta}. Soportes hasta ${p.limiteSoportes}. Abre Plan de mejora en tu tarea.`, n.data);
     }
     tx.update(ref, {cantidad: (p.cantidad || 0) + nuevos.length,
       ...(nuevos.length && p.estadoGestion === "enviado" ? {estadoGestion: "en_gestion"} : {}),
+      ...(nuevos.length && ["recibido", "en_gestion"].includes(p.estadoGestion) ? {estadoGestion: "recibido"} : {}),
       ...(nuevos.length ? {establecimientos: admin.firestore.FieldValue.arrayUnion(...nuevos.map((n) => n.data.establecimiento)),
         grupos: admin.firestore.FieldValue.arrayUnion(...nuevos.map((n) => n.data.grupo))} : {}),
       updatedAt: admin.firestore.Timestamp.now()});
     audit(tx, ref, a, "hallazgos_vinculados", {ids: nuevos.map((n) => n.data.hallazgoId)});
+  });
+  return {ok: true};
+}
+
+// Retirada lógica: conserva evidencia e historial, sin tocar el hallazgo ni la
+// tarea originales. Quitar los vínculos activos evita avisos y entregas huérfanas.
+async function eliminarDelPlan(input: DatosPlan, a: Actor) {
+  calidad(a);
+  const ref = db().collection(PLANES_COL).doc(id(input.planId));
+  const completo = (i: DatosPlan) => !!i.respuestaPresentado && !!i.soportesPresentado;
+  await db().runTransaction(async (tx) => {
+    const p = (await tx.get(ref)).data(); empresa(p, a);
+    const snap = await tx.get(db().collection(ITEMS_COL).where("planId", "==", ref.id));
+    for (const d of snap.docs) empresa(d.data(), a);
+    const retirarPlan = input.accion === "eliminarPlan";
+    const seleccion = retirarPlan ? snap.docs : snap.docs.filter((d) => d.id === id(input.itemId));
+    if (!retirarPlan && !seleccion.length) err("El hallazgo ya no pertenece a este plan.");
+    if (seleccion.some((d) => completo(d.data()))) {
+      err("No se puede eliminar un plan ni retirar un hallazgo con actividades en estado Terminado.");
+    }
+    const now = admin.firestore.Timestamp.now();
+    for (const doc of seleccion) {
+      const item = doc.data();
+      audit(tx, doc.ref, a, "retirado_del_plan", {anterior: item});
+      tx.update(doc.ref, {eliminado: true, eliminadoAt: now, eliminadoPor: a.id,
+        planIdArchivado: item.planId, tareaIdArchivada: item.tareaId,
+        planId: admin.firestore.FieldValue.delete(), tareaId: admin.firestore.FieldValue.delete()});
+    }
+    const restantes = snap.docs.filter((d) => !seleccion.includes(d)).map((d) => d.data());
+    tx.update(ref, retirarPlan ? {eliminado: true, estado: "eliminado", eliminadoAt: now, eliminadoPor: a.id} : {
+      cantidad: restantes.length, establecimientos: [...new Set(restantes.map((i) => s(i.establecimiento)))],
+      grupos: [...new Set(restantes.map((i) => s(i.grupo)))],
+      estadoGestion: estadoGestionAutomatico(p.estadoGestion || "recibido", restantes), updatedAt: now});
+    audit(tx, ref, a, retirarPlan ? "plan_eliminado" : "hallazgo_retirado", {itemIds: seleccion.map((d) => d.id)});
   });
   return {ok: true};
 }
@@ -346,12 +415,17 @@ export async function cambiarItem(input: DatosPlan, a: Actor) {
   const previo = (await ref.get()).data(); empresa(previo, a);
   const planPrevio = (await db().collection(PLANES_COL).doc(id(previo.planId)).get()).data(); empresa(planPrevio, a);
   const calidadIds = accion === "responder" || accion === "soportes" ? await destinatariosPlan(a, planPrevio) : [];
+  const fuenteTexto = accion === "usarTexto" ? (await fuentesTarea(input, a)).avances
+    .find((v: DatosPlan) => v.id === input.fuenteId && s(v.message)) : null;
+  if (accion === "usarTexto" && !fuenteTexto) err("Selecciona una respuesta de la tarea aprobada.");
   await db().runTransaction(async (tx) => {
     const item = (await tx.get(ref)).data(); empresa(item, a);
     const pr = db().collection(PLANES_COL).doc(id(item.planId));
     const plan = (await tx.get(pr)).data(); empresa(plan, a);
     if (plan.estado !== "abierto") err("El plan está cerrado.");
     const tarea = await tareaItem(item, a, tx);
+    if (accion !== "reabrir") exigirTareaAprobada(tarea.data);
+    const siblings = await tx.get(db().collection(ITEMS_COL).where("planId", "==", item.planId));
     const responsable = s(tarea.data.asignado_uid || tarea.data.assignedTo);
     const update: DatosPlan = {updatedAt: admin.firestore.Timestamp.now()};
     if (accion === "responder" || accion === "soportes") {
@@ -362,9 +436,11 @@ export async function cambiarItem(input: DatosPlan, a: Actor) {
         Object.assign(update, validarCompromiso(input, plan));
         update.soportesRevision = {estado: "pendiente", motivo: "Compromiso actualizado"};
       } else {
-        const texto = s(input.respuestaSoportes);
+        const textoCalidad = s(input.respuestaSoportes);
+        const texto = textoCalidad || s(item.respuestaTarea);
         if (texto.length < 10 || texto.length > 12000 || !item.evidencias?.length) err("Escribe la subsanación y adjunta al menos un soporte.");
         update.respuestaSoportes = texto;
+        update.respuestaCalidad = textoCalidad;
       }
       update[`${e}Version`] = item[`${e}Version`] + 1;
       update[`${e}Revision`] = {estado: "por_revisar"};
@@ -373,6 +449,15 @@ export async function cambiarItem(input: DatosPlan, a: Actor) {
         notice(tx, uid, `revision:${ref.id}:${e}:${update[`${e}Version`]}`, a,
           `${plan.numero}: entrega por revisar`, `${item.establecimiento} · ${item.numeral}`, item);
       }
+    } else if (accion === "usarTexto") {
+      if (!fuenteTexto) return err("La respuesta aprobada ya no está disponible.");
+      if (s(fuenteTexto.message).length > 12000) err("La respuesta supera 12000 caracteres. Prepara una redacción resumida en Calidad.");
+      if (Number(input.version) !== item.soportesVersion || item.soportesPresentado) err("La entrega cambió o ya está presentada. Actualiza antes de incorporar la respuesta.");
+      update.respuestaTarea = fuenteTexto.message;
+      update.respuestaTareaOrigen = {id: fuenteTexto.id, origen: fuenteTexto.origen, porNombre: fuenteTexto.byName || "",
+        incorporadoPor: a.id, fecha: admin.firestore.Timestamp.now()};
+      update.soportesVersion = item.soportesVersion + 1;
+      update.soportesRevision = {estado: "pendiente"};
     } else if (accion === "revisar") {
       calidad(a);
       validarRevision(item, etapa, Number(input.version), s(input.estado), s(input.motivo));
@@ -404,6 +489,14 @@ export async function cambiarItem(input: DatosPlan, a: Actor) {
         audit(tx, pr, a, "reabierto", {motivo: s(input.motivo).slice(0, 2000), itemId: ref.id});
       }
     } else err("Acción inválida.", "invalid-argument");
+    if (["responder", "soportes", "usarTexto"].includes(accion)) {
+      const estadoGestion = estadoGestionAutomatico(plan.estadoGestion || "recibido",
+        siblings.docs.map((d) => d.id === ref.id ? {...item, ...update} : d.data()));
+      if (estadoGestion !== plan.estadoGestion) {
+        tx.update(pr, {estadoGestion, updatedAt: admin.firestore.Timestamp.now()});
+        audit(tx, pr, a, "estado_automatico", {estadoGestion});
+      }
+    }
     tx.update(ref, update);
     // Immutable before/after snapshot: later edits never rewrite submitted evidence.
     audit(tx, ref, a, accion, {etapa, anterior: item, cambio: plain(Object.fromEntries(
@@ -437,7 +530,12 @@ async function adjuntar(input: DatosPlan, a: Actor) {
   let duplicado = false;
   try {
     await db().runTransaction(async (tx) => {
-      const current = (await tx.get(ref)).data(); empresa(current, a); await tareaItem(current, a, tx);
+      const current = (await tx.get(ref)).data(); empresa(current, a);
+      const task = await tareaItem(current, a, tx); exigirTareaAprobada(task.data);
+      const pr = db().collection(PLANES_COL).doc(id(current.planId));
+      const plan = (await tx.get(pr)).data(); empresa(plan, a);
+      if (plan.estado !== "abierto") err("El plan está cerrado.");
+      const siblings = await tx.get(db().collection(ITEMS_COL).where("planId", "==", current.planId));
       if (current.soportesPresentado) err("Calidad debe reabrir los soportes ya presentados.");
       // Only usarFuente supplies this server-owned marker. Retries/concurrent
       // selections preserve the version and never attach the same source twice.
@@ -451,6 +549,12 @@ async function adjuntar(input: DatosPlan, a: Actor) {
         _cryptoKey: key.toString("base64"), _cryptoIv: iv.toString("base64"), _cryptoTag: cipher.getAuthTag().toString("base64")};
       tx.update(ref, {evidencias: [...(current.evidencias || []), evidencia],
         soportesVersion: current.soportesVersion + 1, soportesRevision: {estado: "pendiente"}});
+      const estadoGestion = estadoGestionAutomatico(plan.estadoGestion || "recibido",
+        siblings.docs.map((d) => d.id === ref.id ? {...current, soportesVersion: current.soportesVersion + 1} : d.data()));
+      if (estadoGestion !== plan.estadoGestion) {
+        tx.update(pr, {estadoGestion, updatedAt: admin.firestore.Timestamp.now()});
+        audit(tx, pr, a, "estado_automatico", {estadoGestion});
+      }
       audit(tx, ref, a, "soporte_adjunto", evidencia);
     });
   } catch (e) {
@@ -639,12 +743,19 @@ async function leerEvidencia(ev: DatosPlan): Promise<Buffer> {
 
 async function exportar(input: DatosPlan, a: Actor) {
   calidad(a);
-  const expediente = input.accion === "expediente";
+  const generarPdf = input.accion === "generarPdf";
+  const expediente = input.accion === "expediente" || generarPdf;
+  const etapaPdf = generarPdf ? s(input.etapa || "todo") : "todo";
+  if (!["todo", "respuesta", "soportes"].includes(etapaPdf)) err("Etapa de PDF inválida.");
+  const consolidado = generarPdf ? await PDFDocument.create() : null;
   const detail = await consultarPlanes({...input, accion: "detalle"}, a);
   const company = (await db().collection("TBL_EMPRESAS").doc(a.empresaId).get()).data();
   const companyName = s(company?.nombre || company?.razonSocial) || a.empresaId;
-  const items = (detail.items as DatosPlan[]).filter((i) => !input.itemId || i.id === input.itemId);
-  if (!items.length || (!expediente && items.some((i) => !etapaAprobada(i, "respuesta") || !etapaAprobada(i, "soportes")))) err("Todos los hallazgos seleccionados deben tener compromiso y soportes satisfactorios.");
+  const items = (detail.items as DatosPlan[]).filter((i) => !input.itemId || i.id === input.itemId)
+    .sort((x, y) => s(x.establecimiento).localeCompare(s(y.establecimiento), "es") ||
+      s(x.idVisitaK2).localeCompare(s(y.idVisitaK2), "es", {numeric: true}) ||
+      s(x.numeral).localeCompare(s(y.numeral), "es", {numeric: true}));
+  if (!items.length || (!expediente && items.some((i) => !i.tareaAprobada || !etapaAprobada(i, "respuesta") || !etapaAprobada(i, "soportes")))) err("Todos los hallazgos seleccionados deben tener tarea aprobada, compromiso y soportes satisfactorios.");
   const zip = new JSZip(); let total = 0;
   const corte = new Date().toISOString();
   if (expediente) {
@@ -667,44 +778,14 @@ async function exportar(input: DatosPlan, a: Actor) {
         `Revisión: ${s(review.porNombre)} · ${s(plain(review.fecha))} · ${s(review.motivo)}\n` +
         (presented ? `Presentación: ${s(presented.fecha)} · ${s(presented.porNombre)} · Constancia: ${s(presented.comprobante)}\n` : "");
     };
-    const pdf = await PDFDocument.create(); const font = await pdf.embedFont(StandardFonts.Helvetica);
-    let page = pdf.addPage(); let y = page.getHeight() - 45;
-    const text = (expediente ? `EXPEDIENTE PARA MESA DE DESCUENTOS\nCorte: ${corte}\nIncluye pendientes. Este expediente no acredita por sí mismo la aceptación de K2.\n` : "") +
-      `PLAN DE MEJORA · ${companyName}\n${detail.plan.numero} · ${detail.plan.csc}\nNotificación: ${detail.plan.fechaNotificacion}\n` +
-      `Máximo respuesta: ${detail.plan.limiteRespuesta} · Máximo soportes: ${detail.plan.limiteSoportes}\n` +
-      `${item.establecimiento} · Acta ${item.idVisitaK2} · Hallazgo ${item.numeral}\n` +
-      `Responsable: ${item.responsableNombre || ""}\nAprueba tarea: ${item.aprobadorNombre || ""}\n` +
-      `Hallazgo: ${item.descripcion}\nCompromiso: ${item.compromiso || ""}\n` +
-      `Ejecución: ${item.fechaEjecucion || ""} · Seguimiento: ${item.fechaSeguimiento || ""}\n` +
-      `Subsanación: ${item.respuestaSoportes || "Pendiente"}\n` + etapa("respuesta") + etapa("soportes") +
-      `ÍNDICE DE SOPORTES\n${(original.evidencias || []).map((e: DatosPlan, n: number) => `${n + 1}. ${e.nombre} · ${e.contentType} · ${e.size || e.bytes || ""} bytes`).join("\n") || "Sin soportes adjuntos"}\n` +
-      (expediente ? `HISTORIAL DEL HALLAZGO\n${historial.map((h: DatosPlan) => `${h.fecha} · ${h.accion} · ${h.porNombre} · ${h.motivo || h.cambio?.[`${h.etapa}Revision`]?.motivo || ""}`).join("\n")}\n` +
-        `HISTORIAL DEL PLAN\n${(detail.historial as DatosPlan[]).map((h) => `${h.fecha} · ${h.accion} · ${h.porNombre} · ${h.motivo || ""}`).join("\n")}\n` : "");
-    // WinAnsi font: replace unsupported glyphs explicitly; preserve Spanish accents.
-    const safe = [...text].map((c) => {
-      try {
-        font.encodeText(c); return c;
-      } catch {
-        return c === "\n" ? "\n" : "?";
-      }
-    }).join("");
-    for (const paragraph of safe.split("\n")) {
-      let line = "";
-      for (const c of paragraph) {
-        if (font.widthOfTextAtSize(line + c, 10) > 500) {
-          if (y < 45) {
-            page = pdf.addPage(); y = page.getHeight() - 45;
-          }
-          page.drawText(line, {x: 45, y, size: 10, font}); y -= 15; line = "";
-        }
-        line += c;
-      }
-      if (y < 45) {
-        page = pdf.addPage(); y = page.getHeight() - 45;
-      }
-      page.drawText(line, {x: 45, y, size: 10, font}); y -= 20;
-    }
-    for (const ev of original.evidencias || []) {
+    const historialTexto = expediente ?
+      `HISTORIAL DEL HALLAZGO\n${historial.map((h: DatosPlan) => `${h.fecha} - ${h.accion} - ${h.porNombre} - ${h.motivo || ""}`).join("\n")}\n` +
+      `HISTORIAL DEL PLAN\n${(detail.historial as DatosPlan[]).map((h) => `${h.fecha} - ${h.accion} - ${h.porNombre} - ${h.motivo || ""}`).join("\n")}` : "";
+    if (!expediente) exigirTareaAprobada((await tareaItem(original, a)).data);
+    const pdf = await fichaPlanPdf(companyName, detail.plan, item, expediente, corte,
+      (etapaPdf === "soportes" ? "" : etapa("respuesta")) + (etapaPdf === "respuesta" ? "" : etapa("soportes")),
+      generarPdf ? "" : historialTexto, etapaPdf);
+    for (const ev of etapaPdf === "respuesta" ? [] : original.evidencias || []) {
       if (!s(ev.path).startsWith(`interventoria_planes/${a.empresaId}/${item.id}/`)) err("Ruta de evidencia inválida.");
       const bytes = await leerEvidencia(ev); total += bytes.length;
       if (total > 100 * 1024 * 1024) err("El paquete supera 100 MB. Descarga los hallazgos individualmente.");
@@ -719,12 +800,15 @@ async function exportar(input: DatosPlan, a: Actor) {
     }
     const name = `${detail.plan.numero}_${item.establecimiento}_${item.idVisitaK2}_${item.numeral}_${item.id.slice(0, 8)}`.replace(/[^\p{L}\p{N}._-]/gu, "_");
     const output = Buffer.from(await pdf.save());
+    if (consolidado) for (const page of await consolidado.copyPages(pdf, pdf.getPageIndices())) consolidado.addPage(page);
     zip.file(`${name}.pdf`, output);
     individual = {nombre: `${name}.pdf`, bytes: output};
   }
   if (expediente) zip.file("registro_del_expediente.json", JSON.stringify(registro, null, 2));
   const bytes = await zip.generateAsync({type: "nodebuffer", compression: "DEFLATE"});
-  const resultado = input.itemId && individual && !expediente ? individual : {nombre: `${detail.plan.numero}_${expediente ? "expediente" : "soportes"}.zip`, bytes};
+  const safeName = s(detail.plan.numero).replace(/[^\p{L}\p{N}._-]/gu, "_");
+  const resultado = consolidado ? {nombre: `${safeName}_${etapaPdf}.pdf`, bytes: Buffer.from(await consolidado.save())} :
+    input.itemId && individual && !expediente ? individual : {nombre: `${safeName}_${expediente ? "expediente" : "soportes"}.zip`, bytes};
   if (resultado.bytes.length <= 6 * 1024 * 1024) return {nombre: resultado.nombre, base64: resultado.bytes.toString("base64")};
   const ref = db().collection(PLANES_COL).doc(id(input.planId)).collection("exportaciones").doc();
   const partes: DatosPlan[] = [];
@@ -748,6 +832,7 @@ async function exportar(input: DatosPlan, a: Actor) {
 
 async function exportParte(input: DatosPlan, a: Actor) {
   calidad(a);
+  empresa((await db().collection(PLANES_COL).doc(id(input.planId)).get()).data(), a);
   const doc = await db().collection(PLANES_COL).doc(id(input.planId)).collection("exportaciones").doc(id(input.exportId)).get();
   const data = doc.data(); empresa(data, a);
   const n = Number(input.parte);
@@ -760,8 +845,9 @@ export const interventoriaPlanes = functions.region("us-central1").runWith({time
     const a = await actorPlanes(input || {}, context);
     try {
       switch (input.accion) {
-        case "listar": case "detalle": case "tarea": case "candidatos": return await consultarPlanes(input, a);
+        case "listar": case "detalle": case "tarea": case "candidatos": case "actasCandidatas": return await consultarPlanes(input, a);
         case "crear": return await crearPlan(input, a);
+        case "eliminarPlan": case "retirarHallazgo": return await eliminarDelPlan(input, a);
         case "seguimiento": return await seguimientoPlan(input, a);
         case "agenda": return await agendaPlanes(a);
         case "gestores": {
@@ -773,7 +859,7 @@ export const interventoriaPlanes = functions.region("us-central1").runWith({time
           }))};
         }
         case "vincular": return await vincularHallazgos(input, a);
-        case "responder": case "soportes": case "revisar": case "presentar": case "reabrir": return await cambiarItem(input, a);
+        case "responder": case "soportes": case "usarTexto": case "revisar": case "presentar": case "reabrir": return await cambiarItem(input, a);
         case "adjuntar": return await adjuntar({itemId: input.itemId, nombre: input.nombre, base64: input.base64}, a);
         case "fuentes": return await fuentesTarea(input, a);
         case "usarFuente": return await usarFuente(input, a);
@@ -782,7 +868,7 @@ export const interventoriaPlanes = functions.region("us-central1").runWith({time
         case "fechas": return await editarFechas(input, a);
         case "identificarVisita": return await identificarVisita(input, a);
         case "evidencia": return await evidencia(input, a);
-        case "exportar": case "expediente": return await exportar(input, a);
+        case "exportar": case "expediente": case "generarPdf": return await exportar(input, a);
         case "exportParte": return await exportParte(input, a);
         default: return err("Acción desconocida.", "invalid-argument");
       }

@@ -81,7 +81,7 @@ test('seguimiento exige gestor vigente, conserva historial y no declara envío s
   await call('calidad', input);
   const detail = await call('calidad', {accion: 'detalle', planId});
   assert.equal(detail.plan.responsableK2Id, 'otro');
-  assert.equal(detail.plan.estadoGestion, 'en_gestion');
+  assert.equal(detail.plan.estadoGestion, 'recibido'); // Sin hallazgos iniciados.
   assert.ok(detail.historial.some((h) => h.accion === 'seguimiento' && h.motivo === input.motivo));
   await assert.rejects(call('calidad', {...input, estadoGestion: 'enviado'}));
   await call('calidad', {...input, estadoGestion: 'mesa_descuentos'});
@@ -157,7 +157,7 @@ test.beforeEach(async () => {
   batch.set(db.doc('TBL_INTERVENTORIA_ROLES/legacy_random'), {empresaId: 'A', userId: 'historico', rol: 'calidad_interventoria'});
   batch.set(db.doc('TBL_INTERVENTORIA_VISITAS/v'), {empresaId: 'A', idVisitaK2: '25133385', fechaVisita: admin.firestore.Timestamp.fromDate(new Date('2026-09-01'))});
   batch.set(db.doc('TBL_INTERVENTORIA_HALLAZGOS/h'), {empresaId: 'A', tareaId: 't', visitaId: 'v', numeralActa: '3.5', numeroHallazgo: '3.1', centroCostoNombre: 'Tuluá', descripcion: 'Rotulado incompleto'});
-  batch.set(db.doc('TBL_TAREAS/t'), {empresaId: 'A', asignado_uid: 'responsable', asignado_nombre: 'Ana', sourceModule: 'interventoria', sourceEntityId: 'h', numero: 123, estado: 'finalizado'});
+  batch.set(db.doc('TBL_TAREAS/t'), {empresaId: 'A', asignado_uid: 'responsable', asignado_nombre: 'Ana', sourceModule: 'interventoria', sourceEntityId: 'h', numero: 123, estado: 'finalizado', solicitud_finalizacion_estado: 'aprobado'});
   await batch.commit();
   planId = (await call('calidad', {accion: 'crear', numero: 'PM-4158', csc: 'CRF-K2-013571-2026', fechaNotificacion: '2026-09-01', limiteRespuesta: '2026-10-10', limiteSoportes: '2026-10-25'})).id;
 });
@@ -425,4 +425,145 @@ test('fuentes conserva registros antiguos y sin fecha y no corta a los 50 primer
   const result = await call('calidad', {accion: 'fuentes', itemId: itemId()});
   assert.equal(result.archivos.length, 53);
   assert.equal(result.avances.length, 53);
+});
+
+
+test('actas y candidatos se filtran por visita y empresa antes de paginar', async () => {
+  await db.doc('TBL_INTERVENTORIA_VISITAS/v').update({centroCostoId: 'c', centroCostoNombre: 'Tuluá'});
+  await db.doc('TBL_INTERVENTORIA_VISITAS/v2').set({empresaId: 'A', centroCostoId: 'c', centroCostoNombre: 'Tuluá', idVisitaK2: 'ACT-2'});
+  await db.doc('TBL_INTERVENTORIA_VISITAS/vB').set({empresaId: 'B', idVisitaK2: 'SECRETA'});
+  const batch = db.batch();
+  for (let n = 0; n < 110; n++) batch.set(db.doc(`TBL_INTERVENTORIA_HALLAZGOS/a${n}`), {empresaId: 'A', visitaId: 'v2'});
+  await batch.commit();
+  const visits = await call('calidad', {accion: 'actasCandidatas'});
+  assert.equal(visits.actas.length, 2);
+  assert.ok(!visits.actas.some(v => v.idVisitaK2 === 'SECRETA'));
+  const scoped = await call('calidad', {accion: 'candidatos', visitaId: 'v'});
+  assert.deepEqual(scoped.candidatos.map(h => h.id), ['h']);
+  assert.equal(scoped.cursor, null);
+  await assert.rejects(call('calidad', {accion: 'candidatos', visitaId: 'vB'}), {code: 'permission-denied'});
+  await assert.rejects(call('responsable', {accion: 'actasCandidatas'}), {code: 'permission-denied'});
+});
+
+test('aprobación de tarea obligatoria incluso con revisión previa satisfactoria', async () => {
+  await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']});
+  const input = {accion: 'responder', itemId: itemId(), version: 0, compromiso: 'Compromiso que será enviado.', fechaEjecucion: '2026-10-20', fechaSeguimiento: '2026-10-25'};
+  for (const estado of ['pendiente', 'rechazado', '']) {
+    await db.doc('TBL_TAREAS/t').update({estado: 'finalizado', solicitud_finalizacion_estado: estado});
+    await assert.rejects(call('calidad', input), /tarea debe estar aprobada/);
+  }
+  await db.doc('TBL_TAREAS/t').update({solicitud_finalizacion_estado: 'aprobado'});
+  await call('calidad', input);
+  await call('calidad', {accion: 'revisar', itemId: itemId(), etapa: 'respuesta', version: 1, estado: 'satisfactorio'});
+  await db.doc('TBL_TAREAS/t').update({estado: 'devuelta', solicitud_finalizacion_estado: 'rechazado'});
+  await assert.rejects(call('calidad', {accion: 'presentar', itemId: itemId(), etapa: 'respuesta', version: 1}), /tarea debe estar aprobada/);
+  await assert.rejects(call('calidad', {accion: 'soportes', itemId: itemId(), version: 0, respuestaSoportes: 'Subsanación terminada'}), /tarea debe estar aprobada/);
+});
+
+test('conserva respuesta aprobada, respuesta propia y plazos de subsanación', async () => {
+  const limite = admin.firestore.Timestamp.fromDate(new Date('2026-12-20'));
+  await db.doc('TBL_INTERVENTORIA_HALLAZGOS/h').update({observaciones: 'Se encontró rotulado ilegible.', fechaLimite: limite});
+  await db.doc('TBL_TAREAS/t').update({fecha_limite: limite});
+  await db.doc('TBL_TAREAS/t/finalizacion/f').set({comment: 'Se cambiaron todos los rótulos.', byName: 'Ana'});
+  await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']});
+  const sources = await call('calidad', {accion: 'fuentes', itemId: itemId()});
+  await call('calidad', {accion: 'usarTexto', itemId: itemId(), version: 0, fuenteId: sources.avances[0].id});
+  // Evidence already incorporated; no mutation of the source task.
+  await itemRef().update({evidencias: [{nombre: 'soporte.pdf'}]});
+  await call('calidad', {accion: 'soportes', itemId: itemId(), version: 1, respuestaSoportes: ''});
+  let data = (await itemRef().get()).data();
+  assert.equal(data.respuestaSoportes, 'Se cambiaron todos los rótulos.');
+  await call('calidad', {accion: 'soportes', itemId: itemId(), version: 2, respuestaSoportes: 'Calidad verificó el nuevo rotulado.'});
+  data = (await itemRef().get()).data();
+  assert.equal(data.respuestaTarea, 'Se cambiaron todos los rótulos.');
+  assert.equal(data.respuestaCalidad, 'Calidad verificó el nuevo rotulado.');
+  assert.equal(data.evidencias.length, 1);
+  const detail = await call('calidad', {accion: 'detalle', planId});
+  assert.equal(detail.items[0].observacionInterventoria, 'Se encontró rotulado ilegible.');
+  assert.equal(detail.items[0].limiteSubsanacion, limite.toDate().toISOString());
+  assert.equal((await db.doc('TBL_TAREAS/t').get()).data().fecha_limite.toMillis(), limite.toMillis());
+});
+
+test('el plan pasa a gestión solo cuando todos los hallazgos han iniciado', async () => {
+  await db.doc('TBL_INTERVENTORIA_HALLAZGOS/h2').set({...(await db.doc('TBL_INTERVENTORIA_HALLAZGOS/h').get()).data(), tareaId: 't2'});
+  await db.doc('TBL_TAREAS/t2').set({...(await db.doc('TBL_TAREAS/t').get()).data(), sourceEntityId: 'h2'});
+  await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h', 'h2']});
+  const response = {accion: 'responder', version: 0, compromiso: 'Corregiremos el rotulado de alimentos.', fechaEjecucion: '2026-10-20', fechaSeguimiento: '2026-10-25'};
+  await call('calidad', {...response, itemId: itemId()});
+  assert.equal((await call('calidad', {accion: 'detalle', planId})).plan.estadoGestion, 'recibido');
+  const segundo = createHash('sha256').update(`${planId}|h2`).digest('hex');
+  await call('calidad', {...response, itemId: segundo});
+  assert.equal((await db.doc(`${policy.PLANES_COL}/${planId}`).get()).data().estadoGestion, 'en_gestion');
+  assert.equal((await call('calidad', {accion: 'listar'})).planes[0].estadoGestion, 'en_gestion');
+});
+
+test('códigos generales sin prefijos; unicidad por notificación y empresa', async () => {
+  const data = {accion: 'crear', numero: 'Informe_2026 / 42', csc: 'Oficio 123/2026', fechaNotificacion: '2026-10-01'};
+  const p = await call('calidad', data);
+  assert.equal((await call('calidad', {accion: 'detalle', planId: p.id})).plan.numero, 'INFORME_2026 / 42');
+  await assert.rejects(call('calidad', {...data, csc: 'oficio 123/2026'}), {code: 'already-exists'});
+  for (const numero of ['', 'a'.repeat(81), 'abc\ndef']) await assert.rejects(call('calidad', {...data, numero}));
+  await db.doc('TBL_INTERVENTORIA_ROLES/B_calidad').set({empresaId: 'B', userId: 'calidad', rol: 'calidad_interventoria'});
+  assert.notEqual((await call('calidad', {...data, empresaId: 'B'})).id, p.id);
+});
+
+test('eliminar plan vacío o iniciado conserva historia y no borra tareas ni hallazgos', async () => {
+  await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']});
+  for (const uid of ['responsable', 'otro', 'historico']) {
+    await assert.rejects(call(uid, {accion: 'eliminarPlan', planId}), {code: 'permission-denied'});
+  }
+  await db.doc('TBL_INTERVENTORIA_ROLES/B_calidad').set({empresaId: 'B', userId: 'calidad', rol: 'calidad_interventoria'});
+  await assert.rejects(call('calidad', {accion: 'eliminarPlan', planId, empresaId: 'B'}), {code: 'permission-denied'});
+  await call('calidad', {accion: 'eliminarPlan', planId});
+  assert.equal((await call('calidad', {accion: 'listar'})).planes.length, 0);
+  assert.equal((await call('responsable', {accion: 'tarea', tareaId: 't'})).items.length, 0);
+  assert.equal((await call('calidad', {accion: 'agenda'})).eventos.length, 0);
+  await assert.rejects(call('calidad', {accion: 'detalle', planId}));
+  await assert.rejects(call('calidad', {accion: 'generarPdf', planId}));
+  await assert.rejects(call('calidad', {accion: 'fuentes', itemId: itemId()}));
+  assert.ok((await db.doc('TBL_TAREAS/t').get()).exists);
+  assert.ok((await db.doc('TBL_INTERVENTORIA_HALLAZGOS/h').get()).exists);
+  assert.equal((await itemRef().get()).data().planIdArchivado, planId);
+  assert.ok((await db.collection(policy.PLANES_COL).doc(planId).collection('historial').get()).docs.some(d => d.data().accion === 'plan_eliminado'));
+  const empty = await call('calidad', {accion: 'crear', numero: 'VACIO', csc: 'NOTIFICACION VACIA', fechaNotificacion: '2026-10-01'});
+  await call('calidad', {accion: 'eliminarPlan', planId: empty.id});
+});
+
+test('actividad terminada impide eliminar el plan o retirarla para eludir la protección', async () => {
+  await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']});
+  await itemRef().update({respuestaPresentado: {fecha: '2026-10-01'}, soportesPresentado: {fecha: '2026-10-02'}});
+  for (const accion of ['eliminarPlan', 'retirarHallazgo']) {
+    await assert.rejects(call('calidad', {accion, planId, itemId: itemId()}), /Terminado/);
+  }
+  assert.equal((await call('calidad', {accion: 'detalle', planId})).items.length, 1);
+});
+
+test('retirar y volver a vincular reinicia entregas conservando el historial', async () => {
+  await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']});
+  await itemRef().update({compromiso: 'Anterior', respuestaVersion: 1});
+  const input = {accion: 'retirarHallazgo', planId, itemId: itemId()};
+  await assert.rejects(call('responsable', input), {code: 'permission-denied'});
+  await call('calidad', input);
+  const detail = await call('calidad', {accion: 'detalle', planId});
+  assert.equal(detail.items.length, 0); assert.equal(detail.plan.cantidad, 0);
+  await assert.rejects(call('calidad', input));
+  await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']});
+  assert.equal((await itemRef().get()).data().respuestaVersion, 0);
+  assert.equal((await itemRef().get()).data().compromiso, undefined);
+  const history = await itemRef().collection('historial').get();
+  assert.ok(history.docs.some(d => d.data().anterior?.compromiso === 'Anterior'));
+});
+
+test('PDF del plan y por etapa disponible como borrador sin cambiar aprobación', async () => {
+  await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']});
+  for (const etapa of ['todo', 'respuesta', 'soportes']) {
+    const result = await call('calidad', {accion: 'generarPdf', planId, etapa});
+    assert.ok(result.nombre.endsWith(`_${etapa}.pdf`));
+    const bytes = Buffer.from(result.base64, 'base64');
+    assert.equal(bytes.subarray(0, 4).toString(), '%PDF');
+    assert.ok((await require('pdf-lib').PDFDocument.load(bytes)).getPageCount() > 0);
+  }
+  await assert.rejects(call('responsable', {accion: 'generarPdf', planId}), {code: 'permission-denied'});
+  assert.equal((await itemRef().get()).data().respuestaVersion, 0);
+  assert.equal((await itemRef().get()).data().respuestaPresentado, undefined);
 });

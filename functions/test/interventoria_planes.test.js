@@ -47,3 +47,14 @@ test('copiar, aprobar o descargar no equivale a presentar en K2', () => {
   assert.throws(() => p.validarPresentacion(item, 'respuesta', 2));
   assert.throws(() => p.validarPresentacion({...item, respuestaPresentado: {fecha: '2026-10-05'}}, 'respuesta', 3));
 });
+
+
+test('finalizada sin aprobación expresa no habilita plan y estados manuales finales se conservan', () => {
+  assert.equal(p.tareaAprobadaParaPlan({estado: 'finalizado'}), false);
+  assert.equal(p.tareaAprobadaParaPlan({estado: 'finalizado', solicitud_finalizacion_estado: 'aprobado'}), true);
+  assert.equal(p.tareaAprobadaParaPlan({estado: 'finalizado', solicitud_finalizacion_estado: 'aprobado', reasignacion_estado: 'pendiente'}), false);
+  assert.equal(p.estadoGestionAutomatico('recibido', []), 'recibido');
+  assert.equal(p.estadoGestionAutomatico('en_gestion', [{respuestaVersion: 1}, {}]), 'recibido');
+  assert.equal(p.estadoGestionAutomatico('mesa_descuentos', [{respuestaVersion: 1}]), 'mesa_descuentos');
+  assert.equal(p.estadoGestionAutomatico('enviado', [{respuestaVersion: 1}]), 'enviado');
+});
