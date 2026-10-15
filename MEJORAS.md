@@ -11263,3 +11263,8 @@ siguen sin sellarse.
 - Sigue pendiente comprobar TAL-016 con su archivo real y descargarlo desde
   una sesión autenticada. No cambia la interfaz ni las reglas o Functions;
   Android/iOS requieren su compilación y publicación móvil para recibirlo.
+- **Publicada la Web 2.6.29 (43)** en `https://to-do-gestion.web.app`.
+  Compilación correcta y verificación HTTP/SHA-256 de versión, página,
+  bootstrap, JavaScript principal y service worker contra `build/web`.
+  Código subido a `main` en `e233c7d`. Sin despliegues de backend ni cambios
+  de datos de producción en esta entrega.
