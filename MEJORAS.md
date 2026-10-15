@@ -11233,3 +11233,33 @@ Claude. Código: `lib/visitas/visitas_offline.dart` (nuevo), `visitas_service.da
   API oficial de Rules, sin modificar permisos para sortear el error.
   Functions e índices no cambiaron en esta entrega; conservan el despliegue
   anterior. Código integrado en `main` con commit `5445406`.
+
+## Gestión Documental — sello «Aprobado» en Excel con varias hojas (15 oct 2026)
+Claude. `gdSellarPlantillaValidada` (`gd_formato_plantilla.dart`). Caso TAL-016:
+la descarga fallaba con «No se pudo actualizar el campo Aprobado… no conserva el
+encabezado de la plantilla» porque ninguna hoja traía la combinación `D2:L3`
+(ni `C1:G3`). Se sellaba cualquier número de hojas, pero solo las que
+conservaban esa combinación exacta. Ahora, si ninguna hoja la trae, se busca la
+etiqueta «Aprobado» en las filas 1–6 de cada hoja (una sola por fila, para no
+tocar una columna «Aprobado» de una tabla) y el sello va en la celda siguiente
+a su bloque. La ruta exacta no cambió. Pruebas: 12 hojas y archivo sin la
+combinación. **Causa no confirmada con el archivo real** (no lo tengo): si
+TAL-016 sigue fallando, falta su `.xlsx` para ver cómo quedó el encabezado. No
+se probó la descarga en la app; las filas de «Aprobado» fuera de las filas 1–6
+siguen sin sellarse.
+
+## Integración del sello Excel — 2.6.29+43 (15 oct 2026, Codex)
+
+- Integrado el cambio de Claude de búsqueda del campo «Aprobado» en las
+  primeras seis filas cuando no hay encabezados de plantilla reconocidos.
+  La ruta de plantilla exacta conserva su comportamiento.
+- Protección adicional: en esa búsqueda alternativa solo se sustituye
+  «Pendiente» o se conserva el mismo aprobador. No se sobrescriben fórmulas,
+  números, celdas vacías ni otros textos por coincidir con una etiqueta de
+  tabla. Las combinaciones se inspeccionan solo dentro de las seis filas.
+- Validación: **222 pruebas de Gestión Documental aprobadas** y análisis
+  dirigido sin incidencias. Incluye libros de doce hojas, encabezado movido
+  y protección de fórmulas y datos. Versión aumentada a **2.6.29+43**.
+- Sigue pendiente comprobar TAL-016 con su archivo real y descargarlo desde
+  una sesión autenticada. No cambia la interfaz ni las reglas o Functions;
+  Android/iOS requieren su compilación y publicación móvil para recibirlo.

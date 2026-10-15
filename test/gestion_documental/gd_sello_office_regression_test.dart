@@ -132,6 +132,82 @@ void main() {
     },
   );
 
+  test('Excel con muchas hojas: sella el encabezado en todas', () {
+    const hoja =
+        '<worksheet><sheetData><row r="2">'
+        '<c r="M2" t="inlineStr"><is><t>Aprobado</t></is></c>'
+        '<c r="O2" t="inlineStr"><is><t>Pendiente</t></is></c>'
+        '</row></sheetData>'
+        '<mergeCells><mergeCell ref="D2:L3"/></mergeCells></worksheet>';
+    const datos =
+        '<worksheet><sheetData><row r="1"><c r="A1"><v>1</v></c></row>'
+        '</sheetData></worksheet>';
+    final original = {
+      for (var i = 1; i <= 12; i++)
+        'xl/worksheets/sheet$i.xml': utf8.encode(i.isOdd ? hoja : datos),
+    };
+    final r = gdSellarPlantillaValidada(
+      zip(original),
+      aprobadoPor: 'Romer',
+      aprobadoEn: DateTime(2026),
+    );
+    expect(r.bytes, isNotNull, reason: r.detalle);
+    final salida = partes(r.bytes!);
+    for (var i = 1; i <= 12; i++) {
+      final texto = utf8.decode(salida['xl/worksheets/sheet$i.xml']!);
+      expect(texto.contains('Romer'), i.isOdd, reason: 'hoja $i');
+    }
+  });
+
+  test(
+    'Excel ya subido sin la combinación D2:L3: sella junto a «Aprobado»',
+    () {
+      final r = gdSellarPlantillaValidada(
+        zip({
+          'xl/worksheets/sheet1.xml': utf8.encode(
+            '<worksheet><sheetData><row r="2">'
+            '<c r="K2" t="inlineStr"><is><t>Aprobado</t></is></c>'
+            '<c r="M2" t="inlineStr"><is><t>Pendiente</t></is></c>'
+            '</row></sheetData>'
+            '<mergeCells><mergeCell ref="K2:L2"/></mergeCells></worksheet>',
+          ),
+          'xl/worksheets/sheet2.xml': utf8.encode(
+            '<worksheet><sheetData><row r="1"><c r="A1"><v>1</v></c></row>'
+            '</sheetData></worksheet>',
+          ),
+        }),
+        aprobadoPor: 'Romer',
+        aprobadoEn: DateTime(2026),
+      );
+      expect(r.bytes, isNotNull, reason: r.detalle);
+      final hoja = utf8.decode(partes(r.bytes!)['xl/worksheets/sheet1.xml']!);
+      expect(hoja, contains('Romer'));
+      expect(hoja, isNot(contains('Pendiente')));
+    },
+  );
+
+  test('Excel sin plantilla: no pisa fórmulas ni columnas de una tabla', () {
+    for (final destino in [
+      '<c r="B2" t="inlineStr"><is><t>Observaciones</t></is></c>',
+      '<c r="B2"><f>SUM(C2:D2)</f><v>5</v></c>',
+      '<c r="B2"><v>50</v></c>',
+      '',
+    ]) {
+      final r = gdSellarPlantillaValidada(
+        zip({
+          'xl/worksheets/sheet1.xml': utf8.encode(
+            '<worksheet><sheetData><row r="2">'
+            '<c r="A2" t="inlineStr"><is><t>Aprobado</t></is></c>'
+            '$destino</row></sheetData></worksheet>',
+          ),
+        }),
+        aprobadoPor: 'Romer',
+        aprobadoEn: DateTime(2026),
+      );
+      expect(r.bytes, isNull, reason: 'No debe modificar: $destino');
+    }
+  });
+
   test(
     'Excel no reemplaza una celda de otro formato por coincidir el merge',
     () {

@@ -661,38 +661,15 @@ double _min(double a, double b) => a < b ? a : b;
   }
   final sellados = <String, String>{};
   final celdasSelladas = <String>{};
-  for (final archivo in archive.files) {
-    if (!archivo.isFile ||
-        !RegExp(r'^xl/worksheets/[^/]+\.xml$').hasMatch(archivo.name)) {
-      continue;
-    }
-    final XmlDocument hoja;
-    try {
-      hoja = XmlDocument.parse(utf8.decode(archivo.content as List<int>));
-    } catch (_) {
-      return (bytes: null, detalle: 'Una hoja del Excel no es legible.');
-    }
-    final combinaciones = _elementosExcel(
-      hoja,
-      'mergeCell',
-    ).map((e) => e.getAttribute('ref')).toSet();
-    final actual = combinaciones.contains('D2:L3');
-    final anterior = combinaciones.contains('C1:G3');
-    if (!actual && !anterior) continue;
-    final refEtiqueta = actual ? 'M2' : 'H2';
-    final refAprobado = actual ? kGdPlantillaCeldaAprobado : 'I2';
-    final celdas = {
-      for (final e in _elementosExcel(hoja, 'c')) e.getAttribute('r'): e,
-    };
-    final etiqueta = celdas[refEtiqueta];
-    if (etiqueta == null ||
-        _textoCeldaExcel(etiqueta, compartidos).trim().toLowerCase() !=
-            'aprobado') {
-      return (
-        bytes: null,
-        detalle: 'No se encontró la celda "Aprobado" en ${archivo.name}.',
-      );
-    }
+
+  /// Escribe [aprobadoPor] en [refAprobado], al lado de la etiqueta.
+  void escribir(
+    XmlDocument hoja,
+    String nombre,
+    XmlElement etiqueta,
+    String refAprobado,
+    Map<String?, XmlElement> celdas,
+  ) {
     var celda = celdas[refAprobado];
     if (celda == null) {
       celda = XmlElement(etiqueta.name.copy(), [
@@ -725,8 +702,125 @@ double _min(double a, double b) => a < b ? a : b;
         ),
       ]),
     );
-    sellados[archivo.name] = hoja.toXmlString();
+    sellados[nombre] = hoja.toXmlString();
     celdasSelladas.add(refAprobado);
+  }
+
+  final hojas = <({String nombre, XmlDocument xml})>[];
+  for (final archivo in archive.files) {
+    if (!archivo.isFile ||
+        !RegExp(r'^xl/worksheets/[^/]+\.xml$').hasMatch(archivo.name)) {
+      continue;
+    }
+    try {
+      hojas.add((
+        nombre: archivo.name,
+        xml: XmlDocument.parse(utf8.decode(archivo.content as List<int>)),
+      ));
+    } catch (_) {
+      return (bytes: null, detalle: 'Una hoja del Excel no es legible.');
+    }
+  }
+
+  // 1) El encabezado exacto de la plantilla, en cualquier número de hojas.
+  for (final h in hojas) {
+    final combinaciones = _elementosExcel(
+      h.xml,
+      'mergeCell',
+    ).map((e) => e.getAttribute('ref')).toSet();
+    final actual = combinaciones.contains('D2:L3');
+    final anterior = combinaciones.contains('C1:G3');
+    if (!actual && !anterior) continue;
+    final refEtiqueta = actual ? 'M2' : 'H2';
+    final refAprobado = actual ? kGdPlantillaCeldaAprobado : 'I2';
+    final celdas = {
+      for (final e in _elementosExcel(h.xml, 'c')) e.getAttribute('r'): e,
+    };
+    final etiqueta = celdas[refEtiqueta];
+    if (etiqueta == null ||
+        _textoCeldaExcel(etiqueta, compartidos).trim().toLowerCase() !=
+            'aprobado') {
+      return (
+        bytes: null,
+        detalle: 'No se encontró la celda "Aprobado" en ${h.nombre}.',
+      );
+    }
+    escribir(h.xml, h.nombre, etiqueta, refAprobado, celdas);
+  }
+
+  // 2) Archivos que ya subieron y perdieron la combinación D2:L3 (se editó el
+  // encabezado, se agregaron hojas o Excel reacomodó las celdas): se busca la
+  // etiqueta «Aprobado» en el encabezado (filas 1 a 6) de cada hoja y el
+  // sello va en la celda siguiente a su bloque. Solo si la fila no trae más de
+  // una etiqueta así y el destino conserva «Pendiente» o este mismo sello.
+  // Una etiqueta aislada no permite identificar otras celdas con seguridad.
+  if (sellados.isEmpty) {
+    for (final h in hojas) {
+      final celdas = {
+        for (final e in _elementosExcel(h.xml, 'c')) e.getAttribute('r'): e,
+      };
+      final rangos = <({int c1, int c2, int fila})>[];
+      for (final m in _elementosExcel(h.xml, 'mergeCell')) {
+        final p = (m.getAttribute('ref') ?? '').split(':');
+        if (p.length != 2) continue;
+        final f1 = int.tryParse(p[0].replaceAll(RegExp(r'[A-Za-z]'), ''));
+        final f2 = int.tryParse(p[1].replaceAll(RegExp(r'[A-Za-z]'), ''));
+        if (f1 == null || f2 == null) continue;
+        for (var f = f1 < 1 ? 1 : f1; f <= f2 && f <= 6; f++) {
+          rangos.add((
+            c1: _columnaExcel(p[0]),
+            c2: _columnaExcel(p[1]),
+            fila: f,
+          ));
+        }
+      }
+      final etiquetas = <XmlElement>[
+        for (final e in celdas.values)
+          if ((int.tryParse(
+                        (e.getAttribute('r') ?? '').replaceAll(
+                          RegExp(r'[A-Za-z]'),
+                          '',
+                        ),
+                      ) ??
+                      99) <=
+                  6 &&
+              _textoCeldaExcel(e, compartidos).trim().toLowerCase() ==
+                  'aprobado')
+            e,
+      ];
+      final porFila = <String, List<XmlElement>>{};
+      for (final e in etiquetas) {
+        final fila = (e.getAttribute('r') ?? '').replaceAll(
+          RegExp(r'[A-Za-z]'),
+          '',
+        );
+        porFila.putIfAbsent(fila, () => []).add(e);
+      }
+      for (final grupo in porFila.values) {
+        if (grupo.length != 1) continue;
+        final etiqueta = grupo.single;
+        final ref = etiqueta.getAttribute('r') ?? '';
+        final col = _columnaExcel(ref);
+        final fila = int.parse(ref.replaceAll(RegExp(r'[A-Za-z]'), ''));
+        var fin = col;
+        for (final r in rangos) {
+          if (r.fila == fila && r.c1 <= col && col <= r.c2 && r.c2 > fin) {
+            fin = r.c2;
+          }
+        }
+        final refAprobado = '${_letrasColumna(fin + 1)}$fila';
+        final destino = celdas[refAprobado];
+        if (destino == null || _elementosExcel(destino, 'f').isNotEmpty) {
+          continue;
+        }
+        final valor = _textoCeldaExcel(destino, compartidos).trim();
+        if (valor.toLowerCase() != 'pendiente' &&
+            (aprobadoPor.trim().isEmpty || valor != aprobadoPor.trim())) {
+          continue;
+        }
+        escribir(h.xml, h.nombre, etiqueta, refAprobado, celdas);
+      }
+    }
   }
   if (sellados.isEmpty) {
     return (
@@ -779,4 +873,15 @@ int _columnaExcel(String referencia) {
     columna = columna * 26 + letra - 64;
   }
   return columna;
+}
+
+String _letrasColumna(int columna) {
+  var n = columna;
+  final b = StringBuffer();
+  while (n > 0) {
+    final r = (n - 1) % 26;
+    b.write(String.fromCharCode(65 + r));
+    n = (n - 1) ~/ 26;
+  }
+  return b.toString().split('').reversed.join();
 }
