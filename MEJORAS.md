@@ -11224,3 +11224,12 @@ Claude. Código: `lib/visitas/visitas_offline.dart` (nuevo), `visitas_service.da
   tardíos de escrituras offline sin aviso; el DNS no garantiza comunicación
   efectiva con Firestore. El caso de área/rol de Jason sigue sin comprobarse
   con sus datos. Esta entrega no ejecuta migraciones de datos de producción.
+- **Publicación completada:** Web en `https://to-do-gestion.web.app`, versión
+  pública **2.6.28 (42)**. Verificados por HTTP y SHA-256 `version.json`,
+  `index.html`, `flutter_bootstrap.js`, `main.dart.js` y el service worker
+  contra la compilación local. Reglas activas:
+  `64d23d1a-d9e0-4634-9b4c-38f149cf7d3c`, verificadas equivalentes a la fuente.
+  Ante respuestas 503 de Firebase se activó el candidato ya compilado por la
+  API oficial de Rules, sin modificar permisos para sortear el error.
+  Functions e índices no cambiaron en esta entrega; conservan el despliegue
+  anterior. Código integrado en `main` con commit `5445406`.
