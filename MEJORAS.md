@@ -1,5 +1,35 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-15 — Publicación integrada de Codex y Claude (Codex)
+
+- Autorización del usuario: publicar todos los cambios integrados. Publicado
+  `main` hasta `f9f1ff6`, incluidos Planes de mejora, reasignación por grupos,
+  sincronización de personas/jefes, tareas repetitivas y aprobación Word/Excel.
+- Hosting `to-do-gestion` publicado: **2.6.27 (41)** en
+  https://to-do-gestion.web.app. Se descargaron de producción `version.json`,
+  `index.html`, `flutter_bootstrap.js`, `main.dart.js` y el service worker:
+  HTTP 200 y SHA-256 idéntico a cada archivo de la compilación local.
+- Functions: **107/107 ACTIVE**, todas con hash de código
+  `4f65f74ed6a3faf02ea1ecb070bd99ca746eef94`. El primer intento actualizó 92;
+  las 15 con fallo de health check se publicaron correctamente al reintentarlas
+  por separado. Ambos procesos compilaron TypeScript y pasaron lint sin errores.
+- Firestore: **23/23 índices READY**. Reglas publicadas en el ruleset
+  `54421d20-74cf-4a8d-836e-52ae26da8407`, verificadas contra la fuente local.
+  El compilador remoto devolvió 503 con la fuente comentada, incluso con la
+  versión previamente publicada. Aceptó una copia compactada equivalente;
+  la API oficial creó y publicó el ruleset. No se cambiaron permisos para
+  sortear el fallo. La comparación de ambas fuentes compactadas es idéntica.
+- Se conserva `tool/compactar_reglas_firestore.js` y sus pruebas para generar
+  `build/firestore.deploy.rules` y `build/firebase.firestore.json`; preserva
+  literalmente cadenas, expresiones regulares y escapes. `firebase.indices.json`
+  permite publicar índices de forma independiente de la comprobación de reglas.
+- Validación integrada: **1.715 pruebas Flutter**, **198 pruebas de servidor**,
+  **52 pruebas con emuladores** de Tareas/Planes y **3 pruebas del compactador**,
+  todas aprobadas. Se conservan las comprobaciones previas del adjunto COM-001.
+- Alcance publicado: Web y servicios Firebase compartidos. No se publicaron
+  nuevos binarios en Play Store ni App Store; sigue pendiente la comprobación
+  de los flujos autenticados y de dispositivos Android/iPhone reales.
+
 ## 2026-10-14 — Biblioteca: aprobación dentro de Word y Excel (Codex)
 
 - Caso confirmado con el adjunto COM-001: Word conservó la tabla del encabezado
