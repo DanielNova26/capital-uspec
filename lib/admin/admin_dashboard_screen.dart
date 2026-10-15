@@ -76,6 +76,7 @@ import '../talento_humano/zeus_export_screen.dart';
 import 'empresa_codigo.dart';
 import 'admin_module_closeout_service.dart';
 import '../core/area_directory.dart';
+import '../core/direct_managers.dart';
 import '../widgets/paged_list.dart';
 import 'admin_access_filter.dart';
 import 'admin_name_normalizer.dart';
@@ -5786,7 +5787,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           case kVisitasRolConsulta:
             return 'Ve el cronograma y el consolidado sin modificar nada.';
           case kVisitasRolCoordinador:
-            return 'Ve, solo para consulta, las visitas de los profesionales de los grupos que coordina.';
+            return 'Hace sus propias visitas (como profesional de su área) y ve, solo para consulta, las de los profesionales de los grupos que coordina.';
           case kVisitasRolFirmante:
             return 'Administrador del establecimiento: firma desde su módulo las visitas que le envían.';
           case kVisitasRolGerencia:
@@ -6644,6 +6645,52 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     );
   }
 
+  /// Jefe(s) directo(s) de la persona, tal como están en Estructura, con el
+  /// rol que cada uno tiene en Visitas. Un jefe con cargo de Gerencia entra
+  /// como Gerencia aunque no tenga rol guardado (`resolverRolVisitas`).
+  Widget _visitasJefeDirecto(Map<String, dynamic> userData, String empresaId) {
+    final ids = <String>[
+      if (primaryManagerId(userData).isNotEmpty) primaryManagerId(userData),
+      if ((secondManager(userData, empresaId)['id'] ?? '').isNotEmpty)
+        secondManager(userData, empresaId)['id']!,
+    ];
+    String describir(String id) {
+      QueryDocumentSnapshot<Map<String, dynamic>>? doc;
+      for (final u in _users) {
+        if (u.id == id || (u.data()['cedula'] ?? '').toString() == id) {
+          doc = u;
+          break;
+        }
+      }
+      if (doc == null) return 'No se encontró al jefe ($id) en esta empresa';
+      final data = doc.data();
+      final rol = resolverRolVisitas(
+        rolGuardado: _visitasRoleByUser[doc.id] ?? _visitasRoleByUser[id],
+        esDesarrollador: isDeveloperUser(data, empresaId: empresaId),
+        cargo: VisitasService.cargoDeFicha(data, empresaId),
+        rolApp: (data['rol'] ?? data['roleKey'] ?? '').toString(),
+      );
+      final nombre = _userName(data, doc.id);
+      return '$nombre · ${rol == null ? 'sin rol en Visitas' : (kVisitasRolesLabel[rol] ?? rol)}';
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Text(
+        ids.isEmpty
+            ? 'Jefe directo: sin asignar (se define en Estructura).'
+            : ids.length == 1
+            ? 'Jefe directo: ${describir(ids.first)}'
+            : 'Jefes directos: ${ids.map(describir).join(' / ')}',
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: kAdminMuted,
+        ),
+      ),
+    );
+  }
+
   Widget _accessMatrixCell({
     required QueryDocumentSnapshot<Map<String, dynamic>> userDoc,
     required _AccessMatrixModule module,
@@ -6810,6 +6857,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     role: value,
                   ),
                 ),
+                if (module.key == 'visitas')
+                  _visitasJefeDirecto(userData, empresaId),
                 // Quien tiene cargo de Gerencia entra a Visitas como Gerencia
                 // sin importar el rol de esta lista (27 sep 2026).
                 if (module.key == 'visitas' &&

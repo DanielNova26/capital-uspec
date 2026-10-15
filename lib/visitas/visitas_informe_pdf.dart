@@ -633,6 +633,8 @@ List<pw.Widget> _hojaItems(
             _celda(
               [
                 r?.observacion ?? '',
+                if ((r?.sinFotoMotivo.trim() ?? '').isNotEmpty)
+                  'Sin foto: ${r!.sinFotoMotivo.trim()}',
                 if ((r?.evidencias.length ?? 0) > 0)
                   '(${r!.evidencias.length} foto${r.evidencias.length == 1 ? '' : 's'} en anexos)',
               ].where((t) => t.trim().isNotEmpty).join(' '),

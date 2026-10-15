@@ -38,6 +38,7 @@ import 'visitas_informe_pdf.dart';
 import 'visitas_equipo.dart';
 import 'visitas_marca_agua.dart';
 import 'visitas_models.dart';
+import 'visitas_offline.dart';
 import 'visitas_programar.dart';
 import 'visitas_service.dart';
 import 'visitas_ubicaciones_screen.dart';
@@ -275,7 +276,7 @@ class _VisitasDashboardScreenState extends State<VisitasDashboardScreen>
             nombreUsuario: widget.nombreUsuario,
           ),
         ),
-      if (rol == kVisitasRolProfesional)
+      if (visitasRolEjecuta(rol))
         _TabDef(
           'Registro de visita',
           Icons.where_to_vote_outlined,
@@ -287,7 +288,7 @@ class _VisitasDashboardScreenState extends State<VisitasDashboardScreen>
             nombreUsuario: widget.nombreUsuario,
           ),
         ),
-      if (rol == kVisitasRolProfesional)
+      if (visitasRolEjecuta(rol))
         _TabDef(
           'Mis visitas',
           Icons.assignment_turned_in_outlined,
@@ -2181,6 +2182,8 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
   void initState() {
     super.initState();
     _stream = widget.svc.streamVisita(widget.visitaId);
+    // Modo sin conexión: vigila la red y carga la cola de fotos pendientes.
+    VisitasOffline.instance.vigilar();
   }
 
   /// Una sola lectura por pantalla; quien la pida mientras carga espera la
@@ -2203,6 +2206,7 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
 
   @override
   void dispose() {
+    VisitasOffline.instance.dejarDeVigilar();
     _obsGeneral.dispose();
     _respNombre.dispose();
     _respCargo.dispose();
@@ -3853,15 +3857,293 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
     return r;
   }
 
-  Future<void> _agregarEvidenciaAdicional(VisitaProfesional v) async {
+  /// De dónde sale la foto. En el celular antes solo se abría la cámara y no
+  /// se podía buscar una imagen ya guardada (reporte de Play Store y App
+  /// Store, 15 oct 2026); ahora se elige cámara, galería o archivos.
+  Future<_FuenteFoto?> _preguntarFuenteFoto({bool permitirSinFoto = false}) =>
+      showModalBottomSheet<_FuenteFoto>(
+        context: context,
+        showDragHandle: true,
+        builder: (ctx) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (!kIsWeb)
+                ListTile(
+                  leading: const Icon(Icons.photo_camera_outlined),
+                  title: const Text('Tomar foto'),
+                  onTap: () => Navigator.pop(ctx, _FuenteFoto.camara),
+                ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('Elegir de la galería'),
+                onTap: () => Navigator.pop(ctx, _FuenteFoto.galeria),
+              ),
+              ListTile(
+                leading: const Icon(Icons.folder_open_outlined),
+                title: const Text('Buscar en archivos'),
+                onTap: () => Navigator.pop(ctx, _FuenteFoto.archivos),
+              ),
+              if (permitirSinFoto)
+                ListTile(
+                  leading: const Icon(
+                    Icons.no_photography_outlined,
+                    color: Color(0xFFB91C1C),
+                  ),
+                  title: const Text('No se pudo cargar foto (indicar motivo)'),
+                  onTap: () => Navigator.pop(ctx, _FuenteFoto.sinFoto),
+                ),
+            ],
+          ),
+        ),
+      );
+
+  /// Bytes de la imagen según la fuente; null si se cancela.
+  Future<Uint8List?> _leerFoto(_FuenteFoto fuente) async {
+    if (fuente == _FuenteFoto.archivos) {
+      final r = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
+        withData: true,
+      );
+      return r?.files.single.bytes;
+    }
     final img = await ImagePicker().pickImage(
-      source: kIsWeb ? ImageSource.gallery : ImageSource.camera,
+      source: fuente == _FuenteFoto.camara
+          ? ImageSource.camera
+          : ImageSource.gallery,
       imageQuality: 80,
       maxWidth: 1600,
     );
-    if (img == null || !mounted) return;
+    return img?.readAsBytes();
+  }
+
+  /// «No se pudo cargar foto»: el profesional escribe por qué (por ejemplo,
+  /// el centro no deja ingresar celulares con cámara). El motivo queda en la
+  /// respuesta y reemplaza a la foto obligatoria.
+  Future<void> _registrarSinFoto(
+    VisitaProfesional v,
+    VisitaFormatoItem it,
+  ) async {
+    final actual = v.respuestas[it.id] ?? const VisitaRespuesta();
+    final c = TextEditingController(text: actual.sinFotoMotivo);
+    final motivo = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('No se pudo cargar la foto'),
+        content: TextField(
+          controller: c,
+          autofocus: true,
+          maxLines: 3,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            hintText: 'Por qué no se pudo (impedimento del lugar…)',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: kVisitasColor),
+            onPressed: () => Navigator.pop(ctx, c.text.trim()),
+            child: const Text('Guardar motivo'),
+          ),
+        ],
+      ),
+    );
+    c.dispose();
+    if (motivo == null || !mounted) return;
+    if (motivo.isEmpty) {
+      _snack(
+        context,
+        'Escribe el motivo para continuar sin foto.',
+        error: true,
+      );
+      return;
+    }
+    try {
+      await widget.svc.guardarRespuesta(
+        v.id,
+        it.id,
+        actual.copyWith(sinFotoMotivo: motivo),
+      );
+    } catch (e) {
+      if (mounted) _snack(context, 'No se pudo guardar: $e', error: true);
+    }
+  }
+
+  /// Sube la foto; sin internet (o si se cae la red al subirla) la guarda en
+  /// el equipo, ya con su marca de agua, y devuelve null: queda en «Cargar
+  /// visita» (ver `visitas_offline.dart`).
+  Future<VisitaEvidencia?> _subirOGuardarLocal({
+    required VisitaProfesional v,
+    required String destino,
+    required String carpeta,
+    required Uint8List bytes,
+    required String nombre,
+    String itemId = '',
+    String tablaId = '',
+    String filaId = '',
+    String descripcion = '',
+    bool conMarca = false,
+  }) async {
+    final off = VisitasOffline.instance;
+    Future<VisitaEvidencia?> aLocal() async {
+      await off.guardar(
+        visitaId: v.id,
+        empresaId: widget.empresaId,
+        destino: destino,
+        bytes: bytes,
+        nombre: nombre,
+        itemId: itemId,
+        tablaId: tablaId,
+        filaId: filaId,
+        descripcion: descripcion,
+        conMarca: conMarca,
+      );
+      if (mounted) {
+        _snack(
+          context,
+          'Sin conexión: la foto quedó guardada en este equipo. Cuando '
+          'tengas internet toca «Cargar visita».',
+        );
+      }
+      return null;
+    }
+
+    if (VisitasOffline.disponible && !await off.hayConexion()) return aLocal();
+    try {
+      return await widget.svc.subirEvidencia(
+        empresaId: widget.empresaId,
+        visitaId: v.id,
+        itemId: carpeta,
+        bytes: bytes,
+        nombre: nombre,
+        descripcion: descripcion,
+        conMarca: conMarca,
+      );
+    } catch (e) {
+      if (VisitasOffline.disponible &&
+          VisitasOffline.esErrorDeRed(e) &&
+          !await off.hayConexion()) {
+        return aLocal();
+      }
+      rethrow;
+    }
+  }
+
+  /// «Cargar visita»: sube las fotos pendientes de esta visita, una por una.
+  /// Las que fallan se quedan en el equipo para reintentar.
+  Future<void> _cargarVisita(VisitaProfesional v) async {
+    final off = VisitasOffline.instance;
+    if (!await off.hayConexion()) {
+      if (mounted) {
+        _snack(
+          context,
+          'Todavía no hay conexión. Cuando tengas internet vuelve a tocar '
+          '«Cargar visita».',
+          error: true,
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _ocupado = true);
+    var subidas = 0;
+    var fallidas = 0;
+    var extraviadas = 0;
+    try {
+      for (final p in off.de(v.id)) {
+        final bytes = await off.bytesDe(p);
+        if (bytes == null) {
+          // Informar la pérdida para que la persona vuelva a adjuntarla.
+          await off.quitar(p);
+          extraviadas++;
+          continue;
+        }
+        try {
+          await widget.svc.cargarFotoPendiente(p, bytes);
+          await off.quitar(p);
+          subidas++;
+        } catch (_) {
+          fallidas++;
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _ocupado = false);
+    }
+    if (!mounted) return;
+    _snack(
+      context,
+      extraviadas > 0
+          ? 'Se subieron $subidas foto(s); faltan $extraviadas archivo(s) en '
+                'este equipo. Vuelve a adjuntar esas fotos. Quedan $fallidas '
+                'foto(s) por reintentar.'
+          : fallidas == 0
+          ? 'Visita cargada: $subidas foto(s) subida(s). Ya puedes cerrarla.'
+          : 'Se subieron $subidas foto(s); $fallidas no se pudieron subir y '
+                'siguen en este equipo. Intenta de nuevo.',
+      error: fallidas > 0 || extraviadas > 0,
+    );
+  }
+
+  /// Aviso fijo arriba del formato: sin conexión y fotos por cargar.
+  Widget _bannerSinConexion(VisitaProfesional v) => ListenableBuilder(
+    listenable: VisitasOffline.instance,
+    builder: (context, _) {
+      final off = VisitasOffline.instance;
+      final pendientes = off.de(v.id).length;
+      if (off.conectado && pendientes == 0) return const SizedBox.shrink();
+      return Container(
+        width: double.infinity,
+        color: off.conectado
+            ? const Color(0xFFFEF3C7)
+            : const Color(0xFFFEE2E2),
+        padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
+        child: Row(
+          children: [
+            Icon(
+              off.conectado ? Icons.cloud_upload_outlined : Icons.cloud_off,
+              size: 18,
+              color: off.conectado
+                  ? const Color(0xFFB45309)
+                  : const Color(0xFFB91C1C),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                off.conectado
+                    ? '$pendientes foto(s) por cargar a la visita.'
+                    : 'Sin conexión. Lo que respondes se guarda en este '
+                          'equipo${pendientes == 0 ? '' : ' ($pendientes foto(s) por cargar)'}.',
+                style: const TextStyle(fontFamily: _kFont, fontSize: 12),
+              ),
+            ),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: kVisitasColor,
+                visualDensity: VisualDensity.compact,
+              ),
+              onPressed: _ocupado || !off.conectado
+                  ? null
+                  : () => _cargarVisita(v),
+              icon: const Icon(Icons.cloud_upload, size: 16),
+              label: const Text('Cargar visita'),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+
+  Future<void> _agregarEvidenciaAdicional(VisitaProfesional v) async {
+    final fuente = await _preguntarFuenteFoto();
+    if (fuente == null || !mounted) return;
+    final original = await _leerFoto(fuente);
+    if (original == null || !mounted) return;
     final descripcion = await _pedirDescripcion() ?? '';
-    final original = await img.readAsBytes();
     setState(() => _ocupado = true);
     try {
       final marcada = await fotoConMarcaVisita(
@@ -3870,15 +4152,16 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
         detalle: descripcion.isEmpty ? 'Evidencia adicional' : descripcion,
         logo: await _logoEmpresa(),
       );
-      final ev = await widget.svc.subirEvidencia(
-        empresaId: widget.empresaId,
-        visitaId: v.id,
-        itemId: 'adicionales',
+      final ev = await _subirOGuardarLocal(
+        v: v,
+        destino: kFotoDestinoAdicional,
+        carpeta: 'adicionales',
         bytes: marcada.bytes,
         nombre: 'adicional_${DateTime.now().millisecondsSinceEpoch}.jpg',
         descripcion: descripcion,
         conMarca: marcada.conMarca,
       );
+      if (ev == null) return;
       await widget.svc.guardarEvidenciasAdicionales(v.id, [
         ...v.evidenciasAdicionales,
         ev,
@@ -3934,6 +4217,7 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
         : ' · sin ubicación';
     return Column(
       children: [
+        _bannerSinConexion(v),
         Container(
           color: kVisitasColor.withValues(alpha: .08),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -4045,13 +4329,10 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
     VisitaFormatoTabla t,
     VisitaFilaTabla fila,
   ) async {
-    final img = await ImagePicker().pickImage(
-      source: kIsWeb ? ImageSource.gallery : ImageSource.camera,
-      imageQuality: 80,
-      maxWidth: 1600,
-    );
-    if (img == null) return;
-    final Uint8List original = await img.readAsBytes();
+    final fuente = await _preguntarFuenteFoto();
+    if (fuente == null || !mounted) return;
+    final Uint8List? original = await _leerFoto(fuente);
+    if (original == null || !mounted) return;
     setState(() => _ocupado = true);
     try {
       final marcada = await fotoConMarcaVisita(
@@ -4060,14 +4341,17 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
         detalle: '${t.nombre} · ${fila.titulo(t)}',
         logo: await _logoEmpresa(),
       );
-      final ev = await widget.svc.subirEvidencia(
-        empresaId: widget.empresaId,
-        visitaId: v.id,
-        itemId: '${t.id}_${fila.id}',
+      final ev = await _subirOGuardarLocal(
+        v: v,
+        destino: kFotoDestinoFila,
+        carpeta: '${t.id}_${fila.id}',
+        tablaId: t.id,
+        filaId: fila.id,
         bytes: marcada.bytes,
         nombre: '${t.id}_${DateTime.now().millisecondsSinceEpoch}.jpg',
         conMarca: marcada.conMarca,
       );
+      if (ev == null) return;
       final actuales = v.filasDe(t.id);
       // Una fila fija que todavía no se había guardado entra con su foto.
       final filas = actuales.any((f) => f.id == fila.id)
@@ -4095,15 +4379,13 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
   }
 
   Future<void> _tomarFoto(VisitaProfesional v, VisitaFormatoItem it) async {
-    final img = await ImagePicker().pickImage(
-      // En el establecimiento la evidencia se toma en el momento. En web
-      // no hay cámara que valga y se acepta la galería para poder probar.
-      source: kIsWeb ? ImageSource.gallery : ImageSource.camera,
-      imageQuality: 80,
-      maxWidth: 1600,
-    );
-    if (img == null) return;
-    final Uint8List original = await img.readAsBytes();
+    // Cámara, galería o archivos; y, si el lugar no deja tomarla, «no se pudo
+    // cargar foto» con su motivo.
+    final fuente = await _preguntarFuenteFoto(permitirSinFoto: true);
+    if (fuente == null || !mounted) return;
+    if (fuente == _FuenteFoto.sinFoto) return _registrarSinFoto(v, it);
+    final Uint8List? original = await _leerFoto(fuente);
+    if (original == null || !mounted) return;
     setState(() => _ocupado = true);
     try {
       final marcada = await fotoConMarcaVisita(
@@ -4112,19 +4394,24 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
         detalle: 'Ítem ${it.orden}',
         logo: await _logoEmpresa(),
       );
-      final ev = await widget.svc.subirEvidencia(
-        empresaId: widget.empresaId,
-        visitaId: v.id,
+      final ev = await _subirOGuardarLocal(
+        v: v,
+        destino: kFotoDestinoItem,
+        carpeta: it.id,
         itemId: it.id,
         bytes: marcada.bytes,
         nombre: 'item_${it.orden}_${DateTime.now().millisecondsSinceEpoch}.jpg',
         conMarca: marcada.conMarca,
       );
+      if (ev == null) return;
       final actual = v.respuestas[it.id] ?? const VisitaRespuesta();
       await widget.svc.guardarRespuesta(
         v.id,
         it.id,
-        actual.copyWith(evidencias: [...actual.evidencias, ev]),
+        actual.copyWith(
+          evidencias: [...actual.evidencias, ev],
+          sinFotoMotivo: '',
+        ),
       );
     } catch (e) {
       if (mounted) _snack(context, 'No se pudo subir la foto: $e', error: true);
@@ -4133,6 +4420,8 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
     }
   }
 }
+
+enum _FuenteFoto { camara, galeria, archivos, sinFoto }
 
 /// Etiquetas de respuesta según el tipo de ítem: el diagnóstico califica
 /// 1/0/NA como el Excel; botiquín y camilla van en sí/no.
@@ -4703,7 +4992,9 @@ class _ItemCardState extends State<_ItemCard> {
                     icon: const Icon(Icons.photo_camera_outlined, size: 18),
                     label: Text(
                       r.evidencias.isEmpty
-                          ? (widget.item.requiereEvidencia && noCumple
+                          ? (widget.item.requiereEvidencia &&
+                                    noCumple &&
+                                    r.sinFotoMotivo.trim().isEmpty
                                 ? 'Foto (obligatoria)'
                                 : 'Foto')
                           : 'Foto (${r.evidencias.length})',
@@ -4725,6 +5016,19 @@ class _ItemCardState extends State<_ItemCard> {
                     ),
                 ],
               ),
+              if (r.evidencias.isEmpty && r.sinFotoMotivo.trim().isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'Sin foto: ${r.sinFotoMotivo.trim()}',
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 12,
+                      color: Color(0xFFB45309),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
             ],
           ],
         ),

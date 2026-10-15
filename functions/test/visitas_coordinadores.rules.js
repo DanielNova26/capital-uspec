@@ -87,3 +87,34 @@ test('solo servidor asigna coordinadorIds, también al crear la visita', async (
   await assertFails(setDoc(doc(auth('dev'), 'TBL_VISITAS/forjada'), visita()));
   await assertFails(updateDoc(doc(auth('dev'), 'TBL_VISITAS/nueva'), {coordinadorIds}));
 });
+
+test('coordinador ejecuta su visita y consulta formatos de su área, sin editar las de su grupo', async () => {
+  await seed(async (db) => {
+    await updateDoc(doc(db, 'TBL_VISITAS_ROLES/A_coor'), {areaId: 'nutricion'});
+    await setDoc(doc(db, 'TBL_VISITAS_FORMATOS/f'), {
+      empresaId: 'A', areaId: 'nutricion', estado: 'vigente',
+    });
+    await setDoc(doc(db, 'TBL_VISITAS/ejecutar'), {
+      ...visita('A', []), profesionalId: 'coor', estado: 'en_curso',
+    });
+    await updateDoc(doc(db, 'TBL_VISITAS/propia'), {estado: 'en_curso'});
+  });
+  const db = auth('coor');
+  await assertSucceeds(getDocs(query(collection(db, 'TBL_VISITAS'),
+    where('empresaId', '==', 'A'), where('profesionalId', '==', 'coor'))));
+  await assertSucceeds(getDocs(query(collection(db, 'TBL_VISITAS_FORMATOS'),
+    where('empresaId', '==', 'A'), where('areaId', '==', 'nutricion'))));
+  await assertSucceeds(updateDoc(doc(db, 'TBL_VISITAS/ejecutar'), {observacionGeneral: 'Propia'}));
+  await assertFails(updateDoc(doc(db, 'TBL_VISITAS/propia'), {observacionGeneral: 'Ajena'}));
+  await seed((root) => updateDoc(doc(root, 'TBL_USUARIOS/coor'), {'empresasDetalle.A.apps': []}));
+  await assertFails(updateDoc(doc(db, 'TBL_VISITAS/ejecutar'), {observacionGeneral: 'Revocado'}));
+});
+
+test('asignar visita al coordinador exige su área y un rol en la empresa destino', async () => {
+  await seed((db) => updateDoc(doc(db, 'TBL_VISITAS_ROLES/A_coor'), {areaId: 'nutricion'}));
+  const {coordinadorIds, ...nueva} = visita();
+  nueva.profesionalId = 'coor';
+  await assertSucceeds(setDoc(doc(auth('dev'), 'TBL_VISITAS/asignada'), nueva));
+  await assertFails(setDoc(doc(auth('dev'), 'TBL_VISITAS/otra_area'), {...nueva, areaId: 'mantenimiento'}));
+  await assertFails(setDoc(doc(auth('dev'), 'TBL_VISITAS/otra_empresa'), {...nueva, empresaId: 'B'}));
+});

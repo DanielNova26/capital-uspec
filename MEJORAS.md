@@ -11161,3 +11161,66 @@ avisos, Crear tarea, reasignación, avance/novedad, historial, Interventoría,
   publicación nueva ni entrega a tiendas móviles: la Web y las Functions se
   despliegan; las apps móviles necesitan compilar 2.6.27+41 para recibir los
   cambios de pantalla.
+
+## Visitas — sin conexión, fotos, jefe directo y coordinador (15 oct 2026)
+Claude. Código: `lib/visitas/visitas_offline.dart` (nuevo), `visitas_service.dart`,
+`visitas_models.dart`, `visitas_dashboard_screen.dart`, `visitas_programar.dart`,
+`admin_dashboard_screen.dart`, `firestore.rules`.
+- **Modo sin conexión (Android/iOS; en web no aplica).** Respuestas, tablas,
+  firmas e inicio van a Firestore, que en móvil las guarda en el equipo y las
+  sube al volver la red; `VisitasService._local` evita que la pantalla espere
+  la confirmación del servidor sin internet. Las fotos se guardan en el equipo
+  (con marca de agua y hora del momento) y un aviso arriba del formato muestra
+  «Sin conexión» y «N foto(s) por cargar» con el botón **Cargar visita**, que
+  se habilita al detectar internet y sube la cola a la visita. **Cerrar exige
+  internet y cola vacía.** Requisito operativo: abrir la visita una vez con
+  internet antes de entrar al centro (visita, formato y ubicación quedan en
+  caché). Limitación conocida: un rechazo de reglas a una escritura hecha sin
+  conexión no se le muestra a la persona. **No verificado en dispositivo real**
+  (Android, iPhone ni avión/modo sin red): solo pruebas unitarias y análisis.
+  Detección de red por resolución de DNS (`InternetAddress.lookup`); si se
+  prefiere `connectivity_plus` es un cambio local en `VisitasOffline`.
+- **Fotos.** Cámara, galería y «Buscar en archivos» (antes solo cámara en
+  móvil). En ítems con foto obligatoria, «No se pudo cargar foto (indicar
+  motivo)» guarda `respuestas.<ítem>.sinFotoMotivo`; con motivo, el cierre no
+  se bloquea (`VisitaRespuesta.evidenciaCubierta`). Subir una foto después borra
+  el motivo. El informe PDF aún no imprime el motivo — pendiente.
+- **Jefe directo en Admin.** La tarjeta de Visitas en Roles y permisos muestra
+  el/los jefe(s) directo(s) de la ficha (Estructura) con el rol que tienen en
+  Visitas (Gerencia por cargo incluido). Caso Jason (mantenimiento): el rol no
+  se actualizaba; la causa más probable es que `_areaDeVisitas` no resuelve su
+  área (ficha o cargo) y la asignación se rechaza — **sin confirmar con sus
+  datos**; revisar el mensaje de error al asignarle el rol.
+- **Coordinador.** Ahora también ejecuta sus propias visitas (como profesional
+  de su departamento): pestañas Registro/Mis visitas, reglas
+  (`TBL_VISITAS` update/lectura propia, asignación y listado de formatos) y
+  programación. Sigue viendo las de los grupos que coordina (`coordinadorIds`).
+  Requiere **desplegar `firestore.rules`**. No se cambió el consolidado ni la
+  pertenencia a grupos del coordinador como profesional.
+
+## Integración de Visitas — versión 2.6.28+42 (15 oct 2026, Codex)
+
+- Integrado el trabajo de Claude descrito arriba; versión aumentada de
+  2.6.27+41 a **2.6.28+42**. Incluye sus archivos nuevos de cola de fotos y
+  pruebas, además de las pantallas, modelos, servicio y reglas.
+- Corregido en la integración: el coordinador con rol residual pierde también
+  lectura/edición de visitas propias y formatos al retirarle la app en la
+  empresa. Sigue sin poder editar visitas ajenas de sus grupos. Pruebas de
+  asignación por área, empresa secundaria y revocación incluidas.
+- El PDF ya imprime el motivo de ausencia de foto; queda resuelto ese pendiente
+  del apartado de Claude. La firma y la solicitud de firma exigen cargar antes
+  las fotos pendientes del equipo: la primera firma congela el contenido en
+  las reglas. Por tanto, si se tomaron fotos sin red, hay que recuperar conexión
+  y cargarlas antes de firmar. Los archivos locales perdidos se informan como
+  tales, sin afirmar que siguen disponibles para reintentar.
+- Validación: **1720 pruebas Flutter aprobadas** y **38 pruebas de reglas de
+  Visitas aprobadas** en emulador (coordinadores, profesionales, fechas,
+  reasignaciones y establecimientos). La suite incluye cronograma a 390, 768,
+  1024 y 1366 con texto a 1.5. Análisis dirigido sin errores; conserva avisos
+  anteriores de estilo y un miembro no usado de Admin.
+- Pendientes reales: pruebas en Android/iOS físicos, pérdida/restablecimiento
+  de red, permisos de cámara/galería, nuevo aviso de cola con texto ampliado y
+  publicación en tiendas. Se mantiene la limitación de Claude sobre rechazos
+  tardíos de escrituras offline sin aviso; el DNS no garantiza comunicación
+  efectiva con Firestore. El caso de área/rol de Jason sigue sin comprobarse
+  con sus datos. Esta entrega no ejecuta migraciones de datos de producción.

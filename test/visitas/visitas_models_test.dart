@@ -165,6 +165,31 @@ void main() {
       expect(errores.single, contains('exige foto'));
     });
 
+    test(
+      'no cumple sin foto pero con el motivo de por qué no se pudo, pasa',
+      () {
+        final conMotivo = noCumpleConObs.copyWith(
+          sinFotoMotivo: 'El centro no deja ingresar celulares',
+        );
+        expect(conMotivo.evidenciaCubierta, isTrue);
+        expect(
+          VisitaRespuesta.fromMap(conMotivo.toMap()).sinFotoMotivo,
+          'El centro no deja ingresar celulares',
+        );
+        expect(
+          validarCierreVisita(
+            formato,
+            visita(respuestas: {'a': cumple, 'b': conMotivo, 'c': cumple}),
+          ),
+          isEmpty,
+        );
+        expect(
+          noCumpleConObs.copyWith(sinFotoMotivo: '   ').evidenciaCubierta,
+          isFalse,
+        );
+      },
+    );
+
     test('no cumple con observación y foto pasa', () {
       expect(
         validarCierreVisita(
@@ -256,6 +281,27 @@ void main() {
         visitasPuedeEjecutar(rol: kVisitasRolJefe, visita: v, userId: '111'),
         isFalse,
       );
+    });
+
+    test('el coordinador también ejecuta su propia visita', () {
+      final v = visita(estado: kVisitaProgramada);
+      expect(
+        visitasPuedeEjecutar(
+          rol: kVisitasRolCoordinador,
+          visita: v,
+          userId: '111',
+        ),
+        isTrue,
+      );
+      expect(
+        visitasPuedeEjecutar(
+          rol: kVisitasRolCoordinador,
+          visita: v,
+          userId: '999',
+        ),
+        isFalse,
+      );
+      expect(visitasRolRequiereArea(kVisitasRolCoordinador), isTrue);
     });
 
     test('una terminada ya no se ejecuta', () {

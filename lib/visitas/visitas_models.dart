@@ -87,6 +87,9 @@ const String kVisitasRolFirmante = 'firmante';
 /// grupo. Se nombra coordinador al armar el grupo (Equipo › Grupos y
 /// establecimientos); la visita lleva `coordinadorIds` y lo escribe el
 /// servidor, así que ver o no ver una visita lo deciden las reglas.
+///
+/// 15 oct 2026: el coordinador también ejecuta sus propias visitas (como un
+/// profesional de su departamento): ver [visitasRolEjecuta].
 const String kVisitasRolCoordinador = 'coordinador';
 
 /// Gerencia (26 sep 2026): "es el jefe de todos, así que él puede ver
@@ -100,14 +103,21 @@ const Map<String, String> kVisitasRolesLabel = {
   kVisitasRolProfesional: 'Profesional',
   kVisitasRolConsulta: 'Consulta',
   kVisitasRolFirmante: 'Firmante del establecimiento',
-  kVisitasRolCoordinador: 'Coordinador (ve los grupos que coordina)',
+  kVisitasRolCoordinador: 'Coordinador (hace visitas y ve las de sus grupos)',
   kVisitasRolGerencia: 'Gerencia (ve y administra todo)',
 };
 
 /// El rol limita lo que se ve y se programa por área; firmante, consulta y
 /// gerencia no trabajan dentro de un área.
 bool visitasRolRequiereArea(String? rol) =>
-    rol == kVisitasRolJefe || rol == kVisitasRolProfesional;
+    rol == kVisitasRolJefe || visitasRolEjecuta(rol);
+
+/// Quien hace visitas: el Profesional y, desde el 15 oct 2026, el Coordinador
+/// ("él hace visitas y ve las del personal de su grupo"). Un coordinador es
+/// profesional de su departamento y además consulta las visitas de los grupos
+/// que coordina.
+bool visitasRolEjecuta(String? rol) =>
+    rol == kVisitasRolProfesional || rol == kVisitasRolCoordinador;
 
 /// El cargo es de Gerencia: "Gerencia", "Gerencia general", "Gerente…". Un
 /// subgerente o un "director de gerencia" no: es el jefe de todos.
@@ -212,7 +222,7 @@ bool visitasPuedeEjecutar({
   required VisitaProfesional visita,
   required String userId,
 }) =>
-    rol == kVisitasRolProfesional &&
+    visitasRolEjecuta(rol) &&
     visita.profesionalId == userId &&
     (visita.estado == kVisitaProgramada || visita.estado == kVisitaEnCurso);
 
@@ -1004,6 +1014,11 @@ class VisitaRespuesta {
   final String accionResponsableId;
   final String accionResponsableNombre;
 
+  /// «No se pudo cargar foto»: el motivo que escribe el profesional cuando el
+  /// lugar no deja tomarla (cárceles, centros sin cámara). Con motivo, la foto
+  /// obligatoria no bloquea el cierre y el motivo queda en la visita.
+  final String sinFotoMotivo;
+
   const VisitaRespuesta({
     this.resultado = '',
     this.valor = '',
@@ -1016,7 +1031,12 @@ class VisitaRespuesta {
     this.accionAreaNombre = '',
     this.accionResponsableId = '',
     this.accionResponsableNombre = '',
+    this.sinFotoMotivo = '',
   });
+
+  /// La evidencia exigida se da por cubierta con foto o con motivo.
+  bool get evidenciaCubierta =>
+      evidencias.isNotEmpty || sinFotoMotivo.trim().isNotEmpty;
 
   bool get respondida => resultado.isNotEmpty || valor.trim().isNotEmpty;
 
@@ -1032,6 +1052,7 @@ class VisitaRespuesta {
     'accionAreaNombre': accionAreaNombre,
     'accionResponsableId': accionResponsableId,
     'accionResponsableNombre': accionResponsableNombre,
+    if (sinFotoMotivo.trim().isNotEmpty) 'sinFotoMotivo': sinFotoMotivo.trim(),
   };
 
   factory VisitaRespuesta.fromMap(Map<String, dynamic> d) => VisitaRespuesta(
@@ -1049,6 +1070,7 @@ class VisitaRespuesta {
     accionAreaNombre: (d['accionAreaNombre'] ?? '').toString(),
     accionResponsableId: (d['accionResponsableId'] ?? '').toString(),
     accionResponsableNombre: (d['accionResponsableNombre'] ?? '').toString(),
+    sinFotoMotivo: (d['sinFotoMotivo'] ?? '').toString(),
   );
 
   VisitaRespuesta copyWith({
@@ -1063,6 +1085,7 @@ class VisitaRespuesta {
     String? accionAreaNombre,
     String? accionResponsableId,
     String? accionResponsableNombre,
+    String? sinFotoMotivo,
   }) => VisitaRespuesta(
     resultado: resultado ?? this.resultado,
     valor: valor ?? this.valor,
@@ -1076,6 +1099,7 @@ class VisitaRespuesta {
     accionResponsableId: accionResponsableId ?? this.accionResponsableId,
     accionResponsableNombre:
         accionResponsableNombre ?? this.accionResponsableNombre,
+    sinFotoMotivo: sinFotoMotivo ?? this.sinFotoMotivo,
   );
 }
 
@@ -2326,8 +2350,11 @@ List<String> validarCierreVisita(
       if (r.observacion.trim().isEmpty) {
         errores.add('Ítem ${it.orden} no cumple y no dice por qué.');
       }
-      if (it.requiereEvidencia && r.evidencias.isEmpty) {
-        errores.add('Ítem ${it.orden} no cumple y exige foto.');
+      if (it.requiereEvidencia && !r.evidenciaCubierta) {
+        errores.add(
+          'Ítem ${it.orden} no cumple y exige foto (o el motivo de por qué '
+          'no se pudo cargar).',
+        );
       }
     }
   }
@@ -3322,7 +3349,7 @@ bool itemPendiente(VisitaFormatoItem it, VisitaRespuesta? r) {
   if (!resultadosPermitidos(it.tipo).contains(r.resultado)) return true;
   if (r.resultado == kItemNoCumple) {
     if (r.observacion.trim().isEmpty) return true;
-    if (it.requiereEvidencia && r.evidencias.isEmpty) return true;
+    if (it.requiereEvidencia && !r.evidenciaCubierta) return true;
   }
   return false;
 }

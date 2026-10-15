@@ -177,7 +177,11 @@ service cloud.firestore {
     // `administraVisitasArea` llegaba a evaluarlo cuatro veces.
     function rolVisitasEn(empresaId, allowedRoles) {
       return exists(visitasRolePath(empresaId))
-        && get(visitasRolePath(empresaId)).data.rol in allowedRoles;
+        && get(visitasRolePath(empresaId)).data.rol in allowedRoles
+        // También al ejecutar visitas propias: un rol residual de coordinador
+        // no conserva acceso si Admin retiró la app en esta empresa.
+        && (get(visitasRolePath(empresaId)).data.rol != 'coordinador'
+          || tieneAppsEn(empresaId, ['visitasdashboard', 'visitas'], false));
     }
 
     // Las funciones que terminan en `En` no vuelven a mirar la empresa: se
@@ -1010,7 +1014,7 @@ service cloud.firestore {
       // Jefe y profesional (los de todos los días) primero: los chequeos de
       // Desarrollo y Gerencia cuestan ~60 expresiones cada uno (28 sep 2026).
       allow list: if belongsToCompany(resource.data.empresaId)
-        && ((rolVisitasEn(resource.data.empresaId, ['jefe', 'profesional'])
+        && ((rolVisitasEn(resource.data.empresaId, ['jefe', 'profesional', 'coordinador'])
             && resource.data.areaId == areaVisitasUsuario(
               resource.data.empresaId, request.auth.token.userDocId))
           || rolVisitasEn(resource.data.empresaId, ['consulta', 'gerencia'])
@@ -1083,7 +1087,7 @@ service cloud.firestore {
           // es el caso de todos los días y así no paga los chequeos de
           // administrador, que lo llevaban al tope de expresiones.
           (resource.data.profesionalId == request.auth.token.userDocId
-            && rolVisitasEn(resource.data.empresaId, ['profesional'])
+            && rolVisitasEn(resource.data.empresaId, ['profesional', 'coordinador'])
             && (
               ((resource.data.estado == 'programada'
                   || resource.data.estado == 'en_curso')
@@ -1148,12 +1152,12 @@ service cloud.firestore {
 
     // Coordinador (8 oct 2026): lee solo las visitas que lo nombran en
     // `coordinadorIds`, campo que escribe el servidor desde los grupos
-    // (`visitasCoordinadores`). Nunca escribe.
+    // (`visitasCoordinadores`). Esta vía es solo lectura; puede ejecutar las
+    // visitas donde él mismo sea profesionalId por la vía de visita propia.
     function esCoordinadorDeVisita() {
       return request.auth.token.userDocId
           in resource.data.get('coordinadorIds', [])
-        && rolVisitasEn(resource.data.empresaId, ['coordinador'])
-        && tieneAppsEn(resource.data.empresaId, ['visitasdashboard', 'visitas'], false);
+        && rolVisitasEn(resource.data.empresaId, ['coordinador']);
     }
 
     // La visita es del profesional que la pide y él tiene el rol en la
@@ -1161,7 +1165,7 @@ service cloud.firestore {
     // final la empresa, que es lo más caro.
     function esVisitaPropiaDelProfesional() {
       return resource.data.profesionalId == request.auth.token.userDocId
-        && rolVisitasEn(resource.data.empresaId, ['profesional'])
+        && rolVisitasEn(resource.data.empresaId, ['profesional', 'coordinador'])
         && belongsToCompany(resource.data.empresaId);
     }
 
@@ -1183,7 +1187,7 @@ service cloud.firestore {
         && ((v.get('formatoId', '') == '' && v.get('formatoAsignado', null) == null)
           || formatoDeVisitaValido(v))
         && ((exists(profesional)
-          && get(profesional).data.rol == 'profesional'
+          && get(profesional).data.rol in ['profesional', 'coordinador']
           && areaVisitasUsuario(v.empresaId, v.profesionalId) == v.areaId)
           || (v.esPrueba && v.profesionalId == request.auth.token.userDocId));
     }

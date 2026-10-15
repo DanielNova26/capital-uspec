@@ -183,7 +183,7 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
   /// jefe con el id tal cual (las reglas lo comparan exacto).
   List<VisitaPersona> get _profesionales => [
     for (final p in _equipo)
-      if (p.rol == kVisitasRolProfesional &&
+      if (visitasRolEjecuta(p.rol) &&
           p.rolAreaId.isNotEmpty &&
           (widget.esDesarrollador || p.rolAreaId == _areaJefe))
         p,
@@ -195,7 +195,7 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
       ? const []
       : [
           for (final p in _equipo)
-            if (p.rol == kVisitasRolProfesional &&
+            if (visitasRolEjecuta(p.rol) &&
                 p.rolAreaId != _areaJefe &&
                 mismaAreaVisitas(p.rolAreaId, _areaJefe))
               p,

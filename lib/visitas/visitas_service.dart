@@ -23,6 +23,7 @@ import '../services/task_service.dart';
 import '../utils/user_company.dart';
 import 'visitas_formato_sst.dart';
 import 'visitas_models.dart';
+import 'visitas_offline.dart';
 
 /// Error de negocio del módulo con mensaje para la persona. Se distingue
 /// de un fallo de red para que la pantalla no diga "Exception:".
@@ -789,7 +790,7 @@ class VisitasService {
     final snap = await _roles.where('empresaId', isEqualTo: empresaId).get();
     return {
       for (final doc in snap.docs)
-        if (doc.data()['rol'] == kVisitasRolProfesional)
+        if (visitasRolEjecuta(doc.data()['rol']?.toString()))
           (doc.data()['userId'] ?? '').toString(),
     };
   }
@@ -1591,19 +1592,34 @@ class VisitasService {
       if (!check.permitido) throw VisitasException(check.motivo);
     }
 
-    await _visitas.doc(v.id).update({
-      'estado': kVisitaEnCurso,
-      'inicio': _marca(pos, ref: ref).toMap(),
-      'responsableEstablecimiento': responsable.toMap(),
-      'ciudad': ciudad,
-      'cargoProfesional': cargoProfesional,
-      if (elegido != null) ...{
-        'formatoId': elegido.id,
-        'formatoNombre': elegido.nombre,
-        'formatoAsignado': elegido.toMap(),
-      },
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+    await _local(
+      _visitas.doc(v.id).update({
+        'estado': kVisitaEnCurso,
+        'inicio': _marca(pos, ref: ref).toMap(),
+        'responsableEstablecimiento': responsable.toMap(),
+        'ciudad': ciudad,
+        'cargoProfesional': cargoProfesional,
+        if (elegido != null) ...{
+          'formatoId': elegido.id,
+          'formatoNombre': elegido.nombre,
+          'formatoAsignado': elegido.toMap(),
+        },
+        'updatedAt': FieldValue.serverTimestamp(),
+      }),
+    );
+  }
+
+  /// Sin conexión, Firestore deja la escritura en el equipo y la sube al
+  /// volver la red, pero su Future no termina hasta que el servidor
+  /// responde. Para no dejar la pantalla esperando, sin internet se sigue
+  /// apenas queda registrada en el equipo. Con internet se espera la
+  /// respuesta normal (así un rechazo de las reglas sí se le muestra).
+  Future<void> _local(Future<void> escritura) {
+    if (kIsWeb || VisitasOffline.instance.conectado) return escritura;
+    // Si luego el servidor la rechaza, el error se descarta aquí: ya no hay
+    // quien lo espere.
+    unawaited(escritura.catchError((_) {}));
+    return Future<void>.delayed(const Duration(milliseconds: 300));
   }
 
   Future<void> guardarEncabezado(
@@ -1611,12 +1627,14 @@ class VisitasService {
     required VisitaResponsable responsable,
     required String ciudad,
     required String cargoProfesional,
-  }) => _visitas.doc(visitaId).update({
-    'responsableEstablecimiento': responsable.toMap(),
-    'ciudad': ciudad,
-    'cargoProfesional': cargoProfesional,
-    'updatedAt': FieldValue.serverTimestamp(),
-  });
+  }) => _local(
+    _visitas.doc(visitaId).update({
+      'responsableEstablecimiento': responsable.toMap(),
+      'ciudad': ciudad,
+      'cargoProfesional': cargoProfesional,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }),
+  );
 
   /// Reemplaza las filas de una tabla. Son pocas (los extintores de un
   /// establecimiento) y así una edición no depende del índice de la fila.
@@ -1624,10 +1642,12 @@ class VisitasService {
     String visitaId,
     String tablaId,
     List<VisitaFilaTabla> filas,
-  ) => _visitas.doc(visitaId).update({
-    'tablas.$tablaId': filas.map((f) => f.toMap()).toList(),
-    'updatedAt': FieldValue.serverTimestamp(),
-  });
+  ) => _local(
+    _visitas.doc(visitaId).update({
+      'tablas.$tablaId': filas.map((f) => f.toMap()).toList(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }),
+  );
 
   // ── Firmas ────────────────────────────────────────────────────────────
 
@@ -1657,6 +1677,13 @@ class VisitasService {
     required String actorId,
     required String actorNombre,
   }) async {
+    await VisitasOffline.instance.cargar();
+    if (VisitasOffline.instance.de(v.id).isNotEmpty) {
+      throw const VisitasException(
+        'Carga las fotos pendientes antes de solicitar la firma del '
+        'establecimiento.',
+      );
+    }
     if (responsable.userId.trim().isEmpty) {
       throw const VisitasException(
         'Elige de la lista a quien recibe la visita para enviarle la firma.',
@@ -1716,11 +1743,23 @@ class VisitasService {
     required String modo,
     String firmadoPorId = '',
   }) async {
+    // La primera firma congela el contenido en las reglas. Las fotos deben
+    // estar en la visita antes de firmar para no dejar la cola sin salida.
+    await VisitasOffline.instance.cargar();
+    if (VisitasOffline.instance.de(visitaId).isNotEmpty) {
+      throw const VisitasException(
+        'Hay fotos guardadas en este equipo pendientes de cargar. Conéctate '
+        'y toca «Cargar visita» antes de firmar.',
+      );
+    }
     final path = 'visitas/$empresaId/$visitaId/firmas/$quien.png';
     final ref = _storage.ref(path);
     final metadata = SettableMetadata(contentType: 'image/png');
     String url = '';
+    // Sin conexión la firma viaja solo como Blob dentro de la visita.
+    final hayRed = kIsWeb || VisitasOffline.instance.conectado;
     try {
+      if (!hayRed) throw const VisitasException('sin conexión');
       try {
         await ref.putData(Uint8List.fromList(png), metadata);
       } catch (e) {
@@ -1752,11 +1791,13 @@ class VisitasService {
       dispositivo: dispositivoVisitas(),
       firmadoPorId: firmadoPorId,
     );
-    await _visitas.doc(visitaId).update({
-      quien == 'profesional' ? 'firmaProfesional' : 'firmaEstablecimiento':
-          firma.toMap(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+    await _local(
+      _visitas.doc(visitaId).update({
+        quien == 'profesional' ? 'firmaProfesional' : 'firmaEstablecimiento':
+            firma.toMap(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }),
+    );
     return firma;
   }
 
@@ -1783,25 +1824,80 @@ class VisitasService {
     String visitaId,
     String itemId,
     VisitaRespuesta r,
-  ) => _visitas.doc(visitaId).update({
-    'respuestas.$itemId': r.toMap(),
-    'updatedAt': FieldValue.serverTimestamp(),
-  });
+  ) => _local(
+    _visitas.doc(visitaId).update({
+      'respuestas.$itemId': r.toMap(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }),
+  );
 
   Future<void> guardarObservacionGeneral(String visitaId, String texto) =>
-      _visitas.doc(visitaId).update({
-        'observacionGeneral': texto,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      _local(
+        _visitas.doc(visitaId).update({
+          'observacionGeneral': texto,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }),
+      );
 
   /// Reemplaza las evidencias adicionales (fotos fuera de las preguntas).
   Future<void> guardarEvidenciasAdicionales(
     String visitaId,
     List<VisitaEvidencia> evidencias,
-  ) => _visitas.doc(visitaId).update({
-    'evidenciasAdicionales': evidencias.map((e) => e.toMap()).toList(),
-    'updatedAt': FieldValue.serverTimestamp(),
-  });
+  ) => _local(
+    _visitas.doc(visitaId).update({
+      'evidenciasAdicionales': evidencias.map((e) => e.toMap()).toList(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }),
+  );
+
+  /// Sube una foto que se tomó sin conexión y la agrega a la visita donde
+  /// estaba destinada. Se llama con internet, desde «Cargar visita»; la
+  /// foto sale de la cola solo cuando ya quedó en la visita.
+  Future<void> cargarFotoPendiente(FotoPendiente p, Uint8List bytes) async {
+    final ev = await subirEvidencia(
+      empresaId: p.empresaId,
+      visitaId: p.visitaId,
+      itemId: p.carpeta,
+      bytes: bytes,
+      nombre: p.nombre,
+      descripcion: p.descripcion,
+      conMarca: p.conMarca,
+      tomadaEn: DateTime.fromMillisecondsSinceEpoch(p.creadaMs),
+    );
+    final ref = _visitas.doc(p.visitaId);
+    switch (p.destino) {
+      case kFotoDestinoAdicional:
+        await ref.update({
+          'evidenciasAdicionales': FieldValue.arrayUnion([ev.toMap()]),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      case kFotoDestinoFila:
+        final snap = await ref.get();
+        final v = VisitaProfesional.fromMap(snap.id, snap.data() ?? const {});
+        final filas = v.filasDe(p.tablaId);
+        final nuevas = [
+          for (final f in filas)
+            f.id == p.filaId
+                ? f.copyWith(evidencias: [...f.evidencias, ev])
+                : f,
+        ];
+        if (!filas.any((f) => f.id == p.filaId)) {
+          nuevas.add(VisitaFilaTabla(id: p.filaId, evidencias: [ev]));
+        }
+        await ref.update({
+          'tablas.${p.tablaId}': nuevas.map((f) => f.toMap()).toList(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      default:
+        await ref.update({
+          'respuestas.${p.itemId}.evidencias': FieldValue.arrayUnion([
+            ev.toMap(),
+          ]),
+          'respuestas.${p.itemId}.sinFotoMotivo': FieldValue.delete(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+    }
+  }
 
   /// Bytes de una foto para los anexos del informe. Por el SDK de Storage
   /// primero (en web no depende de que la URL pase CORS); si no, null y el
@@ -1824,6 +1920,9 @@ class VisitasService {
     String contentType = 'image/jpeg',
     String descripcion = '',
     bool conMarca = false,
+
+    /// Una foto tomada sin conexión conserva la hora en que se tomó.
+    DateTime? tomadaEn,
   }) async {
     final stamp = DateTime.now().millisecondsSinceEpoch;
     final path = 'visitas/$empresaId/$visitaId/$itemId/${stamp}_$nombre';
@@ -1851,7 +1950,9 @@ class VisitasService {
       url: url,
       path: path,
       nombre: nombre,
-      tomadaEn: Timestamp.now(),
+      tomadaEn: tomadaEn == null
+          ? Timestamp.now()
+          : Timestamp.fromDate(tomadaEn),
       descripcion: descripcion,
       conMarca: conMarca,
     );
@@ -1870,6 +1971,21 @@ class VisitasService {
   }) async {
     final errores = validarCierreVisita(formato, visita);
     if (errores.isNotEmpty) throw VisitasException(errores.join('\n'));
+    // Cerrar crea tareas y avisos en el servidor: pide internet y que las
+    // fotos tomadas sin conexión ya estén cargadas.
+    if (!await VisitasOffline.instance.hayConexion()) {
+      throw const VisitasException(
+        'Sin conexión. Para cerrar la visita necesitas internet: conéctate '
+        'y toca «Cargar visita».',
+      );
+    }
+    final pendientes = VisitasOffline.instance.de(visita.id).length;
+    if (pendientes > 0) {
+      throw VisitasException(
+        'Faltan $pendientes foto(s) por cargar. Toca «Cargar visita» antes de '
+        'cerrar.',
+      );
+    }
     // 28 sep 2026: se cierra el mismo día y en el establecimiento ("no puede
     // estar en una ubicación diferente").
     final noHoy = motivoNoCierraHoy(visita, DateTime.now());
