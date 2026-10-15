@@ -9,7 +9,13 @@ import 'office_preview.dart';
 class OfficePreview extends StatelessWidget {
   final String url;
   final String nombreArchivo;
-  const OfficePreview({super.key, required this.url, this.nombreArchivo = ''});
+  final VoidCallback? onDownload;
+  const OfficePreview({
+    super.key,
+    required this.url,
+    this.nombreArchivo = '',
+    this.onDownload,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -44,8 +50,12 @@ class OfficePreview extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
-              onPressed: () =>
-                  launchUrlString(url, mode: LaunchMode.externalApplication),
+              onPressed:
+                  onDownload ??
+                  () => launchUrlString(
+                    url,
+                    mode: LaunchMode.externalApplication,
+                  ),
               icon: const Icon(Icons.download_rounded),
               label: const Text('Descargar'),
             ),

@@ -241,7 +241,7 @@ void main() {
         xml,
         contains(
           '<w:sdtContent><w:r><w:rPr><w:sz w:val="16"/></w:rPr>'
-          '<w:t xml:space="preserve">Calidad &amp; Co</w:t></w:r></w:sdtContent>',
+          '<w:t xml:space="preserve">Calidad &amp; Co</w:t></w:r>',
         ),
       );
       expect(xml, isNot(contains('diente')));

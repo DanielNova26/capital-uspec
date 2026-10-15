@@ -1089,6 +1089,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                   ? OfficePreview(
                       url: previewVersion.urlPdf!,
                       nombreArchivo: previewVersion.nombreArchivo ?? '',
+                      onDownload: () => _downloadVersion(previewVersion),
                     )
                   : _buildOfficePreview(previewVersion),
             ),
@@ -1115,7 +1116,9 @@ class _GdDetailScreenState extends State<GdDetailScreen>
       children: [
         if (hasLink)
           TextButton.icon(
-            onPressed: () => _launchURL(currentVersion!.urlPdf!),
+            onPressed: _loadingAction
+                ? null
+                : () => _downloadVersion(currentVersion!),
             icon: const Icon(Icons.open_in_new, size: 16),
             label: Text(
               _isPdf(currentVersion) ? 'Abrir PDF' : 'Descargar archivo',
@@ -1189,7 +1192,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
             FilledButton.icon(
               onPressed: version.urlPdf == null
                   ? null
-                  : () => _launchURL(version.urlPdf!),
+                  : () => _downloadVersion(version),
               icon: const Icon(Icons.download_rounded),
               label: const Text('DESCARGAR ARCHIVO'),
             ),
@@ -1964,9 +1967,38 @@ class _GdDetailScreenState extends State<GdDetailScreen>
     );
   }
 
-  /// Plantilla con el encabezado bloqueado. Está para cualquiera con rol
-  /// documental: quien redacta la baja para armar el formato, y Calidad para
-  /// cotejar el encabezado.
+  /// La copia descargada refleja la validación registrada de esta versión.
+  Future<void> _downloadVersion(VersionDoc version) async {
+    if (_loadingAction) return;
+    await _handleAction(() async {
+      if (_isPdf(version)) {
+        await _launchURL(version.urlPdf!);
+        return;
+      }
+      final (bytes, nombre) = await _service.descargarArchivoVersion(
+        docId: widget.docId,
+        versionId: version.versionId,
+        empresaId: widget.empresaId,
+        actorId: widget.userId,
+      );
+      final punto = nombre.lastIndexOf('.');
+      final extension = punto < 0
+          ? ''
+          : nombre.substring(punto + 1).toLowerCase();
+      await FileSaver.instance.saveFile(
+        name: punto < 0 ? nombre : nombre.substring(0, punto),
+        bytes: bytes,
+        fileExtension: extension,
+        mimeType: extension == 'docx'
+            ? MimeType.microsoftWord
+            : extension == 'xlsx'
+            ? MimeType.microsoftExcel
+            : MimeType.other,
+      );
+    });
+  }
+
+  /// Plantilla con el encabezado de la empresa para preparar el formato.
   Future<void> _downloadFormatTemplate(
     DocumentoDoc doc, {
     bool word = false,

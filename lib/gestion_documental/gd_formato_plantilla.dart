@@ -28,6 +28,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:xml/xml.dart';
 
 /// Colores del encabezado. El primario (azul marino del modelo del jefe)
 /// pinta bordes y el texto de tipo, título, área y etiquetas; el secundario
@@ -616,9 +617,9 @@ double _min(double a, double b) => a < b ? a : b;
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Escribe quién validó en la celda *Aprobado* del archivo que el usuario
-/// subió, sin re-serializar el libro: se abre el zip, se cambia esa única
-/// celda en el XML de la hoja y se vuelve a cerrar. Todo lo demás (formato
-/// del contenido, imágenes, fórmulas) queda byte a byte igual. La fecha y
+/// subió: se cambia esa celda en cada hoja que conserva el encabezado.
+/// Se conservan estilos y fórmulas; las partes del ZIP ajenas a esas hojas
+/// (imágenes, estilos, cadenas compartidas) quedan byte a byte iguales. La fecha y
 /// hora ([aprobadoEn]) no caben en la celda del modelo: quedan en el
 /// registro de la Biblioteca, no en el Excel.
 ///
@@ -640,70 +641,107 @@ double _min(double a, double b) => a < b ? a : b;
     return (bytes: null, detalle: 'El archivo no es un .xlsx legible.');
   }
 
-  // La hoja de la plantilla: la que sigue protegida con nuestra clave o, si
-  // la desprotegieron, la que conserva la combinación del título (D2:L3 hoy,
-  // C1:G3 en el encabezado anterior).
-  final hash = gdHashClaveHoja(kGdPlantillaClaveHoja);
-  const mergeActual = '<mergeCell ref="D2:L3"/>';
-  const mergeAnterior = '<mergeCell ref="C1:G3"/>';
-  ArchiveFile? hoja;
-  String? xml;
-  for (final criterio in ['password="$hash"', mergeActual, mergeAnterior]) {
-    for (final f in archive.files) {
-      if (!f.isFile || !f.name.startsWith('xl/worksheets/sheet')) continue;
-      final texto = utf8.decode(f.content as List<int>, allowMalformed: true);
-      if (texto.contains(criterio)) {
-        hoja = f;
-        xml = texto;
-        break;
-      }
+  final compartidos = <String>[];
+  final strings = archive.findFile('xl/sharedStrings.xml');
+  if (strings != null) {
+    try {
+      final xml = XmlDocument.parse(utf8.decode(strings.content as List<int>));
+      compartidos.addAll(
+        _elementosExcel(
+          xml,
+          'si',
+        ).map((e) => _elementosExcel(e, 't').map((t) => t.innerText).join()),
+      );
+    } catch (_) {
+      return (
+        bytes: null,
+        detalle: 'La tabla de textos del Excel no es legible.',
+      );
     }
-    if (hoja != null) break;
   }
-  if (hoja == null || xml == null) {
+  final sellados = <String, String>{};
+  final celdasSelladas = <String>{};
+  for (final archivo in archive.files) {
+    if (!archivo.isFile ||
+        !RegExp(r'^xl/worksheets/[^/]+\.xml$').hasMatch(archivo.name)) {
+      continue;
+    }
+    final XmlDocument hoja;
+    try {
+      hoja = XmlDocument.parse(utf8.decode(archivo.content as List<int>));
+    } catch (_) {
+      return (bytes: null, detalle: 'Una hoja del Excel no es legible.');
+    }
+    final combinaciones = _elementosExcel(
+      hoja,
+      'mergeCell',
+    ).map((e) => e.getAttribute('ref')).toSet();
+    final actual = combinaciones.contains('D2:L3');
+    final anterior = combinaciones.contains('C1:G3');
+    if (!actual && !anterior) continue;
+    final refEtiqueta = actual ? 'M2' : 'H2';
+    final refAprobado = actual ? kGdPlantillaCeldaAprobado : 'I2';
+    final celdas = {
+      for (final e in _elementosExcel(hoja, 'c')) e.getAttribute('r'): e,
+    };
+    final etiqueta = celdas[refEtiqueta];
+    if (etiqueta == null ||
+        _textoCeldaExcel(etiqueta, compartidos).trim().toLowerCase() !=
+            'aprobado') {
+      return (
+        bytes: null,
+        detalle: 'No se encontró la celda "Aprobado" en ${archivo.name}.',
+      );
+    }
+    var celda = celdas[refAprobado];
+    if (celda == null) {
+      celda = XmlElement(etiqueta.name.copy(), [
+        XmlAttribute(XmlName('r'), refAprobado),
+        if (etiqueta.getAttribute('s') != null)
+          XmlAttribute(XmlName('s'), etiqueta.getAttribute('s')!),
+      ]);
+      final fila = etiqueta.parent!;
+      // Una hoja puede omitir celdas vacías. Respetamos el orden de columnas.
+      final posteriores = fila.childElements.where(
+        (e) =>
+            e.name.local == 'c' &&
+            _columnaExcel(e.getAttribute('r') ?? '') >
+                _columnaExcel(refAprobado),
+      );
+      final indice = posteriores.isEmpty
+          ? fila.children.length
+          : fila.children.indexOf(posteriores.first);
+      fila.children.insert(indice, celda);
+    }
+    final prefijo = celda.name.prefix;
+    celda.setAttribute('t', 'inlineStr');
+    celda.children.clear();
+    celda.children.add(
+      XmlElement(XmlName('is', prefijo), [], [
+        XmlElement(
+          XmlName('t', prefijo),
+          [XmlAttribute(XmlName('space', 'xml'), 'preserve')],
+          [XmlText(aprobadoPor.trim())],
+        ),
+      ]),
+    );
+    sellados[archivo.name] = hoja.toXmlString();
+    celdasSelladas.add(refAprobado);
+  }
+  if (sellados.isEmpty) {
     return (
       bytes: null,
       detalle: 'El archivo no conserva el encabezado de la plantilla.',
     );
   }
-
-  // Encabezado anterior: la celda "Aprobado" era I2 y su etiqueta H2.
-  final esAnterior = !xml.contains(mergeActual) && xml.contains(mergeAnterior);
-  final celdaAprobado = esAnterior ? 'I2' : kGdPlantillaCeldaAprobado;
-  final celdaEtiqueta = esAnterior ? 'H2' : 'M2';
-
-  final texto = aprobadoPor.trim();
-  String celda(String estilo) =>
-      '<c r="$celdaAprobado"$estilo t="inlineStr"><is><t xml:space="preserve">${_esc(texto)}</t></is></c>';
-  RegExp celdaRe(String ref) =>
-      RegExp('<c r="$ref"(\\s[^>]*?)?(?:/>|>.*?</c>)', dotAll: true);
-
-  // La celda puede venir como la escribimos (inlineStr) o como la deja Excel
-  // al guardar (t="s" con índice a sharedStrings); se conserva su estilo.
-  String nuevoXml;
-  final m = celdaRe(celdaAprobado).firstMatch(xml);
-  if (m != null) {
-    final attrs = m.group(1) ?? '';
-    final s = RegExp(r'\ss="\d+"').firstMatch(attrs)?.group(0) ?? '';
-    nuevoXml = xml.replaceRange(m.start, m.end, celda(s));
-  } else {
-    // Sin la celda (raro: está bloqueada), se cuelga detrás de la etiqueta.
-    final h2 = celdaRe(celdaEtiqueta).firstMatch(xml);
-    if (h2 == null) {
-      return (bytes: null, detalle: 'No se encontró la celda "Aprobado".');
-    }
-    final s =
-        RegExp(r'\ss="\d+"').firstMatch(h2.group(1) ?? '')?.group(0) ?? '';
-    nuevoXml = xml.replaceRange(h2.end, h2.end, celda(s));
-  }
-
   final salida = Archive();
   for (final f in archive.files) {
-    if (f.name == hoja.name) {
-      final encoded = utf8.encode(nuevoXml);
-      salida.addFile(ArchiveFile(f.name, encoded.length, encoded));
-    } else {
+    final xml = sellados[f.name];
+    if (xml == null) {
       salida.addFile(f);
+    } else {
+      final bytes = utf8.encode(xml);
+      salida.addFile(ArchiveFile(f.name, bytes.length, bytes));
     }
   }
   final zipped = ZipEncoder().encode(salida);
@@ -712,6 +750,33 @@ double _min(double a, double b) => a < b ? a : b;
   }
   return (
     bytes: Uint8List.fromList(zipped),
-    detalle: 'Sello escrito en $celdaAprobado.',
+    detalle:
+        'Sello escrito en ${celdasSelladas.join(', ')} de ${sellados.length} hoja(s).',
   );
+}
+
+Iterable<XmlElement> _elementosExcel(XmlNode nodo, String nombre) => nodo
+    .descendants
+    .whereType<XmlElement>()
+    .where((e) => e.name.local == nombre);
+String _textoCeldaExcel(XmlElement celda, List<String> compartidos) {
+  if (celda.getAttribute('t') == 's') {
+    final valores = _elementosExcel(celda, 'v');
+    final indice = valores.isEmpty
+        ? null
+        : int.tryParse(valores.first.innerText);
+    return indice != null && indice >= 0 && indice < compartidos.length
+        ? compartidos[indice]
+        : '';
+  }
+  return _elementosExcel(celda, 't').map((e) => e.innerText).join();
+}
+
+int _columnaExcel(String referencia) {
+  var columna = 0;
+  for (final letra in referencia.toUpperCase().codeUnits) {
+    if (letra < 65 || letra > 90) break;
+    columna = columna * 26 + letra - 64;
+  }
+  return columna;
 }

@@ -81,14 +81,17 @@ class GdService {
   final FirebaseFirestore _db;
   final FirebaseStorage _storage;
   final TaskService _taskService;
+  final http.Client? _httpClient;
 
   GdService({
     FirebaseFirestore? db,
     FirebaseStorage? storage,
     TaskService? taskService,
+    http.Client? httpClient,
   }) : _db = db ?? FirebaseFirestore.instance,
        _storage = storage ?? FirebaseStorage.instance,
-       _taskService = taskService ?? TaskService();
+       _taskService = taskService ?? TaskService(),
+       _httpClient = httpClient;
 
   // ── Colecciones ─────────────────────────────────────────────────────────────
 
@@ -810,12 +813,8 @@ class GdService {
         .limit(1)
         .get();
 
-    // Sello dentro del archivo: si es el .xlsx de la plantilla, se escribe
-    // el nombre de quien validó en la celda Aprobado (O2); si es el .docx de
-    // la plantilla Word, en el campo Aprobado del encabezado. Se sube como
-    // archivo de la versión (el original queda en Storage como respaldo). Si
-    // no se puede —PDF, encabezado dañado, red— el check sigue igual y el
-    // motivo queda en el historial.
+    // Un Office no puede publicarse con un sello fallido: el archivo y el
+    // check deben expresar la misma validación. PDF conserva su flujo.
     final sello = await _sellarArchivoValidado(
       empresaId: empresaId,
       docId: docId,
@@ -823,6 +822,8 @@ class GdService {
       actorId: actorId,
       nombreActor: nombreActor,
     );
+
+    _exigirSelloOffice(verData, sello.url, sello.detalle);
 
     final now = FieldValue.serverTimestamp();
     final batch = _db.batch();
@@ -838,6 +839,9 @@ class GdService {
       'aprobadoPor': actorId,
       'aprobadoEn': now,
       'validadoPor': actorId,
+      'validadoNombre': sello.nombre,
+      'selloEnArchivo': sello.url != null,
+      'selloDetalle': sello.detalle,
       'validadoEn': now,
       if (sello.url != null) ...{
         'urlPdf': sello.url,
@@ -882,31 +886,32 @@ class GdService {
 
   /// Descarga el archivo de la versión, le escribe el sello en el
   /// encabezado (.xlsx o .docx de la plantilla) y sube el resultado.
-  Future<({String? url, String? path, String detalle})> _sellarArchivoValidado({
+  Future<({String? url, String? path, String detalle, String? nombre})>
+  _sellarArchivoValidado({
     required String empresaId,
     required String docId,
     required Map<String, dynamic> verData,
     required String actorId,
     String? nombreActor,
   }) async {
-    final nombre = (verData['nombreArchivo'] ?? '').toString();
+    final nombre = (verData['nombreArchivo'] ?? '').toString().trim();
     final esWord = nombre.toLowerCase().endsWith('.docx');
     if (!esWord && !nombre.toLowerCase().endsWith('.xlsx')) {
       return (
         url: null,
         path: null,
         detalle: 'El archivo no es .xlsx ni .docx.',
+        nombre: null,
       );
     }
     try {
-      final response = await http
-          .get(Uri.parse(verData['urlPdf'].toString()))
-          .timeout(const Duration(seconds: 30));
+      final response = await _descargarBytes(verData['urlPdf'].toString());
       if (response.statusCode != 200) {
         return (
           url: null,
           path: null,
           detalle: 'No se pudo descargar el archivo (${response.statusCode}).',
+          nombre: null,
         );
       }
       var quien = (nombreActor ?? '').trim();
@@ -926,7 +931,7 @@ class GdService {
               aprobadoEn: DateTime.now(),
             );
       if (sello.bytes == null) {
-        return (url: null, path: null, detalle: sello.detalle);
+        return (url: null, path: null, detalle: sello.detalle, nombre: quien);
       }
       final (url, path) = await _subirArchivoBytes(
         empresaId: empresaId,
@@ -935,11 +940,119 @@ class GdService {
         bytes: sello.bytes!,
         nombre: 'validado_$nombre',
       );
-      return (url: url, path: path, detalle: sello.detalle);
+      return (url: url, path: path, detalle: sello.detalle, nombre: quien);
     } catch (e) {
       debugPrint('[GdService] Sello en archivo falló: $e');
-      return (url: null, path: null, detalle: 'Error al sellar: $e');
+      return (
+        url: null,
+        path: null,
+        detalle: 'Error al sellar: $e',
+        nombre: null,
+      );
     }
+  }
+
+  Future<http.Response> _descargarBytes(String url) =>
+      (_httpClient?.get(Uri.parse(url)) ?? http.get(Uri.parse(url))).timeout(
+        const Duration(seconds: 30),
+      );
+
+  void _exigirSelloOffice(
+    Map<String, dynamic> version,
+    String? url,
+    String detalle,
+  ) {
+    final nombre = (version['nombreArchivo'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    if ((nombre.endsWith('.docx') || nombre.endsWith('.xlsx')) && url == null) {
+      throw GdException(
+        'No se pudo actualizar el campo Aprobado del archivo. '
+        'El formato sigue en revisión. $detalle',
+      );
+    }
+  }
+
+  /// Descarga con la validación de ESTA versión, incluso si el check antiguo
+  /// se guardó sin actualizar el Office. No modifica el original ni el historial.
+  Future<(Uint8List, String)> descargarArchivoVersion({
+    required String docId,
+    required String versionId,
+    required String empresaId,
+    required String actorId,
+  }) async {
+    final docData = (await _docCol.doc(docId).get()).data();
+    final verData = (await _verCol.doc(versionId).get()).data();
+    final user = (await _usersCol.doc(actorId).get()).data();
+    if (docData == null ||
+        verData == null ||
+        docData['empresaId'] != empresaId ||
+        verData['empresaId'] != empresaId ||
+        verData['docId'] != docId) {
+      throw const GdException('El archivo no existe en la empresa activa.');
+    }
+    final documento = DocumentoDoc.fromMap(docId, docData);
+    final version = VersionDoc.fromMap(versionId, verData);
+    if (!gdCanReadDocument(user, empresaId, documento) ||
+        gdVersionsForReader(
+          resolveGdDocumentalRole(user, empresaId),
+          documento,
+          [version],
+        ).isEmpty) {
+      throw const GdException('No tienes acceso a esta versión del documento.');
+    }
+    final nombre = (verData['nombreArchivo'] ?? 'archivo').toString().trim();
+    final url = (verData['urlPdf'] ?? '').toString().trim();
+    if (url.isEmpty) throw const GdException('La versión no tiene archivo.');
+    final response = await _descargarBytes(url);
+    if (response.statusCode != 200) {
+      throw GdException(
+        'No se pudo descargar el archivo (${response.statusCode}).',
+      );
+    }
+    final esWord = nombre.toLowerCase().endsWith('.docx');
+    final esExcel = nombre.toLowerCase().endsWith('.xlsx');
+    if ((!esWord && !esExcel) ||
+        !gdIsInstitutionalFormat(documento.categoria) ||
+        version.estado != GdEstado.vigente) {
+      return (response.bodyBytes, nombre);
+    }
+
+    // Nunca usar el usuario que descarga ni la aprobación de otra versión.
+    final aprobadorId = (verData['validadoPor'] ?? verData['aprobadoPor'] ?? '')
+        .toString()
+        .trim();
+    final fecha = verData['validadoEn'] ?? verData['aprobadoEn'];
+    if (aprobadorId.isEmpty || fecha is! Timestamp) {
+      throw const GdException(
+        'Esta versión no tiene datos de validación completos. '
+        'Solicita a Calidad revisar el registro antes de descargar.',
+      );
+    }
+    var quien = (verData['validadoNombre'] ?? '').toString().trim();
+    if (quien.isEmpty) {
+      final info = await UserDirectory.instance.resolve(aprobadorId);
+      quien = info.nombre.trim().isEmpty ? 'Calidad' : info.nombre.trim();
+    }
+    final sello = esWord
+        ? gdSellarPlantillaWordValidada(
+            response.bodyBytes,
+            aprobadoPor: quien,
+            aprobadoEn: fecha.toDate(),
+          )
+        : gdSellarPlantillaValidada(
+            response.bodyBytes,
+            aprobadoPor: quien,
+            aprobadoEn: fecha.toDate(),
+          );
+    if (sello.bytes == null) {
+      throw GdException(
+        'No se pudo actualizar el campo Aprobado de la descarga. '
+        '${sello.detalle}',
+      );
+    }
+    return (sello.bytes!, nombre);
   }
 
   /// Firma internamente el documento aprobado.

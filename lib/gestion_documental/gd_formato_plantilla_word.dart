@@ -24,6 +24,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:xml/xml.dart';
 
 import 'gd_formato_plantilla.dart';
 
@@ -474,7 +475,11 @@ String _footer(GdPlantillaFormatoDatos d) {
       continue;
     }
     final texto = utf8.decode(f.content as List<int>, allowMalformed: true);
-    final nuevo = _sellarXml(texto, aprobadoPor.trim());
+    final nuevo = _sellarXml(
+      texto,
+      aprobadoPor.trim(),
+      esEncabezado: RegExp(r'^word/header[^/]*\.xml$').hasMatch(f.name),
+    );
     if (nuevo != null) sellados[f.name] = nuevo;
   }
   if (sellados.isEmpty) {
@@ -506,35 +511,90 @@ String _footer(GdPlantillaFormatoDatos d) {
 
 /// El XML con cada control "Aprobado" lleno con [nombre], o null si la
 /// parte no tiene ninguno. Se conserva el formato del texto que había.
-String? _sellarXml(String xml, String nombre) {
-  final marca = 'w:val="$kGdPlantillaWordEtiquetaAprobado"';
-  if (!xml.contains(marca)) return null;
-  final b = StringBuffer();
-  var desde = 0;
-  var sellos = 0;
-  while (true) {
-    final iMarca = xml.indexOf(marca, desde);
-    if (iMarca < 0) break;
-    final iInicio = xml.indexOf('<w:sdtContent>', iMarca);
-    final iFin = iInicio < 0 ? -1 : xml.indexOf('</w:sdtContent>', iInicio);
-    if (iInicio < 0 || iFin < 0) break;
-    final contenido = iInicio + '<w:sdtContent>'.length;
-    final actual = xml.substring(contenido, iFin);
-    final rPr =
-        RegExp(
-          r'<w:rPr>.*?</w:rPr>',
-          dotAll: true,
-        ).firstMatch(actual)?.group(0) ??
-        '';
-    b
-      ..write(xml.substring(desde, contenido))
-      ..write('<w:r>$rPr<w:t xml:space="preserve">${_esc(nombre)}</w:t></w:r>');
-    desde = iFin;
-    sellos++;
+String? _sellarXml(String xml, String nombre, {required bool esEncabezado}) {
+  final XmlDocument documento;
+  try {
+    documento = XmlDocument.parse(xml);
+  } catch (_) {
+    return null;
   }
-  if (sellos == 0) return null;
-  b.write(xml.substring(desde));
-  return b.toString();
+  var sellos = 0;
+  // Los controles pueden cambiar de prefijo, atributos y estructura al
+  // guardar en Office. No se busca una cadena XML literal.
+  for (final control in _elementosWord(documento, 'sdt').toList()) {
+    final etiquetas = _elementosWord(control, 'tag');
+    if (!etiquetas.any(
+      (e) => _atributoWord(e, 'val') == kGdPlantillaWordEtiquetaAprobado,
+    )) {
+      continue;
+    }
+    final contenidos = _elementosWord(control, 'sdtContent');
+    if (contenidos.isNotEmpty && _escribirTextoWord(contenidos.first, nombre)) {
+      sellos++;
+    }
+  }
+  // Word puede eliminar el control y conservar la tabla (caso COM-001).
+  // Solo recuperamos el campo en una tabla de encabezado reconocible;
+  // nunca reemplazamos palabras "Pendiente" en el contenido del documento.
+  if (esEncabezado) {
+    for (final tabla in _elementosWord(documento, 'tbl')) {
+      final filas = tabla.childElements.where((e) => e.name.local == 'tr');
+      final celdas = filas
+          .expand((f) => f.childElements.where((e) => e.name.local == 'tc'))
+          .toList();
+      final etiquetas = celdas.map(_textoWord).map(_normalizarEtiqueta).toSet();
+      if (!etiquetas.containsAll({'version', 'aprobado', 'fecha', 'codigo'})) {
+        continue;
+      }
+      for (final fila in filas) {
+        final celdas = fila.childElements
+            .where((e) => e.name.local == 'tc')
+            .toList();
+        for (var i = 0; i + 1 < celdas.length; i++) {
+          if (_normalizarEtiqueta(_textoWord(celdas[i])) == 'aprobado' &&
+              _escribirTextoWord(celdas[i + 1], nombre)) {
+            sellos++;
+          }
+        }
+      }
+    }
+  }
+  return sellos == 0 ? null : documento.toXmlString();
+}
+
+const _wordNs = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+Iterable<XmlElement> _elementosWord(XmlNode nodo, String nombre) => nodo
+    .descendants
+    .whereType<XmlElement>()
+    .where((e) => e.name.local == nombre && e.namespaceUri == _wordNs);
+String? _atributoWord(XmlElement e, String nombre) =>
+    e.getAttribute(nombre, namespace: _wordNs);
+String _textoWord(XmlNode nodo) =>
+    _elementosWord(nodo, 't').map((e) => e.innerText).join();
+String _normalizarEtiqueta(String s) => s
+    .trim()
+    .toLowerCase()
+    .replaceAll('ó', 'o')
+    .replaceAll(':', '')
+    .replaceAll(RegExp(r'\s+'), ' ');
+
+bool _escribirTextoWord(XmlElement nodo, String texto) {
+  final textos = _elementosWord(nodo, 't').toList();
+  if (textos.isEmpty) {
+    final parrafos = _elementosWord(nodo, 'p');
+    if (parrafos.isEmpty) return false;
+    final parrafo = parrafos.first;
+    final prefijo = parrafo.name.prefix;
+    final nuevo = XmlElement(XmlName('t', prefijo));
+    parrafo.children.add(XmlElement(XmlName('r', prefijo), [], [nuevo]));
+    textos.add(nuevo);
+  }
+  textos.first.innerText = texto;
+  textos.first.setAttribute('xml:space', 'preserve');
+  for (final otro in textos.skip(1)) {
+    otro.innerText = '';
+  }
+  return true;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1,5 +1,34 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-14 — Biblioteca: aprobación dentro de Word y Excel (Codex)
+
+- Caso confirmado con el adjunto COM-001: Word conservó la tabla del encabezado
+  y «Aprobado / Pendiente», pero eliminó el control `gdAprobado`. Se recupera
+  ese campo por las etiquetas del encabezado (Versión, Aprobado, Fecha, Código),
+  sin reemplazar textos del cuerpo. Conserva propiedades de párrafos y texto;
+  todas las partes ajenas al encabezado quedan idénticas en la prueba del adjunto.
+- Excel identifica combinaciones y celdas por XML, admitiendo espacios, prefijos,
+  atributos en otro orden y cadenas compartidas después de guardar en Office.
+  Actualiza todas las hojas que conservan el encabezado, incluidos modelos antiguos.
+- Validar un DOCX/XLSX exige actualizar y subir correctamente el archivo antes
+  del check. Un error de descarga, encabezado o Storage deja la versión en revisión.
+  Guarda el nombre de quien validó y el resultado del sello junto a esa versión.
+- Los botones de descarga de Biblioteca (también el de su visor Office, Web y
+  móvil) preparan la copia con la aprobación de esa versión. Cubre checks antiguos
+  sin modificar originales ni historial en producción. Relee acceso, empresa y
+  versión; no usa el nombre del lector ni una aprobación del maestro de otra versión.
+- Validación: 220 pruebas de Gestión Documental aprobadas, incluidas regresión
+  sobre el adjunto real, publicación con archivo sellado, fallos sin escritura,
+  Word/Excel, acceso revocado y empresa secundaria. Widget de descarga probado
+  con temas Android/iOS a 390/768/1024/1366 y escala de texto 1.6.
+  Compilación Web de producción correcta; análisis focalizado sin incidencias.
+- Alcance y límites: los enlaces históricos directos de Storage y el visor externo
+  siguen apuntando al original; la recuperación de históricos se realiza al usar
+  Descargar archivo de la app. No se ejecuta migración ni se despliega producción.
+  No verificados dispositivos Android/iOS, navegador real ni render visual en Office.
+  Persiste la deuda previa de reglas específicas de `TBL_DOCUMENTOS*` (regla general);
+  las comprobaciones de descarga son funcionales del cliente, no cierran esa deuda.
+
 ## 2026-10-14 — Admin › Grupos: sincronización de personas (Claude)
 
 - Admin › Gestión interna › Grupos: tablero "Sincronización de personas"
