@@ -11377,3 +11377,9 @@ Acta: «La reunión se inició a las 2026_10_15 18_27». Código: `functions/src
   sin migración histórica. No se verificaron datos reales, nuevas pantallas con
   texto ampliado en todos los anchos ni dispositivos Android/iOS físicos. Las
   tiendas móviles requieren una publicación independiente.
+- **Publicación completada:** Web **2.6.30 (44)** en
+  `https://to-do-gestion.web.app`, con los cinco archivos de arranque/versionado
+  verificados por HTTP y SHA-256 contra `build/web`. Function
+  `interventoriaPlanes` desplegada correctamente y comprobada `ACTIVE` en
+  `us-central1`. Código integrado y subido a `main` en `a2aaf78`. Reglas e
+  índices no cambiaron; no se ejecutaron migraciones de datos de producción.
