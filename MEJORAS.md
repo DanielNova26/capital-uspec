@@ -11383,3 +11383,25 @@ Acta: «La reunión se inició a las 2026_10_15 18_27». Código: `functions/src
   `interventoriaPlanes` desplegada correctamente y comprobada `ACTIVE` en
   `us-central1`. Código integrado y subido a `main` en `a2aaf78`. Reglas e
   índices no cambiaron; no se ejecutaron migraciones de datos de producción.
+
+## ESP32 — API aislada de pruebas (15 oct 2026, Codex)
+
+- A petición explícita del usuario, solo API y token para probar el sketch;
+  sin crear módulo ni registrar asistencia de empleados. Endpoint HTTP
+  `marcacionesPrueba`, compatible con `tipo` ENTRADA/SALIDA,
+  `dispositivo: TO-DO-BIO-V1` y `accion_manual:true`.
+- Bearer aleatorio por dispositivo, almacenado en servidor únicamente como
+  SHA-256 en el identificador. Configuración revocable y eventos aislados en
+  `TBL_MARCACIONES_PRUEBA_DISPOSITIVOS/<hash>/eventos`. Las reglas bloquean
+  todo acceso directo de clientes a esa colección y sus descendientes.
+- JSON con confirmación 201, hora de servidor, validación estricta y máximo
+  60 eventos/minuto por dispositivo. `eventoId` opcional permite reintentos
+  idempotentes, incluso concurrentes. No admite cédulas ni datos de empresas.
+- Seis pruebas de integración con emulador Firestore aprobadas: payload del
+  sketch, token/revocación, dispositivo, validación, concurrencia, límite y
+  denegación por reglas. TypeScript compilado; ESLint sin errores (un aviso
+  anterior en index). Contrato en `docs/esp32-api-pruebas.md`.
+- El token real se entrega en archivo local fuera de Git. No cambia la
+  versión Web 2.6.30+44. Pendiente probar físicamente la placa y su conexión
+  WiFi/TLS; huella, identidad y futura integración por empresa quedan fuera
+  de este piloto según lo solicitado por el usuario.
