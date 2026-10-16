@@ -261,6 +261,18 @@ const List<AppCatalogEntry> kAppCatalog = [
     color: Color(0xFF4F46E5),
   ),
   AppCatalogEntry(
+    appId: 'biometricodashboard',
+    nombre: 'Biométrico',
+    paraQueSirve:
+        'Conectar lectores de huella, organizar turnos, controlar asistencia y aprobar horas extras.',
+    grupo: AppCatalogGroup.gestion,
+    proceso: ProcesoMapa.apoyo,
+    icono: Icons.fingerprint,
+    color: Color(0xFF0F766E),
+    notaRolInterno:
+        'Consulta, Gestión de asistencia y Administrador; roles propios por empresa.',
+  ),
+  AppCatalogEntry(
     appId: 'gerenciadashboard',
     nombre: 'Gerencia',
     paraQueSirve: 'Indicadores y seguimiento gerencial de la operación.',

@@ -1,6 +1,30 @@
 {
   "indexes": [
     {
+      "collectionGroup": "TBL_BIOMETRICO_EVENTOS",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "empresaId", "order": "ASCENDING"},
+        {"fieldPath": "capturadoMs", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "TBL_BIOMETRICO_JORNADAS",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "empresaId", "order": "ASCENDING"},
+        {"fieldPath": "dia", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "TBL_BIOMETRICO_APROBACIONES",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "empresaId", "order": "ASCENDING"},
+        {"fieldPath": "dia", "order": "ASCENDING"}
+      ]
+    },
+    {
       "collectionGroup": "TBL_TAREAS_RECURRENTES",
       "queryScope": "COLLECTION",
       "fields": [

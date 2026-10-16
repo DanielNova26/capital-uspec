@@ -163,6 +163,15 @@ const kModulosMaestros = <ModuloMaestrosInfo>[
     ],
   ),
   ModuloMaestrosInfo(
+    id: 'biometrico',
+    nombre: 'Biométrico',
+    icono: Icons.fingerprint,
+    color: Color(0xFF0F766E),
+    maestros: [
+      MaestroInfo('TBL_BIOMETRICO_HORARIOS', 'Horarios de Biométrico'),
+    ],
+  ),
+  ModuloMaestrosInfo(
     id: 'tareas',
     nombre: 'Tareas y notificaciones',
     icono: Icons.notifications_active_outlined,
@@ -170,7 +179,9 @@ const kModulosMaestros = <ModuloMaestrosInfo>[
     // Maestro de notificaciones: qué avisos salen por campana, push y
     // WhatsApp en cada empresa. Se edita aquí y se copia a otras empresas.
     panel: PanelAdminModulo.notificaciones,
-    maestros: [MaestroInfo('TBL_NOTIFICACIONES_CONFIG', 'Canales de notificación')],
+    maestros: [
+      MaestroInfo('TBL_NOTIFICACIONES_CONFIG', 'Canales de notificación'),
+    ],
   ),
   ModuloMaestrosInfo(
     id: 'correo',

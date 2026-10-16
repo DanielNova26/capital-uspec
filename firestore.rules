@@ -414,6 +414,9 @@ service cloud.firestore {
         || (moduleId == 'talentohumanodashboard'
           && tieneAppTalentoEn(empresaId)
           && rolEnTabla('TBL_TALENTO_HUMANO_ROLES', empresaId) == 'administrador')
+        || (moduleId == 'biometricodashboard'
+          && tieneAppsEn(empresaId, ['biometricodashboard', 'biometrico'], false)
+          && rolEnTabla('TBL_BIOMETRICO_ROLES', empresaId) == 'administrador')
         || (moduleId == 'nutriciondashboard'
           && tieneAppNutricionEn(empresaId)
           && rolEnTabla('TBL_NUTRICION_ROLES', empresaId) == 'administrador');
@@ -494,7 +497,7 @@ service cloud.firestore {
           'planillaspagodashboard', 'bibliotecadocumentaldashboard',
           'tareasdashboard', 'comprasdashboard', 'rutasdashboard',
           'interventoriadashboard', 'visitasdashboard',
-          'tokensdiandashboard', 'talentohumanodashboard',
+          'tokensdiandashboard', 'talentohumanodashboard', 'biometricodashboard',
           'nutriciondashboard', 'facturaciondashboard',
           'gerenciadashboard']
         && (nivelesDeModulo(data.moduleId).size() == 0
@@ -674,19 +677,21 @@ service cloud.firestore {
     // tablas tienen el mismo contrato y van en un solo `match` (6 oct 2026).
     function esTablaDeRoles(collection) {
       return collection.matches(
-        'TBL_(DIAN_TOKEN_ROLES|TALENTO_HUMANO_ROLES|NUTRICION_ROLES)');
+        'TBL_(DIAN_TOKEN_ROLES|TALENTO_HUMANO_ROLES|NUTRICION_ROLES|BIOMETRICO_ROLES)');
     }
 
     function moduloDeTablaDeRoles(collection) {
       return collection == 'TBL_DIAN_TOKEN_ROLES' ? 'tokensdiandashboard'
-        : (collection == 'TBL_TALENTO_HUMANO_ROLES' ? 'talentohumanodashboard'
-          : 'nutriciondashboard');
+        : (collection == 'TBL_BIOMETRICO_ROLES' ? 'biometricodashboard'
+          : (collection == 'TBL_TALENTO_HUMANO_ROLES' ? 'talentohumanodashboard'
+            : 'nutriciondashboard'));
     }
 
     // Niveles de los módulos con tabla de roles; son también los roles base
     // válidos de sus roles configurables (`rolDeModuloValido`).
     function nivelesDeModulo(moduleId) {
-      return moduleId == 'tokensdiandashboard'
+      return moduleId == 'biometricodashboard' ? ['consulta','gestor','administrador']
+        : moduleId == 'tokensdiandashboard'
         ? ['consulta','operador','administrador']
         : (moduleId == 'talentohumanodashboard'
           ? ['consulta','solicitante','reclutador','gestor','administrador']
@@ -2500,6 +2505,7 @@ service cloud.firestore {
           + '|TH_REQUERIMIENTOS_PERSONAL|LLAMADOS_ATENCION|HISTORIAL_LLAMADOS_ATENCION'
           + '|AUTH_CREDENTIALS|AUTH_LOGIN_ATTEMPTS|AUTH_RECOVERY_CHALLENGES|AUTH_ADMIN_AUDIT'
           + '|MARCACIONES_PRUEBA_DISPOSITIVOS'
+          + '|BIOMETRICO_DISPOSITIVOS|BIOMETRICO_CREDENCIALES|BIOMETRICO_EVENTOS|BIOMETRICO_HORARIOS|BIOMETRICO_JORNADAS|BIOMETRICO_APROBACIONES|BIOMETRICO_AUDITORIA|BIOMETRICO_PINES'
           + '|LOGIN_SESIONES'
           + '|PAGOS_BENEFICIARIOS|PAGOS_BENEFICIARIOS_CUENTA'
           + '|RUTAS|RUTAS_ROLES|RUTAS_ESTABLECIMIENTOS|RUTAS_PLACAS|RUTAS_CONFIG|RUTAS_ASIGNACIONES|RUTAS_EVIDENCIAS|RUTAS_RESUMEN_DIARIO|RUTAS_UBICACIONES|RUTAS_MOV_CONFIG|RUTAS_MOV_HORARIOS|RUTAS_MOV_MEDICIONES|RUTAS_MOV_RUNS'

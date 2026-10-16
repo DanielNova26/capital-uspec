@@ -293,7 +293,34 @@ const nutricionTableRoles = TableModuleRoleConfig(
   removeAppOnClear: true,
 );
 
+const biometricoTableRoles = TableModuleRoleConfig(
+  moduleKey: 'biometrico',
+  appId: 'biometricodashboard',
+  slug: 'biometrico',
+  moduleName: 'Biométrico',
+  collection: 'TBL_BIOMETRICO_ROLES',
+  fichaField: 'rolBiometrico',
+  levels: {
+    'consulta': 'Consulta',
+    'gestor': 'Gestión de asistencia',
+    'administrador': 'Administrador',
+  },
+  levelDescriptions: {
+    'consulta':
+        'Consulta horarios, jornadas, marcaciones e informes de la empresa.',
+    'gestor':
+        'Asigna horarios, corrige marcaciones con auditoría y aprueba o rechaza horas extras.',
+    'administrador':
+        'Gestiona asistencia, dispositivos, vínculos de huellas, credenciales y roles.',
+  },
+  inactiveLevel: 'consulta',
+  inactiveDescription: 'Solo consulta; no modifica asistencia ni dispositivos.',
+  adminLevels: {'administrador'},
+  removeAppOnClear: true,
+);
+
 const tableModuleRoleConfigs = <TableModuleRoleConfig>[
+  biometricoTableRoles,
   rutasTableRoles,
   interventoriaTableRoles,
   visitasTableRoles,

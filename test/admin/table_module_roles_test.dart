@@ -409,6 +409,46 @@ void main() {
     });
   });
 
+  group('Biométrico', () {
+    test(
+      'roles iniciales, asignación, edición y sincronización no cruzan empresas',
+      () async {
+        final r = repo(biometricoTableRoles);
+        expect(await r.ensureDefaults('A'), 3);
+        expect(await r.ensureDefaults('A'), 0);
+        final role = await crear(biometricoTableRoles, 'gestor');
+        await r.assign(empresaId: 'A', userId: 'persona', roleId: role.id);
+        expect(tabla(biometricoTableRoles)!['rol'], 'gestor');
+        expect(detail()['apps'], contains('biometricodashboard'));
+        await r.save(
+          empresaId: 'A',
+          name: role.name,
+          level: 'administrador',
+          previous: role,
+          enabled: false,
+        );
+        await r.synchronize('A', role.id);
+        expect(tabla(biometricoTableRoles)!['rol'], 'consulta');
+        await r.setIndividualLevel(
+          empresaId: 'A',
+          userId: 'persona',
+          level: '',
+        );
+        expect(tabla(biometricoTableRoles), isNull);
+        expect(detail()['apps'], isNot(contains('biometricodashboard')));
+        expect(detail('B')['apps'], ['rutasdashboard']);
+        final second = await crear(
+          biometricoTableRoles,
+          'gestor',
+          empresaId: 'B',
+        );
+        await r.assign(empresaId: 'B', userId: 'persona', roleId: second.id);
+        expect(tabla(biometricoTableRoles, 'B')!['rol'], 'gestor');
+        expect(user()['rolBiometrico'], isNull);
+      },
+    );
+  });
+
   group('Nutrición', () {
     test(
       'consolida la app histórica sin sobrescribir ni cruzar empresas',

@@ -1,5 +1,170 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-16 — Biométrico 2.7.2+47: borrado real y organización (Codex)
+
+- Integración del módulo independiente y de los avances de Claude (PIN, registro
+  táctil, bienvenida, sedes, calendario y jornadas). Tarjetas de equipos con estado
+  separado, acción principal de huellas y menú de conexión; dos columnas cuando hay
+  espacio, navegación compacta móvil. Lista de huellas con búsqueda, todas las
+  posiciones accesibles y actualización cada cinco segundos; se retira el progreso
+  indeterminado que seguía activo mientras estaba abierto el diálogo.
+- Solicitud expresa del usuario: eliminar la huella de la app y del lector.
+  **Eliminar huella** exige administrador de la empresa, motivo y confirmación.
+  Crea una orden persistente por equipo, bloquea nuevas marcaciones y la reutilización
+  del slot. Muestra **Borrado pendiente del lector** hasta recibir confirmación física.
+  Entonces elimina el vínculo, sin dejarlo como perfil inactivo. Se conservan
+  marcaciones históricas, auditoría y ficha del colaborador de TH. También permite
+  eliminar vínculos antiguos inactivos. La acción histórica `desvincular` solicita
+  el mismo borrado para que clientes anteriores no omitan la sincronización.
+- Firmware **2.4.0**: recibe órdenes por heartbeat cada 15 s, usa `deleteModel` solo
+  desde el bucle principal y confirma por HTTPS con token del equipo. Guarda el
+  identificador completado en NVS; reintentos/reinicio no repiten una orden ya
+  confirmada. El ACK del servidor tampoco borra un vínculo posterior. Fallos de
+  sensor/red conservan el pendiente. Pausa interacción con el lector mientras
+  confirma el borrado. Corrige `ahoraMs` usado antes de declararse en el firmware
+  2.3.0 de Claude. Conserva su SPI de hardware, táctil, reintentos y mensajes.
+- Validación: 210 pruebas unitarias Functions; 10 con emulador Firestore, incluido
+  borrado concurrente, permisos, otra empresa/equipo, bloqueo, ACK repetido y
+  conservación del historial. 258 pruebas Flutter de Biométrico/Admin previas al
+  caso nuevo; 13 casos finales de Biométrico aprobados, incluido borrado y refresco.
+  Android/iOS simulados a 390/768/1024/1366 con texto 1.4; revisión visual de widgets
+  a 390 y 1366 con fuentes reales. Análisis dirigido sin incidencias. ESLint sin
+  errores (avisos de longitud). Compilado ESP32-S3/core 3.3.12, flash 16 MB,
+  PSRAM OPI, CDC: 1.154.423 bytes (88%), globales 49.892 (15%).
+- Functions `biometricoGestion` y `biometricoDispositivo` publicadas. Los tres índices
+  están READY. **Reglas finalmente publicadas**, incluidos roles y PINes:
+  `782e025e-5b5f-44aa-ab4c-d0ca85548d47`, equivalencia comprobada con la fuente
+  compactada, 2026-10-16T22:52:29Z. Esto resuelve el pendiente de las entradas de
+  Claude inferiores; no hubo migración de personas ni borrado de huellas reales.
+- Entrega local: `Downloads/TO_DO_Bio_2.4.0`, configuración de ejemplo sin secretos.
+  El usuario carga el firmware y conserva su `config_local.h`. **Pendiente real:**
+  prueba física de eliminación, reinicio, red interrumpida y sensor; Android/iOS
+  físicos y publicación en sus tiendas no verificadas. Sin cálculo monetario de
+  nómina ni recargos legales. Ver `docs/biometrico.md`.
+- **Web publicada y verificada: 2.7.2 (47)** en `https://to-do-gestion.web.app`.
+  Compilación de producción correcta; los cinco archivos de arranque/versionado
+  coinciden por SHA-256 con `build/web`. Ambas Functions están ACTIVE; API sin
+  credencial responde 401 por HTTPS. El paquete Arduino está también en
+  `Downloads/TO_DO_Bio_2.4.0.zip`. No contiene claves reales.
+
+## 2026-10-16 — Biométrico: firmware 2.3.0, fluidez y mensajes (Claude)
+
+- Causa del parpadeo: la pantalla usaba SPI por software (lento). Ahora SPI de hardware (pines 10/11/12/13, los
+  de SPI del S3); `TFT_SPI_HARDWARE 0` vuelve al montaje original si la pantalla queda en blanco.
+- Textos con `textoAjustado` (por palabras, tamaño máximo que quepa): nombre, autorización, avisos, pasos y saludo.
+- Marcación: reloj animado "Registrando marcación" hasta la confirmación; la tarea de red despierta al encolar
+  (antes esperaba hasta 2 s de sondeo).
+- Registro: cada captura reintenta hasta 4 veces, el par se repite hasta 3 veces y la verificación admite 3
+  intentos; si falla muestra los códigos del sensor (tz/búsqueda) y los imprime por serie. **No compilado ni probado.**
+
+## 2026-10-16 — Biométrico: registro en pantalla táctil, firmware 2.2.0 (Claude)
+
+- `firmware/ToDo_Bio_TactilPrueba`: sketch de prueba del XPT2046 (probado por el usuario: dibuja con el dedo).
+- `ToDo_Bio.ino` 2.2.0 (**sin probar el flujo completo en el equipo**): táctil con calibración guardada en NVS,
+  botones ENTRADA/SALIDA táctiles y REGISTRAR HUELLA: cédula y PIN del administrador, cédula de la persona,
+  confirmación de nombre, aviso Autorizo/No autorizo, tres toques con verificación y vínculo por las acciones
+  `autenticarAdmin`/`buscarPersona`/`registrarHuella` (ya publicadas). `conexion_todo.h`: `bioLlamar`.
+- El teclado numérico solo repinta el campo al teclear (antes redibujaba toda la pantalla y parpadeaba).
+- Requiere haber creado el PIN en la app (Mi PIN). Aviso en pantalla versión `v1`; cambiar su texto exige subir la versión.
+- Riesgos a mirar en la prueba física: dos conexiones TLS simultáneas (cola y registro), tiempos del teclado
+  táctil y la sesión de 5 minutos del administrador.
+
+## 2026-10-16 — Biométrico: correcciones de app y bienvenida (Claude)
+
+- **Publicado 16 oct 2026 (autorizado):** Functions `biometricoGestion` y
+  `biometricoDispositivo`, Hosting `to-do-gestion` **2.7.1 (46)** (verificado
+  en `version.json`). **Reglas siguen sin publicar**: 8 intentos más con 503
+  de `firebaserules.googleapis.com`. Mientras tanto `TBL_BIOMETRICO_PINES`
+  y las demás colecciones de Biométrico quedan cerradas al cliente por la
+  regla general (sin `match`), y la app usa solo callables; falta publicar
+  las reglas para la tabla de roles de Biométrico en Admin.
+- App (`lib/biometrico/biometrico_screen.dart`, rehecha):
+  Dispositivos con estado En línea/Sin conexión y recarga sola cada 30 s,
+  sede elegida de los centros de costo de la empresa (o "Otra sede…", se
+  guarda `centroCostoId`), "Mi PIN" (crear/cambiar, 6 dígitos); Huellas y
+  personas con foto (`UserAvatar`) y selector por nombre/cédula, vínculo
+  sin referencia manual (texto estándar de contratación firmada); Horarios
+  con calendario semanal por colaborador con huella (tabla en Web, lista por
+  persona en móvil, plantillas editables, asignación por día/rango/mes);
+  Jornadas que arrancan en el primer día con marcaciones (máx. 31 días),
+  filtro por colaborador con foto, tabla paginada y panel de detalle
+  (marcaciones, horas, decisión). Servidor: acciones `personas`,
+  `calendario`, `listar` con `centros` y `primerDia`.
+- Firmware 2.1.0: registra/borra huellas por serie (`N`, `B<n>`) y muestra
+  "Bienvenido, <nombre>" (entrada) o "Que tengas un excelente dia, <nombre>"
+  (salida) 4,5 s con el nombre que devuelve el servidor (sin tildes).
+  **No compilado** tras estos cambios; compilar en Arduino IDE.
+- Pruebas: 258 Flutter (biometrico + admin), 210 de servidor y 9 con
+  emulador, todas aprobadas; `flutter analyze` sin avisos en Biométrico.
+- **Interpretación a confirmar:** "cd" se tomó como sede/centro de costo.
+- **Pendiente:** registro en pantalla del equipo (táctil sin cablear:
+  teclado de cédula, PIN, aviso Autorizo/No autorizo, 3 capturas) usando
+  las acciones ya hechas en servidor; publicar Function, reglas
+  (`BIOMETRICO_PINES`) y Hosting; probar en Android/iOS físicos.
+
+## 2026-10-16 — Biométrico: PIN de administrador y registro desde el equipo, servidor (Claude)
+
+- Decisiones del usuario: la autorización del titular es física (contrato);
+  el equipo muestra el aviso y la persona acepta en pantalla; solo los
+  administradores de Biométrico registran huellas, cada uno con PIN propio.
+- `functions/src/biometrico.ts` (**sin publicar**): `fijarPin` (callable,
+  nivel administrador, 6 dígitos, rechaza repetidos y consecutivos como
+  `123456`, pide el PIN actual para cambiarlo, solo guarda scrypt+sal en
+  `TBL_BIOMETRICO_PINES`, 5 fallos bloquean 15 min); `listar` devuelve
+  `tienePin`. API del equipo: `autenticarAdmin` (cédula+PIN → sesión de 5
+  min por equipo), `buscarPersona` y `registrarHuella` (exige `autorizo:true`
+  y versión de aviso; vincula con constancia "Aceptado en pantalla…" y deja
+  auditoría). Error genérico para cédula/PIN/nivel incorrectos. La
+  respuesta de marcación incluye `nombre` para la bienvenida.
+- Reglas: `BIOMETRICO_PINES` agregado a las colecciones cerradas (pendiente
+  de publicar junto con el resto de reglas).
+- Pruebas: 210 de servidor y 8 con emulador (nueva: PIN, sesión, bloqueo,
+  vínculo desde el equipo, bienvenida). **Falta**: pantalla "Mi PIN" y botón
+  en la app, firmware (teclado táctil, aviso, 3 capturas, bienvenida),
+  tarjeta de dispositivo con sede/recarga, calendario de horarios y
+  jornadas. El táctil sigue sin cablear (GPIO 4,5,6,7,15 propuestos).
+
+## 2026-10-16 — Biométrico 2.7.0+45: verificación y pendientes (Claude)
+
+- Módulo independiente `biometricodashboard` (Codex): niveles Consulta /
+  Gestión de asistencia / Administrador, dispositivos con token hash, vínculo
+  `(deviceId, slot) → colaborador`, horarios (incluye nocturno 21:00–06:00),
+  jornadas, incidencias y aprobación de extras en TH. Guía: `docs/biometrico.md`.
+- Verificado por Claude sin tocar producción: `flutter test test/biometrico
+  test/admin` (256 aprobadas), `tsc --noEmit` limpio, `functions/test/
+  biometrico.test.js` (7) y `biometrico.rules.js` con emulador Firestore (7).
+  `flutter analyze` solo reporta 2 avisos `info` de estilo en
+  `test/biometrico/biometrico_screen_test.dart`.
+- **Publicado el 16 oct 2026 (autorizado por el usuario)**: índices
+  Firestore (`firestore.indexes.json`); Functions `biometricoGestion`,
+  `biometricoDispositivo`, `adminLimpiezaModulo`, `adminSincronizarMaestros`
+  (209 pruebas de servidor aprobadas antes); Hosting `to-do-gestion`
+  **2.7.0 (45)** (`version.json` en producción lo confirma).
+- **PENDIENTE: reglas Firestore.** `firestore.rules` (Biométrico y su tabla de
+  roles) NO se publicó: el servicio `firebaserules.googleapis.com` devolvió
+  503 en decenas de intentos (`:test` y `/rulesets`), con la copia
+  compactada de `tool/compactar_reglas_firestore.js`. Producción sigue con
+  las reglas anteriores; la UI de Biométrico usa solo callables, pero el
+  panel de roles de Biométrico en Admin necesita las reglas. Reintentar:
+  `node tool/compactar_reglas_firestore.js` y `firebase deploy --config
+  build/firebase.firestore.json --only firestore:rules`. Git lo ejecuta Codex.
+- **Firmware**: `firmware/ToDo_Bio/ToDo_Bio.ino` compiló en ESP32-S3 según
+  Codex; yo no pude recompilar (no hay `arduino-cli` en este equipo). No fue
+  probado en el hardware simultáneo (TFT + SFM-V1.7 + WiFi).
+- **Firmware 2.1.0 (Claude)**: se portó del paquete `TO_DO_Bio_Unificado_V1`
+  el registro guiado (`N` / `N<n>`) y la baja (`B<n>` + `SI`) por monitor
+  serie; `R` sigue siendo reintento de rechazos. Registrar no autoriza
+  marcar: el vínculo `(deviceId, slot)` con consentimiento sigue haciéndose
+  en la app. **No compilado ni probado** (sin `arduino-cli`); compilar en
+  Arduino IDE antes de cargar.
+- **Seguridad**: `firmware/**/config_local.h` está en `.gitignore`. El
+  `config_local.h` del paquete de Descargas contiene la clave WiFi en texto
+  plano: no compartirlo con terceros ni adjuntarlo a chats.
+- Pendientes de aceptación física: carga en el ESP32, lectura real, reinicio
+  con cola, corte WiFi durante envío y conciliación; Android/iOS físicos y
+  descargas reales (iOS no compila en Windows). Sin cálculo de nómina ni
+  recargos legales: solo control operativo.
+
 ## 2026-10-15 — Publicación integrada de Codex y Claude (Codex)
 
 - Autorización del usuario: publicar todos los cambios integrados. Publicado

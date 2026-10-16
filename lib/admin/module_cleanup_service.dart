@@ -150,6 +150,15 @@ const kModulosLimpieza = <ModuloLimpiezaInfo>[
     maestros: true,
   ),
   ModuloLimpiezaInfo(
+    id: 'biometrico',
+    nombre: 'Biométrico',
+    icono: Icons.fingerprint,
+    color: Color(0xFF0F766E),
+    descripcion:
+        'Maestro: horarios. Las marcaciones y auditorías se conservan.',
+    maestros: true,
+  ),
+  ModuloLimpiezaInfo(
     id: 'tokens_dian',
     nombre: 'Tokens DIAN',
     icono: Icons.vpn_key_outlined,

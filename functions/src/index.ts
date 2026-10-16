@@ -6,6 +6,7 @@ import {planDeEntrega} from "./notification_catalog";
 
 // API aislada de pruebas de comunicación para ESP32.
 export {marcacionesPrueba} from "./marcaciones_prueba";
+export {biometricoGestion, biometricoDispositivo} from "./biometrico";
 
 // Autenticación privada de To-Do. La contraseña se valida exclusivamente en
 // servidor y la aplicación recibe una sesión Firebase individual.

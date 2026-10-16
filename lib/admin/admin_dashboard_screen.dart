@@ -5519,6 +5519,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         color: Color(0xFF4F46E5),
         roles: talentoHumanoTableRoles.levels,
       ),
+      _AccessMatrixModule(
+        key: 'biometrico',
+        label: 'Biométrico',
+        appId: 'biometricodashboard',
+        icon: Icons.fingerprint,
+        color: Color(0xFF0F766E),
+        roles: biometricoTableRoles.levels,
+      ),
       const _AccessMatrixModule(
         key: 'gerencia',
         label: 'Gerencia',
@@ -5717,6 +5725,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         return dianTokensTableRoles.levelDescription(roleKey);
       case 'talento':
         return talentoHumanoTableRoles.levelDescription(roleKey);
+      case 'biometrico':
+        return biometricoTableRoles.levelDescription(roleKey);
       case 'nutricion':
         return nutricionTableRoles.levelDescription(roleKey);
       case 'gerencia':
@@ -16851,6 +16861,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 const List<({String id, String label})> _kAllModules = [
   (id: 'admindashboard', label: 'Administración'),
   (id: 'talentohumanodashboard', label: 'Talento Humano'),
+  (id: 'biometricodashboard', label: 'Biométrico'),
   (id: 'gerenciadashboard', label: 'Gerencia'),
   (id: 'gestiondocumentaldashboard', label: 'Gestión de Correspondencia'),
   (id: 'bibliotecadocumentaldashboard', label: 'Biblioteca Documental'),

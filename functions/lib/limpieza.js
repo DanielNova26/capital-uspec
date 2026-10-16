@@ -199,6 +199,11 @@ exports.MODULOS_LIMPIEZA = [
         ],
     },
     {
+        id: "biometrico", nombre: "Biométrico", tareas: false,
+        registros: [],
+        maestros: [{ id: "TBL_BIOMETRICO_HORARIOS", nombre: "Horarios" }],
+    },
+    {
         id: "tokens_dian", nombre: "Tokens DIAN", tareas: false,
         registros: [{ id: "TBL_DIAN_TOKEN_ACCESOS", nombre: "Accesos a tokens" }],
         maestros: [{ id: "TBL_DIAN_TOKENS", nombre: "Tokens" }],

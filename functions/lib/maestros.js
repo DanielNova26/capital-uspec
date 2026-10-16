@@ -181,6 +181,13 @@ exports.MODULOS_MAESTROS = [
         ],
     },
     {
+        id: "biometrico", nombre: "Biométrico",
+        maestros: [
+            { id: "TBL_BIOMETRICO_HORARIOS", nombre: "Horarios de Biométrico",
+                tipo: "coleccion", clave: ["nombre"] },
+        ],
+    },
+    {
         id: "tareas", nombre: "Tareas y notificaciones",
         maestros: [
             // Maestro de notificaciones: canales de cada tipo de aviso.

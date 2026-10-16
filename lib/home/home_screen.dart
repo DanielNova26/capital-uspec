@@ -21,6 +21,7 @@ import 'package:todo/widgets/skeleton_loader.dart';
 
 import '../admin/admin_dashboard_screen.dart' hide kArial;
 import '../talento_humano/talento_humano_dashboard_screen.dart';
+import '../biometrico/biometrico_screen.dart';
 import '../gerencia/gerencia_dashboard_screen.dart';
 import 'document_management_screen.dart' hide kArial;
 import 'library_management_screen.dart';
@@ -1826,6 +1827,34 @@ class _HomeScreenState extends State<HomeScreen> {
                     userId: cedula,
                     empresaId: empresaId,
                   ),
+                ),
+              );
+            },
+          ),
+        ),
+
+      if (_moduleVisible(apps, isDev, 'biometricodashboard', disabledAppIds))
+        _HomeModulo(
+          'biometricodashboard',
+          ModuleCard(
+            width: cardWidth,
+            title: 'Biométrico',
+            icon: Icons.fingerprint,
+            color: const Color(0xFF0F766E),
+            compact: !isWeb,
+            onTap: () async {
+              final permitido = await _guardModuleNavigation(
+                userData: userData,
+                empresaId: empresaId,
+                appId: 'biometricodashboard',
+                deniedMessage: 'Sin acceso',
+              );
+              if (!permitido || !mounted) return;
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) =>
+                      BiometricoScreen(userId: cedula, empresaId: empresaId),
                 ),
               );
             },

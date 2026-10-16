@@ -61,3 +61,6 @@ tmp/
 # Temporales de Codex (plantillas, node_modules): nunca van al repositorio
 .codex_tmp/
 .codex-tmp/
+
+# Credenciales locales del ESP32: se descargan desde Biométrico, no se versionan.
+firmware/**/config_local.h

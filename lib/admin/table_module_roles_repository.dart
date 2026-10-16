@@ -97,7 +97,8 @@ class TableModuleRolesRepository {
     if (canManageModuleRoles(data, empresaId)) return true;
     if (!userBelongsToEmpresa(data, empresaId) ||
         !personaHabilitadaEn(data, empresaId) ||
-        ((config.moduleKey == 'tokens_dian' ||
+        ((config.moduleKey == 'biometrico' ||
+                config.moduleKey == 'tokens_dian' ||
                 config.moduleKey == 'talento' ||
                 config.moduleKey == 'nutricion') &&
             !userHasApp(data, config.appId, empresaId: empresaId))) {

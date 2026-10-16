@@ -363,6 +363,7 @@ void main() {
           'rolTalentoHumano',
         ),
         ('nutriciondashboard', 'TBL_NUTRICION_ROLES', 'rolNutricion'),
+        ('biometricodashboard', 'TBL_BIOMETRICO_ROLES', 'rolBiometrico'),
       ];
       final apps = detail('A')['apps'] as List;
       for (final (appId, collection, field) in configs) {
