@@ -62,23 +62,25 @@ class _SvcFalso implements VisitasService {
   };
 
   @override
-  Stream<List<VisitaCentro>> streamCentros(String empresaId) =>
-      Stream.value(const [
-        VisitaCentro(id: 'buen_pastor', nombre: 'Buen Pastor'),
-        VisitaCentro(
-          id: 'choconta',
-          nombre: 'Chocontá',
-          subcentros: [
-            SubcentroCosto(id: 'pabellon_a', nombre: 'Pabellón A'),
-            SubcentroCosto(id: 'viejo', nombre: 'Viejo', enabled: false),
-          ],
-        ),
-        VisitaCentro(
-          id: 'ipiales',
-          nombre: 'Ipiales',
-          subcentros: [SubcentroCosto(id: 'sanidad', nombre: 'Sanidad')],
-        ),
-      ]);
+  Stream<List<VisitaCentro>> streamCentros(
+    String empresaId, {
+    bool incluirInactivos = false,
+  }) => Stream.value(const [
+    VisitaCentro(id: 'buen_pastor', nombre: 'Buen Pastor'),
+    VisitaCentro(
+      id: 'choconta',
+      nombre: 'Chocontá',
+      subcentros: [
+        SubcentroCosto(id: 'pabellon_a', nombre: 'Pabellón A'),
+        SubcentroCosto(id: 'viejo', nombre: 'Viejo', enabled: false),
+      ],
+    ),
+    VisitaCentro(
+      id: 'ipiales',
+      nombre: 'Ipiales',
+      subcentros: [SubcentroCosto(id: 'sanidad', nombre: 'Sanidad')],
+    ),
+  ]);
 
   @override
   Stream<List<VisitaUbicacion>> streamUbicaciones(String empresaId) =>

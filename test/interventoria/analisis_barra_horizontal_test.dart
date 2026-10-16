@@ -119,10 +119,16 @@ void main() {
       ),
     );
     expect(find.byType(Scrollbar), findsNothing);
-    await tester.drag(find.byType(SingleChildScrollView), const Offset(-300, 0));
+    await tester.drag(
+      find.byType(SingleChildScrollView),
+      const Offset(-300, 0),
+    );
     await tester.pumpAndSettle();
     expect(
-      tester.state<ScrollableState>(find.byType(Scrollable).first).position.pixels,
+      tester
+          .state<ScrollableState>(find.byType(Scrollable).first)
+          .position
+          .pixels,
       greaterThan(0),
     );
   });

@@ -67,7 +67,10 @@ void main() {
       ]);
       expect(sst.itemsDeParte(kParteSstDiagnostico).length, 77);
       expect(sst.itemsDeParte(kParteSstExtintores), isEmpty);
-      expect(sst.tablasDeParte(kParteSstExtintores).single.id, kTablaExtintores);
+      expect(
+        sst.tablasDeParte(kParteSstExtintores).single.id,
+        kTablaExtintores,
+      );
       expect(sst.itemsDeParte(kParteSstBotiquin).length, 4 + 25 + 3);
       expect(extintor.camposEstado.length, 13);
       expect(extintor.camposTexto.length, 6);
@@ -88,7 +91,10 @@ void main() {
       expect(bot.where((i) => i.tipo == kItemTipoSiNo).length, 7);
       expect(bot.where((i) => i.esElemento).length, 25);
       expect(bot.firstWhere((i) => i.id == 'sst01_e01').unidad, '1 Unidad');
-      expect(resultadosPermitidos(kItemTipoSiNo), isNot(contains(kItemNoAplica)));
+      expect(
+        resultadosPermitidos(kItemTipoSiNo),
+        isNot(contains(kItemNoAplica)),
+      );
     });
 
     test('sobrevive al viaje por Firestore con partes, tablas y tipos', () {
@@ -99,7 +105,10 @@ void main() {
         back.items.firstWhere((i) => i.id == 'sst01_e01').tipo,
         kItemTipoElemento,
       );
-      expect(back.items.firstWhere((i) => i.id == 'sst02_01').parte, kParteSstDiagnostico);
+      expect(
+        back.items.firstWhere((i) => i.id == 'sst02_01').parte,
+        kParteSstDiagnostico,
+      );
     });
   });
 
@@ -126,7 +135,11 @@ void main() {
     });
 
     test('sin referencia en el maestro no se inicia', () {
-      final r = verificarUbicacionInicio(referencia: null, lat: 5.5, lng: -73.3);
+      final r = verificarUbicacionInicio(
+        referencia: null,
+        lat: 5.5,
+        lng: -73.3,
+      );
       expect(r.permitido, isFalse);
       expect(r.motivo, contains('maestro'));
     });
@@ -202,7 +215,9 @@ void main() {
 
     test('un extintor con estado sin marcar o Malo sin novedad no cierra', () {
       final incompleta = filaBuena().copyWith(
-        estados: {for (final c in extintor.camposEstado.skip(1)) c.id: kFilaBueno},
+        estados: {
+          for (final c in extintor.camposEstado.skip(1)) c.id: kFilaBueno,
+        },
       );
       final malaSinObs = filaBuena(id: 'f2').copyWith(
         estados: {
@@ -271,13 +286,26 @@ void main() {
       expect(h.last.elemento, 'Extintor Cocina');
       expect(h.last.novedad, contains('Sello de Garantía: No cuenta'));
       expect(h.last.novedad, contains('aguja en rojo'));
-      expect(hallazgosDe(visita(respuestas: r, tablas: {kTablaExtintores: [fila]})), 2);
+      expect(
+        hallazgosDe(
+          visita(
+            respuestas: r,
+            tablas: {
+              kTablaExtintores: [fila],
+            },
+          ),
+        ),
+        2,
+      );
     });
 
     test('resumen por parte: NA no resta y el % es sobre lo evaluado', () {
       final r = todoCumple();
       r['sst02_01'] = const VisitaRespuesta(resultado: kItemNoAplica);
-      r['sst02_02'] = const VisitaRespuesta(resultado: kItemNoCumple, observacion: 'x');
+      r['sst02_02'] = const VisitaRespuesta(
+        resultado: kItemNoCumple,
+        observacion: 'x',
+      );
       final diag = resumenDeVisita(sst, r, parte: kParteSstDiagnostico);
       expect(diag.total, 77);
       expect(diag.noAplica, 1);
@@ -289,41 +317,60 @@ void main() {
   });
 
   group('reprogramar', () {
-    test('solo el jefe reprograma; el profesional ni la suya (18 sep 2026)', () {
-      final propia = visita(estado: kVisitaProgramada, iniciada: false);
-      final ajena = visita(
-        estado: kVisitaProgramada,
-        iniciada: false,
-        profesionalId: '999',
-      );
-      expect(
-        visitasPuedeReprogramar(
-          rol: kVisitasRolJefe,
-          visita: ajena,
-          userId: '222',
-          ahora: DateTime(2026, 9, 17, 8),
-        ),
-        isTrue,
-      );
-      expect(
-        visitasPuedeReprogramar(rol: kVisitasRolProfesional, visita: propia, userId: '111'),
-        isFalse,
-        reason: 'el cronograma lo corrige únicamente la dirección',
-      );
-      expect(
-        visitasPuedeReprogramar(rol: kVisitasRolProfesional, visita: ajena, userId: '111'),
-        isFalse,
-      );
-      expect(
-        visitasPuedeReprogramar(rol: kVisitasRolConsulta, visita: propia, userId: '111'),
-        isFalse,
-      );
-      expect(
-        visitasPuedeReprogramar(rol: kVisitasRolJefe, visita: visita(), userId: '222'),
-        isFalse,
-        reason: 'en curso no se mueve',
-      );
-    });
+    test(
+      'solo el jefe reprograma; el profesional ni la suya (18 sep 2026)',
+      () {
+        final propia = visita(estado: kVisitaProgramada, iniciada: false);
+        final ajena = visita(
+          estado: kVisitaProgramada,
+          iniciada: false,
+          profesionalId: '999',
+        );
+        expect(
+          visitasPuedeReprogramar(
+            rol: kVisitasRolJefe,
+            visita: ajena,
+            userId: '222',
+            ahora: DateTime(2026, 9, 17, 8),
+          ),
+          isTrue,
+        );
+        expect(
+          visitasPuedeReprogramar(
+            rol: kVisitasRolProfesional,
+            visita: propia,
+            userId: '111',
+          ),
+          isFalse,
+          reason: 'el cronograma lo corrige únicamente la dirección',
+        );
+        expect(
+          visitasPuedeReprogramar(
+            rol: kVisitasRolProfesional,
+            visita: ajena,
+            userId: '111',
+          ),
+          isFalse,
+        );
+        expect(
+          visitasPuedeReprogramar(
+            rol: kVisitasRolConsulta,
+            visita: propia,
+            userId: '111',
+          ),
+          isFalse,
+        );
+        expect(
+          visitasPuedeReprogramar(
+            rol: kVisitasRolJefe,
+            visita: visita(),
+            userId: '222',
+          ),
+          isFalse,
+          reason: 'en curso no se mueve',
+        );
+      },
+    );
 
     test('el maestro de ubicaciones es solo de Desarrollo', () {
       expect(visitasPuedeGestionarUbicaciones(esDesarrollador: true), isTrue);
@@ -356,7 +403,10 @@ void main() {
         ).toMap(),
       ];
       final back = VisitaProfesional.fromMap('v', map);
-      expect(back.filasDe(kTablaExtintores).single.campos['ubicacion'], 'Cocina');
+      expect(
+        back.filasDe(kTablaExtintores).single.campos['ubicacion'],
+        'Cocina',
+      );
       expect(back.firmaProfesional!.blob, [1, 2, 3]);
       expect(back.firmaProfesional!.modo, kFirmaModoGuardada);
       expect(back.firmaEstablecimiento, isNull);

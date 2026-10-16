@@ -1031,13 +1031,31 @@ class InterventoriaService {
     // Al completar, cada observación con una regla resoluble nace ya como una
     // tarea. Antes solo se creaba el hallazgo y el tablero mostraba la persona
     // detectada, pero exigía otro clic para asignarla.
-    return _autoCrearHallazgosDesdeItems(
+    final resultado = await _autoCrearHallazgosDesdeItems(
       visita: visita,
       items: items,
       asignarAutomaticamente: true,
       creadorId: completadoPorId,
       creadorNombre: completadoPorNombre,
     );
+    await _registrarSubsanacionPorActa(visita);
+    return resultado;
+  }
+
+  /// Subsanación por acta (reunión del 15 oct 2026): lo que estaba en el acta
+  /// regular anterior del establecimiento y ya no aparece queda registrado
+  /// como subsanado por acta. Lo calcula el servidor; si falla, el acta ya
+  /// quedó completa y no se deshace.
+  Future<void> _registrarSubsanacionPorActa(InterventoriaVisita visita) async {
+    try {
+      await FirebaseFunctions.instanceFor(
+        region: 'us-central1',
+      ).httpsCallable('interventoriaPlanes').call({
+        'accion': 'subsanacionPorActa',
+        'empresaId': visita.empresaId,
+        'visitaId': visita.id,
+      });
+    } catch (_) {}
   }
 
   /// Sincroniza TBL_INTERVENTORIA_HALLAZGOS (fuente:'acta') con las

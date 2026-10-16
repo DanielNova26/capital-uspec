@@ -299,31 +299,28 @@ void main() {
       expect(puntos.map((p) => p.valor), containsAll([78.0, 49.0]));
     });
 
-    test(
-      'el acta sin subcentro de un centro dividido es una barra propia',
-      () {
-        // Decisión del 18 sep 2026: el establecimiento tiene su propia acta,
-        // independiente de la de cada subcentro, así que "Combita" va junto
-        // a "Combita Alta" y no se esconde (antes se ocultaba como acta
-        // anterior a la división).
-        final puntos = compararUltimaActaPorEstablecimiento([
-          acta(centro: 'Combita', fecha: DateTime(2026, 9, 3), puntaje: 89),
-          acta(
-            centro: 'Combita',
-            subId: 'alta',
-            subNombre: 'Alta',
-            fecha: DateTime(2026, 9, 8),
-            puntaje: 78,
-          ),
-        ]);
+    test('el acta sin subcentro de un centro dividido es una barra propia', () {
+      // Decisión del 18 sep 2026: el establecimiento tiene su propia acta,
+      // independiente de la de cada subcentro, así que "Combita" va junto
+      // a "Combita Alta" y no se esconde (antes se ocultaba como acta
+      // anterior a la división).
+      final puntos = compararUltimaActaPorEstablecimiento([
+        acta(centro: 'Combita', fecha: DateTime(2026, 9, 3), puntaje: 89),
+        acta(
+          centro: 'Combita',
+          subId: 'alta',
+          subNombre: 'Alta',
+          fecha: DateTime(2026, 9, 8),
+          puntaje: 78,
+        ),
+      ]);
 
-        expect(
-          puntos.map((p) => p.centroCostoNombre),
-          ['Combita', 'Combita Alta'],
-        );
-        expect(puntos.map((p) => p.valor), [89.0, 78.0]);
-      },
-    );
+      expect(puntos.map((p) => p.centroCostoNombre), [
+        'Combita',
+        'Combita Alta',
+      ]);
+      expect(puntos.map((p) => p.valor), [89.0, 78.0]);
+    });
 
     test(
       'el centro viejo "Combita Alta" y el subcentro Alta son la misma barra',

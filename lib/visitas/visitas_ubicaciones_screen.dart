@@ -74,11 +74,16 @@ class _VisitasUbicacionesTabState extends State<VisitasUbicacionesTab> {
   late final Stream<List<VisitaCentro>> _centros;
   late final Stream<List<VisitaUbicacion>> _ubicaciones;
   String _filtro = '';
+  bool _verInactivos = false;
 
   @override
   void initState() {
     super.initState();
-    _centros = widget.svc.streamCentros(widget.empresaId);
+    // Trae también los desactivados; se muestran solo con «Ver desactivados».
+    _centros = widget.svc.streamCentros(
+      widget.empresaId,
+      incluirInactivos: true,
+    );
     _ubicaciones = widget.svc.streamUbicaciones(widget.empresaId);
   }
 
@@ -97,16 +102,28 @@ class _VisitasUbicacionesTabState extends State<VisitasUbicacionesTab> {
             }
             final porId = {for (final u in us.data!) u.id: u};
             final filas = <_Fila>[];
+            var inactivas = 0;
             for (final c in cs.data!) {
+              if (!c.activo) {
+                inactivas++;
+                if (!_verInactivos) continue;
+              }
               final delCentro =
                   porId[VisitaUbicacion.docId(widget.empresaId, c.id, '')];
-              filas.add(_Fila(centro: c, ubicacion: delCentro));
-              for (final s in c.subcentrosActivos) {
+              filas.add(
+                _Fila(centro: c, ubicacion: delCentro, activo: c.activo),
+              );
+              for (final s in c.subcentros) {
+                if (!s.enabled) {
+                  if (c.activo) inactivas++;
+                  if (!_verInactivos) continue;
+                }
                 filas.add(
                   _Fila(
                     centro: c,
                     subcentroId: s.id,
                     subcentroNombre: s.nombre,
+                    activo: c.activo && s.enabled,
                     ubicacion:
                         porId[VisitaUbicacion.docId(
                           widget.empresaId,
@@ -125,7 +142,10 @@ class _VisitasUbicacionesTabState extends State<VisitasUbicacionesTab> {
                       .where((r) => r.nombre.toLowerCase().contains(f))
                       .toList();
             final sinUbicacion = filas
-                .where((r) => r.subcentroId.isEmpty && r.ubicacion == null)
+                .where(
+                  (r) =>
+                      r.activo && r.subcentroId.isEmpty && r.ubicacion == null,
+                )
                 .length;
             // Para orientar la búsqueda de Google hacia donde ya hay sitios.
             final alguna = us.data!.isEmpty ? null : us.data!.first;
@@ -177,6 +197,15 @@ class _VisitasUbicacionesTabState extends State<VisitasUbicacionesTab> {
                   ),
                   onChanged: (v) => setState(() => _filtro = v),
                 ),
+                if (inactivas > 0)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: FilterChip(
+                      label: Text('Ver desactivados ($inactivas)'),
+                      selected: _verInactivos,
+                      onSelected: (v) => setState(() => _verInactivos = v),
+                    ),
+                  ),
                 const SizedBox(height: 8),
                 PagedListSection<_Fila>(
                   items: visibles,
@@ -185,6 +214,10 @@ class _VisitasUbicacionesTabState extends State<VisitasUbicacionesTab> {
                     fila: r,
                     onEditar: () =>
                         _editar(r, cerca: r.ubicacionCentro ?? alguna),
+                    onReactivar:
+                        r.centro.propio && !r.esSubcentro && !r.centro.activo
+                        ? () => _reactivar(r.centro)
+                        : null,
                     onQuitar: r.ubicacion == null
                         ? null
                         : () => _quitar(r.ubicacion!),
@@ -254,6 +287,21 @@ class _VisitasUbicacionesTabState extends State<VisitasUbicacionesTab> {
       if (mounted) _snack(context, e.mensaje, error: true);
     } catch (e) {
       if (mounted) _snack(context, 'No se pudo agregar: $e', error: true);
+    }
+  }
+
+  /// Reactiva un establecimiento propio de Visitas. Los centros de costo y sus
+  /// subcentros se activan donde se administran (Admin), no aquí.
+  Future<void> _reactivar(VisitaCentro c) async {
+    try {
+      await widget.svc.activarEstablecimientoPropio(
+        c.id,
+        activo: true,
+        actorId: widget.userId,
+      );
+      if (mounted) _snack(context, '${c.nombre} activado.');
+    } catch (e) {
+      if (mounted) _snack(context, 'No se pudo activar: $e', error: true);
     }
   }
 
@@ -357,12 +405,16 @@ class _Fila {
 
   /// La del centro, que hereda un subcentro sin ubicación propia.
   final VisitaUbicacion? ubicacionCentro;
+
+  /// El centro y, si es subcentro, él mismo están activos.
+  final bool activo;
   const _Fila({
     required this.centro,
     this.subcentroId = '',
     this.subcentroNombre = '',
     required this.ubicacion,
     this.ubicacionCentro,
+    this.activo = true,
   });
   bool get esSubcentro => subcentroId.isNotEmpty;
   String get nombre =>
@@ -374,11 +426,13 @@ class _FilaCard extends StatelessWidget {
   final VoidCallback onEditar;
   final VoidCallback? onQuitar;
   final VoidCallback? onAgregarSubcentro;
+  final VoidCallback? onReactivar;
   const _FilaCard({
     required this.fila,
     required this.onEditar,
     this.onQuitar,
     this.onAgregarSubcentro,
+    this.onReactivar,
   });
 
   @override
@@ -410,6 +464,7 @@ class _FilaCard extends StatelessWidget {
         subtitle: Text(
           [
             // No es centro de costo: se creó en Admin solo para Visitas.
+            if (!fila.activo) 'Desactivado',
             if (fila.centro.propio) 'Solo Visitas',
             u == null
                 ? (fila.esSubcentro
@@ -430,6 +485,8 @@ class _FilaCard extends StatelessWidget {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (onReactivar != null)
+              TextButton(onPressed: onReactivar, child: const Text('Activar')),
             if (onAgregarSubcentro != null)
               IconButton(
                 tooltip: 'Agregar subcentro',

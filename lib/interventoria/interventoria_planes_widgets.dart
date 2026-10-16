@@ -485,6 +485,19 @@ class PlanContextoHallazgo extends StatelessWidget {
               Text(
                 'Plazo de subsanación: ${planText(item, 'limiteSubsanacion').split('T').first}',
               ),
+            if (planMap(item['subsanadoPorActa']).isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  'Subsanado por acta: ya no aparece en el acta '
+                  '${planText(planMap(item['subsanadoPorActa']), 'idVisitaK2')} '
+                  'del ${planText(planMap(item['subsanadoPorActa']), 'fecha').split('T').first}.',
+                  style: const TextStyle(
+                    color: Color(0xff1b6e3c),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
             PlanEstadoChip(planSemaforo(item)),
           ],
         ),

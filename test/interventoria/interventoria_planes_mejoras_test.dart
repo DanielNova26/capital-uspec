@@ -65,6 +65,7 @@ class _RasterDePrueba extends PrintingPlatform {
 }
 
 void main() {
+  descuentoDirectoTest();
   test('PDF reducido conserva dos páginas y ambas orientaciones', () async {
     final original = PrintingPlatform.instance;
     PrintingPlatform.instance = _RasterDePrueba();
@@ -182,6 +183,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Nuevo plan'));
       await tester.pumpAndSettle();
+      await tester.tap(find.text('Plan de mejora'));
+      await tester.pumpAndSettle();
       final fields = tester
           .widgetList<TextField>(find.byType(TextField))
           .where((f) => f.controller != null)
@@ -199,6 +202,7 @@ void main() {
       await tester.tap(find.text('Guardar'));
       await tester.pumpAndSettle();
       expect(saved?['limiteSoportes'], '2027-01-18');
+      expect(saved?['tipo'], 'mejora');
       expect(tester.takeException(), isNull);
     },
   );
@@ -342,4 +346,46 @@ void main() {
       });
     }
   }
+}
+
+void descuentoDirectoTest() {
+  testWidgets('descuento directo propone respuesta y soportes en 5 días', (
+    tester,
+  ) async {
+    PlanData? saved;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: InterventoriaPlanesPanel(
+            empresaId: 'A',
+            request: (input) async {
+              if (input['accion'] == 'crear') {
+                saved = input;
+                return {'id': 'p'};
+              }
+              if (input['accion'] == 'detalle')
+                return {'plan': {}, 'items': []};
+              return {'planes': []};
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Nuevo plan'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Descuento directo'));
+    await tester.pumpAndSettle();
+    final fields = tester
+        .widgetList<TextField>(find.byType(TextField))
+        .where((f) => f.controller != null)
+        .toList();
+    fields[0].controller!.text = 'PD-1';
+    fields[1].controller!.text = 'CRF-K2-2';
+    expect(fields[3].controller!.text, fields[4].controller!.text);
+    await tester.tap(find.text('Guardar'));
+    await tester.pumpAndSettle();
+    expect(saved?['tipo'], 'descuento_directo');
+    expect(saved?['limiteRespuesta'], saved?['limiteSoportes']);
+  });
 }

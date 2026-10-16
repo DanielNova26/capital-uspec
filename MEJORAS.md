@@ -11268,3 +11268,112 @@ siguen sin sellarse.
   bootstrap, JavaScript principal y service worker contra `build/web`.
   Código subido a `main` en `e233c7d`. Sin despliegues de backend ni cambios
   de datos de producción en esta entrega.
+
+## Interventoría — plan de mejora no dejaba escribir el compromiso (15 oct 2026)
+Claude. `interventoria_planes_screen.dart`. El campo «Compromiso de mejora» se
+deshabilitaba mientras la tarea del hallazgo no estuviera finalizada y aprobada
+(`tareaAprobada`, regla del servidor `exigirTareaAprobada`), sin decir por qué en
+esa tarjeta. Ahora el campo se puede escribir y hay un aviso con el motivo; el
+envío sigue bloqueado en pantalla y en el servidor hasta que se apruebe la
+tarea. Lo escrito **no se guarda** si se sale antes. Pendiente de confirmar con
+el caso real: si la tarea ya estaba aprobada y aun así salía bloqueado, el
+problema está en cómo se calcula `tareaEstado/tareaAprobada` (estado
+`finalizado` + `solicitud_finalizacion_estado == aprobado`), no en la pantalla.
+Sin prueba visual.
+- **Ajuste posterior (15 oct): Calidad sí responde sin esperar la aprobación de
+  la tarea.** `cambiarItem` (`functions/src/interventoria_planes.ts`) ya no exige
+  `tareaAprobada` cuando quien actúa es Calidad/gestor y la acción es
+  `responder` o `soportes`; `adjuntar` tampoco lo exige a Calidad. Siguen
+  exigiéndola: el responsable, `usarTexto`, `revisar`, `presentar` y el
+  expediente. La pantalla usa `_puedeGestionar` (Calidad o tarea aprobada).
+  **Requiere desplegar la Function** (`interventoria planes`); Functions 198/198 y
+  pruebas Flutter de Interventoría pasan; sin prueba visual ni contra datos
+  reales.
+
+## Visitas › Ubicaciones — ver establecimientos desactivados (15 oct 2026)
+Claude. La pestaña Ubicaciones solo listaba centros y propios **activos**, y no
+había cómo ver ni reactivar los desactivados. `streamCentros(incluirInactivos:)`
+y `unirEstablecimientos(incluirInactivos:)` (`visitas_service.dart`) traen
+también los desactivados (`VisitaCentro.activo`); la pestaña los oculta salvo
+con el chip **Ver desactivados (N)**, los marca «Desactivado», no los cuenta en
+«sin ubicación» y, para los propios de Visitas, ofrece **Activar** (escritura
+sujeta a `editaEstablecimientosVisitasEn`: si el usuario no la tiene, sale el
+error de permisos). Centros de costo y subcentros desactivados se muestran sin
+poder activarlos aquí: se activan en Admin. Programar y los grupos siguen sin
+mostrar desactivados. Pruebas de Visitas pasan; sin prueba visual ni con datos
+reales.
+- **Admin › Maestros por módulo › Visitas (15 oct, mismo día).** El panel solo
+  listaba los establecimientos propios (vacío si no había) y el cuadro «Nuevo
+  establecimiento» no tenía el interruptor **Activo** (solo al editar): ahora
+  también al crear. Debajo se agrega la sección **Centros de costo de la
+  empresa**, activos y desactivados, **solo consulta** (su estado lo comparten
+  otros módulos y se cambia en Centros de costo). Si se quiere activar o
+  desactivar centros solo para Visitas habría que definir un maestro propio de
+  esa preferencia: no hecho. Sin prueba visual.
+
+## Interventoría — pendientes de la reunión del 15 oct 2026 (Claude)
+Acta: «La reunión se inició a las 2026_10_15 18_27». Código: `functions/src/interventoria_planes.ts`,
+`interventoria_planes_policy.ts`, `interventoria_subsanacion_acta.ts` (nuevo),
+`lib/interventoria/interventoria_planes_screen.dart`, `_widgets.dart`, `interventoria_service.dart`.
+- **Campana de alerta.** En el hallazgo de un plan (Calidad): «Avisar al responsable y a su jefe»
+  → acción `recordar`: notificación al responsable de la tarea y a su jefe directo
+  (`jefeEnEmpresa` + `segundoJefePorEmpresa`, solo si siguen en la empresa), con mensaje opcional,
+  un aviso por hallazgo por hora, auditado en el historial. Solo notificación interna (sin WhatsApp/correo).
+- **Colaboradores de Calidad.** Plan: `colaboradores[]` y botones «Agregarme como colaborador» /
+  «Retirarme» (acción `colaborar`, auditada; avisa al responsable del plan). Hoy cualquier Calidad ya podía
+  editar cualquier plan: esto deja el registro de quién colabora; no cambia permisos.
+- **Plan de mejora vs descuento directo.** Al crear el plan se elige el tipo (`tipo`):
+  mejora = 5 y 20 días calendario; descuento directo = respuesta y soportes en 5 días calendario
+  (`fechasPlan` por tipo). **Alcance:** el descuento directo cambia plazos, rótulos y avisos; la pantalla
+  de entrega sigue con compromiso y soportes en dos pasos (no se obliga a cargarlos a la vez). La misma
+  acta y los mismos numerales pueden ir en dos planes (no se tocó la vinculación).
+- **Margen de 2 días.** Cada plan guarda `limiteInternoRespuesta/Soportes` (límite − 2 días, sin pasar de
+  la notificación): es lo que se le pide al responsable en avisos y se muestra junto al límite real.
+  Los planes existentes no los tienen (se muestra solo el límite real). Las alertas de las 8:00
+  (`interventoriaPlanesAvisos`) **no** usan aún el margen: pendiente si se quiere.
+- **Filtros por fecha.** En la lista de planes: «Fecha del hallazgo (acta)» (nuevo, con
+  `fechasActa` por plan) junto al de fecha de notificación (ya existía). El filtro por fecha de acta en
+  el detalle de hallazgos ya existía.
+- **Subsanación por acta.** Al completar un acta (`completarActa`) el cliente llama a la acción
+  `subsanacionPorActa`: compara con el acta anterior del mismo establecimiento, subcentro y tipo; los
+  numerales que ya no aparecen quedan con `subsanadoPorActa` (acta, fecha, quién), y se retira el
+  registro si el numeral reaparece al corregir el acta. **Solo registro informativo**: no cierra la
+  tarea ni cambia el estado del hallazgo; se ve en el contexto del hallazgo del plan. No hay pantalla
+  propia en el tablero de Interventoría. Las actas completadas antes no se procesan (no hay migración).
+  Si el acta anterior no está completa o su numeral no se pudo identificar, no se registra.
+- **Despliegue:** Functions `interventoriaPlanes` (y Web/móvil). Pruebas: Functions 202/202; Flutter
+  Interventoría 316 (incluye descuento directo). Sin prueba visual ni con datos reales.
+- **No es de software:** quitar Temu de las tablets, instalar software a Alejandro Montoya, recibir
+  coordenadas de ubicaciones (cargarlas en Visitas › Ubicaciones) y actas de entrega (Elvis).
+
+## Integración y publicación — 2.6.30+44 (15 oct 2026, Codex)
+
+- Integrados los cambios de Claude de Interventoría y establecimientos de
+  Visitas descritos arriba. Versión aumentada de 2.6.29+43 a **2.6.30+44**.
+- Ajustes de integración del servidor: el límite horario de recordatorios se
+  comprueba dentro de la transacción, evitando avisos duplicados por peticiones
+  simultáneas; vuelve a comprobar plan abierto y responsable vigente.
+  La subsanación por acta exige Calidad/gestor o un rol canónico autorizado a
+  revisar actas y acceso vigente al módulo; no basta tener acceso a Tareas.
+  No registra subsanación si el acta anterior está incompleta. Corregir fechas
+  de descuento directo conserva su tipo y sus cinco días aunque el cliente
+  no vuelva a enviar el tipo.
+- Validación: **202 pruebas unitarias de Functions** y **38 pruebas de
+  integración con emuladores Firestore/Storage**, todas aprobadas. Cubren
+  concurrencia del recordatorio, destinatarios por empresa, colaboración,
+  permisos de subsanación, acta incompleta, reaparición del numeral y excepción
+  de Calidad para responder sin tarea aprobada. Las pruebas anteriores se
+  ajustaron a los plazos internos y a esa excepción; presentar y revisar siguen
+  exigiendo aprobación de tarea.
+- Flutter: suite general con 1723 casos aprobados y dos expectativas antiguas
+  de Admin que encontraron dos etiquetas «Activo» tras agregar los centros de
+  costo. Corregido el selector para comprobar la tarjeta del establecimiento;
+  los **13 casos de esa suite**, incluidos los dos anteriores, pasan. Análisis
+  dirigido sin incidencias y compilación Web de producción correcta. ESLint
+  sin errores (avisos de longitud de línea).
+- Se mantienen los alcances pendientes de Claude: el margen interno no se usa
+  aún en el aviso diario; descuento directo conserva dos pasos de entrega;
+  subsanación es informativa y solo se solicita al completar nuevas actas,
+  sin migración histórica. No se verificaron datos reales, nuevas pantallas con
+  texto ampliado en todos los anchos ni dispositivos Android/iOS físicos. Las
+  tiendas móviles requieren una publicación independiente.

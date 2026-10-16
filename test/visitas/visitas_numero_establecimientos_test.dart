@@ -304,7 +304,16 @@ void main() {
           isNotNull,
         );
         expect(find.text('Bodega Norte'), findsOneWidget);
-        expect(find.text('Activo'), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.ancestor(
+              of: find.text('Bodega Norte'),
+              matching: find.byType(Card),
+            ),
+            matching: find.text('Activo'),
+          ),
+          findsOneWidget,
+        );
 
         // Repetir un centro de costo se avisa y no se guarda.
         await tester.tap(find.text('Agregar establecimiento'));

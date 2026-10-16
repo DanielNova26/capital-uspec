@@ -49,13 +49,14 @@ void main() {
   );
 
   group('quién aprueba una asignación a mano', () {
-    InterventoriaPersona persona(InterventoriaUsuario u) => InterventoriaPersona(
-      id: u.id,
-      nombre: u.nombre,
-      cargo: u.cargo,
-      cargoMatriz: '',
-      delCentro: false,
-    );
+    InterventoriaPersona persona(InterventoriaUsuario u) =>
+        InterventoriaPersona(
+          id: u.id,
+          nombre: u.nombre,
+          cargo: u.cargo,
+          cargoMatriz: '',
+          delCentro: false,
+        );
 
     test('sin regla en el maestro ya no falla: propone el jefe inmediato', () {
       // "Al asignar tarea a Miguel Romero me sale error… Bad state: La regla
@@ -109,13 +110,18 @@ void main() {
       expect(porRegla.origen, OrigenAprobador.maestro);
     });
 
-    test('el cargo de la regla se conserva cuando el aprobador sale de ella', () {
-      final propuesto = resolverAprobadorAsignacion(delMaestro: persona(miguel));
-      expect(
-        cargoDelAprobador(propuesto, cargoRegla: 'Director de operaciones'),
-        'Director de operaciones',
-      );
-    });
+    test(
+      'el cargo de la regla se conserva cuando el aprobador sale de ella',
+      () {
+        final propuesto = resolverAprobadorAsignacion(
+          delMaestro: persona(miguel),
+        );
+        expect(
+          cargoDelAprobador(propuesto, cargoRegla: 'Director de operaciones'),
+          'Director de operaciones',
+        );
+      },
+    );
   });
 
   group('el 3.1 que "no aparece" en el maestro', () {
@@ -149,13 +155,19 @@ void main() {
   group('Por revisar: días desde el cargue', () {
     test('el ejemplo de la reunión: cargada el 10/09, vista el 28/09', () {
       expect(
-        diasDesdeCargue(DateTime(2026, 9, 10, 17, 30), DateTime(2026, 9, 28, 8)),
+        diasDesdeCargue(
+          DateTime(2026, 9, 10, 17, 30),
+          DateTime(2026, 9, 28, 8),
+        ),
         18,
       );
     });
 
     test('el mismo día son cero días y una fecha futura no da negativo', () {
-      expect(diasDesdeCargue(DateTime(2026, 9, 28, 7), DateTime(2026, 9, 28, 23)), 0);
+      expect(
+        diasDesdeCargue(DateTime(2026, 9, 28, 7), DateTime(2026, 9, 28, 23)),
+        0,
+      );
       expect(diasDesdeCargue(DateTime(2026, 9, 29), DateTime(2026, 9, 28)), 0);
     });
   });
@@ -210,7 +222,13 @@ void main() {
       final puntos = compararUltimaActaPorEstablecimiento([
         visita('1', kActaRegular, DateTime(2026, 9, 1), centro: 'Acacias'),
         visita('2', kActaRegular, DateTime(2026, 9, 25), centro: 'Tunja'),
-        visita('3', kActaRegular, DateTime(2026, 9, 20), centro: 'Bordo', total: 60),
+        visita(
+          '3',
+          kActaRegular,
+          DateTime(2026, 9, 20),
+          centro: 'Bordo',
+          total: 60,
+        ),
       ]);
       expect(
         ordenarComparativo(

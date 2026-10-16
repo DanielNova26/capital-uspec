@@ -7,10 +7,13 @@ import {fichaPlanPdf} from "./interventoria_planes_pdf";
 import JSZip from "jszip";
 import {empresasSeleccionables} from "./acceso";
 import {appsDeEmpresa} from "./apps_por_empresa";
-import {isInterventoriaDeveloper} from "./interventoria_deletion";
+import {isInterventoriaDeveloper, requireActor} from "./interventoria_deletion";
 import {APP_PLANES, ROLES_GESTORES_PLANES, PLANES_COL, ITEMS_COL, DatosPlan,
   ESTADOS_PLAN, grupoCentroPlan, tareaAprobadaParaPlan, fechasPlan, validarCompromiso, validarRevision, validarPresentacion,
-  etapaAprobada, hoyColombia, diasRestantesPlan, diaValido, exigirTareaAprobada, estadoGestionAutomatico} from "./interventoria_planes_policy";
+  etapaAprobada, hoyColombia, diasRestantesPlan, diaValido, exigirTareaAprobada, estadoGestionAutomatico,
+  tipoPlan, plazosInternosPlan} from "./interventoria_planes_policy";
+import {jefeEnEmpresa} from "./jefe_inmediato_sync";
+import {registrarSubsanacionPorActa} from "./interventoria_subsanacion_acta";
 
 const db = () => admin.firestore();
 const s = (v: unknown) => String(v ?? "").trim();
@@ -110,7 +113,8 @@ async function contextoHallazgo(item: DatosPlan, a: Actor): Promise<DatosPlan> {
   empresa(h, a);
   if (h.visitaId !== item.visitaId || h.tareaId !== item.tareaId) err("Cambió la tarea de la subsanación. Revisa su vinculación al plan.");
   return {observacionInterventoria: s(item.observacionInterventoria || h.observaciones),
-    subsanacionEstado: s(h.estado), limiteSubsanacion: plain(h.fechaLimite) || ""};
+    subsanacionEstado: s(h.estado), limiteSubsanacion: plain(h.fechaLimite) || "",
+    subsanadoPorActa: h.subsanadoPorActa ? plain(h.subsanadoPorActa) : null};
 }
 
 async function destinatariosPlan(a: Actor, p: DatosPlan): Promise<string[]> {
@@ -246,6 +250,7 @@ export async function consultarPlanes(input: DatosPlan, a: Actor): Promise<Datos
       const items = await db().collection(ITEMS_COL).where("planId", "==", d.id).get();
       const own = items.docs.map((i) => i.data()).filter((i) => i.empresaId === a.empresaId);
       return {id: d.id, ...plain(p), estadoGestion: estadoGestionAutomatico(p.estadoGestion || "recibido", own), establecimientos: [...new Set(own.map((i) => s(i.establecimiento)))],
+        fechasActa: [...new Set(own.map((i) => s(plain(i.fechaActa)).slice(0, 10)).filter((f) => f))].sort(),
         grupos: [...new Set(await Promise.all(own.map(grupo)))]};
     }));
     return {planes, cursor: snap.size > 50 ? docs[49].id : null};
@@ -313,14 +318,16 @@ export async function crearPlan(input: DatosPlan, a: Actor) {
     err("Indica el código del plan (hasta 80 caracteres) y el de notificación (hasta 120), sin saltos de línea.");
   }
   const fechas = fechasPlan(input);
+  const tipo = tipoPlan(input);
+  const internos = plazosInternosPlan(fechas);
   const ref = db().collection(PLANES_COL).doc(hash(`${a.empresaId}|${csc}`));
   await db().runTransaction(async (tx) => {
     if ((await tx.get(ref)).exists) err("Ya existe un plan para esa notificación.", "already-exists");
-    tx.create(ref, {empresaId: a.empresaId, numero, csc, ...fechas, creadoPor: a.id,
+    tx.create(ref, {empresaId: a.empresaId, numero, csc, tipo, ...fechas, ...internos, colaboradores: [], creadoPor: a.id,
       creadoPorNombre: a.nombre, responsableK2Id: a.id, responsableK2Nombre: a.nombre, estadoGestion: "recibido", createdAt: admin.firestore.Timestamp.now(), estado: "abierto", cantidad: 0});
-    audit(tx, ref, a, "creado", fechas);
+    audit(tx, ref, a, "creado", {...fechas, tipo});
     notice(tx, a.id, `plan-creado:${ref.id}`, a, `${numero}: plan recibido`,
-      `Respuesta máxima ${fechas.limiteRespuesta}. Soportes máximos ${fechas.limiteSoportes}. Alertas a las 8:00 a. m. de Colombia.`, {planId: ref.id});
+      `${tipo === "descuento_directo" ? "Descuento directo: respuesta y soportes juntos. " : ""}Respuesta máxima ${fechas.limiteRespuesta} (al responsable se le pide para el ${internos.limiteInternoRespuesta}). Soportes máximos ${fechas.limiteSoportes} (para el ${internos.limiteInternoSoportes}). Alertas a las 8:00 a. m. de Colombia.`, {planId: ref.id});
   });
   return {id: ref.id};
 }
@@ -361,7 +368,7 @@ export async function vincularHallazgos(input: DatosPlan, a: Actor) {
     for (const n of nuevos) {
       tx.set(n.ref, n.data);
       notice(tx, n.responsable, `plan-asignado:${n.ref.id}`, a, `${p.numero}: respuesta y soportes`,
-        `Respuesta hasta ${p.limiteRespuesta}. Soportes hasta ${p.limiteSoportes}. Abre Plan de mejora en tu tarea.`, n.data);
+        `${p.tipo === "descuento_directo" ? "Descuento directo: responde y carga los soportes a la vez. " : ""}Respuesta hasta ${p.limiteInternoRespuesta || p.limiteRespuesta}. Soportes hasta ${p.limiteInternoSoportes || p.limiteSoportes}. Abre Plan de mejora en tu tarea.`, n.data);
     }
     tx.update(ref, {cantidad: (p.cantidad || 0) + nuevos.length,
       ...(nuevos.length && p.estadoGestion === "enviado" ? {estadoGestion: "en_gestion"} : {}),
@@ -408,6 +415,81 @@ async function eliminarDelPlan(input: DatosPlan, a: Actor) {
   return {ok: true};
 }
 
+// Campana (reunión 15 oct 2026): Calidad le recuerda al responsable de la
+// tarea y a su jefe directo que el hallazgo sigue pendiente. Un recordatorio
+// por hallazgo cada hora, para que no se vuelva spam.
+async function recordarItem(input: DatosPlan, a: Actor) {
+  calidad(a);
+  const ref = db().collection(ITEMS_COL).doc(id(input.itemId));
+  const item = (await ref.get()).data(); empresa(item, a);
+  const plan = (await db().collection(PLANES_COL).doc(id(item.planId)).get()).data(); empresa(plan, a);
+  if (plan.estado !== "abierto") err("El plan está cerrado.");
+  if (item.respuestaPresentado && item.soportesPresentado) err("Este hallazgo ya está presentado en K2.");
+  const tarea = await tareaItem(item, a);
+  const responsable = s(tarea.data.asignado_uid || tarea.data.assignedTo);
+  if (!responsable) err("La tarea no tiene responsable.");
+  const ultimo = item.ultimoRecordatorio instanceof admin.firestore.Timestamp ? item.ultimoRecordatorio.toMillis() : 0;
+  if (Date.now() - ultimo < 3600000) err("Ya enviaste un recordatorio de este hallazgo hace menos de una hora.");
+  const usuario = (await db().collection("TBL_USUARIOS").doc(responsable).get()).data() || {};
+  const jefes = new Set<string>();
+  const principal = jefeEnEmpresa(usuario, a.empresaId).id;
+  const segundo = s(usuario.segundoJefePorEmpresa?.[a.empresaId]?.id);
+  for (const j of [principal, segundo]) if (j && j !== responsable) jefes.add(j);
+  const destinatarios = [responsable];
+  for (const j of jefes) {
+    const u = (await db().collection("TBL_USUARIOS").doc(id(j)).get()).data();
+    if (u && empresasSeleccionables(u).includes(a.empresaId)) destinatarios.push(j);
+  }
+  const mensaje = s(input.mensaje).slice(0, 500);
+  const pendiente = !item.respuestaPresentado ? `compromiso (hasta ${plan.limiteInternoRespuesta || plan.limiteRespuesta})` :
+    `soportes (hasta ${plan.limiteInternoSoportes || plan.limiteSoportes})`;
+  await db().runTransaction(async (tx) => {
+    const vigente = (await tx.get(ref)).data(); empresa(vigente, a);
+    const p = (await tx.get(db().collection(PLANES_COL).doc(id(vigente.planId)))).data(); empresa(p, a);
+    const t = await tareaItem(vigente, a, tx);
+    if (p.estado !== "abierto" || (vigente.respuestaPresentado && vigente.soportesPresentado)) {
+      err("El plan o el hallazgo ya no admite recordatorios.");
+    }
+    if (s(t.data.asignado_uid || t.data.assignedTo) !== responsable) err("Cambió el responsable. Actualiza el hallazgo.");
+    const ultimoVigente = vigente.ultimoRecordatorio instanceof admin.firestore.Timestamp ? vigente.ultimoRecordatorio.toMillis() : 0;
+    if (Date.now() - ultimoVigente < 3600000) err("Ya enviaste un recordatorio de este hallazgo hace menos de una hora.");
+    for (const uid of destinatarios) {
+      notice(tx, uid, `recordar:${ref.id}:${randomUUID()}`, a, `${plan.numero}: recordatorio de Calidad`,
+        `${item.establecimiento} · ${item.numeral}: falta el ${pendiente}.${mensaje ? ` ${mensaje}` : ""}` +
+        `${uid === responsable ? "" : ` Responsable: ${s(tarea.data.asignado_nombre || tarea.data.assignedToName)}.`}`, item);
+    }
+    tx.update(ref, {ultimoRecordatorio: admin.firestore.Timestamp.now()});
+    audit(tx, ref, a, "recordatorio", {destinatarios, mensaje});
+  });
+  return {ok: true, destinatarios: destinatarios.length};
+}
+
+// Colaboradores (reunión 15 oct 2026): varias personas de Calidad quedan
+// registradas en el plan, sin duplicarlo por zonas.
+async function colaborarPlan(input: DatosPlan, a: Actor) {
+  calidad(a);
+  const ref = db().collection(PLANES_COL).doc(id(input.planId));
+  const quitar = input.quitar === true;
+  await db().runTransaction(async (tx) => {
+    const p = (await tx.get(ref)).data(); empresa(p, a);
+    if (p.estado !== "abierto") err("El plan está cerrado.");
+    const actuales: DatosPlan[] = Array.isArray(p.colaboradores) ? p.colaboradores : [];
+    const ya = actuales.some((c) => c.id === a.id);
+    if (quitar ? !ya : ya) return;
+    if (!quitar && actuales.length >= 20) err("Un plan admite hasta 20 colaboradores.");
+    const nuevos = quitar ? actuales.filter((c) => c.id !== a.id) :
+      [...actuales, {id: a.id, nombre: a.nombre, desde: admin.firestore.Timestamp.now()}];
+    tx.update(ref, {colaboradores: nuevos, updatedAt: admin.firestore.Timestamp.now()});
+    audit(tx, ref, a, quitar ? "colaborador_retirado" : "colaborador_agregado", {});
+    const dueno = s(p.responsableK2Id || p.creadoPor);
+    if (!quitar && dueno && dueno !== a.id) {
+      notice(tx, dueno, `colaborador:${ref.id}:${a.id}`, a, `${p.numero}: nuevo colaborador`,
+        `${a.nombre} se agregó como colaborador del plan.`, {planId: ref.id});
+    }
+  });
+  return {ok: true};
+}
+
 // Every mutation rechecks current task assignment and current app/role access.
 export async function cambiarItem(input: DatosPlan, a: Actor) {
   const ref = db().collection(ITEMS_COL).doc(id(input.itemId));
@@ -424,7 +506,10 @@ export async function cambiarItem(input: DatosPlan, a: Actor) {
     const plan = (await tx.get(pr)).data(); empresa(plan, a);
     if (plan.estado !== "abierto") err("El plan está cerrado.");
     const tarea = await tareaItem(item, a, tx);
-    if (accion !== "reabrir") exigirTareaAprobada(tarea.data);
+    // Calidad responde (compromiso y soportes) aunque la tarea siga sin
+    // aprobar; el responsable solo con la tarea aprobada por su aprobador.
+    const calidadResponde = a.calidad && (accion === "responder" || accion === "soportes");
+    if (accion !== "reabrir" && !calidadResponde) exigirTareaAprobada(tarea.data);
     const siblings = await tx.get(db().collection(ITEMS_COL).where("planId", "==", item.planId));
     const responsable = s(tarea.data.asignado_uid || tarea.data.assignedTo);
     const update: DatosPlan = {updatedAt: admin.firestore.Timestamp.now()};
@@ -531,7 +616,8 @@ async function adjuntar(input: DatosPlan, a: Actor) {
   try {
     await db().runTransaction(async (tx) => {
       const current = (await tx.get(ref)).data(); empresa(current, a);
-      const task = await tareaItem(current, a, tx); exigirTareaAprobada(task.data);
+      const task = await tareaItem(current, a, tx);
+      if (!a.calidad) exigirTareaAprobada(task.data);
       const pr = db().collection(PLANES_COL).doc(id(current.planId));
       const plan = (await tx.get(pr)).data(); empresa(plan, a);
       if (plan.estado !== "abierto") err("El plan está cerrado.");
@@ -698,16 +784,16 @@ async function retirarSoporte(input: DatosPlan, a: Actor) {
 async function editarFechas(input: DatosPlan, a: Actor) {
   calidad(a);
   const ref = db().collection(PLANES_COL).doc(id(input.planId));
-  const fechas = fechasPlan(input);
   if (s(input.motivo).length < 8) err("Explica el cambio de fechas.");
   await db().runTransaction(async (tx) => {
     const p = (await tx.get(ref)).data(); empresa(p, a);
+    const fechas = fechasPlan({...input, tipo: p.tipo});
     const items = await tx.get(db().collection(ITEMS_COL).where("planId", "==", ref.id));
     for (const item of items.docs) {
       const d = item.data(); empresa(d, a);
       if (d.compromiso) validarCompromiso(d, fechas);
     }
-    tx.update(ref, {...fechas, updatedAt: admin.firestore.Timestamp.now()});
+    tx.update(ref, {...fechas, ...plazosInternosPlan(fechas), updatedAt: admin.firestore.Timestamp.now()});
     audit(tx, ref, a, "fechas_corregidas", {anterior: p, fechas, motivo: s(input.motivo).slice(0, 2000)});
   });
   return {ok: true};
@@ -859,6 +945,17 @@ export const interventoriaPlanes = functions.region("us-central1").runWith({time
           }))};
         }
         case "vincular": return await vincularHallazgos(input, a);
+        case "subsanacionPorActa": {
+          if (!a.calidad) {
+            const revisor = await requireActor(input, context);
+            if (!["admin_interventoria", "revisor_interventoria", "gerente_interventoria"].includes(revisor.role)) {
+              err("Solo quienes revisan actas o gestionan planes pueden registrar la subsanación por acta.", "permission-denied");
+            }
+          }
+          return await registrarSubsanacionPorActa(a.empresaId, id(input.visitaId), a);
+        }
+        case "recordar": return await recordarItem(input, a);
+        case "colaborar": return await colaborarPlan(input, a);
         case "responder": case "soportes": case "usarTexto": case "revisar": case "presentar": case "reabrir": return await cambiarItem(input, a);
         case "adjuntar": return await adjuntar({itemId: input.itemId, nombre: input.nombre, base64: input.base64}, a);
         case "fuentes": return await fuentesTarea(input, a);

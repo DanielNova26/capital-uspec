@@ -55,10 +55,35 @@ export function hoyColombia(now = new Date()): string {
   return new Date(now.getTime() - 5 * 3600000).toISOString().slice(0, 10);
 }
 
+/** Dos días antes del vencimiento: margen para presionar al responsable (reunión 15 oct 2026). */
+export const MARGEN_PLAN_DIAS = 2;
+
+/** Plan de mejora (5 días calendario para responder, 20 para soportes) o
+ * descuento directo (respuesta y soportes juntos en 5 días calendario).
+ * @param {DatosPlan} input Datos del plan.
+ * @return {string} Tipo canónico del proceso.
+ */
+export function tipoPlan(input: DatosPlan): "mejora" | "descuento_directo" {
+  return input.tipo === "descuento_directo" ? "descuento_directo" : "mejora";
+}
+
+/** Fechas para el responsable: el margen antes de cada límite, sin pasar de la notificación.
+ * @param {DatosPlan} f Fechas externas validadas.
+ * @return {DatosPlan} Límites internos de respuesta y soportes.
+ */
+export function plazosInternosPlan(f: DatosPlan): DatosPlan {
+  const antes = (limite: string) => {
+    const d = sumarDiasPlan(limite, -MARGEN_PLAN_DIAS);
+    return d < f.fechaNotificacion ? f.fechaNotificacion : d;
+  };
+  return {limiteInternoRespuesta: antes(f.limiteRespuesta), limiteInternoSoportes: antes(f.limiteSoportes)};
+}
+
 export function fechasPlan(input: DatosPlan): DatosPlan {
   const notificacion = diaValido(input.fechaNotificacion);
+  const directo = tipoPlan(input) === "descuento_directo";
   const respuesta = diaValido(input.limiteRespuesta || sumarDiasPlan(notificacion, 5));
-  const soportes = diaValido(input.limiteSoportes || sumarDiasPlan(notificacion, 20));
+  const soportes = diaValido(input.limiteSoportes || sumarDiasPlan(notificacion, directo ? 5 : 20));
   if (respuesta < notificacion || soportes < respuesta) {
     throw Error("Los soportes deben vencer después de la respuesta y la notificación.");
   }

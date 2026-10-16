@@ -166,6 +166,66 @@ test('solo Calidad canónica crea y lista planes; histórico no recupera privile
   assert.equal((await call('calidad', {accion: 'listar'})).planes.length, 1);
 });
 
+test('Calidad responde con tarea pendiente; responsable y revisión siguen exigiendo aprobación', async () => {
+  await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']});
+  await db.doc('TBL_TAREAS/t').update({estado: 'por_aprobar', solicitud_finalizacion_estado: 'pendiente'});
+  const respuesta = {accion: 'responder', itemId: itemId(), version: 0,
+    compromiso: 'Corregiremos el rotulado de los productos.', fechaEjecucion: '2026-10-20', fechaSeguimiento: '2026-10-25'};
+  await assert.rejects(call('responsable', respuesta));
+  await call('calidad', respuesta);
+  await assert.rejects(call('calidad', {accion: 'revisar', itemId: itemId(), etapa: 'respuesta', version: 1, estado: 'satisfactorio'}));
+});
+
+test('recordatorio concurrente se envía una vez y excluye jefes de otra empresa', async () => {
+  await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']});
+  await db.doc('TBL_USUARIOS/responsable').update({jefe_directo_id: 'otro', segundoJefePorEmpresa: {A: {id: 'externo'}}});
+  await db.doc('TBL_USUARIOS/externo').set({activo: true, empresaId: 'B', empresas: ['B']});
+  const input = {accion: 'recordar', itemId: itemId()};
+  await assert.rejects(call('responsable', input), {code: 'permission-denied'});
+  const resultados = await Promise.allSettled([call('calidad', input), call('calidad', input)]);
+  assert.equal(resultados.filter((r) => r.status === 'fulfilled').length, 1);
+  const avisos = await db.collection('TBL_NOTIFICACIONES/otro/notifications').get();
+  assert.equal(avisos.docs.filter((d) => d.data().title.includes('recordatorio')).length, 1);
+  assert.equal((await db.collection('TBL_NOTIFICACIONES/externo/notifications').get()).size, 0);
+});
+
+test('colaboración exige Calidad, es idempotente y permite retirarse', async () => {
+  const input = {accion: 'colaborar', planId};
+  await assert.rejects(call('responsable', input), {code: 'permission-denied'});
+  await call('calidad', input);
+  await call('calidad', input);
+  assert.equal((await db.collection(policy.PLANES_COL).doc(planId).get()).data().colaboradores.length, 1);
+  await call('calidad', {...input, quitar: true});
+  assert.equal((await db.collection(policy.PLANES_COL).doc(planId).get()).data().colaboradores.length, 0);
+});
+
+test('subsanación informativa exige revisor y acta anterior completa; se retira si reaparece', async () => {
+  const base = {empresaId: 'A', centroCostoId: 'c', subcentroId: '', tipoActa: 'regular'};
+  await db.doc('TBL_INTERVENTORIA_VISITAS/v').update({...base, faseActa: 'puntajes'});
+  await db.doc('TBL_INTERVENTORIA_VISITAS/nueva').set({...base, faseActa: 'completa', fechaVisita: '2026-10-01'});
+  await db.doc('TBL_INTERVENTORIA_HALLAZGOS/h').update({fuente: 'acta'});
+  const input = {accion: 'subsanacionPorActa', visitaId: 'nueva'};
+  await assert.rejects(call('responsable', input), {code: 'permission-denied'});
+  assert.equal((await call('calidad', input)).registrados, 0);
+  await db.doc('TBL_INTERVENTORIA_VISITAS/v').update({faseActa: 'completa'});
+  assert.equal((await call('calidad', input)).registrados, 1);
+  assert.equal((await call('calidad', input)).registrados, 0);
+  assert.equal((await db.doc('TBL_TAREAS/t').get()).data().estado, 'finalizado');
+  await db.doc('TBL_INTERVENTORIA_HALLAZGOS/nuevo').set({...base, visitaId: 'nueva', fuente: 'acta', numeralActa: '3.5'});
+  assert.equal((await call('calidad', input)).retirados, 1);
+  assert.equal((await db.doc('TBL_INTERVENTORIA_HALLAZGOS/h').get()).data().subsanadoPorActa, undefined);
+  await db.doc('TBL_INTERVENTORIA_VISITAS/nueva').update({empresaId: 'B'});
+  assert.equal((await call('calidad', input)).registrados, 0);
+});
+
+test('corregir fecha de descuento conserva cinco días aunque el cliente omita tipo', async () => {
+  const creado = await call('calidad', {accion: 'crear', numero: 'DD-1', csc: 'DD-1', tipo: 'descuento_directo', fechaNotificacion: '2026-10-01'});
+  await call('calidad', {accion: 'fechas', planId: creado.id, fechaNotificacion: '2026-10-10', motivo: 'Corregir fecha de notificación'});
+  const plan = (await db.collection(policy.PLANES_COL).doc(creado.id).get()).data();
+  assert.equal(plan.limiteSoportes, '2026-10-15');
+  assert.equal(plan.limiteInternoSoportes, '2026-10-13');
+});
+
 test('Desarrollo opera planes sin rol de Calidad ni app individual, solo en empresas habilitadas', async () => {
   await db.doc('TBL_USUARIOS/dev').set({activo: true, empresas: ['A', 'B'], appsPorEmpresa: true,
     empresasDetalle: {A: {roleKey: 'desarrollador', apps: []}, B: {roleKey: 'consulta', apps: []}}});
@@ -245,7 +305,7 @@ test('vincular es idempotente, conserva numeral e incluye fechas en el aviso', a
   const d = (await call('calidad', {accion: 'detalle', planId}));
   assert.equal(d.plan.cantidad, 1); assert.equal(d.items[0].numeral, '3.5');
   const n = await db.collection('TBL_NOTIFICACIONES/responsable/notifications').get();
-  assert.equal(n.size, 1); assert.match(n.docs[0].data().description, /2026-10-10.*2026-10-25/);
+  assert.equal(n.size, 1); assert.match(n.docs[0].data().description, /2026-10-08.*2026-10-23/);
 });
 test('respuesta, devolución, corrección, aprobación y presentación tienen versiones separadas', async () => {
   await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']});
@@ -445,19 +505,19 @@ test('actas y candidatos se filtran por visita y empresa antes de paginar', asyn
   await assert.rejects(call('responsable', {accion: 'actasCandidatas'}), {code: 'permission-denied'});
 });
 
-test('aprobación de tarea obligatoria incluso con revisión previa satisfactoria', async () => {
+test('responsable requiere tarea aprobada y Calidad no puede presentar tras su devolución', async () => {
   await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']});
   const input = {accion: 'responder', itemId: itemId(), version: 0, compromiso: 'Compromiso que será enviado.', fechaEjecucion: '2026-10-20', fechaSeguimiento: '2026-10-25'};
   for (const estado of ['pendiente', 'rechazado', '']) {
     await db.doc('TBL_TAREAS/t').update({estado: 'finalizado', solicitud_finalizacion_estado: estado});
-    await assert.rejects(call('calidad', input), /tarea debe estar aprobada/);
+    await assert.rejects(call('responsable', input), /tarea debe estar aprobada/);
   }
   await db.doc('TBL_TAREAS/t').update({solicitud_finalizacion_estado: 'aprobado'});
   await call('calidad', input);
   await call('calidad', {accion: 'revisar', itemId: itemId(), etapa: 'respuesta', version: 1, estado: 'satisfactorio'});
   await db.doc('TBL_TAREAS/t').update({estado: 'devuelta', solicitud_finalizacion_estado: 'rechazado'});
   await assert.rejects(call('calidad', {accion: 'presentar', itemId: itemId(), etapa: 'respuesta', version: 1}), /tarea debe estar aprobada/);
-  await assert.rejects(call('calidad', {accion: 'soportes', itemId: itemId(), version: 0, respuestaSoportes: 'Subsanación terminada'}), /tarea debe estar aprobada/);
+  await assert.rejects(call('responsable', {accion: 'soportes', itemId: itemId(), version: 0, respuestaSoportes: 'Subsanación terminada'}), /tarea debe estar aprobada/);
 });
 
 test('conserva respuesta aprobada, respuesta propia y plazos de subsanación', async () => {

@@ -136,44 +136,47 @@ void main() {
       });
     }
   }
-  testWidgets('tarea pendiente bloquea envíos y revisión sin ocultar plazos', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: PlanItemScreen(
-          item: {
-            ...itemReunion,
-            'tareaAprobada': false,
-            'tareaEstado': 'por_aprobar',
-          },
-          plan: planReunion,
-          request: (_) async => {},
-          calidad: true,
-        ),
-      ),
+  for (final calidad in [true, false]) {
+    testWidgets(
+      'tarea pendiente: ${calidad ? 'Calidad responde pero no revisa' : 'el responsable no envía'}',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: PlanItemScreen(
+              item: {
+                ...itemReunion,
+                'tareaAprobada': false,
+                'tareaEstado': 'por_aprobar',
+              },
+              plan: planReunion,
+              request: (_) async => {},
+              calidad: calidad,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.scrollUntilVisible(
+          find.text('Guardar y enviar a revisión'),
+          250,
+          scrollable: find.byType(Scrollable).first,
+        );
+        final enviar = tester.widget<FilledButton>(
+          find.widgetWithText(FilledButton, 'Guardar y enviar a revisión'),
+        );
+        // Calidad responde aunque la tarea siga sin aprobar; el responsable no.
+        expect(enviar.onPressed == null, !calidad);
+        if (!calidad) return;
+        expect(
+          tester
+              .widget<TextButton>(
+                find.widgetWithText(TextButton, 'Satisfactorio'),
+              )
+              .onPressed,
+          isNull,
+        );
+      },
     );
-    await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
-      find.text('Guardar y enviar a revisión'),
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
-    expect(
-      tester
-          .widget<FilledButton>(
-            find.widgetWithText(FilledButton, 'Guardar y enviar a revisión'),
-          )
-          .onPressed,
-      isNull,
-    );
-    expect(
-      tester
-          .widget<TextButton>(find.widgetWithText(TextButton, 'Satisfactorio'))
-          .onPressed,
-      isNull,
-    );
-  });
+  }
   testWidgets(
     'selección por acta conserva hallazgos de varios establecimientos',
     (tester) async {

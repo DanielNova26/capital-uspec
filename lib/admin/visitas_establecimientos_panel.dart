@@ -155,6 +155,8 @@ class _VisitasEstablecimientosPanelState
                     etiqueta: 'establecimientos',
                     itemBuilder: (context, e, _) => _tarjeta(e),
                   ),
+                const SizedBox(height: 20),
+                _centrosDeCosto(q),
               ],
             );
           },
@@ -242,6 +244,93 @@ class _VisitasEstablecimientosPanelState
       textAlign: TextAlign.center,
       style: const TextStyle(fontFamily: _kFont, color: Colors.black54),
     ),
+  );
+
+  late final Stream<List<VisitaCentro>> _centrosStream = _svc.streamCentros(
+    widget.empresaId,
+    incluirInactivos: true,
+  );
+
+  /// Los centros de costo de la empresa, activos y desactivados, solo para
+  /// consultar: son de Centros de costo (Admin) y se activan o desactivan allí.
+  /// Aquí no se editan para no cambiar a la vez los demás módulos.
+  Widget _centrosDeCosto(String q) => StreamBuilder<List<VisitaCentro>>(
+    stream: _centrosStream,
+    builder: (context, snap) {
+      if (snap.hasError) {
+        return _vacio(
+          'No se pudieron leer los centros de costo: ${snap.error}',
+        );
+      }
+      if (!snap.hasData) return const LinearProgressIndicator();
+      final centros = [
+        for (final c in snap.data!)
+          if (!c.propio && (q.isEmpty || c.nombre.toLowerCase().contains(q))) c,
+      ];
+      final inactivos = centros.where((c) => !c.activo).length;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Centros de costo de la empresa (${centros.length}'
+            '${inactivos == 0 ? '' : ' · $inactivos desactivados'})',
+            style: const TextStyle(
+              fontFamily: _kFont,
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Solo consulta. También se visitan, y se activan o desactivan en '
+            'Centros de costo, porque ese estado lo comparten los demás '
+            'módulos.',
+            style: TextStyle(fontFamily: _kFont, color: Colors.black54),
+          ),
+          const SizedBox(height: 8),
+          if (centros.isEmpty)
+            _vacio('No hay centros de costo que coincidan.')
+          else
+            PagedListSection<VisitaCentro>(
+              items: centros,
+              etiqueta: 'centros de costo',
+              itemBuilder: (context, c, _) => Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  leading: Icon(
+                    Icons.store_mall_directory_outlined,
+                    color: c.activo ? _kColor : Colors.black38,
+                  ),
+                  title: Text(
+                    c.nombre,
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  subtitle: Text(
+                    c.subcentros.isEmpty
+                        ? 'Centro de costo'
+                        : 'Centro de costo · ${c.subcentros.length} subcentro(s)',
+                    style: const TextStyle(fontFamily: _kFont, fontSize: 12),
+                  ),
+                  trailing: Text(
+                    c.activo ? 'Activo' : 'Desactivado',
+                    style: TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: c.activo
+                          ? const Color(0xFF15803D)
+                          : const Color(0xFFB91C1C),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      );
+    },
   );
 
   Widget _estado(VisitaEstablecimientoPropio e) => Text(
@@ -336,7 +425,7 @@ class _VisitasEstablecimientosPanelState
   );
 }
 
-/// Nombre y ciudad. Al editar, también si está activo. Devuelve el
+/// Nombre, ciudad y si está activo (también al crearlo, para dejarlo inactivo). Devuelve el
 /// establecimiento listo para guardar (sin id si es nuevo).
 class _EstablecimientoDialog extends StatefulWidget {
   final String empresaId;
@@ -413,19 +502,18 @@ class _EstablecimientoDialogState extends State<_EstablecimientoDialog> {
                 border: OutlineInputBorder(),
               ),
             ),
-            if (!nuevo)
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                value: _activo,
-                activeThumbColor: _kColor,
-                title: const Text('Activo'),
-                subtitle: const Text(
-                  'Inactivo no sale para programar ni en los grupos; sus '
-                  'visitas se conservan.',
-                  style: TextStyle(fontSize: 12),
-                ),
-                onChanged: (v) => setState(() => _activo = v),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _activo,
+              activeThumbColor: _kColor,
+              title: const Text('Activo'),
+              subtitle: const Text(
+                'Inactivo no sale para programar ni en los grupos; sus '
+                'visitas se conservan.',
+                style: TextStyle(fontSize: 12),
               ),
+              onChanged: (v) => setState(() => _activo = v),
+            ),
             if (nuevo)
               const Text(
                 'Después cárgale la ubicación en Visitas › Ubicaciones: sin '

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ESTADOS_PLAN = exports.ROLES_GESTORES_PLANES = exports.ROL_CALIDAD_PLANES = exports.APP_PLANES = exports.ITEMS_COL = exports.PLANES_COL = void 0;
+exports.MARGEN_PLAN_DIAS = exports.ESTADOS_PLAN = exports.ROLES_GESTORES_PLANES = exports.ROL_CALIDAD_PLANES = exports.APP_PLANES = exports.ITEMS_COL = exports.PLANES_COL = void 0;
 exports.grupoCentroPlan = grupoCentroPlan;
 exports.tareaAprobadaParaPlan = tareaAprobadaParaPlan;
 exports.exigirTareaAprobada = exigirTareaAprobada;
@@ -8,6 +8,8 @@ exports.estadoGestionAutomatico = estadoGestionAutomatico;
 exports.diaValido = diaValido;
 exports.sumarDiasPlan = sumarDiasPlan;
 exports.hoyColombia = hoyColombia;
+exports.tipoPlan = tipoPlan;
+exports.plazosInternosPlan = plazosInternosPlan;
 exports.fechasPlan = fechasPlan;
 exports.validarCompromiso = validarCompromiso;
 exports.etapaAprobada = etapaAprobada;
@@ -65,10 +67,32 @@ function sumarDiasPlan(dia, dias) {
 function hoyColombia(now = new Date()) {
     return new Date(now.getTime() - 5 * 3600000).toISOString().slice(0, 10);
 }
+/** Dos días antes del vencimiento: margen para presionar al responsable (reunión 15 oct 2026). */
+exports.MARGEN_PLAN_DIAS = 2;
+/** Plan de mejora (5 días calendario para responder, 20 para soportes) o
+ * descuento directo (respuesta y soportes juntos en 5 días calendario).
+ * @param {DatosPlan} input Datos del plan.
+ * @return {string} Tipo canónico del proceso.
+ */
+function tipoPlan(input) {
+    return input.tipo === "descuento_directo" ? "descuento_directo" : "mejora";
+}
+/** Fechas para el responsable: el margen antes de cada límite, sin pasar de la notificación.
+ * @param {DatosPlan} f Fechas externas validadas.
+ * @return {DatosPlan} Límites internos de respuesta y soportes.
+ */
+function plazosInternosPlan(f) {
+    const antes = (limite) => {
+        const d = sumarDiasPlan(limite, -exports.MARGEN_PLAN_DIAS);
+        return d < f.fechaNotificacion ? f.fechaNotificacion : d;
+    };
+    return { limiteInternoRespuesta: antes(f.limiteRespuesta), limiteInternoSoportes: antes(f.limiteSoportes) };
+}
 function fechasPlan(input) {
     const notificacion = diaValido(input.fechaNotificacion);
+    const directo = tipoPlan(input) === "descuento_directo";
     const respuesta = diaValido(input.limiteRespuesta || sumarDiasPlan(notificacion, 5));
-    const soportes = diaValido(input.limiteSoportes || sumarDiasPlan(notificacion, 20));
+    const soportes = diaValido(input.limiteSoportes || sumarDiasPlan(notificacion, directo ? 5 : 20));
     if (respuesta < notificacion || soportes < respuesta) {
         throw Error("Los soportes deben vencer después de la respuesta y la notificación.");
     }

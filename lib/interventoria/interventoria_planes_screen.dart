@@ -86,6 +86,10 @@ class _InterventoriaPlanesPanelState extends State<InterventoriaPlanesPanel> {
       _establecimiento = '';
   String _grupoPlan = '';
   DateTimeRange? _fechasPlan;
+
+  /// Fecha del hallazgo (la del acta): para sustentar en las mesas de
+  /// descuento cuándo se abrió y cuándo se subsanó (reunión del 15 oct 2026).
+  DateTimeRange? _fechasHallazgo;
   bool _loading = true;
   bool _wideLayout = false;
   @override
@@ -104,6 +108,7 @@ class _InterventoriaPlanesPanelState extends State<InterventoriaPlanesPanel> {
       _selected = null;
       _gestor = _establecimiento = _grupoPlan = '';
       _fechasPlan = null;
+      _fechasHallazgo = null;
       _load();
     }
   }
@@ -138,11 +143,46 @@ class _InterventoriaPlanesPanelState extends State<InterventoriaPlanesPanel> {
     }
   }
 
+  /// Plan de mejora o descuento directo (reunión del 15 oct 2026): cambian los
+  /// plazos, y una misma acta y los mismos numerales pueden ir en ambos.
+  Future<String?> _elegirTipo() => showDialog<String>(
+    context: context,
+    builder: (ctx) => SimpleDialog(
+      title: const Text('¿Qué tipo de proceso es?'),
+      children: [
+        SimpleDialogOption(
+          onPressed: () => Navigator.pop(ctx, 'mejora'),
+          child: const ListTile(
+            title: Text('Plan de mejora'),
+            subtitle: Text(
+              '5 días para responder y hasta 20 días calendario para cargar '
+              'los soportes.',
+            ),
+          ),
+        ),
+        SimpleDialogOption(
+          onPressed: () => Navigator.pop(ctx, 'descuento_directo'),
+          child: const ListTile(
+            title: Text('Descuento directo'),
+            subtitle: Text(
+              'Responder y cargar los soportes a la vez, en 5 días '
+              'calendario.',
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+
   Future<void> _crear() async {
+    final tipo = await _elegirTipo();
+    if (tipo == null || !mounted) return;
+    final directo = tipo == 'descuento_directo';
     final hoy = planHoy();
     final fields = await _form(
       context,
-      'Nuevo plan de mejora',
+      directo ? 'Nuevo descuento directo' : 'Nuevo plan de mejora',
+      diasSoportes: directo ? 5 : 20,
       {
         'numero': ('Código o número del plan', ''),
         'csc': ('Código o referencia de notificación', ''),
@@ -156,15 +196,16 @@ class _InterventoriaPlanesPanelState extends State<InterventoriaPlanesPanel> {
         ),
         'limiteSoportes': (
           'Fecha máxima soportes · AAAA-MM-DD',
-          planDia(hoy.add(const Duration(days: 20))),
+          planDia(hoy.add(Duration(days: directo ? 5 : 20))),
         ),
       },
-      description:
-          'Fechas comunes para todos los hallazgos. Se proponen 5 y 20 días calendario desde la notificación; confirma las fechas máximas antes de guardar.',
+      description: directo
+          ? 'Descuento directo: respuesta y soportes se cargan a la vez; se proponen 5 días calendario desde la notificación. Al responsable se le pide 2 días antes.'
+          : 'Fechas comunes para todos los hallazgos. Se proponen 5 y 20 días calendario desde la notificación; al responsable se le pide 2 días antes. Confirma las fechas máximas antes de guardar.',
     );
     if (fields == null) return;
     try {
-      final d = await _request({'accion': 'crear', ...fields});
+      final d = await _request({'accion': 'crear', 'tipo': tipo, ...fields});
       await _load();
       if (mounted) _open(planText(d, 'id'));
     } catch (e) {
@@ -224,6 +265,15 @@ class _InterventoriaPlanesPanelState extends State<InterventoriaPlanesPanel> {
                                   'fechaNotificacion',
                                 ).compareTo(planDia(_fechasPlan!.end)) <=
                                 0)) &&
+                    (_fechasHallazgo == null ||
+                        (p['fechasActa'] as List? ?? []).any((f) {
+                          final dia = f.toString();
+                          return dia.compareTo(
+                                    planDia(_fechasHallazgo!.start),
+                                  ) >=
+                                  0 &&
+                              dia.compareTo(planDia(_fechasHallazgo!.end)) <= 0;
+                        })) &&
                     (_gestor.isEmpty ||
                         (p['responsableK2Nombre'] ?? p['creadoPorNombre']) ==
                             _gestor) &&
@@ -421,8 +471,28 @@ class _InterventoriaPlanesPanelState extends State<InterventoriaPlanesPanel> {
                           }
                         },
                       ),
+                      TextButton.icon(
+                        icon: const Icon(Icons.event_note_outlined),
+                        label: Text(
+                          _fechasHallazgo == null
+                              ? 'Fecha del hallazgo (acta)'
+                              : '${planDia(_fechasHallazgo!.start)} — ${planDia(_fechasHallazgo!.end)}',
+                        ),
+                        onPressed: () async {
+                          final range = await showDateRangePicker(
+                            context: context,
+                            firstDate: DateTime(2000),
+                            lastDate: DateTime(2100),
+                            initialDateRange: _fechasHallazgo,
+                          );
+                          if (range != null && mounted) {
+                            setState(() => _fechasHallazgo = range);
+                          }
+                        },
+                      ),
                       TextButton(
                         onPressed: () => setState(() {
+                          _fechasHallazgo = null;
                           _fechasPlan = null;
                           _grupoPlan = _establecimiento = _gestor = '';
                         }),
@@ -470,8 +540,19 @@ class _InterventoriaPlanesPanelState extends State<InterventoriaPlanesPanel> {
                         PlanEstadoChip(
                           planEstadosGestion[p['estadoGestion']] ?? 'Recibido',
                         ),
+                        if (p['tipo'] == 'descuento_directo')
+                          const Padding(
+                            padding: EdgeInsets.only(top: 4),
+                            child: Text(
+                              'Descuento directo',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xffa13d3d),
+                              ),
+                            ),
+                          ),
                         Text(
-                          '${p['responsableK2Nombre'] ?? p['creadoPorNombre'] ?? ''}\n${(p['establecimientos'] as List? ?? []).join(', ')}\n${p['csc']}\nRespuesta: ${p['limiteRespuesta']}\nSoportes: ${p['limiteSoportes']}\n${p['cantidad'] ?? 0} hallazgos',
+                          '${p['responsableK2Nombre'] ?? p['creadoPorNombre'] ?? ''}\n${(p['establecimientos'] as List? ?? []).join(', ')}\n${p['csc']}\nNotificación: ${p['fechaNotificacion']}\nRespuesta: ${p['limiteRespuesta']}${p['limiteInternoRespuesta'] == null ? '' : ' (responsable: ${p['limiteInternoRespuesta']})'}\nSoportes: ${p['limiteSoportes']}${p['limiteInternoSoportes'] == null ? '' : ' (responsable: ${p['limiteInternoSoportes']})'}\n${p['cantidad'] ?? 0} hallazgos',
                         ),
                       ],
                     ),
@@ -677,6 +758,24 @@ class _PlanDetalleState extends State<PlanDetalle> {
     }
   }
 
+  /// Varias personas de Calidad pueden quedar registradas en el mismo plan
+  /// (por zonas), en vez de crear uno por persona.
+  Future<void> _colaborar(bool quitar) async {
+    setState(() => _busy = true);
+    try {
+      await widget.request({
+        'accion': 'colaborar',
+        'planId': widget.planId,
+        'quitar': quitar,
+      });
+      await _refreshPlan();
+    } catch (e) {
+      if (mounted) _showError(context, e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _seguimientoPlan() async {
     setState(() => _busy = true);
     try {
@@ -849,7 +948,8 @@ class _PlanDetalleState extends State<PlanDetalle> {
       padding: const EdgeInsets.all(16),
       children: [
         PlanCabecera(
-          title: '${_plan['numero']} · Plan de mejora',
+          title:
+              '${_plan['numero']} · ${_plan['tipo'] == 'descuento_directo' ? 'Descuento directo' : 'Plan de mejora'}',
           subtitle:
               '${_plan['csc']} · Notificación ${_plan['fechaNotificacion']}',
         ),
@@ -896,11 +996,43 @@ class _PlanDetalleState extends State<PlanDetalle> {
                         ? c.maxWidth
                         : (c.maxWidth - 16) / 2,
                     child: Text(
-                      '${entry.value}: ${_plan[entry.key]}\n${planVencimiento(planText(_plan, entry.key))}',
+                      '${entry.value}: ${_plan[entry.key]}\n${planVencimiento(planText(_plan, entry.key))}'
+                      '${_plan[entry.key == 'limiteRespuesta' ? 'limiteInternoRespuesta' : 'limiteInternoSoportes'] == null ? '' : '\nAl responsable se le pide para el ${_plan[entry.key == 'limiteRespuesta' ? 'limiteInternoRespuesta' : 'limiteInternoSoportes']}'}',
                     ),
                   ),
               ],
             ),
+          ),
+        ),
+        PlanBloque(
+          title: 'Colaboradores de Calidad',
+          icon: Icons.group_add_outlined,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                planList(_plan['colaboradores']).isEmpty
+                    ? 'Nadie se ha agregado como colaborador.'
+                    : planList(
+                        _plan['colaboradores'],
+                      ).map((c) => planText(c, 'nombre')).join(', '),
+              ),
+              Wrap(
+                spacing: 8,
+                children: [
+                  TextButton.icon(
+                    onPressed: _busy ? null : () => _colaborar(false),
+                    icon: const Icon(Icons.person_add_alt_1_outlined),
+                    label: const Text('Agregarme como colaborador'),
+                  ),
+                  TextButton.icon(
+                    onPressed: _busy ? null : () => _colaborar(true),
+                    icon: const Icon(Icons.person_remove_outlined),
+                    label: const Text('Retirarme'),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
         Wrap(
@@ -1258,6 +1390,11 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
     ),
   );
   bool _busy = false;
+
+  /// Calidad responde por el hallazgo aunque la tarea siga sin aprobar; el
+  /// responsable solo cuando su aprobador ya la aprobó (misma regla que el
+  /// servidor, `cambiarItem`).
+  bool get _puedeGestionar => widget.calidad || _item['tareaAprobada'] == true;
   String _etapa = 'respuesta';
   @override
   void didUpdateWidget(covariant PlanItemScreen oldWidget) {
@@ -1307,6 +1444,35 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
   Future<void> _mutate(PlanData input) => _run(() async {
     await widget.request({...input, 'itemId': _item['id']});
   });
+
+  /// Campana: recordatorio al responsable de la tarea y a su jefe directo.
+  Future<void> _recordar() async {
+    final data = await _form(
+      context,
+      'Avisar al responsable y a su jefe',
+      {'mensaje': ('Mensaje (opcional)', '')},
+      description:
+          'Les llega una notificación con lo que falta de este hallazgo. Se puede enviar un aviso por hora.',
+    );
+    if (data == null || !mounted) return;
+    await _run(() async {
+      final r = await widget.request({
+        'accion': 'recordar',
+        'itemId': _item['id'],
+        'mensaje': data['mensaje'],
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Aviso enviado a ${r['destinatarios'] ?? 1} persona(s).',
+            ),
+          ),
+        );
+      }
+    });
+  }
+
   Future<void> _revision(String etapa, bool satisface) async {
     String motivo = '';
     if (!satisface) {
@@ -1517,6 +1683,15 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
               label: const Text('Actualizar estado de la tarea'),
             ),
           ),
+          if (widget.calidad)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _busy ? null : _recordar,
+                icon: const Icon(Icons.notifications_active_outlined),
+                label: const Text('Avisar al responsable y a su jefe'),
+              ),
+            ),
           const SizedBox(height: 12),
           Wrap(
             spacing: 10,
@@ -1580,12 +1755,27 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                       ),
                       Text(planVencimiento(planText(_plan, 'limiteRespuesta'))),
                       _estadoEtapa('respuesta'),
+                      if (_item['tareaAprobada'] != true && !widget.calidad)
+                        Container(
+                          margin: const EdgeInsets.symmetric(vertical: 8),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xfffff4e5),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Text(
+                            'La tarea de este hallazgo aún no está aprobada. '
+                            'Puedes ir redactando el compromiso y las fechas, '
+                            'pero no se guarda ni se envía a revisión hasta '
+                            'que su aprobador la apruebe en Tareas o '
+                            'Subsanaciones; luego toca «Actualizar estado de '
+                            'la tarea».',
+                            style: TextStyle(color: Color(0xff8a4b00)),
+                          ),
+                        ),
                       TextField(
                         controller: _compromiso,
-                        enabled:
-                            !_busy &&
-                            _item['tareaAprobada'] == true &&
-                            _item['respuestaPresentado'] == null,
+                        enabled: !_busy && _item['respuestaPresentado'] == null,
                         minLines: 3,
                         maxLines: 12,
                         maxLength: 12000,
@@ -1627,7 +1817,7 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                           FilledButton(
                             onPressed:
                                 _busy ||
-                                    _item['tareaAprobada'] != true ||
+                                    !_puedeGestionar ||
                                     _item['respuestaPresentado'] != null
                                 ? null
                                 : () => _mutate({
@@ -1684,7 +1874,7 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                         controller: _soportes,
                         enabled:
                             !_busy &&
-                            _item['tareaAprobada'] == true &&
+                            _puedeGestionar &&
                             _item['soportesPresentado'] == null,
                         minLines: 3,
                         maxLines: 12,
@@ -1713,7 +1903,7 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                           OutlinedButton.icon(
                             onPressed:
                                 _busy ||
-                                    _item['tareaAprobada'] != true ||
+                                    !_puedeGestionar ||
                                     _item['soportesPresentado'] != null
                                 ? null
                                 : _archivo,
@@ -1723,7 +1913,7 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                           OutlinedButton.icon(
                             onPressed:
                                 _busy ||
-                                    _item['tareaAprobada'] != true ||
+                                    !_puedeGestionar ||
                                     _item['soportesPresentado'] != null
                                 ? null
                                 : () => _archivo(camera: true),
@@ -1794,7 +1984,7 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                           FilledButton(
                             onPressed:
                                 _busy ||
-                                    _item['tareaAprobada'] != true ||
+                                    !_puedeGestionar ||
                                     _item['soportesPresentado'] != null
                                 ? null
                                 : () => _mutate({
@@ -1904,6 +2094,10 @@ Future<Map<String, String>?> _form(
   String title,
   Map<String, (String, String)> fields, {
   String? description,
+
+  /// Días de plazo para soportes al cambiar la notificación: 20 en un plan de
+  /// mejora, 5 en un descuento directo.
+  int diasSoportes = 20,
 }) async {
   final controllers = fields.map(
     (key, value) => MapEntry(key, TextEditingController(text: value.$2)),
@@ -1940,7 +2134,7 @@ Future<Map<String, String>?> _form(
                                 d.add(const Duration(days: 5)),
                               );
                               controllers['limiteSoportes']?.text = planDia(
-                                d.add(const Duration(days: 20)),
+                                d.add(Duration(days: diasSoportes)),
                               );
                             }
                           },
@@ -1956,7 +2150,7 @@ Future<Map<String, String>?> _form(
                                   controllers['limiteRespuesta']?.text =
                                       planDia(d.add(const Duration(days: 5)));
                                   controllers['limiteSoportes']?.text = planDia(
-                                    d.add(const Duration(days: 20)),
+                                    d.add(Duration(days: diasSoportes)),
                                   );
                                 }
                               : null,

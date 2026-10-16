@@ -54,6 +54,10 @@ class VisitaCentro {
   /// Establecimiento propio de Visitas (no es centro de costo).
   final bool propio;
   final String ciudad;
+
+  /// Desactivado (centro de costo o propio): solo lo ve quien pide los
+  /// inactivos, p. ej. la pestaña Ubicaciones. No sale para programar.
+  final bool activo;
   const VisitaCentro({
     required this.id,
     required this.nombre,
@@ -61,6 +65,7 @@ class VisitaCentro {
     this.docId = '',
     this.propio = false,
     this.ciudad = '',
+    this.activo = true,
   });
 
   factory VisitaCentro.propio(VisitaEstablecimientoPropio e) => VisitaCentro(
@@ -69,6 +74,7 @@ class VisitaCentro {
     docId: e.id,
     propio: true,
     ciudad: e.ciudad,
+    activo: e.activo,
   );
 
   List<SubcentroCosto> get subcentrosActivos =>
@@ -80,13 +86,15 @@ class VisitaCentro {
 /// manda el centro de costo.
 List<VisitaCentro> unirEstablecimientos(
   List<VisitaCentro> centros,
-  Iterable<VisitaEstablecimientoPropio> propios,
-) {
+  Iterable<VisitaEstablecimientoPropio> propios, {
+  bool incluirInactivos = false,
+}) {
   final ids = {for (final c in centros) c.id};
   final out = [
     ...centros,
     for (final e in propios)
-      if (e.activo && !ids.contains(e.id)) VisitaCentro.propio(e),
+      if ((incluirInactivos || e.activo) && !ids.contains(e.id))
+        VisitaCentro.propio(e),
   ];
   out.sort((a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()));
   return out;
@@ -399,15 +407,21 @@ class VisitasService {
       .collection('TBL_CENTROS_COSTOS')
       .where('empresaId', isEqualTo: empresaId);
 
-  static List<VisitaCentro> _centrosDe(QuerySnapshot<Map<String, dynamic>> s) {
+  static List<VisitaCentro> _centrosDe(
+    QuerySnapshot<Map<String, dynamic>> s, {
+    bool incluirInactivos = false,
+  }) {
     final list = s.docs
-        .where((d) => (d.data()['enabled'] as bool?) ?? true)
+        .where(
+          (d) => incluirInactivos || ((d.data()['enabled'] as bool?) ?? true),
+        )
         .map(
           (d) => VisitaCentro(
             id: (d.data()['centroId'] ?? d.id).toString(),
             nombre: (d.data()['nombre'] ?? d.id).toString(),
             subcentros: subcentrosDesdeData(d.data()['subcentros']),
             docId: d.id,
+            activo: (d.data()['enabled'] as bool?) ?? true,
           ),
         )
         .toList();
@@ -420,7 +434,10 @@ class VisitasService {
   /// Centros de costo y establecimientos propios de Visitas, al día. Si los
   /// propios no se pueden leer, siguen los centros (Visitas no se cae por
   /// el maestro nuevo).
-  Stream<List<VisitaCentro>> streamCentros(String empresaId) {
+  Stream<List<VisitaCentro>> streamCentros(
+    String empresaId, {
+    bool incluirInactivos = false,
+  }) {
     StreamSubscription<List<VisitaCentro>>? subCentros;
     StreamSubscription<List<VisitaEstablecimientoPropio>>? subPropios;
     List<VisitaCentro>? centros;
@@ -428,14 +445,20 @@ class VisitasService {
     late final StreamController<List<VisitaCentro>> ctrl;
     void emitir() {
       if (centros == null || propios == null || ctrl.isClosed) return;
-      ctrl.add(unirEstablecimientos(centros!, propios!));
+      ctrl.add(
+        unirEstablecimientos(
+          centros!,
+          propios!,
+          incluirInactivos: incluirInactivos,
+        ),
+      );
     }
 
     ctrl = StreamController<List<VisitaCentro>>(
       onListen: () {
         subCentros = _centrosQuery(empresaId)
             .snapshots()
-            .map(_centrosDe)
+            .map((s) => _centrosDe(s, incluirInactivos: incluirInactivos))
             .listen((c) {
               centros = c;
               emitir();

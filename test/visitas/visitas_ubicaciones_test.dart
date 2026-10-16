@@ -15,14 +15,16 @@ class _SvcFalso implements VisitasService {
   Object? errorBusqueda;
 
   @override
-  Stream<List<VisitaCentro>> streamCentros(String empresaId) =>
-      Stream.value(const [
-        VisitaCentro(
-          id: 'buen_pastor',
-          nombre: 'Buen Pastor',
-          subcentros: [SubcentroCosto(id: 'patio_1', nombre: 'Patio 1')],
-        ),
-      ]);
+  Stream<List<VisitaCentro>> streamCentros(
+    String empresaId, {
+    bool incluirInactivos = false,
+  }) => Stream.value(const [
+    VisitaCentro(
+      id: 'buen_pastor',
+      nombre: 'Buen Pastor',
+      subcentros: [SubcentroCosto(id: 'patio_1', nombre: 'Patio 1')],
+    ),
+  ]);
 
   @override
   Stream<List<VisitaUbicacion>> streamUbicaciones(String empresaId) =>
