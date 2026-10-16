@@ -11405,3 +11405,11 @@ Acta: «La reunión se inició a las 2026_10_15 18_27». Código: `functions/src
   versión Web 2.6.30+44. Pendiente probar físicamente la placa y su conexión
   WiFi/TLS; huella, identidad y futura integración por empresa quedan fuera
   de este piloto según lo solicitado por el usuario.
+- **API publicada y probada por HTTPS**: entrada y salida HTTP 201 y registros
+  comprobados en Firestore; reintento con el mismo eventoId HTTP 200 sin otro
+  registro, sin token HTTP 401 y dispositivo ajeno HTTP 403. Se crearon solo
+  dos eventos de prueba de verificación. Reglas activas equivalentes a la
+  fuente: `3f95669d-8777-40a9-ad31-76e7bd8b35ee`.
+  Credencial del equipo entregada en el archivo local
+  `C:/Users/LENOVO/Downloads/ToDo-ESP32-API-pruebas.h`, fuera del repositorio.
+  Código subido a `main` en `0fb6fa7`.
