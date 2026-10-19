@@ -54,6 +54,8 @@ class AvisoMonitor {
     required this.hallazgoId,
     required this.cargoResponsable,
     required this.numeral,
+    this.automatica = false,
+    this.asignadaPor = '',
     required this.taskNumero,
     required this.creada,
     required this.leida,
@@ -76,6 +78,8 @@ class AvisoMonitor {
   final String hallazgoId;
   final String cargoResponsable;
   final String numeral;
+  final bool automatica;
+  final String asignadaPor;
   final int? taskNumero;
   final DateTime creada;
   final bool leida;
@@ -100,6 +104,8 @@ class AvisoMonitor {
       hallazgoId: t('hallazgoId'),
       cargoResponsable: t('cargoResponsable'),
       numeral: t('numeral'),
+      automatica: m['automatica'] == true,
+      asignadaPor: t('asignadaPor'),
       taskNumero: m['taskNumero'] is num ? (m['taskNumero'] as num).toInt() : null,
       creada: DateTime.fromMillisecondsSinceEpoch(
         m['creadaMs'] is num ? (m['creadaMs'] as num).toInt() : 0,
@@ -448,7 +454,15 @@ String explicarAlerta(AvisoMonitor aviso, DatosMonitor datos) {
         'tomó a $nombre, que $sedesDe. Solución: cargar quién cubre $sede '
         'en Talento Humano, o asignarla a mano.';
   }
-  return '$regla En $sede sí cubre ${enSede.map((u) => u.nombre).join(', ')}, '
-      'pero la tarea quedó con $nombre, que $sedesDe: la asignaron a mano o '
-      'con una regla anterior. Se corrige reasignándola.';
+  final titulares = enSede.map((u) => u.nombre).join(', ');
+  final origen = aviso.automatica
+      ? 'La asignó Interventoría automáticamente: lo más probable es que '
+            'cuando se asignó ${enSede.length == 1 ? 'ese titular' : 'esos titulares'} '
+            'aún no figuraba como titular de $sede (cobertura cargada después, o '
+            'marcado como "no recibe tareas"), y la regla tomó a otra persona.'
+      : aviso.asignadaPor.isNotEmpty
+      ? 'La asignó a mano ${aviso.asignadaPor}.'
+      : 'La asignaron a mano o con una regla anterior.';
+  return '$regla En $sede sí cubre $titulares, pero la tarea quedó con '
+      '$nombre, que $sedesDe. $origen Se corrige reasignándola.';
 }

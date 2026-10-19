@@ -11657,3 +11657,6 @@ Acta: «La reunión se inició a las 2026_10_15 18_27». Código: `functions/src
 - Buscador destacado (persona, cédula, sede o aviso) que filtra todas las vistas; si deja a una persona muestra su ficha con las sedes que cubre frente a las que recibió.
 - Cada alerta explica "¿Por qué le llegó?" reconstruyendo la regla (cargo del numeral, quién lo tiene en la empresa y quién cubre la sede) y permite **Reasignar a quien cubre la sede** (solo candidatos que cubren y reciben tareas) o **Quitar asignación**. Ambas retiran los avisos de quien perdía la tarea; solo actúan sobre tareas en estado pendiente. Servicio: `reasignarDesdeMonitor` / `quitarAsignacionDesdeMonitor` en `InterventoriaService`.
 - Función `adminMonitorNotificaciones` redeplegada (devuelve hallazgo, cargo y numeral). Web publicada. Sin probar con datos reales ni en Android/iOS.
+
+## Monitor 2.7.5+50: la explicación dice quién asignó (19 oct 2026)
+- Caso Gineth Mateus (Tareas 857 y 862, La Mesa y Chiquinquirá): había titular en la sede (Jarod Nieto) y la tarea quedó con ella. La alerta ahora distingue asignación automática (lo probable: la cobertura o la marca "recibe tareas" del titular se cargó después) de asignación a mano (muestra quién). Sin confirmar con datos de producción; para certeza revisar `asignacionAutomatica` y `ejecutadoPorNombre` de esas tareas.

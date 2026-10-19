@@ -33,6 +33,9 @@ export interface FilaMonitor {
   /** Cargo de la regla que respondía por el numeral al asignar. */
   cargoResponsable: string;
   numeral: string;
+  /** true: la asignó el módulo con la regla; false: una persona la eligió. */
+  automatica: boolean;
+  asignadaPor: string;
   taskNumero: number | null;
   creadaMs: number;
   leida: boolean;
@@ -88,6 +91,8 @@ export function filaMonitor(
     ),
     cargoResponsable: texto(tarea?.cargoResponsable, 120),
     numeral: texto(tarea?.numeralActa, 40),
+    automatica: tarea?.asignacionAutomatica === true,
+    asignadaPor: texto(tarea?.ejecutadoPorNombre, 120),
     taskNumero: Number.isFinite(numero) && numero > 0 ? numero : null,
     creadaMs: milis(d.createdAt),
     leida: d.read === true,

@@ -74,6 +74,8 @@ function filaMonitor(userId, id, d, tarea, centros) {
         hallazgoId: texto(tarea?.hallazgoId || tarea?.sourceEntityId || d.hallazgoId, 200),
         cargoResponsable: texto(tarea?.cargoResponsable, 120),
         numeral: texto(tarea?.numeralActa, 40),
+        automatica: tarea?.asignacionAutomatica === true,
+        asignadaPor: texto(tarea?.ejecutadoPorNombre, 120),
         taskNumero: Number.isFinite(numero) && numero > 0 ? numero : null,
         creadaMs: milis(d.createdAt),
         leida: d.read === true,
