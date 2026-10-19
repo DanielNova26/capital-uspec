@@ -38,6 +38,8 @@ AvisoMonitor _aviso({
 });
 
 void main() {
+  candidatos();
+  explicacion();
   test('marca el aviso que llegó a quien no cubre la sede', () {
     final moniquira = _persona('1', cubre: {'moniquira'});
     expect(llegoFueraDeSede(_aviso(userId: '1'), moniquira), isTrue);
@@ -100,5 +102,80 @@ void main() {
     final a = analizarMonitor([_aviso(userId: '1', sedeId: '')], const {});
     expect(a.sedes.single.sedeId, kSinSedeMonitor);
     expect(a.sedes.single.nombre, 'Sin establecimiento');
+  });
+}
+
+void candidatos() {
+  test('los candidatos cubren la sede, reciben tareas y no son quien la tiene', () {
+    final datos = DatosMonitor(
+      avisos: const [],
+      usuarios: {
+        '1': _persona('1', cubre: {'moniquira'}),
+        '2': _persona('2', cubre: {'guateque'}),
+        '3': _persona('3', cubre: {'guateque'}),
+        '4': _persona('4', cubre: {'guateque'}),
+      },
+      // El 3 está marcado como no operativo: no recibe tareas.
+      asignablesIds: {'1', '2', '4'},
+      truncado: false,
+      dias: 7,
+    );
+    final aviso = _aviso(userId: '4');
+    final ids = candidatosParaSede(aviso, datos).map((p) => p.id).toList();
+    expect(ids, ['2']);
+  });
+}
+
+void explicacion() {
+  AvisoMonitor aviso(String user) => AvisoMonitor.fromMap({
+    'id': 'x',
+    'userId': user,
+    'tipo': 'task_assigned',
+    'modulo': 'interventoria',
+    'sedeId': 'lamesa',
+    'sedeNombre': 'La Mesa',
+    'cargoResponsable': 'Coordinador de calidad',
+    'numeral': '2.14',
+    'creadaMs': 1000,
+  });
+  InterventoriaUsuario calidad(String id, Set<String> cubre) =>
+      InterventoriaUsuario(
+        id: id,
+        nombre: 'Persona $id',
+        cargo: 'Coordinador De Calidad',
+        centroId: '',
+        areaId: '',
+        centrosAsignadosIds: cubre,
+      );
+
+  test('explica que nadie con el cargo cubre la sede', () {
+    final datos = DatosMonitor(
+      avisos: const [],
+      usuarios: {'1': calidad('1', {'picota'})},
+      asignablesIds: {'1'},
+      centros: const {'picota': 'Picota'},
+      truncado: false,
+      dias: 7,
+    );
+    final texto = explicarAlerta(aviso('1'), datos);
+    expect(texto, contains('Nadie con ese cargo cubre La Mesa'));
+    expect(texto, contains('cubre Picota'));
+  });
+
+  test('explica cuando sí había titular en la sede', () {
+    final datos = DatosMonitor(
+      avisos: const [],
+      usuarios: {
+        '1': calidad('1', {'picota'}),
+        '2': calidad('2', {'lamesa'}),
+      },
+      asignablesIds: {'1', '2'},
+      truncado: false,
+      dias: 7,
+    );
+    expect(
+      explicarAlerta(aviso('1'), datos),
+      contains('En La Mesa sí cubre Persona 2'),
+    );
   });
 }

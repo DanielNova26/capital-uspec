@@ -28,6 +28,11 @@ export interface FilaMonitor {
   tipo: string;
   modulo: string;
   taskId: string;
+  /** Hallazgo de Interventoría de la tarea, para corregir la asignación. */
+  hallazgoId: string;
+  /** Cargo de la regla que respondía por el numeral al asignar. */
+  cargoResponsable: string;
+  numeral: string;
   taskNumero: number | null;
   creadaMs: number;
   leida: boolean;
@@ -78,6 +83,11 @@ export function filaMonitor(
     modulo: texto(d.module || tarea?.sourceModule || tarea?.origen, 60)
       .toLowerCase(),
     taskId: texto(d.taskId, 200),
+    hallazgoId: texto(
+      tarea?.hallazgoId || tarea?.sourceEntityId || d.hallazgoId, 200
+    ),
+    cargoResponsable: texto(tarea?.cargoResponsable, 120),
+    numeral: texto(tarea?.numeralActa, 40),
     taskNumero: Number.isFinite(numero) && numero > 0 ? numero : null,
     creadaMs: milis(d.createdAt),
     leida: d.read === true,

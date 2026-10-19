@@ -71,6 +71,9 @@ function filaMonitor(userId, id, d, tarea, centros) {
         modulo: texto(d.module || tarea?.sourceModule || tarea?.origen, 60)
             .toLowerCase(),
         taskId: texto(d.taskId, 200),
+        hallazgoId: texto(tarea?.hallazgoId || tarea?.sourceEntityId || d.hallazgoId, 200),
+        cargoResponsable: texto(tarea?.cargoResponsable, 120),
+        numeral: texto(tarea?.numeralActa, 40),
         taskNumero: Number.isFinite(numero) && numero > 0 ? numero : null,
         creadaMs: milis(d.createdAt),
         leida: d.read === true,

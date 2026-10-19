@@ -6,6 +6,20 @@ import 'package:todo/interventoria/interventoria_service.dart';
 
 class _Falso implements NotificationMonitorService {
   @override
+  Future<void> reasignar({
+    required String empresaId,
+    required AvisoMonitor aviso,
+    required InterventoriaPersona persona,
+    required String creadorId,
+  }) async {}
+
+  @override
+  Future<void> quitarAsignacion({
+    required String empresaId,
+    required AvisoMonitor aviso,
+  }) async {}
+
+  @override
   Future<DatosMonitor> cargar({required String empresaId, int dias = 7}) async {
     AvisoMonitor aviso(String id, String user, String sede) =>
         AvisoMonitor.fromMap({
@@ -14,6 +28,9 @@ class _Falso implements NotificationMonitorService {
           'titulo': 'Hallazgo en $sede',
           'tipo': 'task_assigned',
           'modulo': 'interventoria',
+          'hallazgoId': 'h',
+          'cargoResponsable': 'Coordinador de calidad',
+          'numeral': '2.14',
           'sedeId': sede,
           'sedeNombre': sede,
           'entrega': 'delivered',
@@ -60,6 +77,7 @@ void main() {
             ),
             child: Scaffold(
               body: AdminNotificationMonitorPanel(
+                userId: 'admin',
                 empresaId: 'e1',
                 service: _Falso(),
               ),
@@ -73,6 +91,23 @@ void main() {
       expect(find.textContaining('Llegaron a otra sede'), findsOneWidget);
       expect(find.textContaining('Alertas (1)'), findsOneWidget);
       expect(tester.takeException(), isNull);
+      await tester.enterText(find.byType(TextField).first, 'Ana');
+      await tester.pump();
+      expect(find.textContaining('Cubre 1 sede'), findsOneWidget);
+      await tester.enterText(find.byType(TextField).first, '');
+      await tester.pump();
+
+      await tester.scrollUntilVisible(
+        find.text('Reasignar a quien cubre la sede'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.textContaining('¿Por qué le llegó?'), findsWidgets);
+      await tester.scrollUntilVisible(
+        find.textContaining('Por establecimiento'),
+        -200,
+        scrollable: find.byType(Scrollable).first,
+      );
 
       for (final vista in ['Por establecimiento', 'Por persona', 'Detalle']) {
         await tester.tap(find.textContaining(vista).first);

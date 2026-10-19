@@ -3463,6 +3463,87 @@ class InterventoriaService {
     );
   });
 
+  /// Datos del hallazgo y su tarea para corregir una asignación desde el
+  /// monitor de notificaciones. Falla si el hallazgo es de otra empresa, ya se
+  /// subsanó o la tarea ya se inició (esas se gestionan en el hallazgo).
+  Future<({InterventoriaHallazgo hallazgo, Map<String, dynamic> tarea})>
+  _hallazgoCorregible(String empresaId, String hallazgoId) async {
+    final snap = await _db
+        .collection('TBL_INTERVENTORIA_HALLAZGOS')
+        .doc(hallazgoId)
+        .get();
+    final data = snap.data();
+    if (data == null || (data['empresaId'] ?? '').toString() != empresaId) {
+      throw StateError('El hallazgo no existe en la empresa activa.');
+    }
+    final hallazgo = InterventoriaHallazgo.fromMap(snap.id, data);
+    if (hallazgo.isSubsanado) {
+      throw StateError('El hallazgo ya está subsanado.');
+    }
+    final tareaId = hallazgo.tareaId.trim();
+    final tarea = tareaId.isEmpty
+        ? <String, dynamic>{}
+        : (await _db.collection('TBL_TAREAS').doc(tareaId).get()).data() ??
+              <String, dynamic>{};
+    final estado = (tarea['estado'] ?? 'pendiente').toString().toLowerCase();
+    if (estado != 'pendiente') {
+      throw StateError(
+        'La tarea ya está en "$estado": gestiónala desde el hallazgo.',
+      );
+    }
+    return (hallazgo: hallazgo, tarea: tarea);
+  }
+
+  /// Pasa un hallazgo asignado por error a otra persona y retira los avisos de
+  /// quien lo tenía. La nueva persona recibe su aviso de asignación.
+  Future<void> reasignarDesdeMonitor({
+    required String empresaId,
+    required String hallazgoId,
+    required InterventoriaPersona nueva,
+    required String creadorId,
+  }) async {
+    final previo = await _hallazgoCorregible(empresaId, hallazgoId);
+    String t(Object? v) => (v ?? '').toString().trim();
+    final pierden = {
+      t(previo.tarea['asignado_uid'] ?? previo.tarea['assignedTo']),
+      t(previo.tarea['aprobador_uid'] ?? previo.tarea['jefe_uid']),
+    }..removeWhere((id) => id.isEmpty || id == nueva.id);
+    final numero = int.tryParse(t(previo.tarea['numero']));
+    final taskId = await crearTareaYNotificarHallazgo(
+      hallazgo: previo.hallazgo,
+      creadorId: creadorId,
+      responsableForzado: nueva,
+    );
+    if (taskId == null || taskId.trim().isEmpty) {
+      throw StateError('No se creó la tarea.');
+    }
+    if (numero != null && numero > 0) {
+      try {
+        await _db.collection('TBL_TAREAS').doc(taskId).update({
+          'numero': numero,
+        });
+      } catch (_) {}
+    }
+    await _borrarAvisosDeTarea(pierden, previo.hallazgo.tareaId.trim());
+  }
+
+  /// Devuelve el hallazgo a "Sin asignar" y retira los avisos de quien lo
+  /// tenía, para decidirlo luego en el tablero de asignación.
+  Future<void> quitarAsignacionDesdeMonitor({
+    required String empresaId,
+    required String hallazgoId,
+  }) async {
+    final previo = await _hallazgoCorregible(empresaId, hallazgoId);
+    String t(Object? v) => (v ?? '').toString().trim();
+    final tareaId = previo.hallazgo.tareaId.trim();
+    final personas = {
+      t(previo.tarea['asignado_uid'] ?? previo.tarea['assignedTo']),
+      t(previo.tarea['aprobador_uid'] ?? previo.tarea['jefe_uid']),
+    }..removeWhere((id) => id.isEmpty);
+    await quitarAsignacionHallazgo(hallazgoId: hallazgoId, tareaId: tareaId);
+    await _borrarAvisosDeTarea(personas, tareaId);
+  }
+
   /// Quita de la bandeja de [personas] los avisos de [tareaId]. No bloquea la
   /// reasignación si alguno no se puede borrar.
   Future<void> _borrarAvisosDeTarea(

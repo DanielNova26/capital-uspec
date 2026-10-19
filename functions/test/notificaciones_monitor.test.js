@@ -15,6 +15,7 @@ test('toma la sede de la tarea y el nombre del centro', () => {
   assert.equal(fila.sedeNombre, 'Guateque');
   assert.equal(fila.modulo, 'interventoria');
   assert.equal(fila.entrega, 'delivered');
+  assert.equal(fila.hallazgoId, '');
   assert.equal(fila.leida, false);
 });
 

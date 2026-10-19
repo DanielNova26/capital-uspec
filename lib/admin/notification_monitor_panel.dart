@@ -63,6 +63,7 @@ class _AdminNotificationsHubState extends State<AdminNotificationsHub> {
           child: _monitor
               ? AdminNotificationMonitorPanel(
                   key: ValueKey('monitor-${widget.empresaId}'),
+                  userId: widget.userId,
                   empresaId: widget.empresaId,
                 )
               : AdminNotificationMasterPanel(
@@ -86,10 +87,12 @@ class _AdminNotificationsHubState extends State<AdminNotificationsHub> {
 class AdminNotificationMonitorPanel extends StatefulWidget {
   const AdminNotificationMonitorPanel({
     super.key,
+    required this.userId,
     required this.empresaId,
     this.service,
   });
 
+  final String userId;
   final String empresaId;
   final NotificationMonitorService? service;
 
@@ -154,6 +157,7 @@ class _AdminNotificationMonitorPanelState
             (q.isEmpty ||
                 a.titulo.toLowerCase().contains(q) ||
                 a.sedeNombre.toLowerCase().contains(q) ||
+                a.userId.contains(q) ||
                 (d.usuarios[a.userId]?.nombre ?? a.userId)
                     .toLowerCase()
                     .contains(q)))
@@ -194,7 +198,13 @@ class _AdminNotificationMonitorPanelState
         return ListView(
           padding: EdgeInsets.fromLTRB(pad, 8, pad, 24),
           children: [
+            _buscador(),
+            const SizedBox(height: 10),
             _controles(modulos),
+            if (_fichaPersona(datos, analisis) case final ficha?) ...[
+              const SizedBox(height: 10),
+              ficha,
+            ],
             if (datos.truncado)
               Padding(
                 padding: const EdgeInsets.only(top: 8),
@@ -221,6 +231,180 @@ class _AdminNotificationMonitorPanelState
         );
       },
     );
+  }
+
+  // ── Buscador ───────────────────────────────────────────────────────────────
+
+  final TextEditingController _campoBusqueda = TextEditingController();
+
+  @override
+  void dispose() {
+    _campoBusqueda.dispose();
+    super.dispose();
+  }
+
+  void _buscar(String v) => setState(() => _busqueda = v);
+
+  /// Filtra por persona (nombre o cédula), establecimiento o texto del aviso
+  /// en todas las vistas.
+  Widget _buscador() => TextField(
+    controller: _campoBusqueda,
+    textInputAction: TextInputAction.search,
+    decoration: InputDecoration(
+      hintText: 'Buscar persona, cédula, establecimiento o aviso…',
+      prefixIcon: const Icon(Icons.search),
+      suffixIcon: _busqueda.isEmpty
+          ? null
+          : IconButton(
+              tooltip: 'Limpiar',
+              icon: const Icon(Icons.close),
+              onPressed: () {
+                _campoBusqueda.clear();
+                _buscar('');
+              },
+            ),
+      border: const OutlineInputBorder(),
+      isDense: true,
+    ),
+    onChanged: _buscar,
+  );
+
+  /// Si la búsqueda deja a UNA persona, muestra quién es y qué sedes cubre:
+  /// es lo que hay que comparar con los avisos que recibió.
+  Widget? _fichaPersona(DatosMonitor d, AnalisisMonitor a) {
+    if (_busqueda.trim().isEmpty || a.personas.length != 1) return null;
+    final p = a.personas.single;
+    final u = d.usuarios[p.userId];
+    if (u == null) return null;
+    final cubre = [
+      for (final id in u.centrosAsignadosIds.isEmpty
+          ? [if (u.centroId.isNotEmpty) u.centroId]
+          : u.centrosAsignadosIds)
+        d.centros[id] ?? id,
+    ]..sort();
+    return _Tarjeta(
+      color: _neutro,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              UserAvatar(userId: p.userId, nameHint: u.nombre, radius: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    UserNameText(
+                      p.userId,
+                      fallbackName: u.nombre,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    Text(
+                      u.cargo,
+                      style: const TextStyle(color: _muted, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              if (p.fueraDeSede > 0)
+                _Insignia('${p.fueraDeSede} de otra sede', _peligro),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            cubre.isEmpty
+                ? 'Talento Humano no le ha cargado ninguna sede.'
+                : 'Cubre ${cubre.length} '
+                      '${cubre.length == 1 ? 'sede' : 'sedes'}: '
+                      '${cubre.take(8).join(', ')}'
+                      '${cubre.length > 8 ? ' y ${cubre.length - 8} más' : ''}.',
+            style: const TextStyle(fontSize: 12.5, height: 1.35),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'Recibió avisos de: '
+            '${(p.sedesRecibidas.toList()..sort()).join(', ')}',
+            style: const TextStyle(fontSize: 12.5, height: 1.35),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Corrección desde una alerta ────────────────────────────────────────────
+
+  Future<void> _reasignar(AvisoMonitor aviso, DatosMonitor d) async {
+    final candidatos = candidatosParaSede(aviso, d);
+    final elegido = await showDialog<InterventoriaPersona>(
+      context: context,
+      builder: (_) => _DialogoReasignar(
+        sede: aviso.sedeNombre.isEmpty ? aviso.sedeId : aviso.sedeNombre,
+        candidatos: candidatos,
+      ),
+    );
+    if (elegido == null || !mounted) return;
+    await _correccion(
+      () => _service.reasignar(
+        empresaId: widget.empresaId,
+        aviso: aviso,
+        persona: elegido,
+        creadorId: widget.userId,
+      ),
+      'Asignado a ${elegido.nombre}. Se retiraron los avisos de quien lo tenía.',
+    );
+  }
+
+  Future<void> _quitar(AvisoMonitor aviso) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Quitar asignación'),
+        content: const Text(
+          'El hallazgo vuelve a "Sin asignar" y se borran sus avisos de la '
+          'bandeja de quien lo tenía. Luego se asigna en el tablero de '
+          'Interventoría.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Quitar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _correccion(
+      () => _service.quitarAsignacion(
+        empresaId: widget.empresaId,
+        aviso: aviso,
+      ),
+      'Hallazgo devuelto a "Sin asignar".',
+    );
+  }
+
+  Future<void> _correccion(
+    Future<void> Function() accion,
+    String exito,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _cargando = true);
+    try {
+      await accion();
+      messenger.showSnackBar(SnackBar(content: Text(exito)));
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          backgroundColor: _peligro,
+          content: Text('No se pudo corregir: $e'),
+        ),
+      );
+    }
+    if (mounted) await _cargar();
   }
 
   // ── Controles ──────────────────────────────────────────────────────────────
@@ -260,18 +444,6 @@ class _AdminNotificationMonitorPanelState
                 DropdownMenuItem(value: m, child: Text(_nombreModulo(m))),
             ],
             onChanged: (v) => setState(() => _modulo = v ?? ''),
-          ),
-        ),
-        SizedBox(
-          width: 240,
-          child: TextField(
-            decoration: const InputDecoration(
-              labelText: 'Buscar persona, sede o aviso',
-              prefixIcon: Icon(Icons.search, size: 20),
-              border: OutlineInputBorder(),
-              isDense: true,
-            ),
-            onChanged: (v) => setState(() => _busqueda = v),
           ),
         ),
         FilterChip(
@@ -439,6 +611,49 @@ class _AdminNotificationMonitorPanelState
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(color: _muted, fontSize: 12.5),
                   ),
+                  const SizedBox(height: 8),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: _aviso.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.help_outline, size: 16, color: _aviso),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '¿Por qué le llegó? ${explicarAlerta(aviso, d)}',
+                            style: const TextStyle(fontSize: 12.5, height: 1.4),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (aviso.hallazgoId.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: [
+                        FilledButton.tonalIcon(
+                          onPressed: _cargando
+                              ? null
+                              : () => _reasignar(aviso, d),
+                          icon: const Icon(Icons.swap_horiz, size: 18),
+                          label: const Text('Reasignar a quien cubre la sede'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: _cargando ? null : () => _quitar(aviso),
+                          icon: const Icon(Icons.undo, size: 18),
+                          label: const Text('Quitar asignación'),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             );
@@ -502,7 +717,14 @@ class _AdminNotificationMonitorPanelState
       etiqueta: 'personas',
       itemBuilder: (context, p, _) {
         final sedes = p.sedesRecibidas.toList()..sort();
-        return _Tarjeta(
+        return InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () {
+            _campoBusqueda.text = p.nombre;
+            _buscar(p.nombre);
+            setState(() => _vista = p.fueraDeSede > 0 ? _Vista.alertas : _Vista.detalle);
+          },
+          child: _Tarjeta(
           color: p.fueraDeSede > 0 ? _peligro : _border,
           child: Row(
             children: [
@@ -550,6 +772,7 @@ class _AdminNotificationMonitorPanelState
                 ],
               ),
             ],
+          ),
           ),
         );
       },
@@ -805,6 +1028,94 @@ class _FilaPersonaSede extends StatelessWidget {
           Text('$cantidad', style: const TextStyle(fontWeight: FontWeight.w700)),
         ],
       ),
+    );
+  }
+}
+
+/// Elegir a quién pasar el hallazgo: solo personas que cubren la sede y
+/// pueden recibir tareas.
+class _DialogoReasignar extends StatefulWidget {
+  const _DialogoReasignar({required this.sede, required this.candidatos});
+
+  final String sede;
+  final List<InterventoriaPersona> candidatos;
+
+  @override
+  State<_DialogoReasignar> createState() => _DialogoReasignarState();
+}
+
+class _DialogoReasignarState extends State<_DialogoReasignar> {
+  String _q = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final q = _q.trim().toLowerCase();
+    final lista = [
+      for (final p in widget.candidatos)
+        if (q.isEmpty ||
+            p.nombre.toLowerCase().contains(q) ||
+            p.cargo.toLowerCase().contains(q))
+          p,
+    ];
+    final ancho = MediaQuery.sizeOf(context).width;
+    return AlertDialog(
+      title: Text('Reasignar ${widget.sede}'),
+      content: SizedBox(
+        width: ancho < 520 ? ancho - 80 : 440,
+        child: widget.candidatos.isEmpty
+            ? const Text(
+                'Nadie que pueda recibir tareas cubre esta sede. Carga la '
+                'cobertura en Talento Humano, o usa "Quitar asignación" y '
+                'asígnala a mano en el tablero.',
+              )
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Personas que sí cubren esta sede:',
+                    style: TextStyle(color: _muted),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    decoration: const InputDecoration(
+                      hintText: 'Buscar por nombre o cargo',
+                      prefixIcon: Icon(Icons.search),
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    onChanged: (v) => setState(() => _q = v),
+                  ),
+                  const SizedBox(height: 8),
+                  Flexible(
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        for (final p in lista)
+                          ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: UserAvatar(
+                              userId: p.id,
+                              nameHint: p.nombre,
+                              radius: 16,
+                            ),
+                            title: Text(p.nombre),
+                            subtitle: Text(p.cargo),
+                            onTap: () => Navigator.pop(context, p),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+      ],
     );
   }
 }

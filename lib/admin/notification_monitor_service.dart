@@ -1,5 +1,6 @@
 import 'package:cloud_functions/cloud_functions.dart';
 
+import '../interventoria/interventoria_numerales_catalogo.dart';
 import '../interventoria/interventoria_service.dart';
 
 /// Estado de entrega de un aviso, tal como lo deja `onNotificationCreated`
@@ -50,6 +51,9 @@ class AvisoMonitor {
     required this.tipo,
     required this.modulo,
     required this.taskId,
+    required this.hallazgoId,
+    required this.cargoResponsable,
+    required this.numeral,
     required this.taskNumero,
     required this.creada,
     required this.leida,
@@ -69,6 +73,9 @@ class AvisoMonitor {
   final String tipo;
   final String modulo;
   final String taskId;
+  final String hallazgoId;
+  final String cargoResponsable;
+  final String numeral;
   final int? taskNumero;
   final DateTime creada;
   final bool leida;
@@ -90,6 +97,9 @@ class AvisoMonitor {
       tipo: t('tipo'),
       modulo: t('modulo'),
       taskId: t('taskId'),
+      hallazgoId: t('hallazgoId'),
+      cargoResponsable: t('cargoResponsable'),
+      numeral: t('numeral'),
       taskNumero: m['taskNumero'] is num ? (m['taskNumero'] as num).toInt() : null,
       creada: DateTime.fromMillisecondsSinceEpoch(
         m['creadaMs'] is num ? (m['creadaMs'] as num).toInt() : 0,
@@ -120,6 +130,31 @@ bool llegoFueraDeSede(AvisoMonitor aviso, InterventoriaUsuario? persona) =>
     aviso.sedeId.isNotEmpty &&
     persona != null &&
     !persona.cubreCentro(aviso.sedeId);
+
+
+/// Personas a quienes sí les corresponde la sede del aviso y que pueden
+/// recibir tareas, sin quien la tiene hoy. Las que ya la cubren primero por
+/// nombre.
+List<InterventoriaPersona> candidatosParaSede(
+  AvisoMonitor aviso,
+  DatosMonitor datos,
+) {
+  if (aviso.sedeId.isEmpty) return const [];
+  final lista = [
+    for (final u in datos.usuarios.values)
+      if (u.id != aviso.userId &&
+          datos.asignablesIds.contains(u.id) &&
+          u.cubreCentro(aviso.sedeId))
+        InterventoriaPersona(
+          id: u.id,
+          nombre: u.nombre,
+          cargo: u.cargo,
+          cargoMatriz: u.cargo,
+          delCentro: true,
+        ),
+  ]..sort((a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()));
+  return lista;
+}
 
 class ResumenPersonaMonitor {
   ResumenPersonaMonitor(this.userId, this.nombre, this.cargo);
@@ -280,12 +315,20 @@ class DatosMonitor {
   const DatosMonitor({
     required this.avisos,
     required this.usuarios,
+    this.asignablesIds = const {},
+    this.centros = const {},
     required this.truncado,
     required this.dias,
   });
 
   final List<AvisoMonitor> avisos;
   final Map<String, InterventoriaUsuario> usuarios;
+
+  /// Personas que pueden recibir tareas (no marcadas como no operativas).
+  final Set<String> asignablesIds;
+
+  /// Nombre de cada establecimiento por id.
+  final Map<String, String> centros;
 
   /// Llegó al tope de lectura: hay más avisos de los que se ven.
   final bool truncado;
@@ -319,17 +362,93 @@ class NotificationMonitorService {
           .call({'empresaId': empresaId, 'dias': dias})
           .then((r) => Map<String, dynamic>.from(r.data as Map)),
       svc.listarUsuariosActivos(empresaId),
+      svc.listarUsuariosAsignables(empresaId),
     ]);
     final datos = resultados[0] as Map<String, dynamic>;
     final usuarios = resultados[1] as List<InterventoriaUsuario>;
+    final asignables = resultados[2] as List<InterventoriaUsuario>;
     return DatosMonitor(
       avisos: [
         for (final f in (datos['filas'] as List? ?? const []))
           AvisoMonitor.fromMap(f as Map),
       ],
       usuarios: {for (final u in usuarios) u.id: u},
+      asignablesIds: {for (final u in asignables) u.id},
+      centros: {
+        for (final e in (datos['centros'] as Map? ?? const {}).entries)
+          e.key.toString(): e.value.toString(),
+      },
       truncado: datos['truncado'] == true,
       dias: (datos['dias'] as num?)?.toInt() ?? dias,
     );
   }
+
+  /// Pasa el hallazgo del aviso a [persona] y retira los avisos de quien lo
+  /// tenía.
+  Future<void> reasignar({
+    required String empresaId,
+    required AvisoMonitor aviso,
+    required InterventoriaPersona persona,
+    required String creadorId,
+  }) => (_interventoria ?? InterventoriaService()).reasignarDesdeMonitor(
+    empresaId: empresaId,
+    hallazgoId: aviso.hallazgoId,
+    nueva: persona,
+    creadorId: creadorId,
+  );
+
+  /// Deja el hallazgo del aviso "Sin asignar" y retira los avisos.
+  Future<void> quitarAsignacion({
+    required String empresaId,
+    required AvisoMonitor aviso,
+  }) => (_interventoria ?? InterventoriaService()).quitarAsignacionDesdeMonitor(
+    empresaId: empresaId,
+    hallazgoId: aviso.hallazgoId,
+  );
+}
+
+/// Por qué la asignación automática terminó en esta persona, en palabras de
+/// quien administra. Reconstruye la decisión con los mismos datos: el cargo
+/// que la regla pide, quién lo tiene en la empresa y quién lo cubre en la sede.
+String explicarAlerta(AvisoMonitor aviso, DatosMonitor datos) {
+  final persona = datos.usuarios[aviso.userId];
+  final sede = aviso.sedeNombre.isEmpty ? aviso.sedeId : aviso.sedeNombre;
+  final cargo = aviso.cargoResponsable.trim();
+  final nombre = persona?.nombre ?? aviso.userId;
+  final cubre = persona == null
+      ? <String>[]
+      : [
+          for (final id in persona.centrosAsignadosIds.isEmpty
+              ? [if (persona.centroId.isNotEmpty) persona.centroId]
+              : persona.centrosAsignadosIds)
+            datos.centros[id] ?? id,
+        ];
+  final sedesDe = cubre.isEmpty
+      ? 'no tiene ninguna sede cargada en Talento Humano'
+      : 'cubre ${cubre.take(5).join(', ')}'
+            '${cubre.length > 5 ? ' y ${cubre.length - 5} más' : ''}';
+  if (cargo.isEmpty) {
+    return 'La tarea no guarda el cargo de la regla (asignación manual o '
+        'antigua). $nombre $sedesDe, no $sede.';
+  }
+  final conCargo = [
+    for (final u in datos.usuarios.values)
+      if (datos.asignablesIds.contains(u.id) &&
+          afinidadCargo(cargo, u.cargo) != null)
+        u,
+  ];
+  final enSede = [for (final u in conCargo) if (u.cubreCentro(aviso.sedeId)) u];
+  final regla =
+      'La regla${aviso.numeral.isEmpty ? '' : ' del numeral ${aviso.numeral}'}'
+      ' pide el cargo "$cargo".';
+  if (enSede.isEmpty) {
+    return '$regla Nadie con ese cargo cubre $sede (${conCargo.length} '
+        '${conCargo.length == 1 ? 'persona lo tiene' : 'personas lo tienen'} '
+        'en toda la empresa), así que la asignación buscó fuera de la sede y '
+        'tomó a $nombre, que $sedesDe. Solución: cargar quién cubre $sede '
+        'en Talento Humano, o asignarla a mano.';
+  }
+  return '$regla En $sede sí cubre ${enSede.map((u) => u.nombre).join(', ')}, '
+      'pero la tarea quedó con $nombre, que $sedesDe: la asignaron a mano o '
+      'con una regla anterior. Se corrige reasignándola.';
 }

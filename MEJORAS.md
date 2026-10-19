@@ -11652,3 +11652,8 @@ Acta: «La reunión se inició a las 2026_10_15 18_27». Código: `functions/src
 
 ## Publicación web 2.7.3+48 (19 oct 2026)
 - Incluye el monitor de notificaciones de Admin y la asignación de Interventoría solo a titulares de la sede. `flutter build web --release --no-tree-shake-icons --no-wasm-dry-run` y `firebase deploy --only hosting` (to-do-gestion.web.app, 200). Android e iOS siguen con la compilación anterior (sin publicar).
+
+## Monitor de notificaciones 2.7.4+49: buscador, explicación y corrección (19 oct 2026)
+- Buscador destacado (persona, cédula, sede o aviso) que filtra todas las vistas; si deja a una persona muestra su ficha con las sedes que cubre frente a las que recibió.
+- Cada alerta explica "¿Por qué le llegó?" reconstruyendo la regla (cargo del numeral, quién lo tiene en la empresa y quién cubre la sede) y permite **Reasignar a quien cubre la sede** (solo candidatos que cubren y reciben tareas) o **Quitar asignación**. Ambas retiran los avisos de quien perdía la tarea; solo actúan sobre tareas en estado pendiente. Servicio: `reasignarDesdeMonitor` / `quitarAsignacionDesdeMonitor` en `InterventoriaService`.
+- Función `adminMonitorNotificaciones` redeplegada (devuelve hallazgo, cargo y numeral). Web publicada. Sin probar con datos reales ni en Android/iOS.

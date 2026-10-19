@@ -225,3 +225,4 @@ test('app: sedes, personas con huella, calendario por colaborador y vínculo sin
   assert.equal(l.primerDia, diaBio(Date.now()));
   void h;
 });
+
