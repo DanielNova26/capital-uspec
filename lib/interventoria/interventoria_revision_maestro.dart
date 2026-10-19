@@ -410,6 +410,12 @@ class CambioCobertura {
   /// Se quitan de `gruposInterventoria` (comparados ya normalizados: `G7`).
   final Set<String> quitarGrupos;
 
+  /// Modo "fijar": si no es null, la lista queda exactamente con estos valores
+  /// (importación de Excel). Los grupos van normalizados (`G7`).
+  final Set<String>? fijarOperacion;
+  final Set<String>? fijarTrabajo;
+  final Set<String>? fijarGrupos;
+
   const CambioCobertura({
     required this.userId,
     required this.nombre,
@@ -417,13 +423,19 @@ class CambioCobertura {
     this.quitarCentros = const {},
     this.agregarGrupos = const {},
     this.quitarGrupos = const {},
+    this.fijarOperacion,
+    this.fijarTrabajo,
+    this.fijarGrupos,
   });
 
   bool get vacio =>
       agregarCentros.isEmpty &&
       quitarCentros.isEmpty &&
       agregarGrupos.isEmpty &&
-      quitarGrupos.isEmpty;
+      quitarGrupos.isEmpty &&
+      fijarOperacion == null &&
+      fijarTrabajo == null &&
+      fijarGrupos == null;
 }
 
 /// Centros de costo de cada grupo (`G1` → {centros}).

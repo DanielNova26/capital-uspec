@@ -79,6 +79,35 @@ Filtro **"Correcta"** y cargo, por ejemplo "Coordinador De Calidad": comprobar
 que cada uno tiene el grupo o las sedes que realmente atiende. Quien cubre
 una sede de otro coordinador aparece en el monitor como alerta (sección 4).
 
+## 3.1 Cambios masivos con Excel (recomendado para muchos cambios)
+
+Para cargar la cobertura de mucha gente a la vez, sin editar persona por
+persona:
+
+1. **Admin › Maestros por módulo › Tareas y notificaciones › Cobertura** y
+   pulsar **"Descargar modelo Excel"**. Trae a todo el personal activo con lo
+   que tiene hoy.
+2. En la hoja **Cobertura** editar solo tres columnas: **SEDES DE OPERACION**,
+   **SEDES DE TRABAJO** y **GRUPOS**. Las demás son de consulta.
+   - Varias sedes o grupos se separan con punto y coma: `Picota; La Mesa`.
+   - Los nombres de sede se copian de la hoja **Sedes**; los grupos son
+     `G1`, `G7`… (hoja **Grupos**).
+   - Una celda vacía significa "ninguna".
+   - Se puede filtrar por cargo en Excel para trabajar por bloques (por
+     ejemplo, todos los "Administrador Tipo 1": su sede en operación y en
+     trabajo, y GRUPOS vacío).
+   - No cambiar la CEDULA ni los títulos; no hace falta borrar las filas que no
+     se cambian.
+3. Guardar como `.xlsx` y pulsar **"Importar Excel"**.
+4. La aplicación muestra **antes de aplicar**: filas leídas, personas con
+   cambios (con el "antes → después" de cada una), filas sin cambios y filas
+   **rechazadas** con el motivo (sede que no existe, grupo inválido, cédula
+   que no es de la empresa). Las rechazadas no se aplican: se corrigen en el
+   Excel y se vuelve a subir el archivo; lo ya aplicado no se duplica.
+5. Pulsar **"Aplicar N cambios"**.
+
+Solo se cambia lo que difiere de lo guardado, y solo las columnas editadas.
+
 ## 4. Comprobar que quedó bien
 
 Ruta: **Admin › Maestros por módulo › Tareas y notificaciones › Monitor**.

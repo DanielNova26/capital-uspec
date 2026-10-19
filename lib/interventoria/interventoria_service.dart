@@ -142,6 +142,9 @@ class InterventoriaUsuario {
   /// Tiene grupos marcados pero su cargo no los usa: no le suman sedes.
   final bool gruposIgnorados;
 
+  /// Su cargo suma las sedes de sus grupos (`cargoUsaCoberturaPorGrupo`).
+  final bool usaGrupos;
+
   /// Jefe inmediato en ESTA empresa (cédula). Es el aprobador que se propone
   /// cuando el maestro no define uno para el numeral.
   final String jefeId;
@@ -157,6 +160,7 @@ class InterventoriaUsuario {
     this.centrosTrabajoIds = const {},
     this.grupos = const {},
     this.gruposIgnorados = false,
+    this.usaGrupos = true,
     this.jefeId = '',
   });
 
@@ -176,6 +180,7 @@ class InterventoriaUsuario {
     centrosTrabajoIds: centrosTrabajoIds ?? this.centrosTrabajoIds,
     grupos: grupos ?? this.grupos,
     gruposIgnorados: gruposIgnorados,
+    usaGrupos: usaGrupos,
     jefeId: jefeId,
   );
 
@@ -2703,6 +2708,22 @@ class InterventoriaService {
         grupos.removeWhere(
           (g) => cambio.quitarGrupos.contains(normalizarGrupoCentroCosto(g)),
         );
+        // Modo "fijar" (importación de Excel): la lista queda exactamente así.
+        if (cambio.fijarOperacion != null) {
+          operacion
+            ..clear()
+            ..addAll(cambio.fijarOperacion!);
+        }
+        if (cambio.fijarTrabajo != null) {
+          trabajo
+            ..clear()
+            ..addAll(cambio.fijarTrabajo!);
+        }
+        if (cambio.fijarGrupos != null) {
+          grupos
+            ..clear()
+            ..addAll(cambio.fijarGrupos!);
+        }
 
         String nombre(String id) => nombresCentro[id] ?? id;
         final operacionIds = operacion.toList()..sort();
@@ -2971,6 +2992,7 @@ class InterventoriaService {
           centrosTrabajoIds: trabajo,
           grupos: grupos,
           gruposIgnorados: !usaGrupos && grupos.isNotEmpty,
+          usaGrupos: usaGrupos,
           jefeId: jefeId == doc.id ? '' : jefeId,
         ),
       );

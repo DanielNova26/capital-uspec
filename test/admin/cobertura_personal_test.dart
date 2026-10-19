@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:todo/admin/cobertura_personal_logic.dart';
 import 'package:todo/admin/cobertura_personal_panel.dart';
+import 'package:todo/interventoria/interventoria_models.dart';
 import 'package:todo/interventoria/interventoria_revision_maestro.dart';
 import 'package:todo/interventoria/interventoria_service.dart';
 import 'package:todo/utils/user_company.dart';
@@ -30,13 +31,20 @@ class _Falso implements CoberturaPersonalService {
   List<CambioCobertura> aplicados = [];
 
   @override
-  Future<({List<InterventoriaUsuario> usuarios, Map<String, String> centros})>
+  Future<
+    ({
+      List<InterventoriaUsuario> usuarios,
+      Map<String, String> centros,
+      List<CentroCostoRef> centrosRef,
+    })
+  >
   cargar(String empresaId) async => (
     usuarios: [
       _u('1', centroId: 'moniquira', operacion: {'moniquira'}, grupos: {'G7'}, ignorados: true),
       _u('2', cargo: 'Coordinador de calidad', operacion: {'picota'}, grupos: {'G7'}, porGrupo: {'guateque'}),
     ],
     centros: {'moniquira': 'Moniquirá', 'picota': 'Picota', 'guateque': 'Guateque'},
+    centrosRef: <CentroCostoRef>[],
   );
 
   @override
