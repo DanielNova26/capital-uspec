@@ -71,13 +71,20 @@ List<Object> _fila(String cedula, String op, String tr, String gr) => [
 void main() {
   test('el modelo trae todo el personal y las hojas de apoyo', () {
     final bytes = construirPlantillaCobertura(
-      usuarios: [_u('1', operacion: {'moniquira'}, grupos: {'G7'})],
+      usuarios: [
+        _u('1', operacion: {'moniquira'}, grupos: {'G7'}),
+      ],
       centros: _centros,
     );
     final e = xl.Excel.decodeBytes(bytes);
     expect(
       e.tables.keys,
-      containsAll([kHojaInstrucciones, kHojaCobertura, kHojaSedes, kHojaGrupos]),
+      containsAll([
+        kHojaInstrucciones,
+        kHojaCobertura,
+        kHojaSedes,
+        kHojaGrupos,
+      ]),
     );
     final fila = e.tables[kHojaCobertura]!.rows[1];
     expect(fila[0]?.value.toString(), '1');
@@ -90,7 +97,10 @@ void main() {
       _u('1', operacion: {'moniquira'}, trabajo: {'moniquira'}, grupos: {'G7'}),
       _u('2', cargo: 'Coordinador', operacion: {'picota', 'lamesa'}),
     ];
-    final bytes = construirPlantillaCobertura(usuarios: usuarios, centros: _centros);
+    final bytes = construirPlantillaCobertura(
+      usuarios: usuarios,
+      centros: _centros,
+    );
     final r = leerImportacionCobertura(
       bytes: bytes,
       usuarios: usuarios,
@@ -102,30 +112,48 @@ void main() {
     expect(r.hayCambios, isFalse);
   });
 
-  test('quitar el grupo y dejar su sede genera un cambio que fija las listas', () {
-    final usuarios = [
-      _u('1', operacion: {'moniquira'}, trabajo: {'moniquira'}, grupos: {'G7'}),
-    ];
-    final r = leerImportacionCobertura(
-      bytes: _excel([_fila('1', 'Moniquirá', 'moniquira', '')]),
-      usuarios: usuarios,
-      centros: _centros,
-    );
-    expect(r.errores, isEmpty);
-    final c = r.cambios.single;
-    expect(c.userId, '1');
-    expect(c.fijarGrupos, isEmpty);
-    // Operación y trabajo no cambian: no se tocan.
-    expect(c.fijarOperacion, isNull);
-    expect(c.fijarTrabajo, isNull);
-    expect(r.detalles.single.resumen, contains('Grupos: G7 → (ninguno)'));
-  });
+  test(
+    'quitar el grupo y dejar su sede genera un cambio que fija las listas',
+    () {
+      final usuarios = [
+        _u(
+          '1',
+          operacion: {'moniquira'},
+          trabajo: {'moniquira'},
+          grupos: {'G7'},
+        ),
+      ];
+      final r = leerImportacionCobertura(
+        bytes: _excel([_fila('1', 'Moniquirá', 'moniquira', '')]),
+        usuarios: usuarios,
+        centros: _centros,
+      );
+      expect(r.errores, isEmpty);
+      final c = r.cambios.single;
+      expect(c.userId, '1');
+      expect(c.fijarGrupos, isEmpty);
+      // Operación y trabajo no cambian: no se tocan.
+      expect(c.fijarOperacion, isNull);
+      expect(c.fijarTrabajo, isNull);
+      expect(r.detalles.single.resumen, contains('Grupos: G7 → (ninguno)'));
+    },
+  );
 
   test('acepta cédula numérica, tildes, mayúsculas y separadores', () {
     final usuarios = [_u('1057547077')];
     final r = leerImportacionCobertura(
       bytes: _excel([
-        [1057547077, 'x', 'x', '', 'SI', '', 'MONIQUIRA; la mesa', '', 'Grupo 7'],
+        [
+          1057547077,
+          'x',
+          'x',
+          '',
+          'SI',
+          '',
+          'MONIQUIRA; la mesa',
+          '',
+          'Grupo 7',
+        ],
       ]),
       usuarios: usuarios,
       centros: _centros,

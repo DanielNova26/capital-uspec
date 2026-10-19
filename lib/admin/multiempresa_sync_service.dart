@@ -386,15 +386,19 @@ class MultiempresaSyncService {
       } else if (a.vincular) {
         final base = empleados[plan.referenciaId];
         if (base != null && base.exists) {
-          batch.set(_db.collection(_empleados).doc('${e}_$cedula'), {
-            ...?base.data(),
-            ...a.empleado,
-            'empresaId': e,
-            'empresaNombre': a.usuario['empresaNombre'] ?? e,
-            'empresaOrigenId': plan.referenciaId,
-            'createdAt': FieldValue.serverTimestamp(),
-            'updatedAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
+          batch.set(
+            _db.collection(_empleados).doc('${e}_$cedula'),
+            {
+              ...?base.data(),
+              ...a.empleado,
+              'empresaId': e,
+              'empresaNombre': a.usuario['empresaNombre'] ?? e,
+              'empresaOrigenId': plan.referenciaId,
+              'createdAt': FieldValue.serverTimestamp(),
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true),
+          );
         }
       }
 

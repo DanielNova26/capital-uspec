@@ -75,6 +75,7 @@ class _AdminNotificationsHubState extends State<AdminNotificationsHub> {
             ),
             'cobertura' => AdminCoberturaPersonalPanel(
               key: ValueKey('cobertura-${widget.empresaId}'),
+              userId: widget.userId,
               empresaId: widget.empresaId,
             ),
             _ => AdminNotificationMasterPanel(
@@ -140,10 +141,7 @@ class _AdminNotificationMonitorPanelState
       _error = null;
     });
     try {
-      final d = await _service.cargar(
-        empresaId: widget.empresaId,
-        dias: _dias,
-      );
+      final d = await _service.cargar(empresaId: widget.empresaId, dias: _dias);
       if (!mounted) return;
       setState(() {
         _datos = d;
@@ -191,7 +189,10 @@ class _AdminNotificationMonitorPanelState
             children: [
               Text(_error!, textAlign: TextAlign.center),
               const SizedBox(height: 12),
-              OutlinedButton(onPressed: _cargar, child: const Text('Reintentar')),
+              OutlinedButton(
+                onPressed: _cargar,
+                child: const Text('Reintentar'),
+              ),
             ],
           ),
         ),
@@ -199,10 +200,10 @@ class _AdminNotificationMonitorPanelState
     }
     final datos = _datos!;
     final analisis = analizarMonitor(_filtrados, datos.usuarios);
-    final modulos =
-        {for (final a in datos.avisos) if (a.modulo.isNotEmpty) a.modulo}
-            .toList()
-          ..sort();
+    final modulos = {
+      for (final a in datos.avisos)
+        if (a.modulo.isNotEmpty) a.modulo,
+    }.toList()..sort();
 
     return LayoutBuilder(
       builder: (context, c) {
@@ -289,9 +290,10 @@ class _AdminNotificationMonitorPanelState
     final u = d.usuarios[p.userId];
     if (u == null) return null;
     final cubre = [
-      for (final id in u.centrosAsignadosIds.isEmpty
-          ? [if (u.centroId.isNotEmpty) u.centroId]
-          : u.centrosAsignadosIds)
+      for (final id
+          in u.centrosAsignadosIds.isEmpty
+              ? [if (u.centroId.isNotEmpty) u.centroId]
+              : u.centrosAsignadosIds)
         d.centros[id] ?? id,
     ]..sort();
     return _Tarjeta(
@@ -408,18 +410,13 @@ class _AdminNotificationMonitorPanelState
     );
     if (ok != true || !mounted) return;
     await _correccion(
-      () => _service.quitarAsignacion(
-        empresaId: widget.empresaId,
-        aviso: aviso,
-      ),
+      () =>
+          _service.quitarAsignacion(empresaId: widget.empresaId, aviso: aviso),
       'Hallazgo devuelto a "Sin asignar".',
     );
   }
 
-  Future<void> _correccion(
-    Future<void> Function() accion,
-    String exito,
-  ) async {
+  Future<void> _correccion(Future<void> Function() accion, String exito) async {
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _cargando = true);
     try {
@@ -495,7 +492,9 @@ class _AdminNotificationMonitorPanelState
         width: 150,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          border: Border.all(color: valor > 0 && color != _neutro ? color : _border),
+          border: Border.all(
+            color: valor > 0 && color != _neutro ? color : _border,
+          ),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Column(
@@ -530,8 +529,18 @@ class _AdminNotificationMonitorPanelState
         kpi('Sin leer', a.sinLeer, _aviso),
         kpi('Push entregado', a.entregados, _ok),
         kpi('Solo en la app', a.soloApp, _aviso),
-        kpi('Entrega con problema', a.conProblema, _peligro, vista: _Vista.detalle),
-        kpi('Llegaron a otra sede', a.fueraDeSede, _peligro, vista: _Vista.alertas),
+        kpi(
+          'Entrega con problema',
+          a.conProblema,
+          _peligro,
+          vista: _Vista.detalle,
+        ),
+        kpi(
+          'Llegaron a otra sede',
+          a.fueraDeSede,
+          _peligro,
+          vista: _Vista.alertas,
+        ),
       ],
     );
   }
@@ -554,11 +563,24 @@ class _AdminNotificationMonitorPanelState
           Icons.report_gmailerrorred_outlined,
           cuenta: a.fueraDeSede,
         ),
-        chip(_Vista.sedes, 'Por establecimiento', Icons.store_outlined,
-            cuenta: a.sedes.length),
-        chip(_Vista.personas, 'Por persona', Icons.people_outline,
-            cuenta: a.personas.length),
-        chip(_Vista.detalle, 'Detalle', Icons.list_alt_outlined, cuenta: a.total),
+        chip(
+          _Vista.sedes,
+          'Por establecimiento',
+          Icons.store_outlined,
+          cuenta: a.sedes.length,
+        ),
+        chip(
+          _Vista.personas,
+          'Por persona',
+          Icons.people_outline,
+          cuenta: a.personas.length,
+        ),
+        chip(
+          _Vista.detalle,
+          'Detalle',
+          Icons.list_alt_outlined,
+          cuenta: a.total,
+        ),
       ],
     );
   }
@@ -610,11 +632,16 @@ class _AdminNotificationMonitorPanelState
                             UserNameText(
                               aviso.userId,
                               fallbackName: u?.nombre,
-                              style: const TextStyle(fontWeight: FontWeight.w700),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                             Text(
                               u?.cargo ?? '',
-                              style: const TextStyle(color: _muted, fontSize: 12),
+                              style: const TextStyle(
+                                color: _muted,
+                                fontSize: 12,
+                              ),
                             ),
                           ],
                         ),
@@ -695,7 +722,8 @@ class _AdminNotificationMonitorPanelState
   // ── Por establecimiento ────────────────────────────────────────────────────
 
   Widget _vistaSedes(AnalisisMonitor a, DatosMonitor d) {
-    if (a.sedes.isEmpty) return _vacio(Icons.inbox_outlined, _muted, 'Sin avisos en el periodo.');
+    if (a.sedes.isEmpty)
+      return _vacio(Icons.inbox_outlined, _muted, 'Sin avisos en el periodo.');
     return PagedListSection<ResumenSedeMonitor>(
       items: a.sedes,
       etiqueta: 'establecimientos',
@@ -719,7 +747,10 @@ class _AdminNotificationMonitorPanelState
                 style: const TextStyle(color: _muted, fontSize: 12),
               ),
               trailing: s.fueraDeSede > 0
-                  ? _Insignia('${s.personasFuera.length} fuera de sede', _peligro)
+                  ? _Insignia(
+                      '${s.personasFuera.length} fuera de sede',
+                      _peligro,
+                    )
                   : null,
               children: [
                 for (final e in gente)
@@ -740,7 +771,8 @@ class _AdminNotificationMonitorPanelState
   // ── Por persona ────────────────────────────────────────────────────────────
 
   Widget _vistaPersonas(AnalisisMonitor a) {
-    if (a.personas.isEmpty) return _vacio(Icons.inbox_outlined, _muted, 'Sin avisos en el periodo.');
+    if (a.personas.isEmpty)
+      return _vacio(Icons.inbox_outlined, _muted, 'Sin avisos en el periodo.');
     return PagedListSection<ResumenPersonaMonitor>(
       items: a.personas,
       etiqueta: 'personas',
@@ -751,57 +783,65 @@ class _AdminNotificationMonitorPanelState
           onTap: () {
             _campoBusqueda.text = p.nombre;
             _buscar(p.nombre);
-            setState(() => _vista = p.fueraDeSede > 0 ? _Vista.alertas : _Vista.detalle);
+            setState(
+              () =>
+                  _vista = p.fueraDeSede > 0 ? _Vista.alertas : _Vista.detalle,
+            );
           },
           child: _Tarjeta(
-          color: p.fueraDeSede > 0 ? _peligro : _border,
-          child: Row(
-            children: [
-              UserAvatar(userId: p.userId, nameHint: p.nombre, radius: 18),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            color: p.fueraDeSede > 0 ? _peligro : _border,
+            child: Row(
+              children: [
+                UserAvatar(userId: p.userId, nameHint: p.nombre, radius: 18),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      UserNameText(
+                        p.userId,
+                        fallbackName: p.nombre,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      Text(
+                        [
+                          if (p.cargo.isNotEmpty) p.cargo,
+                          '${p.total} avisos',
+                          if (p.sinLeer > 0) '${p.sinLeer} sin leer',
+                        ].join(' · '),
+                        style: const TextStyle(color: _muted, fontSize: 12),
+                      ),
+                      if (sedes.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            'Sedes: ${sedes.take(4).join(', ')}'
+                            '${sedes.length > 4 ? ' y ${sedes.length - 4} más' : ''}',
+                            style: const TextStyle(fontSize: 12.5),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    UserNameText(
-                      p.userId,
-                      fallbackName: p.nombre,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    Text(
-                      [
-                        if (p.cargo.isNotEmpty) p.cargo,
-                        '${p.total} avisos',
-                        if (p.sinLeer > 0) '${p.sinLeer} sin leer',
-                      ].join(' · '),
-                      style: const TextStyle(color: _muted, fontSize: 12),
-                    ),
-                    if (sedes.isNotEmpty)
+                    if (p.fueraDeSede > 0)
+                      _Insignia('${p.fueraDeSede} de otra sede', _peligro),
+                    if (p.conProblema > 0)
                       Padding(
-                        padding: const EdgeInsets.only(top: 2),
-                        child: Text(
-                          'Sedes: ${sedes.take(4).join(', ')}'
-                          '${sedes.length > 4 ? ' y ${sedes.length - 4} más' : ''}',
-                          style: const TextStyle(fontSize: 12.5),
+                        padding: EdgeInsets.only(
+                          top: p.fueraDeSede > 0 ? 4 : 0,
+                        ),
+                        child: _Insignia(
+                          '${p.conProblema} sin entregar',
+                          _aviso,
                         ),
                       ),
                   ],
                 ),
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  if (p.fueraDeSede > 0)
-                    _Insignia('${p.fueraDeSede} de otra sede', _peligro),
-                  if (p.conProblema > 0)
-                    Padding(
-                      padding: EdgeInsets.only(top: p.fueraDeSede > 0 ? 4 : 0),
-                      child: _Insignia('${p.conProblema} sin entregar', _aviso),
-                    ),
-                ],
-              ),
-            ],
-          ),
+              ],
+            ),
           ),
         );
       },
@@ -812,7 +852,12 @@ class _AdminNotificationMonitorPanelState
 
   Widget _vistaDetalle(DatosMonitor d, bool ancho) {
     final filas = _filtrados;
-    if (filas.isEmpty) return _vacio(Icons.inbox_outlined, _muted, 'Sin avisos con esos filtros.');
+    if (filas.isEmpty)
+      return _vacio(
+        Icons.inbox_outlined,
+        _muted,
+        'Sin avisos con esos filtros.',
+      );
     if (ancho) {
       return PagedDataTable(
         etiqueta: 'avisos',
@@ -854,7 +899,11 @@ class _AdminNotificationMonitorPanelState
                   DataCell(
                     SizedBox(
                       width: 280,
-                      child: Text(a.titulo, maxLines: 2, overflow: TextOverflow.ellipsis),
+                      child: Text(
+                        a.titulo,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ),
                   DataCell(
@@ -873,11 +922,15 @@ class _AdminNotificationMonitorPanelState
                     ),
                   ),
                   DataCell(_EntregaChip(a)),
-                  DataCell(Icon(
-                    a.leida ? Icons.done_all : Icons.mark_email_unread_outlined,
-                    size: 18,
-                    color: a.leida ? _ok : _aviso,
-                  )),
+                  DataCell(
+                    Icon(
+                      a.leida
+                          ? Icons.done_all
+                          : Icons.mark_email_unread_outlined,
+                      size: 18,
+                      color: a.leida ? _ok : _aviso,
+                    ),
+                  ),
                 ],
               ),
           ],
@@ -906,7 +959,10 @@ class _AdminNotificationMonitorPanelState
                       style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
                   ),
-                  Text(_hace(a.creada), style: const TextStyle(color: _muted, fontSize: 12)),
+                  Text(
+                    _hace(a.creada),
+                    style: const TextStyle(color: _muted, fontSize: 12),
+                  ),
                 ],
               ),
               const SizedBox(height: 6),
@@ -935,7 +991,11 @@ class _AdminNotificationMonitorPanelState
       children: [
         Icon(icono, size: 36, color: color),
         const SizedBox(height: 8),
-        Text(texto, textAlign: TextAlign.center, style: const TextStyle(color: _muted)),
+        Text(
+          texto,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: _muted),
+        ),
       ],
     ),
   );
@@ -948,7 +1008,10 @@ String _nombreModulo(String m) => switch (m) {
   'visitas' => 'Visitas',
   'talento_humano' => 'Talento Humano',
   'gestion_documental' => 'Gestión documental',
-  _ => m.isEmpty ? m : '${m[0].toUpperCase()}${m.substring(1).replaceAll('_', ' ')}',
+  _ =>
+    m.isEmpty
+        ? m
+        : '${m[0].toUpperCase()}${m.substring(1).replaceAll('_', ' ')}',
 };
 
 String _hace(DateTime d) {
@@ -993,7 +1056,11 @@ class _Insignia extends StatelessWidget {
     ),
     child: Text(
       texto,
-      style: TextStyle(color: color, fontSize: 11.5, fontWeight: FontWeight.w700),
+      style: TextStyle(
+        color: color,
+        fontSize: 11.5,
+        fontWeight: FontWeight.w700,
+      ),
     ),
   );
 }
@@ -1046,7 +1113,10 @@ class _FilaPersonaSede extends StatelessWidget {
               children: [
                 UserNameText(userId, fallbackName: nombre),
                 if (cargo.isNotEmpty)
-                  Text(cargo, style: const TextStyle(color: _muted, fontSize: 12)),
+                  Text(
+                    cargo,
+                    style: const TextStyle(color: _muted, fontSize: 12),
+                  ),
               ],
             ),
           ),
@@ -1054,7 +1124,10 @@ class _FilaPersonaSede extends StatelessWidget {
             const _Insignia('no cubre esta sede', _peligro),
             const SizedBox(width: 8),
           ],
-          Text('$cantidad', style: const TextStyle(fontWeight: FontWeight.w700)),
+          Text(
+            '$cantidad',
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
         ],
       ),
     );
@@ -1098,7 +1171,10 @@ class _DialogoReasignarState extends State<_DialogoReasignar> {
                 o.persona.nombre.toLowerCase().contains(q) ||
                 o.persona.cargo.toLowerCase().contains(q)) &&
             (hay ||
-                widget.catalogoAreas.coincide(filtro: _area, valor: o.areaId)) &&
+                widget.catalogoAreas.coincide(
+                  filtro: _area,
+                  valor: o.areaId,
+                )) &&
             (hay || !_soloSede || o.cubreSede))
           o,
     ];
@@ -1151,7 +1227,10 @@ class _DialogoReasignarState extends State<_DialogoReasignar> {
                         for (final e in widget.catalogoAreas.comoMapa().entries)
                           DropdownMenuItem(
                             value: e.key,
-                            child: Text(e.value, overflow: TextOverflow.ellipsis),
+                            child: Text(
+                              e.value,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                       ],
                       onChanged: (v) => setState(() => _area = v ?? 'todas'),

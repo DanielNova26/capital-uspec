@@ -8,6 +8,7 @@ import '../widgets/paged_list.dart';
 import '../widgets/user_avatar.dart';
 import '../utils/excel_download.dart';
 import 'cobertura_excel.dart';
+import 'cobertura_lotes.dart';
 import 'cobertura_personal_logic.dart';
 
 const _border = Color(0xFFE2E8F0);
@@ -19,12 +20,17 @@ const _peligro = Color(0xFFB91C1C);
 /// Lee y corrige la cobertura del personal. Envuelve el servicio de
 /// Interventoría para poder probar la pantalla sin Firebase.
 class CoberturaPersonalService {
-  CoberturaPersonalService({InterventoriaService? interventoria})
-    : _svc = interventoria;
+  CoberturaPersonalService({
+    InterventoriaService? interventoria,
+    CoberturaLotesRepository? lotes,
+  }) : _svc = interventoria,
+       _lotes = lotes;
 
   final InterventoriaService? _svc;
+  final CoberturaLotesRepository? _lotes;
 
   InterventoriaService get _s => _svc ?? InterventoriaService();
+  CoberturaLotesRepository get _repo => _lotes ?? CoberturaLotesRepository();
 
   Future<
     ({
@@ -46,15 +52,57 @@ class CoberturaPersonalService {
     );
   }
 
+  /// Aplica un lote GUARDANDO ANTES lo que cada persona tenía, para poder
+  /// deshacerlo. Si no se puede guardar el respaldo, no se cambia a nadie.
   Future<void> aplicar({
     required String empresaId,
+    required String userId,
+    required TipoLoteCobertura tipo,
     required List<CambioCobertura> cambios,
     required Map<String, String> centros,
-  }) => _s.aplicarCambiosCobertura(
-    empresaId: empresaId,
-    cambios: cambios,
-    nombresCentro: centros,
-  );
+    required List<InterventoriaUsuario> usuarios,
+    String archivo = '',
+  }) async {
+    final personas = prepararLote(cambios, {for (final u in usuarios) u.id: u});
+    await _repo.crear(
+      empresaId: empresaId,
+      userId: userId,
+      tipo: tipo,
+      personas: personas,
+      archivo: archivo,
+    );
+    await _s.aplicarCambiosCobertura(
+      empresaId: empresaId,
+      cambios: cambios,
+      nombresCentro: centros,
+    );
+  }
+
+  Future<List<LoteCobertura>> lotes(String empresaId) =>
+      _repo.listar(empresaId);
+
+  /// Devuelve a cada persona del lote a como estaba, salvo a quien alguien
+  /// cambió después.
+  Future<ResultadoDeshacer> deshacer({
+    required String empresaId,
+    required String userId,
+    required LoteCobertura lote,
+    required Map<String, String> centros,
+  }) async {
+    final actuales = {
+      for (final u in await _s.listarUsuariosActivos(empresaId)) u.id: u,
+    };
+    final plan = planDeshacer(await _repo.personasDe(lote.id), actuales);
+    if (plan.cambios.isNotEmpty) {
+      await _s.aplicarCambiosCobertura(
+        empresaId: empresaId,
+        cambios: plan.cambios,
+        nombresCentro: centros,
+      );
+    }
+    await _repo.marcarRevertido(lote.id, userId);
+    return plan;
+  }
 }
 
 /// Admin › Tareas y notificaciones › Cobertura. Revisa de un vistazo a quién
@@ -63,10 +111,12 @@ class CoberturaPersonalService {
 class AdminCoberturaPersonalPanel extends StatefulWidget {
   const AdminCoberturaPersonalPanel({
     super.key,
+    required this.userId,
     required this.empresaId,
     this.service,
   });
 
+  final String userId;
   final String empresaId;
   final CoberturaPersonalService? service;
 
@@ -86,6 +136,9 @@ class _AdminCoberturaPersonalPanelState
   List<InterventoriaUsuario> _usuarios = const [];
   bool _cargando = true;
   bool _aplicando = false;
+  bool _historial = false;
+  bool _cargandoLotes = false;
+  List<LoteCobertura> _lotes = const [];
   String? _error;
 
   EstadoCobertura? _estado = EstadoCobertura.gruposSinEfecto;
@@ -151,6 +204,215 @@ class _AdminCoberturaPersonalPanelState
     for (final p in _personas)
       if (_seleccion.contains(p.usuario.id)) p,
   ];
+
+  // ── Historial y deshacer ───────────────────────────────────────────────────
+
+  Widget _conmutador() => SegmentedButton<bool>(
+    showSelectedIcon: false,
+    segments: const [
+      ButtonSegment(
+        value: false,
+        icon: Icon(Icons.people_outline),
+        label: Text('Personal'),
+      ),
+      ButtonSegment(
+        value: true,
+        icon: Icon(Icons.history),
+        label: Text('Historial y deshacer'),
+      ),
+    ],
+    selected: {_historial},
+    onSelectionChanged: (v) {
+      setState(() => _historial = v.first);
+      if (v.first) _cargarLotes();
+    },
+  );
+
+  Future<void> _cargarLotes() async {
+    setState(() => _cargandoLotes = true);
+    try {
+      final l = await _service.lotes(widget.empresaId);
+      if (mounted) setState(() => _lotes = l);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: _peligro,
+            content: Text('No se pudo leer el historial: $e'),
+          ),
+        );
+      }
+    }
+    if (mounted) setState(() => _cargandoLotes = false);
+  }
+
+  Future<void> _deshacer(LoteCobertura lote) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Deshacer este cambio'),
+        content: Text(
+          'Se devuelve a las ${lote.total} personas de este lote a como '
+          'estaban antes (${lote.tipo.etiqueta}). A quien alguien haya '
+          'cambiado después no se le toca.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Deshacer'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _aplicando = true);
+    try {
+      final r = await _service.deshacer(
+        empresaId: widget.empresaId,
+        userId: widget.userId,
+        lote: lote,
+        centros: _centros,
+      );
+      final partes = <String>[
+        '${r.cambios.length} restauradas',
+        '${r.sinCambio} ya estaban como antes',
+        if (r.modificadasDespues.isNotEmpty)
+          '${r.modificadasDespues.length} no se tocaron porque se cambiaron '
+              'después (${r.modificadasDespues.take(3).join(', ')}'
+              '${r.modificadasDespues.length > 3 ? '…' : ''})',
+        if (r.noEncontradas.isNotEmpty)
+          '${r.noEncontradas.length} ya no están activas',
+      ];
+      messenger.showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 8),
+          content: Text('Listo: ${partes.join(', ')}.'),
+        ),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          backgroundColor: _peligro,
+          content: Text('No se pudo deshacer: $e'),
+        ),
+      );
+    }
+    if (mounted) {
+      setState(() => _aplicando = false);
+      await _cargarLotes();
+      await _cargar();
+    }
+  }
+
+  Widget _vistaHistorial() => LayoutBuilder(
+    builder: (context, c) {
+      final pad = c.maxWidth >= 720 ? 24.0 : 12.0;
+      return ListView(
+        padding: EdgeInsets.fromLTRB(pad, 8, pad, 24),
+        children: [
+          _conmutador(),
+          const SizedBox(height: 10),
+          const Text(
+            'Cada cambio masivo (quitar grupos, fijar centro de costos o '
+            'importar un Excel) guarda cómo estaba cada persona. Aquí lo '
+            'puedes deshacer si hubo un error.',
+            style: TextStyle(color: _muted, height: 1.4),
+          ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: IconButton(
+              tooltip: 'Actualizar',
+              onPressed: _cargandoLotes || _aplicando ? null : _cargarLotes,
+              icon: const Icon(Icons.refresh),
+            ),
+          ),
+          if (_cargandoLotes || _aplicando)
+            const LinearProgressIndicator(minHeight: 2),
+          if (_lotes.isEmpty && !_cargandoLotes)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 28),
+              child: Center(
+                child: Text(
+                  'Todavía no hay cambios masivos.',
+                  style: TextStyle(color: _muted),
+                ),
+              ),
+            )
+          else
+            PagedListSection<LoteCobertura>(
+              items: _lotes,
+              etiqueta: 'cambios',
+              itemBuilder: (context, l, _) => _tarjetaLote(l),
+            ),
+        ],
+      );
+    },
+  );
+
+  Widget _tarjetaLote(LoteCobertura l) {
+    String dos(int n) => n.toString().padLeft(2, '0');
+    final f = l.creada;
+    final fecha = f == null
+        ? ''
+        : '${dos(f.day)}/${dos(f.month)}/${f.year} ${dos(f.hour)}:${dos(f.minute)}';
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border.all(color: l.revertido ? _border : _aviso),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${l.tipo.etiqueta} · ${l.total} personas',
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            [
+              fecha,
+              if (l.archivo.isNotEmpty) l.archivo,
+            ].where((e) => e.isNotEmpty).join(' · '),
+            style: const TextStyle(color: _muted, fontSize: 12.5),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              const Text(
+                'Por: ',
+                style: TextStyle(color: _muted, fontSize: 12.5),
+              ),
+              Expanded(
+                child: UserNameText(
+                  l.creadoPor,
+                  style: const TextStyle(fontSize: 12.5),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          l.revertido
+              ? const Text(
+                  'Deshecho',
+                  style: TextStyle(color: _muted, fontWeight: FontWeight.w700),
+                )
+              : FilledButton.tonalIcon(
+                  onPressed: _aplicando ? null : () => _deshacer(l),
+                  icon: const Icon(Icons.undo),
+                  label: const Text('Deshacer este cambio'),
+                ),
+        ],
+      ),
+    );
+  }
 
   // ── Excel ──────────────────────────────────────────────────────────────────
 
@@ -246,8 +508,12 @@ class _AdminCoberturaPersonalPanelState
     try {
       await _service.aplicar(
         empresaId: widget.empresaId,
+        userId: widget.userId,
+        tipo: TipoLoteCobertura.excel,
+        archivo: picked.files.single.name,
         cambios: r.cambios,
         centros: _centros,
+        usuarios: _usuarios,
       );
       messenger.showSnackBar(
         SnackBar(
@@ -271,6 +537,7 @@ class _AdminCoberturaPersonalPanelState
   Future<void> _ejecutar(
     String titulo,
     String detalle,
+    TipoLoteCobertura tipo,
     List<CambioCobertura> cambios,
   ) async {
     if (cambios.isEmpty) return;
@@ -301,8 +568,11 @@ class _AdminCoberturaPersonalPanelState
     try {
       await _service.aplicar(
         empresaId: widget.empresaId,
+        userId: widget.userId,
+        tipo: tipo,
         cambios: cambios,
         centros: _centros,
+        usuarios: _usuarios,
       );
       messenger.showSnackBar(
         SnackBar(content: Text('Listo: ${cambios.length} actualizadas.')),
@@ -335,6 +605,7 @@ class _AdminCoberturaPersonalPanelState
         ),
       );
     }
+    if (_historial) return _vistaHistorial();
     final visibles = _visibles;
     final cargos = {
       for (final p in _personas)
@@ -351,6 +622,8 @@ class _AdminCoberturaPersonalPanelState
         return ListView(
           padding: EdgeInsets.fromLTRB(pad, 8, pad, 24),
           children: [
+            _conmutador(),
+            const SizedBox(height: 10),
             const Text(
               'La cobertura decide a quién le llega cada hallazgo: sus '
               'centros de operación y de trabajo, más las sedes de los grupos '
@@ -358,6 +631,7 @@ class _AdminCoberturaPersonalPanelState
               'muchos a la vez.',
               style: TextStyle(color: _muted, height: 1.4),
             ),
+            const SizedBox(height: 10),
             _excel(),
             const SizedBox(height: 12),
             Wrap(
@@ -504,6 +778,7 @@ class _AdminCoberturaPersonalPanelState
                   'Quitar grupos',
                   'A estas personas se les quitan los grupos de Interventoría: '
                       'su cargo no los usa y solo cubrirán sus centros propios.',
+                  TipoLoteCobertura.quitarGrupos,
                   quitables,
                 ),
           icon: const Icon(Icons.layers_clear_outlined),
@@ -516,6 +791,7 @@ class _AdminCoberturaPersonalPanelState
                   'Fijar centro de costos como sede',
                   'Su centro de costos pasa a ser su centro de operación, para '
                       'que la sede quede explícita.',
+                  TipoLoteCobertura.fijarCentroDeCostos,
                   fijables,
                 ),
           icon: const Icon(Icons.push_pin_outlined),

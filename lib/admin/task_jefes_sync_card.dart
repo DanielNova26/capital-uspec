@@ -134,12 +134,11 @@ class _TaskJefesSyncCardState extends State<TaskJefesSyncCard> {
                   label: const Text('Revisar'),
                 ),
                 FilledButton.icon(
-                  onPressed:
-                      _ocupado || r == null || r['aplicado'] == true
-                          ? null
-                          : (_n('desactualizadas') == 0
-                                ? null
-                                : () => _llamar(aplicar: true)),
+                  onPressed: _ocupado || r == null || r['aplicado'] == true
+                      ? null
+                      : (_n('desactualizadas') == 0
+                            ? null
+                            : () => _llamar(aplicar: true)),
                   icon: const Icon(Icons.sync_rounded),
                   label: const Text('Sincronizar tareas'),
                 ),

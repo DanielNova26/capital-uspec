@@ -70,10 +70,14 @@ class AdminMigrationService {
         },
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
-      batch.set(_db.collection('TBL_ESTRUCTURA_ORGANIZACIONAL').doc(user.id), {
-        if (fullName.isNotEmpty) 'nombre': fullName,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      batch.set(
+        _db.collection('TBL_ESTRUCTURA_ORGANIZACIONAL').doc(user.id),
+        {
+          if (fullName.isNotEmpty) 'nombre': fullName,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
       writes += 2;
 
       final employee = await _db

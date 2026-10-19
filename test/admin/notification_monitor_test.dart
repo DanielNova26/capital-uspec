@@ -59,7 +59,10 @@ void main() {
       isFalse,
     );
     expect(
-      llegoFueraDeSede(_aviso(userId: '1', tipo: 'interventoria_seguimiento'), otra),
+      llegoFueraDeSede(
+        _aviso(userId: '1', tipo: 'interventoria_seguimiento'),
+        otra,
+      ),
       isFalse,
     );
     expect(
@@ -107,24 +110,27 @@ void main() {
 }
 
 void candidatos() {
-  test('los candidatos cubren la sede, reciben tareas y no son quien la tiene', () {
-    final datos = DatosMonitor(
-      avisos: const [],
-      usuarios: {
-        '1': _persona('1', cubre: {'moniquira'}),
-        '2': _persona('2', cubre: {'guateque'}),
-        '3': _persona('3', cubre: {'guateque'}),
-        '4': _persona('4', cubre: {'guateque'}),
-      },
-      // El 3 está marcado como no operativo: no recibe tareas.
-      asignablesIds: {'1', '2', '4'},
-      truncado: false,
-      dias: 7,
-    );
-    final aviso = _aviso(userId: '4');
-    final ids = candidatosParaSede(aviso, datos).map((p) => p.id).toList();
-    expect(ids, ['2']);
-  });
+  test(
+    'los candidatos cubren la sede, reciben tareas y no son quien la tiene',
+    () {
+      final datos = DatosMonitor(
+        avisos: const [],
+        usuarios: {
+          '1': _persona('1', cubre: {'moniquira'}),
+          '2': _persona('2', cubre: {'guateque'}),
+          '3': _persona('3', cubre: {'guateque'}),
+          '4': _persona('4', cubre: {'guateque'}),
+        },
+        // El 3 está marcado como no operativo: no recibe tareas.
+        asignablesIds: {'1', '2', '4'},
+        truncado: false,
+        dias: 7,
+      );
+      final aviso = _aviso(userId: '4');
+      final ids = candidatosParaSede(aviso, datos).map((p) => p.id).toList();
+      expect(ids, ['2']);
+    },
+  );
 }
 
 void explicacion() {
@@ -152,7 +158,9 @@ void explicacion() {
   test('explica que nadie con el cargo cubre la sede', () {
     final datos = DatosMonitor(
       avisos: const [],
-      usuarios: {'1': calidad('1', {'picota'})},
+      usuarios: {
+        '1': calidad('1', {'picota'}),
+      },
       asignablesIds: {'1'},
       centros: const {'picota': 'Picota'},
       truncado: false,
@@ -219,23 +227,26 @@ void opciones() {
     expect(o.haySugeridos, isTrue);
   });
 
-  test('sin nadie que cumpla ofrece a todo el personal, los de la sede primero', () {
-    final datos = DatosMonitor(
-      avisos: const [],
-      usuarios: {
-        '1': u('1', 'Coordinador De Calidad', {'picota'}),
-        '3': u('3', 'Administrador', {'lamesa'}),
-        '4': u('4', 'Nutricionista', {'otra'}),
-        '5': u('5', 'Nutricionista', {'lamesa'}),
-      },
-      asignablesIds: {'3', '4', '5'},
-      truncado: false,
-      dias: 7,
-    );
-    final o = opcionesReasignacion(aviso(), datos);
-    expect(o.haySugeridos, isFalse);
-    expect(o.resto.map((e) => e.persona.id), ['3', '5', '4']);
-    expect(o.resto.first.cubreSede, isTrue);
-    expect(o.resto.last.cubreSede, isFalse);
-  });
+  test(
+    'sin nadie que cumpla ofrece a todo el personal, los de la sede primero',
+    () {
+      final datos = DatosMonitor(
+        avisos: const [],
+        usuarios: {
+          '1': u('1', 'Coordinador De Calidad', {'picota'}),
+          '3': u('3', 'Administrador', {'lamesa'}),
+          '4': u('4', 'Nutricionista', {'otra'}),
+          '5': u('5', 'Nutricionista', {'lamesa'}),
+        },
+        asignablesIds: {'3', '4', '5'},
+        truncado: false,
+        dias: 7,
+      );
+      final o = opcionesReasignacion(aviso(), datos);
+      expect(o.haySugeridos, isFalse);
+      expect(o.resto.map((e) => e.persona.id), ['3', '5', '4']);
+      expect(o.resto.first.cubreSede, isTrue);
+      expect(o.resto.last.cubreSede, isFalse);
+    },
+  );
 }

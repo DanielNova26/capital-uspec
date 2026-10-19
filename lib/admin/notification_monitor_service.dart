@@ -106,7 +106,9 @@ class AvisoMonitor {
       numeral: t('numeral'),
       automatica: m['automatica'] == true,
       asignadaPor: t('asignadaPor'),
-      taskNumero: m['taskNumero'] is num ? (m['taskNumero'] as num).toInt() : null,
+      taskNumero: m['taskNumero'] is num
+          ? (m['taskNumero'] as num).toInt()
+          : null,
       creada: DateTime.fromMillisecondsSinceEpoch(
         m['creadaMs'] is num ? (m['creadaMs'] as num).toInt() : 0,
       ),
@@ -136,7 +138,6 @@ bool llegoFueraDeSede(AvisoMonitor aviso, InterventoriaUsuario? persona) =>
     aviso.sedeId.isNotEmpty &&
     persona != null &&
     !persona.cubreCentro(aviso.sedeId);
-
 
 /// Personas a quienes sí les corresponde la sede del aviso y que pueden
 /// recibir tareas, sin quien la tiene hoy. Las que ya la cubren primero por
@@ -354,10 +355,7 @@ class NotificationMonitorService {
   final FirebaseFunctions _functions;
   final InterventoriaService? _interventoria;
 
-  Future<DatosMonitor> cargar({
-    required String empresaId,
-    int dias = 7,
-  }) async {
+  Future<DatosMonitor> cargar({required String empresaId, int dias = 7}) async {
     final svc = _interventoria ?? InterventoriaService();
     final resultados = await Future.wait<Object>([
       _functions
@@ -424,9 +422,10 @@ String explicarAlerta(AvisoMonitor aviso, DatosMonitor datos) {
   final cubre = persona == null
       ? <String>[]
       : [
-          for (final id in persona.centrosAsignadosIds.isEmpty
-              ? [if (persona.centroId.isNotEmpty) persona.centroId]
-              : persona.centrosAsignadosIds)
+          for (final id
+              in persona.centrosAsignadosIds.isEmpty
+                  ? [if (persona.centroId.isNotEmpty) persona.centroId]
+                  : persona.centrosAsignadosIds)
             datos.centros[id] ?? id,
         ];
   final sedesDe = cubre.isEmpty
@@ -443,7 +442,10 @@ String explicarAlerta(AvisoMonitor aviso, DatosMonitor datos) {
           afinidadCargo(cargo, u.cargo) != null)
         u,
   ];
-  final enSede = [for (final u in conCargo) if (u.cubreCentro(aviso.sedeId)) u];
+  final enSede = [
+    for (final u in conCargo)
+      if (u.cubreCentro(aviso.sedeId)) u,
+  ];
   final regla =
       'La regla${aviso.numeral.isEmpty ? '' : ' del numeral ${aviso.numeral}'}'
       ' pide el cargo "$cargo".';
@@ -514,7 +516,8 @@ OpcionesReasignacion opcionesReasignacion(
       areaId: u.areaId,
       cubreSede: cubre,
     );
-    final cargoCoincide = cargo.isEmpty || afinidadCargo(cargo, u.cargo) != null;
+    final cargoCoincide =
+        cargo.isEmpty || afinidadCargo(cargo, u.cargo) != null;
     (cubre && cargoCoincide ? sugeridos : resto).add(opcion);
   }
   int porNombre(OpcionReasignar a, OpcionReasignar b) =>

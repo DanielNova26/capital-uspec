@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:todo/admin/cobertura_lotes.dart';
 import 'package:todo/admin/cobertura_personal_logic.dart';
 import 'package:todo/admin/cobertura_personal_panel.dart';
 import 'package:todo/interventoria/interventoria_models.dart';
@@ -40,19 +41,70 @@ class _Falso implements CoberturaPersonalService {
   >
   cargar(String empresaId) async => (
     usuarios: [
-      _u('1', centroId: 'moniquira', operacion: {'moniquira'}, grupos: {'G7'}, ignorados: true),
-      _u('2', cargo: 'Coordinador de calidad', operacion: {'picota'}, grupos: {'G7'}, porGrupo: {'guateque'}),
+      _u(
+        '1',
+        centroId: 'moniquira',
+        operacion: {'moniquira'},
+        grupos: {'G7'},
+        ignorados: true,
+      ),
+      _u(
+        '2',
+        cargo: 'Coordinador de calidad',
+        operacion: {'picota'},
+        grupos: {'G7'},
+        porGrupo: {'guateque'},
+      ),
     ],
-    centros: {'moniquira': 'Moniquirá', 'picota': 'Picota', 'guateque': 'Guateque'},
+    centros: {
+      'moniquira': 'Moniquirá',
+      'picota': 'Picota',
+      'guateque': 'Guateque',
+    },
     centrosRef: <CentroCostoRef>[],
   );
+
+  List<LoteCobertura> lotesFalsos = [];
+  LoteCobertura? deshecho;
 
   @override
   Future<void> aplicar({
     required String empresaId,
+    required String userId,
+    required TipoLoteCobertura tipo,
     required List<CambioCobertura> cambios,
     required Map<String, String> centros,
-  }) async => aplicados = cambios;
+    required List<InterventoriaUsuario> usuarios,
+    String archivo = '',
+  }) async {
+    aplicados = cambios;
+    lotesFalsos = [
+      LoteCobertura(
+        id: 'l1',
+        tipo: tipo,
+        archivo: archivo,
+        creadoPor: userId,
+        creada: DateTime(2026, 10, 19, 14, 30),
+        total: cambios.length,
+        revertido: false,
+        revertidoPor: '',
+      ),
+    ];
+  }
+
+  @override
+  Future<List<LoteCobertura>> lotes(String empresaId) async => lotesFalsos;
+
+  @override
+  Future<ResultadoDeshacer> deshacer({
+    required String empresaId,
+    required String userId,
+    required LoteCobertura lote,
+    required Map<String, String> centros,
+  }) async {
+    deshecho = lote;
+    return const ResultadoDeshacer();
+  }
 }
 
 void main() {
@@ -64,11 +116,17 @@ void main() {
 
     test('la marca escrita manda sobre el nombre', () {
       expect(
-        cargoUsaCoberturaPorGrupo({'nombre': 'Administrador', 'coberturaPorGrupo': true}),
+        cargoUsaCoberturaPorGrupo({
+          'nombre': 'Administrador',
+          'coberturaPorGrupo': true,
+        }),
         isTrue,
       );
       expect(
-        cargoUsaCoberturaPorGrupo({'nombre': 'Coordinador', 'coberturaPorGrupo': 'No'}),
+        cargoUsaCoberturaPorGrupo({
+          'nombre': 'Coordinador',
+          'coberturaPorGrupo': 'No',
+        }),
         isFalse,
       );
       expect(cargoUsaCoberturaPorGrupo({'nombre': 'Administrador'}), isFalse);
@@ -78,7 +136,13 @@ void main() {
   group('diagnóstico', () {
     test('grupos que el cargo no usa', () {
       final p = diagnosticarCobertura(
-        _u('1', centroId: 'moniquira', operacion: {'moniquira'}, grupos: {'G7'}, ignorados: true),
+        _u(
+          '1',
+          centroId: 'moniquira',
+          operacion: {'moniquira'},
+          grupos: {'G7'},
+          ignorados: true,
+        ),
       );
       expect(p.estado, EstadoCobertura.gruposSinEfecto);
       expect(p.puedeQuitarGrupos, isTrue);
@@ -89,13 +153,22 @@ void main() {
         diagnosticarCobertura(_u('1', centroId: 'moniquira')).estado,
         EstadoCobertura.soloCentroDeCostos,
       );
-      expect(diagnosticarCobertura(_u('2')).estado, EstadoCobertura.sinCobertura);
+      expect(
+        diagnosticarCobertura(_u('2')).estado,
+        EstadoCobertura.sinCobertura,
+      );
     });
 
     test('cobertura propia o por grupo del cargo es correcta', () {
       expect(
         diagnosticarCobertura(
-          _u('1', cargo: 'Coordinador', operacion: {'picota'}, grupos: {'G7'}, porGrupo: {'guateque'}),
+          _u(
+            '1',
+            cargo: 'Coordinador',
+            operacion: {'picota'},
+            grupos: {'G7'},
+            porGrupo: {'guateque'},
+          ),
         ).estado,
         EstadoCobertura.correcta,
       );
@@ -103,15 +176,23 @@ void main() {
 
     test('las acciones masivas solo tocan a quien corresponde', () {
       final ps = [
-        diagnosticarCobertura(_u('1', operacion: {'moniquira'}, grupos: {'G7'}, ignorados: true)),
-        diagnosticarCobertura(_u('2', centroId: 'moniquira', grupos: {'G7'}, ignorados: true)),
+        diagnosticarCobertura(
+          _u('1', operacion: {'moniquira'}, grupos: {'G7'}, ignorados: true),
+        ),
+        diagnosticarCobertura(
+          _u('2', centroId: 'moniquira', grupos: {'G7'}, ignorados: true),
+        ),
         diagnosticarCobertura(_u('3', centroId: 'picota')),
-        diagnosticarCobertura(_u('4', cargo: 'Coordinador', operacion: {'a'}, grupos: {'G1'})),
+        diagnosticarCobertura(
+          _u('4', cargo: 'Coordinador', operacion: {'a'}, grupos: {'G1'}),
+        ),
       ];
       expect(cambiosQuitarGrupos(ps).map((c) => c.userId), ['1', '2']);
       expect(cambiosQuitarGrupos(ps).first.quitarGrupos, {'G7'});
       expect(cambiosFijarCentroDeCostos(ps).map((c) => c.userId), ['2', '3']);
-      expect(cambiosFijarCentroDeCostos(ps).first.agregarCentros, {'moniquira'});
+      expect(cambiosFijarCentroDeCostos(ps).first.agregarCentros, {
+        'moniquira',
+      });
     });
   });
 
@@ -129,7 +210,11 @@ void main() {
               textScaler: const TextScaler.linear(1.6),
             ),
             child: Scaffold(
-              body: AdminCoberturaPersonalPanel(empresaId: 'e1', service: falso),
+              body: AdminCoberturaPersonalPanel(
+                userId: 'admin',
+                empresaId: 'e1',
+                service: falso,
+              ),
             ),
           ),
         ),
@@ -137,7 +222,10 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      expect(find.textContaining('Grupos que su cargo no usa (1)'), findsOneWidget);
+      expect(
+        find.textContaining('Grupos que su cargo no usa (1)'),
+        findsOneWidget,
+      );
       expect(tester.takeException(), isNull);
       await tester.tap(find.textContaining('Seleccionar los 1'));
       await tester.pump();
@@ -148,6 +236,18 @@ void main() {
       await tester.pump();
       await tester.pump();
       expect(falso.aplicados.single.quitarGrupos, {'G7'});
+
+      // El cambio queda en el historial y se puede deshacer.
+      await tester.tap(find.textContaining('Historial y deshacer'));
+      await tester.pump();
+      await tester.pump();
+      expect(find.textContaining('Quitar grupos · 1 personas'), findsOneWidget);
+      await tester.tap(find.text('Deshacer este cambio'));
+      await tester.pump();
+      await tester.tap(find.text('Deshacer'));
+      await tester.pump();
+      await tester.pump();
+      expect(falso.deshecho?.id, 'l1');
     });
   }
 }

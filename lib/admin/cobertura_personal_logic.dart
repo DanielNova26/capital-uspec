@@ -78,16 +78,17 @@ PersonaCobertura diagnosticarCobertura(InterventoriaUsuario u) {
 }
 
 /// Quita los grupos de las personas cuyo cargo no los usa.
-List<CambioCobertura> cambiosQuitarGrupos(Iterable<PersonaCobertura> personas) =>
-    [
-      for (final p in personas)
-        if (p.puedeQuitarGrupos)
-          CambioCobertura(
-            userId: p.usuario.id,
-            nombre: p.usuario.nombre,
-            quitarGrupos: p.usuario.grupos,
-          ),
-    ];
+List<CambioCobertura> cambiosQuitarGrupos(
+  Iterable<PersonaCobertura> personas,
+) => [
+  for (final p in personas)
+    if (p.puedeQuitarGrupos)
+      CambioCobertura(
+        userId: p.usuario.id,
+        nombre: p.usuario.nombre,
+        quitarGrupos: p.usuario.grupos,
+      ),
+];
 
 /// Fija el centro de costos como centro de operación de quien no tiene
 /// cobertura propia, para que la sede quede explícita en Talento Humano.
