@@ -407,16 +407,23 @@ class CambioCobertura {
   /// Se agregan a `gruposInterventoria`.
   final Set<String> agregarGrupos;
 
+  /// Se quitan de `gruposInterventoria` (comparados ya normalizados: `G7`).
+  final Set<String> quitarGrupos;
+
   const CambioCobertura({
     required this.userId,
     required this.nombre,
     this.agregarCentros = const {},
     this.quitarCentros = const {},
     this.agregarGrupos = const {},
+    this.quitarGrupos = const {},
   });
 
   bool get vacio =>
-      agregarCentros.isEmpty && quitarCentros.isEmpty && agregarGrupos.isEmpty;
+      agregarCentros.isEmpty &&
+      quitarCentros.isEmpty &&
+      agregarGrupos.isEmpty &&
+      quitarGrupos.isEmpty;
 }
 
 /// Centros de costo de cada grupo (`G1` → {centros}).

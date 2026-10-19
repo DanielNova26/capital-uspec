@@ -601,6 +601,7 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
     // marca es una decisión explícita, nunca un efecto secundario de crear
     // un cargo nuevo.
     bool recibeAsignaciones = cargoRecibeAsignaciones(data);
+    bool usaGrupos = cargoUsaCoberturaPorGrupo(data);
 
     const border = OutlineInputBorder(
       borderRadius: BorderRadius.all(Radius.circular(10)),
@@ -899,6 +900,49 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
                         ),
                       ),
                     ),
+                    const SizedBox(height: 12),
+                    // ¿Los grupos de Interventoría le suman sedes a quien tiene
+                    // este cargo? Coordinadores y directores sí; Administrador
+                    // (uno por sede) no.
+                    Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFCBD5E1)),
+                      ),
+                      child: SwitchListTile(
+                        value: usaGrupos,
+                        onChanged: (val) =>
+                            setStateDialog(() => usaGrupos = val),
+                        activeThumbColor: _kPrimaryColor,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 2,
+                        ),
+                        title: const Text(
+                          'Cobertura por grupo',
+                          style: TextStyle(
+                            fontFamily: _kFontFamily,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        subtitle: Text(
+                          usaGrupos
+                              ? 'Los grupos de la persona le suman todas las '
+                                    'sedes del grupo (coordinadores, directores).'
+                              : 'Solo cubre sus centros de operación y de '
+                                    'trabajo. Sus grupos no le suman sedes '
+                                    '(administradores por sede).',
+                          style: const TextStyle(
+                            fontFamily: _kFontFamily,
+                            fontSize: 11,
+                            color: Color(0xFF64748B),
+                            height: 1.3,
+                          ),
+                        ),
+                      ),
+                    ),
                     const SizedBox(height: 8),
                   ],
                 ),
@@ -994,6 +1038,7 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
                         : ctrParentDesc.text.trim(),
                     'ordenJerarquico': hierarchyOrder,
                     kCampoRecibeAsignaciones: recibeAsignaciones,
+                    kCampoCoberturaPorGrupo: usaGrupos,
                   };
                   final col = FirebaseFirestore.instance.collection(
                     _cargosCollection,

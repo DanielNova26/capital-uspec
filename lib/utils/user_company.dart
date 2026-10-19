@@ -923,3 +923,30 @@ bool esPersonaAsignable(
 }) =>
     isPersonaActivaEnEmpresa(data, empresaId) &&
     recibeAsignacionesEnEmpresa(data, empresaId, marcaDelCargo: marcaDelCargo);
+
+/// Marca del cargo en `TBL_CARGOS`: ¿los grupos de Interventoría de la persona
+/// le suman sedes? Un coordinador o un director atienden todo un grupo; un
+/// administrador es de una sola sede y su cobertura sale de sus centros
+/// propios. Sin marca escrita, manda el nombre del cargo
+/// ([cargoUsaGruposPorDefecto]).
+const String kCampoCoberturaPorGrupo = 'coberturaPorGrupo';
+
+/// Valor por defecto según el nombre del cargo: los "administrador" (por sede)
+/// no usan grupos; el resto sí.
+bool cargoUsaGruposPorDefecto(String nombreCargo) =>
+    !nombreCargo.toLowerCase().contains('administrador');
+
+/// ¿El cargo suma las sedes de los grupos de la persona? Lee la marca del
+/// documento del cargo (acepta booleano o texto de Excel) y, si no está,
+/// decide por el nombre.
+bool cargoUsaCoberturaPorGrupo(Map<String, dynamic> cargo, {String nombre = ''}) {
+  final raw = cargo[kCampoCoberturaPorGrupo];
+  if (raw is bool) return raw;
+  final text = (raw ?? '').toString().trim().toLowerCase();
+  if (const {'false', 'no', '0', 'n'}.contains(text)) return false;
+  if (const {'true', 'si', 'sí', '1', 's'}.contains(text)) return true;
+  final nombreCargo = nombre.isNotEmpty
+      ? nombre
+      : (cargo['nombre'] ?? cargo['cargoId'] ?? '').toString();
+  return cargoUsaGruposPorDefecto(nombreCargo);
+}

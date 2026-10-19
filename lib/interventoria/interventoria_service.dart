@@ -139,6 +139,9 @@ class InterventoriaUsuario {
   /// Grupos de Interventoría, normalizados (`G1`, `G9`...).
   final Set<String> grupos;
 
+  /// Tiene grupos marcados pero su cargo no los usa: no le suman sedes.
+  final bool gruposIgnorados;
+
   /// Jefe inmediato en ESTA empresa (cédula). Es el aprobador que se propone
   /// cuando el maestro no define uno para el numeral.
   final String jefeId;
@@ -153,6 +156,7 @@ class InterventoriaUsuario {
     this.centrosOperacionIds = const {},
     this.centrosTrabajoIds = const {},
     this.grupos = const {},
+    this.gruposIgnorados = false,
     this.jefeId = '',
   });
 
@@ -171,6 +175,7 @@ class InterventoriaUsuario {
     centrosOperacionIds: centrosOperacionIds ?? this.centrosOperacionIds,
     centrosTrabajoIds: centrosTrabajoIds ?? this.centrosTrabajoIds,
     grupos: grupos ?? this.grupos,
+    gruposIgnorados: gruposIgnorados,
     jefeId: jefeId,
   );
 
@@ -2575,7 +2580,7 @@ class InterventoriaService {
 
   Future<
     ({
-      Map<String, ({String areaId, bool recibeAsignaciones})> porNombre,
+      Map<String, ({String areaId, bool recibeAsignaciones, bool usaGrupos})> porNombre,
       Map<String, String> nombrePorId,
     })
   >
@@ -2584,7 +2589,7 @@ class InterventoriaService {
         .collection('TBL_CARGOS')
         .where('empresaId', isEqualTo: empresaId)
         .get();
-    final out = <String, ({String areaId, bool recibeAsignaciones})>{};
+    final out = <String, ({String areaId, bool recibeAsignaciones, bool usaGrupos})>{};
     final porId = <String, String>{};
     for (final doc in snap.docs) {
       final data = doc.data();
@@ -2594,6 +2599,7 @@ class InterventoriaService {
       out[clave] = (
         areaId: (data['areaId'] ?? '').toString().trim(),
         recibeAsignaciones: cargoRecibeAsignaciones(data),
+        usaGrupos: cargoUsaCoberturaPorGrupo(data, nombre: nombre),
       );
       porId[doc.id] = nombre;
       final campoId = (data['cargoId'] ?? '').toString().trim();
@@ -2694,6 +2700,9 @@ class InterventoriaService {
           ..removeAll(cambio.quitarCentros);
         trabajo.removeAll(cambio.quitarCentros);
         grupos.addAll(cambio.agregarGrupos);
+        grupos.removeWhere(
+          (g) => cambio.quitarGrupos.contains(normalizarGrupoCentroCosto(g)),
+        );
 
         String nombre(String id) => nombresCentro[id] ?? id;
         final operacionIds = operacion.toList()..sort();
@@ -2831,7 +2840,7 @@ class InterventoriaService {
     // El área del cargo es un respaldo, no la fuente: si el usuario ya trae
     // areaId propio ese manda. Si TBL_CARGOS falla, se sigue sin áreas en
     // vez de quedarse sin lista de personal.
-    var perfilPorCargo = <String, ({String areaId, bool recibeAsignaciones})>{};
+    var perfilPorCargo = <String, ({String areaId, bool recibeAsignaciones, bool usaGrupos})>{};
     var nombrePorCargoId = <String, String>{};
     try {
       final perfiles = await _perfilPorCargo(empresaId);
@@ -2925,8 +2934,14 @@ class InterventoriaService {
       final grupos = stringSet(
         scoped?['gruposInterventoria'] ?? raiz['gruposInterventoria'],
       ).map(normalizarGrupoCentroCosto).where((g) => g.isNotEmpty).toSet();
-      for (final grupo in grupos) {
-        centrosAsignados.addAll(centrosPorGrupo[grupo] ?? const <String>{});
+      // Los cargos por sede (Administrador) no suman las sedes de su grupo:
+      // su cobertura son sus centros propios (`cargoUsaCoberturaPorGrupo`).
+      final usaGrupos =
+          perfilCargo?.usaGrupos ?? cargoUsaGruposPorDefecto(cargo);
+      if (usaGrupos) {
+        for (final grupo in grupos) {
+          centrosAsignados.addAll(centrosPorGrupo[grupo] ?? const <String>{});
+        }
       }
       var areaId = (scoped?['areaId'] ?? raiz['areaId'] ?? '')
           .toString()
@@ -2955,6 +2970,7 @@ class InterventoriaService {
           centrosOperacionIds: operacion,
           centrosTrabajoIds: trabajo,
           grupos: grupos,
+          gruposIgnorados: !usaGrupos && grupos.isNotEmpty,
           jefeId: jefeId == doc.id ? '' : jefeId,
         ),
       );

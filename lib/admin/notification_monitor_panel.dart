@@ -4,6 +4,7 @@ import '../core/area_directory.dart';
 import '../interventoria/interventoria_service.dart';
 import '../widgets/paged_list.dart';
 import '../widgets/user_avatar.dart';
+import 'cobertura_personal_panel.dart';
 import 'notification_master_panel.dart';
 import 'notification_monitor_service.dart';
 
@@ -33,7 +34,7 @@ class AdminNotificationsHub extends StatefulWidget {
 }
 
 class _AdminNotificationsHubState extends State<AdminNotificationsHub> {
-  bool _monitor = true;
+  String _vista = 'monitor';
 
   @override
   Widget build(BuildContext context) {
@@ -42,36 +43,46 @@ class _AdminNotificationsHubState extends State<AdminNotificationsHub> {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: SegmentedButton<bool>(
+          child: SegmentedButton<String>(
             showSelectedIcon: false,
             segments: const [
               ButtonSegment(
-                value: true,
+                value: 'monitor',
                 icon: Icon(Icons.monitor_heart_outlined),
                 label: Text('Monitor'),
               ),
               ButtonSegment(
-                value: false,
+                value: 'cobertura',
+                icon: Icon(Icons.groups_2_outlined),
+                label: Text('Cobertura'),
+              ),
+              ButtonSegment(
+                value: 'canales',
                 icon: Icon(Icons.tune_rounded),
                 label: Text('Canales'),
               ),
             ],
-            selected: {_monitor},
-            onSelectionChanged: (v) => setState(() => _monitor = v.first),
+            selected: {_vista},
+            onSelectionChanged: (v) => setState(() => _vista = v.first),
           ),
         ),
         Expanded(
-          child: _monitor
-              ? AdminNotificationMonitorPanel(
-                  key: ValueKey('monitor-${widget.empresaId}'),
-                  userId: widget.userId,
-                  empresaId: widget.empresaId,
-                )
-              : AdminNotificationMasterPanel(
-                  key: ValueKey('canales-${widget.empresaId}'),
-                  userId: widget.userId,
-                  empresaId: widget.empresaId,
-                ),
+          child: switch (_vista) {
+            'monitor' => AdminNotificationMonitorPanel(
+              key: ValueKey('monitor-${widget.empresaId}'),
+              userId: widget.userId,
+              empresaId: widget.empresaId,
+            ),
+            'cobertura' => AdminCoberturaPersonalPanel(
+              key: ValueKey('cobertura-${widget.empresaId}'),
+              empresaId: widget.empresaId,
+            ),
+            _ => AdminNotificationMasterPanel(
+              key: ValueKey('canales-${widget.empresaId}'),
+              userId: widget.userId,
+              empresaId: widget.empresaId,
+            ),
+          },
         ),
       ],
     );

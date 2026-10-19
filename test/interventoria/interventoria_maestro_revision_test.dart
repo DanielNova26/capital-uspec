@@ -89,6 +89,11 @@ class _ServicioFalso extends Fake implements InterventoriaService {
   ) async => const ['t1', 't2'];
 
   @override
+  Future<List<TareaFueraDeSede>> listarTareasFueraDeSede(
+    String empresaId,
+  ) async => const [];
+
+  @override
   Future<List<CorreccionResponsable>> revisarResponsablesDesdeTareas(
     String empresaId,
   ) async => const [
