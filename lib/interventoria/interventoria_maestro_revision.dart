@@ -65,6 +65,9 @@ class _InterventoriaMaestroRevisionState
   bool _revisandoGrupos = false;
   bool _reasignandoGrupos = false;
 
+  /// Tareas automáticas con responsable de otra sede (solo informativo).
+  List<TareaFueraDeSede> _fueraDeSede = const [];
+
   List<String> _catalogo = const [];
   List<InterventoriaUsuario> _activos = const [];
   List<InterventoriaUsuario> _asignables = const [];
@@ -119,6 +122,7 @@ class _InterventoriaMaestroRevisionState
         svc.listarHallazgosSinTarea(eid),
         svc.listarTareasAutomaticasANombreDePersona(eid),
         svc.revisarResponsablesDesdeTareas(eid),
+        svc.listarTareasFueraDeSede(eid),
       ]);
       if (!mounted) return;
       _catalogo = resultados[0] as List<String>;
@@ -128,6 +132,7 @@ class _InterventoriaMaestroRevisionState
       _sinTarea = resultados[4] as List<InterventoriaHallazgo>;
       _tareasANombreDePersona = (resultados[5] as List<String>).length;
       _responsablesViejos = resultados[6] as List<CorreccionResponsable>;
+      _fueraDeSede = resultados[7] as List<TareaFueraDeSede>;
       _recalcular();
       setState(() => _cargando = false);
     } catch (e) {
@@ -1073,8 +1078,48 @@ class _InterventoriaMaestroRevisionState
         _seccionReasignarGrupos(),
         const SizedBox(height: 14),
       ],
+      if (_fueraDeSede.isNotEmpty) ...[
+        _seccionFueraDeSede(),
+        const SizedBox(height: 14),
+      ],
       _vistaSinTarea(),
     ],
+  );
+
+  Widget _seccionFueraDeSede() => _Seccion(
+    titulo: 'Tareas con responsable de otra sede',
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text(
+          'Tareas automáticas abiertas cuyo responsable no cubre la sede del '
+          'hallazgo: en la sede no había titular del cargo y la asignación '
+          'cayó en alguien de otra. Reasígnalas en el tablero de asignación, '
+          'o carga la cobertura de la sede en Talento Humano.',
+          style: TextStyle(fontSize: 13, height: 1.4),
+        ),
+        const SizedBox(height: 10),
+        _FilaConteo(
+          texto: 'Tareas fuera de su sede',
+          valor: _fueraDeSede.length,
+          color: _kAviso,
+        ),
+        const Divider(height: 20),
+        PagedListSection<TareaFueraDeSede>(
+          items: _fueraDeSede,
+          etiqueta: 'tareas',
+          itemBuilder: (context, t, _) => Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Text(
+              '${t.sede} · ${t.numeral}'
+              '${t.numeroTarea == null ? '' : ' · Tarea No. ${t.numeroTarea}'}'
+              ': ${t.responsableNombre} (${t.responsableCargo})',
+              style: const TextStyle(fontSize: 12.5, height: 1.3),
+            ),
+          ),
+        ),
+      ],
+    ),
   );
 
   // ── Reasignar por grupos ───────────────────────────────────────────────────

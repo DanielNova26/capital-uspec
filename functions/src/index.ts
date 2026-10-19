@@ -36,6 +36,9 @@ export { adminLimpiezaModulo } from "./limpieza";
 // Maestros por módulo de Admin: copiar lo que falta a otras empresas.
 export { adminSincronizarMaestros } from "./maestros";
 
+// Monitor de notificaciones de Admin: a quién llegan, por sede y con qué entrega.
+export { adminMonitorNotificaciones } from "./notificaciones_monitor";
+
 // ICD-11 token broker + proxy (Fase B)
 export { carnetPublico } from "./carnet";
 export { icd11Search } from "./icd11";

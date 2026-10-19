@@ -86,7 +86,7 @@ import 'compras_periodo_consumo_card.dart';
 import 'correo_admin_panel.dart';
 import 'dian_tokens_admin_panel.dart';
 import 'security_admin_panel.dart';
-import 'notification_master_panel.dart';
+import 'notification_monitor_panel.dart';
 import 'whatsapp_admin_panel.dart';
 import 'migrations/admin_migration_service.dart';
 import 'grupos_empresa_panel.dart';
@@ -2808,7 +2808,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           userId: widget.userId,
           empresaId: empresaId,
         ),
-        PanelAdminModulo.notificaciones => AdminNotificationMasterPanel(
+        PanelAdminModulo.notificaciones => AdminNotificationsHub(
           key: ValueKey('notificaciones-$empresaId'),
           userId: widget.userId,
           empresaId: empresaId,

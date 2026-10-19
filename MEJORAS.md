@@ -97,6 +97,17 @@
   credencial responde 401 por HTTPS. El paquete Arduino está también en
   `Downloads/TO_DO_Bio_2.4.0.zip`. No contiene claves reales.
 
+## 2026-10-16 — Biométrico: firmware 2.5.0, animación de inicio (Claude)
+
+- Verificado el borrado definitivo de huellas de Codex (2.7.2/2.4.0): 210 pruebas de servidor, 10 con emulador
+  (incluye borrado con ACK del equipo) y 13 de pantalla aprobadas; Web 2.7.2 (47) en producción. Una edición mía
+  paralela (`eliminarDispositivo`) se retiró: duplicaba lo pedido y no se publicó.
+- Inicio animado: logo que crece, TO-DO letra por letra y luego una huella que se ilumina de arriba hacia abajo
+  mientras se consulta el sensor ("N de C huellas") y se conecta el WiFi; la interfaz principal se pinta al terminar
+  (`uiLista`). Melodía de 5 notas lista para un buzzer pasivo: poner su GPIO en `PIN_BUZZER` (hoy -1, sin buzzer).
+- Compilado con el `arduino-cli` de `%TEMP%/todo-bio-arduino-cli`: ESP32-S3, 16 MB, PSRAM OPI, CDC; 1.159.107 bytes
+  (88%), globales 49.900 (15%). Falta la prueba física.
+
 ## 2026-10-16 — Biométrico: firmware 2.3.0, fluidez y mensajes (Claude)
 
 - Causa del parpadeo: la pantalla usaba SPI por software (lento). Ahora SPI de hardware (pines 10/11/12/13, los
@@ -11628,3 +11639,13 @@ Acta: «La reunión se inició a las 2026_10_15 18_27». Código: `functions/src
   Credencial del equipo entregada en el archivo local
   `C:/Users/LENOVO/Downloads/ToDo-ESP32-API-pruebas.h`, fuera del repositorio.
   Código subido a `main` en `0fb6fa7`.
+
+## Interventoría: asignación automática solo a titulares de la sede (19 oct 2026)
+- `_asignarEnLote` ahora exige responsable del establecimiento (igual que el tablero). Sin titular en la sede el hallazgo queda "Sin asignar" con el motivo en `errores`. Caso: la administradora de Moniquirá recibía avisos de UAT, Guateque, Ponal y Modelo por ser la única con el cargo.
+- Maestro › Revisión › Pendientes lista "Tareas con responsable de otra sede" (`listarTareasFueraDeSede`, solo lectura) para reasignarlas en el tablero. Sin probar contra datos reales ni en móvil/iOS.
+- Pendiente: cargar cobertura (Talento Humano) de las sedes sin administrador.
+
+## Admin › Tareas y notificaciones › Monitor (19 oct 2026)
+- Nuevo monitor de solo lectura: a quién llega cada aviso, de qué establecimiento y si el push se entregó. Vistas: Alertas, Por establecimiento, Por persona y Detalle; filtros por periodo (hoy/7/30 días), módulo y búsqueda. Marca los avisos de "te toca subsanar" de Interventoría que llegaron a quien no cubre la sede (misma cobertura que usa la asignación: operación, trabajo y grupos).
+- Servidor: callable `adminMonitorNotificaciones` (`functions/src/notificaciones_monitor.ts`), solo Admin de la empresa activa, lee `collectionGroup('notifications')` filtrado por `empresaId`. **Requiere desplegar el índice nuevo** de `firestore.indexes.json` (`notifications`, ámbito grupo de colección: `empresaId` asc + `createdAt` desc) y la función. Sin el índice la consulta falla.
+- Limitaciones: tope de 600 avisos por consulta (se avisa si se alcanza); solo ve avisos con `empresaId`; la alerta de "otra sede" aplica únicamente a Interventoría. Pruebas: lógica y anchos 390/768/1024/1366 con texto 1.6 en Flutter; sin probar contra producción ni en dispositivos Android/iOS reales.

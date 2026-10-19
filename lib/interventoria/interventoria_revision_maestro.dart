@@ -737,6 +737,35 @@ DecisionReasignacionGrupo decidirReasignacionPorGrupo({
 }
 
 /// Una tarea que la reasignación por grupos movería (o movió).
+/// Tarea automática abierta cuyo responsable no cubre la sede del hallazgo
+/// (la asignación antigua caía en alguien de otra sede si en la sede no había
+/// titular). Solo informa: se corrige a mano en el tablero de asignación.
+class TareaFueraDeSede {
+  final String hallazgoId;
+  final String taskId;
+  final int? numeroTarea;
+  final String sede;
+  final String numeral;
+  final String responsableId;
+  final String responsableNombre;
+  final String responsableCargo;
+
+  /// Sedes que el responsable sí cubre (ids), para ver de dónde es.
+  final int sedesQueCubre;
+
+  const TareaFueraDeSede({
+    required this.hallazgoId,
+    required this.taskId,
+    required this.numeroTarea,
+    required this.sede,
+    required this.numeral,
+    required this.responsableId,
+    required this.responsableNombre,
+    required this.responsableCargo,
+    required this.sedesQueCubre,
+  });
+}
+
 class ReasignacionPorGrupo {
   final InterventoriaHallazgo hallazgo;
   final String taskId;

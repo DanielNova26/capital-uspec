@@ -1261,6 +1261,9 @@ class InterventoriaService {
           creadorId: creadorId,
           creadorNombre: creadorNombre,
           notificarCreacion: false,
+          // Misma regla que el tablero: sin titular en la sede el hallazgo
+          // queda "Sin asignar" para decidirlo a mano, no viaja a otra sede.
+          exigirResponsableEnCentro: true,
           alCrear: tareas.add,
         );
         if (taskId == null || taskId.trim().isEmpty) {
@@ -3481,6 +3484,61 @@ class InterventoriaService {
     }
   }
 
+  /// Tareas automáticas abiertas cuyo responsable no cubre la sede del
+  /// hallazgo. Las asignadas a mano no entran: son una decisión consciente.
+  Future<List<TareaFueraDeSede>> listarTareasFueraDeSede(
+    String empresaId,
+  ) => enLote(() async {
+    final hallazgos = await _db
+        .collection('TBL_INTERVENTORIA_HALLAZGOS')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+    final tareasSnap = await _db
+        .collection('TBL_TAREAS')
+        .where('empresaId', isEqualTo: empresaId)
+        .where('sourceModule', isEqualTo: 'interventoria')
+        .get();
+    final tareas = {for (final d in tareasSnap.docs) d.id: d.data()};
+    final personal = {
+      for (final u in await _usuariosDeEmpresa(empresaId, soloAsignables: false))
+        u.id: u,
+    };
+    String texto(Object? v) => (v ?? '').toString().trim();
+    final filas = <TareaFueraDeSede>[];
+    for (final doc in hallazgos.docs) {
+      final h = InterventoriaHallazgo.fromMap(doc.id, doc.data());
+      final tareaId = h.tareaId.trim();
+      if (tareaId.isEmpty || h.isSubsanado || h.centroCostoId.trim().isEmpty) {
+        continue;
+      }
+      final tarea = tareas[tareaId];
+      if (tarea == null || !esAsignacionAutomaticaDeModulo(tarea)) continue;
+      final estado = texto(tarea['estado']).toLowerCase();
+      if (estado == 'finalizado' || estado == 'completada') continue;
+      final uid = texto(tarea['asignado_uid'] ?? tarea['assignedTo']);
+      final u = personal[uid];
+      if (u == null || u.cubreCentro(h.centroCostoId)) continue;
+      filas.add(
+        TareaFueraDeSede(
+          hallazgoId: h.id,
+          taskId: tareaId,
+          numeroTarea: int.tryParse(texto(tarea['numero'])),
+          sede: h.centroCostoNombre,
+          numeral: h.numeralParaMatriz,
+          responsableId: u.id,
+          responsableNombre: u.nombre,
+          responsableCargo: u.cargo,
+          sedesQueCubre: u.centrosAsignadosIds.length,
+        ),
+      );
+    }
+    filas.sort((a, b) {
+      final porResp = a.responsableNombre.compareTo(b.responsableNombre);
+      return porResp != 0 ? porResp : a.sede.compareTo(b.sede);
+    });
+    return filas;
+  });
+
   /// Hallazgos abiertos de la empresa que todavía no tienen tarea: lo que
   /// "Generar asignaciones pendientes" va a intentar asignar.
   Future<List<InterventoriaHallazgo>> listarHallazgosSinTarea(
@@ -3996,8 +4054,13 @@ class InterventoriaService {
     );
     if (exigirResponsableEnCentro &&
         asignacion?.responsable?.delCentro != true) {
+      final cargo = asignacion?.cargoResponsable.trim() ?? '';
+      final fuera = asignacion?.responsable;
       throw StateError(
-        'La asignación masiva solo admite responsables del establecimiento.',
+        'Sin titular en ${hallazgo.centroCostoNombre}'
+        '${cargo.isEmpty ? '' : ' para el cargo $cargo'}'
+        '${fuera == null ? ' (nadie tiene ese cargo en la empresa)' : ' (solo lo tiene ${fuera.nombre}, de otra sede)'}'
+        ': asígnalo a mano en el tablero.',
       );
     }
 

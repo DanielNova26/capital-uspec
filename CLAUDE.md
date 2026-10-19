@@ -40,9 +40,10 @@ revocación efectiva.
 
 ## Git: siempre en `main`, nunca en ramas
 En cada conversación trabaja sobre el checkout de `main`. No crees ni cambies
-a ramas. **Claude no ejecuta Git**: no hagas pull, add, commit, push ni merges.
-Codex es el único responsable de esas operaciones y de publicar los cambios
-en `main`, conforme a `AGENTS.md`.
+a ramas. Claude hace Git y GitHub para sus propios cambios, igual que Codex
+(pull, add, commit, push a `main`), conforme a `AGENTS.md`. Antes de confirmar
+revisa los archivos seleccionados para no incluir trabajo ajeno, y nunca
+fuerces un push.
 
 ## Comunicación en cada conversación
 Entrega al usuario solo el resultado final, la validación y los pendientes
