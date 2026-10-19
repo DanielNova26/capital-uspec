@@ -49,6 +49,7 @@ constexpr uint16_t GREEN = 0x058F;
 constexpr uint16_t ORANGE = 0xFD20;
 constexpr uint16_t RED = 0xE986;
 
+bool uiLista = false;  // false durante la pantalla de inicio
 bool sensorOK = false;
 bool capacidadValida = false;
 bool contadorValido = false;
@@ -99,6 +100,7 @@ void texto(uint16_t x, uint16_t y, const String &s,
 }
 
 void pintarCabecera() {
+  if (!uiLista) return;
   tft.fillRoundRect(6, 5, 308, 33, 8, PANEL);
   texto(16, 13, "TO-DO", CYAN, 2);
   texto(89, 14, "Bio", WHITE, 2);
@@ -109,6 +111,7 @@ void pintarCabecera() {
 }
 
 void pintarHora() {
+  if (!uiLista) return;
   tft.fillRoundRect(8, 44, 147, 73, 11, CARD);
   texto(18, 54, "HORA / COLOMBIA", MUTED, 1);
   texto(18, 71, horaLocal(), WHITE, 3);
@@ -116,6 +119,7 @@ void pintarHora() {
 }
 
 void pintarCapacidad() {
+  if (!uiLista) return;
   tft.fillRoundRect(163, 44, 149, 73, 11, CARD);
   texto(174, 54, "HUELLAS DEL SENSOR", MUTED, 1);
   if (!sensorOK || !capacidadValida || !contadorValido) {
@@ -135,6 +139,7 @@ void pintarCapacidad() {
 }
 
 void pintarBotones() {
+  if (!uiLista) return;
   tft.fillRoundRect(8, 126, 147, 50, 11, modo == 'E' ? BLUE : CARD);
   tft.fillRoundRect(163, 126, 149, 50, 11, modo == 'S' ? GREEN : CARD);
   texto(31, 145, "ENTRADA", WHITE, 2);
@@ -142,6 +147,7 @@ void pintarBotones() {
 }
 
 void pintarEstado() {
+  if (!uiLista) return;
   tft.fillRoundRect(8, 185, 224, 43, 9, PANEL);
   texto(17, 193, mensaje.substring(0, 34), WHITE, 1);
   texto(17, 210, detalle.substring(0, 34), MUTED, 1);
@@ -850,10 +856,113 @@ void procesarSerial() {
   }
 }
 
+// -------- Pantalla de inicio animada --------
+// Buzzer opcional (no instalado): poner el GPIO del buzzer pasivo, por ejemplo 16, para oir la melodia.
+constexpr int PIN_BUZZER = -1;
+void pitar(uint16_t frecuencia, uint16_t ms) {
+  if (PIN_BUZZER >= 0) tone(PIN_BUZZER, frecuencia, ms);
+}
+
+GFXcanvas16 *lienzoHuella = nullptr;  // 96x96, evita parpadeo al animar
+struct ArcoHuella { int8_t r; int16_t a0; int16_t a1; };
+const ArcoHuella ARCOS[] = {
+  {36, -78, 78}, {30, -100, 100}, {24, -112, 70}, {24, 94, 114},
+  {18, -122, 122}, {12, -95, 140}, {6, -180, 180},
+};
+constexpr uint16_t TENUE = 0x2B0F;  // azul apagado
+
+void lineaGruesa(int x0, int y0, int x1, int y1, uint16_t c, uint8_t g) {
+  for (int d = -(int)(g / 2); d <= (int)(g / 2); d++) {
+    tft.drawLine(x0, y0 + d, x1, y1 + d, c);
+    tft.drawLine(x0 + d, y0, x1 + d, y1, c);
+  }
+}
+
+// Logo TO-DO: casilla redondeada con marca de verificacion. s = lado en pixeles.
+void dibujarLogo(int x, int y, int s) {
+  tft.fillRoundRect(x, y, s, s, s / 4, BLUE);
+  tft.drawRoundRect(x, y, s, s, s / 4, CYAN);
+  uint8_t g = s >= 48 ? 5 : 3;
+  int cx = x + s / 5, cy = y + s / 5, w = s * 3 / 5;
+  lineaGruesa(cx, cy + w * 5 / 10, cx + w * 3 / 10, cy + w * 8 / 10, WHITE, g);
+  lineaGruesa(cx + w * 3 / 10, cy + w * 8 / 10, cx + w, cy + w * 2 / 10, WHITE, g);
+}
+
+// Huella parcialmente iluminada: se enciende de arriba hacia abajo segun el avance (0..1).
+void huellaIluminada(float avance) {
+  if (!lienzoHuella) return;
+  lienzoHuella->fillScreen(CARD);
+  const int cx = 48, cy = 48;
+  const int barrido = (int)(96.0f * avance);
+  for (const ArcoHuella &a : ARCOS) {
+    const float R = a.r * 1.25f;
+    const float paso = 0.7f / R;
+    for (float t = a.a0 * DEG_TO_RAD; t <= a.a1 * DEG_TO_RAD; t += paso) {
+      int x = cx + (int)(R * sinf(t));
+      int y = cy - (int)(R * cosf(t));
+      uint16_t c = y <= barrido ? (barrido - y < 7 ? WHITE : CYAN) : TENUE;
+      lienzoHuella->fillRect(x - 1, y - 1, 3, 3, c);
+    }
+  }
+  if (avance < 1.0f) lienzoHuella->drawFastHLine(cx - 46, barrido, 92, GREEN);
+  tft.drawRGBBitmap(112, 42, lienzoHuella->getBuffer(), 96, 96);
+}
+
+void splashBase() {
+  tft.fillScreen(BG);
+  textoAjustado(10, 8, 300, 22, "TO-DO Bio", CYAN, 2, 1, true);
+  tft.fillRoundRect(104, 36, 112, 112, 14, CARD);
+  textoAjustado(10, 214, 300, 12, "Control de asistencia biometrico", MUTED, 1, 1, true);
+}
+
+void splashProgreso(float avance, const String &texto) {
+  huellaIluminada(avance);
+  tft.fillRect(0, 154, 320, 28, BG);
+  textoAjustado(10, 156, 300, 22, texto, WHITE, 2, 1, true);
+  tft.fillRoundRect(40, 188, 240, 12, 6, CARD);
+  int w = (int)(236.0f * avance);
+  if (w >= 8) tft.fillRoundRect(42, 190, w, 8, 4, CYAN);
+}
+
+void avanzarSplash(float de, float a, const String &texto, uint32_t ms) {
+  const uint32_t ini = millis();
+  for (;;) {
+    const uint32_t dt = millis() - ini;
+    const float k = dt >= ms ? 1.0f : dt / (float)ms;
+    splashProgreso(de + (a - de) * k, texto);
+    if (dt >= ms) break;
+    delay(30);
+  }
+}
+
+// Logo que crece, nombre letra por letra (una nota por letra: tu-du-ta-ta-ta) y lema.
+void pantallaInicio() {
+  tft.fillScreen(BG);
+  for (int s = 16; s <= 80; s += 8) {
+    tft.fillRect(100, 14, 120, 100, BG);
+    dibujarLogo(160 - s / 2, 62 - s / 2, s);
+    delay(35);
+  }
+  const char *nombre = "TO-DO";
+  const uint16_t notas[5] = {659, 784, 1047, 784, 1319};
+  tft.setTextWrap(false);
+  tft.setTextSize(4);
+  for (uint8_t i = 0; i < 5; i++) {
+    tft.setTextColor(i < 2 ? CYAN : WHITE);
+    tft.setCursor(100 + i * 24, 124);
+    tft.print(nombre[i]);
+    pitar(notas[i], i == 4 ? 320 : 110);
+    delay(i == 4 ? 220 : 110);
+  }
+  textoAjustado(10, 164, 300, 28, "BIO", CYAN, 3, 1, true);
+  textoAjustado(10, 202, 300, 12, "CONTROL DE ASISTENCIA BIOMETRICO", MUTED, 1, 1, true);
+  delay(900);
+}
+
 void setup() {
   Serial.begin(115200);
   delay(700);
-  Serial.println("\nTO-DO Bio V1 | Firmware conectado 2.4.0");
+  Serial.println("\nTO-DO Bio V1 | Firmware conectado 2.5.0");
   bioIniciar();
 
 #if TFT_SPI_HARDWARE
@@ -862,13 +971,25 @@ void setup() {
   tft.init(240, 320);
   tft.setRotation(1);
   tft.invertDisplay(false);
-  tactilIniciar();
-  interfazCompleta();
+  lienzoHuella = new GFXcanvas16(96, 96);
 
+  pantallaInicio();
+  splashBase();
+  splashProgreso(0, "Iniciando sensor");
   sensorUart.begin(FP_BAUD, SERIAL_8N1, PIN_FP_RX, PIN_FP_TX);
-  delay(250);
-  detectarSensor();
+  avanzarSplash(0.0f, 0.25f, "Iniciando sensor de huella", 500);
+  detectarSensor();  // la interfaz principal aun no se pinta: solo consulta
+  avanzarSplash(0.25f, 0.6f, "Leyendo huellas del sensor", 600);
+  const String resumen = (capacidadValida && contadorValido)
+      ? String(usadas) + " de " + String(capacidad) + " huellas"
+      : String(sensorOK ? "Capacidad no disponible" : "Sensor sin respuesta");
+  avanzarSplash(0.6f, 0.85f, resumen, 700);
   iniciarWifi();
+  avanzarSplash(0.85f, 1.0f, "Conectando WiFi", 500);
+  delay(250);
+  tactilIniciar();  // la primera vez pide calibrar; despues usa lo guardado
+  uiLista = true;
+  interfazCompleta();
   imprimirAyuda();
 }
 

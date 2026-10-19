@@ -171,7 +171,7 @@ void bioRedTask(void*) {
     }
     if (!lastHeartbeat || millis() - lastHeartbeat >= 15000) {
       lastHeartbeat = millis();
-      JsonDocument doc; doc["accion"] = "heartbeat"; doc["deviceId"] = TODO_DEVICE_ID; doc["firmware"] = "ToDo-Bio-2.4.0";
+      JsonDocument doc; doc["accion"] = "heartbeat"; doc["deviceId"] = TODO_DEVICE_ID; doc["firmware"] = "ToDo-Bio-2.5.0";
       xSemaphoreTake(bioMutex, portMAX_DELAY);
       if (bioCapacidad < 0) doc["capacidad"] = nullptr; else doc["capacidad"] = bioCapacidad;
       if (bioUsadas < 0) doc["usadas"] = nullptr; else doc["usadas"] = bioUsadas;
