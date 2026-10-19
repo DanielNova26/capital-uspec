@@ -642,6 +642,43 @@ class InterventoriaService {
     });
   }
 
+  /// Sedes de cada grupo (`G6` → {centros}), con la misma fuente que usa la
+  /// asignación: el grupo escrito en cada centro de costos más los grupos de
+  /// la empresa (Admin › Gestión interna › Grupos, activos).
+  Future<Map<String, Set<String>>> sedesPorGrupo(String empresaId) async {
+    final out = <String, Set<String>>{};
+    final centros = await _db
+        .collection('TBL_CENTROS_COSTOS')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+    for (final doc in centros.docs) {
+      final c = CentroCostoRef.fromMap(doc.id, doc.data());
+      final g = normalizarGrupoCentroCosto(c.grupo);
+      if (g.isNotEmpty) out.putIfAbsent(g, () => <String>{}).add(c.centroId);
+    }
+    try {
+      final grupos = await _db
+          .collection('TBL_COMPRAS_GRUPOS')
+          .where('empresaId', isEqualTo: empresaId)
+          .get();
+      for (final d in grupos.docs) {
+        final data = d.data();
+        if (data['activo'] == false) continue;
+        final g = normalizarGrupoCentroCosto(data['nombre']);
+        final ids = data['centroIds'];
+        if (g.isEmpty || ids is! Iterable) continue;
+        out
+            .putIfAbsent(g, () => <String>{})
+            .addAll(
+              ids.map((c) => c.toString().trim()).where((c) => c.isNotEmpty),
+            );
+      }
+    } catch (_) {
+      // Sin permiso o sin red se sigue con los grupos de los centros.
+    }
+    return out;
+  }
+
   Stream<List<CentroCostoRef>> streamCentrosCosto(String empresaId) => _db
       .collection('TBL_CENTROS_COSTOS')
       .where('empresaId', isEqualTo: empresaId)
@@ -2585,7 +2622,8 @@ class InterventoriaService {
 
   Future<
     ({
-      Map<String, ({String areaId, bool recibeAsignaciones, bool usaGrupos})> porNombre,
+      Map<String, ({String areaId, bool recibeAsignaciones, bool usaGrupos})>
+      porNombre,
       Map<String, String> nombrePorId,
     })
   >
@@ -2594,7 +2632,8 @@ class InterventoriaService {
         .collection('TBL_CARGOS')
         .where('empresaId', isEqualTo: empresaId)
         .get();
-    final out = <String, ({String areaId, bool recibeAsignaciones, bool usaGrupos})>{};
+    final out =
+        <String, ({String areaId, bool recibeAsignaciones, bool usaGrupos})>{};
     final porId = <String, String>{};
     for (final doc in snap.docs) {
       final data = doc.data();
@@ -2861,7 +2900,8 @@ class InterventoriaService {
     // El área del cargo es un respaldo, no la fuente: si el usuario ya trae
     // areaId propio ese manda. Si TBL_CARGOS falla, se sigue sin áreas en
     // vez de quedarse sin lista de personal.
-    var perfilPorCargo = <String, ({String areaId, bool recibeAsignaciones, bool usaGrupos})>{};
+    var perfilPorCargo =
+        <String, ({String areaId, bool recibeAsignaciones, bool usaGrupos})>{};
     var nombrePorCargoId = <String, String>{};
     try {
       final perfiles = await _perfilPorCargo(empresaId);
@@ -3605,58 +3645,62 @@ class InterventoriaService {
 
   /// Tareas automáticas abiertas cuyo responsable no cubre la sede del
   /// hallazgo. Las asignadas a mano no entran: son una decisión consciente.
-  Future<List<TareaFueraDeSede>> listarTareasFueraDeSede(
-    String empresaId,
-  ) => enLote(() async {
-    final hallazgos = await _db
-        .collection('TBL_INTERVENTORIA_HALLAZGOS')
-        .where('empresaId', isEqualTo: empresaId)
-        .get();
-    final tareasSnap = await _db
-        .collection('TBL_TAREAS')
-        .where('empresaId', isEqualTo: empresaId)
-        .where('sourceModule', isEqualTo: 'interventoria')
-        .get();
-    final tareas = {for (final d in tareasSnap.docs) d.id: d.data()};
-    final personal = {
-      for (final u in await _usuariosDeEmpresa(empresaId, soloAsignables: false))
-        u.id: u,
-    };
-    String texto(Object? v) => (v ?? '').toString().trim();
-    final filas = <TareaFueraDeSede>[];
-    for (final doc in hallazgos.docs) {
-      final h = InterventoriaHallazgo.fromMap(doc.id, doc.data());
-      final tareaId = h.tareaId.trim();
-      if (tareaId.isEmpty || h.isSubsanado || h.centroCostoId.trim().isEmpty) {
-        continue;
-      }
-      final tarea = tareas[tareaId];
-      if (tarea == null || !esAsignacionAutomaticaDeModulo(tarea)) continue;
-      final estado = texto(tarea['estado']).toLowerCase();
-      if (estado == 'finalizado' || estado == 'completada') continue;
-      final uid = texto(tarea['asignado_uid'] ?? tarea['assignedTo']);
-      final u = personal[uid];
-      if (u == null || u.cubreCentro(h.centroCostoId)) continue;
-      filas.add(
-        TareaFueraDeSede(
-          hallazgoId: h.id,
-          taskId: tareaId,
-          numeroTarea: int.tryParse(texto(tarea['numero'])),
-          sede: h.centroCostoNombre,
-          numeral: h.numeralParaMatriz,
-          responsableId: u.id,
-          responsableNombre: u.nombre,
-          responsableCargo: u.cargo,
-          sedesQueCubre: u.centrosAsignadosIds.length,
-        ),
-      );
-    }
-    filas.sort((a, b) {
-      final porResp = a.responsableNombre.compareTo(b.responsableNombre);
-      return porResp != 0 ? porResp : a.sede.compareTo(b.sede);
-    });
-    return filas;
-  });
+  Future<List<TareaFueraDeSede>> listarTareasFueraDeSede(String empresaId) =>
+      enLote(() async {
+        final hallazgos = await _db
+            .collection('TBL_INTERVENTORIA_HALLAZGOS')
+            .where('empresaId', isEqualTo: empresaId)
+            .get();
+        final tareasSnap = await _db
+            .collection('TBL_TAREAS')
+            .where('empresaId', isEqualTo: empresaId)
+            .where('sourceModule', isEqualTo: 'interventoria')
+            .get();
+        final tareas = {for (final d in tareasSnap.docs) d.id: d.data()};
+        final personal = {
+          for (final u in await _usuariosDeEmpresa(
+            empresaId,
+            soloAsignables: false,
+          ))
+            u.id: u,
+        };
+        String texto(Object? v) => (v ?? '').toString().trim();
+        final filas = <TareaFueraDeSede>[];
+        for (final doc in hallazgos.docs) {
+          final h = InterventoriaHallazgo.fromMap(doc.id, doc.data());
+          final tareaId = h.tareaId.trim();
+          if (tareaId.isEmpty ||
+              h.isSubsanado ||
+              h.centroCostoId.trim().isEmpty) {
+            continue;
+          }
+          final tarea = tareas[tareaId];
+          if (tarea == null || !esAsignacionAutomaticaDeModulo(tarea)) continue;
+          final estado = texto(tarea['estado']).toLowerCase();
+          if (estado == 'finalizado' || estado == 'completada') continue;
+          final uid = texto(tarea['asignado_uid'] ?? tarea['assignedTo']);
+          final u = personal[uid];
+          if (u == null || u.cubreCentro(h.centroCostoId)) continue;
+          filas.add(
+            TareaFueraDeSede(
+              hallazgoId: h.id,
+              taskId: tareaId,
+              numeroTarea: int.tryParse(texto(tarea['numero'])),
+              sede: h.centroCostoNombre,
+              numeral: h.numeralParaMatriz,
+              responsableId: u.id,
+              responsableNombre: u.nombre,
+              responsableCargo: u.cargo,
+              sedesQueCubre: u.centrosAsignadosIds.length,
+            ),
+          );
+        }
+        filas.sort((a, b) {
+          final porResp = a.responsableNombre.compareTo(b.responsableNombre);
+          return porResp != 0 ? porResp : a.sede.compareTo(b.sede);
+        });
+        return filas;
+      });
 
   /// Hallazgos abiertos de la empresa que todavía no tienen tarea: lo que
   /// "Generar asignaciones pendientes" va a intentar asignar.

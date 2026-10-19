@@ -69,6 +69,7 @@ List<Object> _fila(String cedula, String op, String tr, String gr) => [
 ];
 
 void main() {
+  agregarGrupo();
   test('el modelo trae todo el personal y las hojas de apoyo', () {
     final bytes = construirPlantillaCobertura(
       usuarios: [
@@ -210,5 +211,100 @@ void main() {
       centros: _centros,
     );
     expect(r3.errores.single, contains('no es un Excel'));
+  });
+}
+
+void agregarGrupo() {
+  List<Object> fila(
+    String cedula, {
+    String op = '',
+    String tr = '',
+    String gr = '',
+    String agregar = '',
+    String como = '',
+  }) => [cedula, 'x', 'x', '', 'SI', '', op, tr, gr, agregar, como];
+
+  group('AGREGAR GRUPO', () {
+    final sedesG6 = {
+      'G6': {'picota', 'lamesa'},
+    };
+
+    test(
+      'sin COMO copia las sedes del grupo a Trabajo y respeta lo escrito',
+      () {
+        final r = leerImportacionCobertura(
+          bytes: _excel([
+            fila('1', op: 'Moniquirá', tr: 'Moniquirá', agregar: 'G6'),
+          ]),
+          usuarios: [_u('1')],
+          centros: _centros,
+          sedesPorGrupo: sedesG6,
+        );
+        expect(r.errores, isEmpty);
+        final c = r.cambios.single;
+        expect(c.fijarOperacion, {'moniquira'});
+        expect(c.fijarTrabajo, {'moniquira', 'picota', 'lamesa'});
+        // No cambia los grupos de la persona.
+        expect(c.fijarGrupos, isNull);
+      },
+    );
+
+    test('COMO = OPERACION o AMBAS elige la columna', () {
+      final operacion = leerImportacionCobertura(
+        bytes: _excel([fila('1', agregar: 'Grupo 6', como: 'Operación')]),
+        usuarios: [_u('1')],
+        centros: _centros,
+        sedesPorGrupo: sedesG6,
+      );
+      expect(operacion.cambios.single.fijarOperacion, {'picota', 'lamesa'});
+      expect(operacion.cambios.single.fijarTrabajo, isNull);
+
+      final ambas = leerImportacionCobertura(
+        bytes: _excel([fila('1', agregar: 'G6', como: 'AMBAS')]),
+        usuarios: [_u('1')],
+        centros: _centros,
+        sedesPorGrupo: sedesG6,
+      );
+      expect(ambas.cambios.single.fijarOperacion, {'picota', 'lamesa'});
+      expect(ambas.cambios.single.fijarTrabajo, {'picota', 'lamesa'});
+    });
+
+    test('lo agregado se suma a lo escrito en el archivo y manda el archivo', () {
+      final r = leerImportacionCobertura(
+        bytes: _excel([fila('1', agregar: 'G6')]),
+        usuarios: [
+          _u('1', trabajo: {'moniquira'}),
+        ],
+        centros: _centros,
+        sedesPorGrupo: sedesG6,
+      );
+      // La columna de trabajo del archivo está vacía (""): manda el archivo;
+      // lo agregado se suma a lo escrito en el archivo.
+      expect(r.cambios.single.fijarTrabajo, {'picota', 'lamesa'});
+    });
+
+    test('rechaza COMO inválido y grupos sin sedes', () {
+      final r = leerImportacionCobertura(
+        bytes: _excel([
+          fila('1', agregar: 'G6', como: 'Todas'),
+          fila('2', agregar: 'G9'),
+        ]),
+        usuarios: [_u('1'), _u('2')],
+        centros: _centros,
+        sedesPorGrupo: sedesG6,
+      );
+      expect(r.cambios, isEmpty);
+      expect(r.errores[0], contains('COMO debe ser'));
+      expect(r.errores[1], contains('el grupo G9 no tiene sedes'));
+    });
+
+    test('toma las sedes del grupo del catálogo si no se pasa el mapa', () {
+      final r = leerImportacionCobertura(
+        bytes: _excel([fila('1', agregar: 'G7', como: 'TRABAJO')]),
+        usuarios: [_u('1')],
+        centros: _centros,
+      );
+      expect(r.cambios.single.fijarTrabajo, {'moniquira', 'picota', 'lamesa'});
+    });
   });
 }

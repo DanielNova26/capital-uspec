@@ -29,6 +29,8 @@ const List<String> kColumnasCobertura = [
   'SEDES DE OPERACION',
   'SEDES DE TRABAJO',
   'GRUPOS',
+  'AGREGAR GRUPO',
+  'COMO (TRABAJO U OPERACION)',
 ];
 
 const String _separador = '; ';
@@ -40,6 +42,7 @@ String _unir(Iterable<String> nombres) =>
 Uint8List construirPlantillaCobertura({
   required List<InterventoriaUsuario> usuarios,
   required List<CentroCostoRef> centros,
+  Map<String, Set<String>>? sedesPorGrupo,
 }) {
   final excel = xl.Excel.createExcel();
   final nombreDe = {for (final c in centros) c.centroId: c.nombre};
@@ -56,8 +59,8 @@ Uint8List construirPlantillaCobertura({
     '',
     'Cómo se usa:',
     '1. Ve a la hoja "$kHojaCobertura". Cada fila es una persona.',
-    '2. Edita SOLO las tres últimas columnas: SEDES DE OPERACION, SEDES DE '
-        'TRABAJO y GRUPOS. Las demás son de consulta.',
+    '2. Edita SOLO las cinco últimas columnas: SEDES DE OPERACION, SEDES DE '
+        'TRABAJO, GRUPOS, AGREGAR GRUPO y COMO. Las demás son de consulta.',
     '3. Varias sedes o grupos se separan con punto y coma. Ej.: Picota; La Mesa.',
     '4. Escribe las sedes tal como están en la hoja "$kHojaSedes" y los grupos '
         'como G1, G7 (hoja "$kHojaGrupos").',
@@ -73,6 +76,14 @@ Uint8List construirPlantillaCobertura({
     '- Coordinador, director, supervisor: el grupo que atiende, o sus sedes una '
         'a una si no atiende todo el grupo.',
     '- Una celda vacía en una de las tres columnas editables significa "ninguna".',
+    '- OPERACION = la sede donde está la persona. TRABAJO = otras sedes que '
+        'atiende. GRUPOS = a qué grupos pertenece (suma las sedes del grupo '
+        'solo si su cargo usa grupos).',
+    '- AGREGAR GRUPO sirve para llenar sedes de un tirón: escribe el grupo '
+        '(G6) y en COMO elige TRABAJO, OPERACION o AMBAS (vacío = TRABAJO). Al '
+        'importar, la aplicación copia todas las sedes de ese grupo a esa '
+        'columna. No cambia los GRUPOS de la persona: para eso usa la columna '
+        'GRUPOS. Después de importar, las sedes quedan escritas en su fila.',
     '- Si el nombre de una sede o un grupo no existe, esa fila se rechaza y '
         'la aplicación dice cuál.',
   ]) {
@@ -101,6 +112,8 @@ Uint8List construirPlantillaCobertura({
       xl.TextCellValue(_unir(u.centrosOperacionIds.map(nombre))),
       xl.TextCellValue(_unir(u.centrosTrabajoIds.map(nombre))),
       xl.TextCellValue(_unir(u.grupos)),
+      xl.TextCellValue(''),
+      xl.TextCellValue(''),
     ]);
   }
 
@@ -122,7 +135,7 @@ Uint8List construirPlantillaCobertura({
   }
   final grupos = excel[kHojaGrupos];
   grupos.appendRow([xl.TextCellValue('GRUPO'), xl.TextCellValue('SEDES')]);
-  final porGrupo = centrosPorGrupo(centros);
+  final porGrupo = sedesPorGrupo ?? centrosPorGrupo(centros);
   final claves = porGrupo.keys.toList()..sort();
   for (final g in claves) {
     grupos.appendRow([
@@ -193,7 +206,9 @@ ResultadoImportacionCobertura leerImportacionCobertura({
   required Uint8List bytes,
   required List<InterventoriaUsuario> usuarios,
   required List<CentroCostoRef> centros,
+  Map<String, Set<String>>? sedesPorGrupo,
 }) {
+  final gruposSedes = sedesPorGrupo ?? centrosPorGrupo(centros);
   final xl.Excel excel;
   try {
     excel = xl.Excel.decodeBytes(bytes);
@@ -216,6 +231,8 @@ ResultadoImportacionCobertura leerImportacionCobertura({
   final cOp = col('SEDES DE OPERACION');
   final cTr = col('SEDES DE TRABAJO');
   final cGr = col('GRUPOS');
+  final cAdd = col('AGREGAR GRUPO');
+  final cComo = titulos.indexWhere((t) => t.startsWith('como'));
   if (cCedula < 0 || (cOp < 0 && cTr < 0 && cGr < 0)) {
     return const ResultadoImportacionCobertura(
       errores: [
@@ -280,8 +297,36 @@ ResultadoImportacionCobertura leerImportacionCobertura({
       return out;
     }
 
-    final op = sedes(cOp, 'operación');
-    final tr = sedes(cTr, 'trabajo');
+    var op = sedes(cOp, 'operación');
+    var tr = sedes(cTr, 'trabajo');
+
+    // AGREGAR GRUPO: copia las sedes del grupo a Trabajo u Operación (no
+    // cambia los grupos de la persona; para eso está la columna GRUPOS).
+    final agregar = cAdd < 0 ? <String>[] : _partir(celda(fila, cAdd));
+    if (agregar.isNotEmpty) {
+      final como = _canon(celda(fila, cComo));
+      final aOp = como == 'operacion' || como == 'ambas';
+      final aTr = como.isEmpty || como == 'trabajo' || como == 'ambas';
+      if (!aOp && !aTr) {
+        fallos.add(
+          'COMO debe ser TRABAJO, OPERACION o AMBAS (dice "${celda(fila, cComo)}")',
+        );
+      }
+      for (final g in agregar) {
+        final clave = claveGrupoTrabajo(g);
+        final sedesDelGrupo = gruposSedes[clave];
+        if (!RegExp(r'^G\d+$').hasMatch(clave)) {
+          fallos.add(
+            'el grupo "$g" (AGREGAR GRUPO) no es válido (usa G1, G6…)',
+          );
+        } else if (sedesDelGrupo == null || sedesDelGrupo.isEmpty) {
+          fallos.add('el grupo $clave no tiene sedes en el catálogo');
+        } else {
+          if (aOp) op = {...(op ?? u.centrosOperacionIds), ...sedesDelGrupo};
+          if (aTr) tr = {...(tr ?? u.centrosTrabajoIds), ...sedesDelGrupo};
+        }
+      }
+    }
     Set<String>? gr;
     if (cGr >= 0) {
       gr = {};

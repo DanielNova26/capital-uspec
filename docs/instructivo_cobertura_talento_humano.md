@@ -93,6 +93,12 @@ persona:
    - Los nombres de sede se copian de la hoja **Sedes**; los grupos son
      `G1`, `G7`… (hoja **Grupos**).
    - Una celda vacía significa "ninguna".
+   - **Llenar sedes de un grupo de un tirón:** en **AGREGAR GRUPO** escribe el
+     grupo (por ejemplo `G6`) y en **COMO** elige `TRABAJO`, `OPERACION` o
+     `AMBAS` (vacío = trabajo). Al importar, la aplicación copia todas las sedes
+     de ese grupo a la columna elegida. Esto **no** cambia los grupos de la
+     persona (para eso está la columna GRUPOS); solo ahorra escribir las sedes
+     una a una. Después de importar, las sedes quedan escritas en su fila.
    - Se puede filtrar por cargo en Excel para trabajar por bloques (por
      ejemplo, todos los "Administrador Tipo 1": su sede en operación y en
      trabajo, y GRUPOS vacío).

@@ -37,6 +37,7 @@ class _Falso implements CoberturaPersonalService {
       List<InterventoriaUsuario> usuarios,
       Map<String, String> centros,
       List<CentroCostoRef> centrosRef,
+      Map<String, Set<String>> sedesPorGrupo,
     })
   >
   cargar(String empresaId) async => (
@@ -62,6 +63,7 @@ class _Falso implements CoberturaPersonalService {
       'guateque': 'Guateque',
     },
     centrosRef: <CentroCostoRef>[],
+    sedesPorGrupo: <String, Set<String>>{},
   );
 
   List<LoteCobertura> lotesFalsos = [];

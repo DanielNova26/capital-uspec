@@ -37,18 +37,21 @@ class CoberturaPersonalService {
       List<InterventoriaUsuario> usuarios,
       Map<String, String> centros,
       List<CentroCostoRef> centrosRef,
+      Map<String, Set<String>> sedesPorGrupo,
     })
   >
   cargar(String empresaId) async {
     final resultados = await Future.wait<Object>([
       _s.listarUsuariosActivos(empresaId),
       _s.streamCentrosCosto(empresaId).first,
+      _s.sedesPorGrupo(empresaId),
     ]);
     final centrosRef = resultados[1] as List<CentroCostoRef>;
     return (
       usuarios: resultados[0] as List<InterventoriaUsuario>,
       centros: {for (final c in centrosRef) c.centroId: c.nombre},
       centrosRef: centrosRef,
+      sedesPorGrupo: resultados[2] as Map<String, Set<String>>,
     );
   }
 
@@ -133,6 +136,7 @@ class _AdminCoberturaPersonalPanelState
   List<PersonaCobertura> _personas = const [];
   Map<String, String> _centros = const {};
   List<CentroCostoRef> _centrosRef = const [];
+  Map<String, Set<String>> _sedesPorGrupo = const {};
   List<InterventoriaUsuario> _usuarios = const [];
   bool _cargando = true;
   bool _aplicando = false;
@@ -171,6 +175,7 @@ class _AdminCoberturaPersonalPanelState
         _personas = [for (final u in d.usuarios) diagnosticarCobertura(u)];
         _centros = d.centros;
         _centrosRef = d.centrosRef;
+        _sedesPorGrupo = d.sedesPorGrupo;
         _usuarios = d.usuarios;
         _seleccion.clear();
         _cargando = false;
@@ -464,6 +469,7 @@ class _AdminCoberturaPersonalPanelState
         bytes: construirPlantillaCobertura(
           usuarios: _usuarios,
           centros: _centrosRef,
+          sedesPorGrupo: _sedesPorGrupo,
         ),
       );
     } catch (e) {
@@ -495,6 +501,7 @@ class _AdminCoberturaPersonalPanelState
       bytes: bytes,
       usuarios: _usuarios,
       centros: _centrosRef,
+      sedesPorGrupo: _sedesPorGrupo,
     );
     final ok = await showDialog<bool>(
       context: context,
