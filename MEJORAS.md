@@ -11664,3 +11664,8 @@ Acta: «La reunión se inició a las 2026_10_15 18_27». Código: `functions/src
 ## Monitor 2.7.6+51: reasignar ofrece solo a quien corresponde (19 oct 2026)
 - Al reasignar desde una alerta se ofrece únicamente a quien cumple la regla (cargo del numeral + cubre la sede + recibe tareas). Solo si no hay nadie se muestra todo el personal que recibe tareas, con búsqueda, filtro por área y "solo quienes cubren la sede"; quien no cubre queda marcado "otra sede". Las áreas salen de `AreaCatalogo` (regla 3).
 - Pendiente: si la causa de fondo del caso Gineth fue cobertura cargada después de asignar, no hay reasignación automática al cargarla; hoy queda en "Sin asignar" o se corrige desde el monitor.
+
+## Monitor 2.7.7+52: la ficha muestra de dónde sale la cobertura (19 oct 2026)
+- Caso Annie Velazco (Administrador Tipo 1, Moniquirá): Talento Humano le tiene operación y trabajo solo en Moniquirá, pero pertenece al Grupo 7, que le suma otras 11 sedes (Guateque, Modelo, Ponal, Ubaté…). `cubreCentro` une centros propios y los de sus grupos, por eso no hay alerta. La ficha del monitor ahora separa cobertura propia y la que suma cada grupo.
+- Decisión pendiente (negocio): ¿los grupos deben dar cobertura a cargos por sede como Administrador? Hoy sí; los avisos de esas sedes le llegan por diseño.
+- Observación: en esa ficha 9 avisos aparecen con entrega "con problema" y 0 entregados; `onNotificationCreated` corre con estado ok en los logs. Revisar el estado exacto en Monitor › Detalle (chip Entrega) y el token del dispositivo.

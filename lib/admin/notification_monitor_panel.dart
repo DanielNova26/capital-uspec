@@ -322,6 +322,18 @@ class _AdminNotificationMonitorPanelState
                       '${cubre.length > 8 ? ' y ${cubre.length - 8} más' : ''}.',
             style: const TextStyle(fontSize: 12.5, height: 1.35),
           ),
+          if (u.grupos.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              _origenCobertura(u, d),
+              style: const TextStyle(
+                fontSize: 12.5,
+                height: 1.35,
+                color: _aviso,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
           const SizedBox(height: 2),
           Text(
             'Recibió avisos de: '
@@ -1195,4 +1207,20 @@ class _DialogoReasignarState extends State<_DialogoReasignar> {
       ],
     );
   }
+}
+
+/// De dónde sale la cobertura de una persona: sus centros propios (operación
+/// y trabajo) y los que le suma cada grupo de Interventoría al que pertenece.
+/// Un grupo le da TODAS las sedes del grupo, aunque ella solo trabaje en una.
+String _origenCobertura(InterventoriaUsuario u, DatosMonitor d) {
+  String nombre(String id) => d.centros[id] ?? id;
+  final propios = {...u.centrosOperacionIds, ...u.centrosTrabajoIds};
+  final porGrupo = u.centrosAsignadosIds.difference(propios);
+  final grupos = u.grupos.toList()..sort();
+  final propiosTexto = propios.isEmpty
+      ? 'ninguna sede propia'
+      : propios.map(nombre).join(', ');
+  return 'Cobertura propia: $propiosTexto. '
+      '${porGrupo.isEmpty ? '' : 'Por pertenecer a ${grupos.length == 1 ? 'el grupo' : 'los grupos'} ${grupos.join(', ')} suma otras ${porGrupo.length} sedes. '}'
+      'Para quitarlas: Talento Humano › Grupos y cobertura.';
 }
