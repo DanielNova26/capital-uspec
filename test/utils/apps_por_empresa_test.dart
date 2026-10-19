@@ -19,14 +19,17 @@ Map<String, dynamic> _persona({bool marcada = false}) => {
 };
 
 void main() {
-  test('sin la marca, B suma la lista general (el comportamiento de antes)', () {
-    expect(
-      extractUserApps(_persona(), empresaId: 'B'),
-      containsAll(['tareasdashboard', 'rutasdashboard', 'comprasdashboard']),
-    );
-    expect(appsHeredadasEnEmpresa(_persona(), 'B'), ['comprasdashboard']);
-    expect(appsHeredadasEnEmpresa(_persona(), 'A'), isEmpty);
-  });
+  test(
+    'sin la marca, B suma la lista general (el comportamiento de antes)',
+    () {
+      expect(
+        extractUserApps(_persona(), empresaId: 'B'),
+        containsAll(['tareasdashboard', 'rutasdashboard', 'comprasdashboard']),
+      );
+      expect(appsHeredadasEnEmpresa(_persona(), 'B'), ['comprasdashboard']);
+      expect(appsHeredadasEnEmpresa(_persona(), 'A'), isEmpty);
+    },
+  );
 
   test('con la marca, cada empresa ve solo su lista', () {
     final p = _persona(marcada: true);

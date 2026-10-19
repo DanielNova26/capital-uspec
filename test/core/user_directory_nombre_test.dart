@@ -36,7 +36,10 @@ void main() {
 
     test('sin nombre queda la cédula (último recurso)', () {
       expect(dir.fromUsuario('3', {'nombre': ''}).displayName, '3');
-      expect(dir.fromUsuario('4', {'name': 'Solo name'}).displayName, 'Solo name');
+      expect(
+        dir.fromUsuario('4', {'name': 'Solo name'}).displayName,
+        'Solo name',
+      );
     });
   });
 }

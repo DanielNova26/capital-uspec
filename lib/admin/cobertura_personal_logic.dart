@@ -15,6 +15,10 @@ enum EstadoCobertura {
   /// sede y nunca recibirá hallazgos.
   sinCobertura,
 
+  /// Marcada como "atiende todas las sedes" (tesorero, director de
+  /// operaciones…): responde cuando la sede no tiene titular propio.
+  todasLasSedes,
+
   /// Cobertura propia clara (con o sin grupos que su cargo sí usa).
   correcta;
 
@@ -22,10 +26,11 @@ enum EstadoCobertura {
     gruposSinEfecto => 'Grupos que su cargo no usa',
     soloCentroDeCostos => 'Solo centro de costos',
     sinCobertura => 'Sin ninguna sede',
+    todasLasSedes => 'Todas las sedes',
     correcta => 'Correcta',
   };
 
-  bool get requiereAtencion => this != correcta;
+  bool get requiereAtencion => this != correcta && this != todasLasSedes;
 }
 
 /// Diagnóstico de una persona, con lo necesario para decidir y para actuar.
@@ -60,7 +65,9 @@ PersonaCobertura diagnosticarCobertura(InterventoriaUsuario u) {
   final propios = {...u.centrosOperacionIds, ...u.centrosTrabajoIds};
   final porGrupo = u.centrosAsignadosIds.difference(propios);
   final EstadoCobertura estado;
-  if (u.gruposIgnorados) {
+  if (u.cubreTodas) {
+    estado = EstadoCobertura.todasLasSedes;
+  } else if (u.gruposIgnorados) {
     estado = EstadoCobertura.gruposSinEfecto;
   } else if (u.centrosAsignadosIds.isEmpty && u.centroId.trim().isEmpty) {
     estado = EstadoCobertura.sinCobertura;

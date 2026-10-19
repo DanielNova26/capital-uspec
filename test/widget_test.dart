@@ -16,9 +16,9 @@ void main() {
     );
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(secureStorage, (call) async {
-      if (call.method == 'readAll') return <String, String>{};
-      return null;
-    });
+          if (call.method == 'readAll') return <String, String>{};
+          return null;
+        });
   });
 
   testWidgets('App smoke test', (WidgetTester tester) async {

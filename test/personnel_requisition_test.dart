@@ -50,10 +50,7 @@ void main() {
       );
       expect(row.activeCandidates.length, 2);
       expect(row.discardedCandidates.single.names, 'PEDRO');
-      expect(
-        row.candidateStageCounts[PersonnelCandidateStage.interview],
-        1,
-      );
+      expect(row.candidateStageCounts[PersonnelCandidateStage.interview], 1);
     });
 
     test('el descartado no arrastra la etapa de la vacante', () {
@@ -65,10 +62,7 @@ void main() {
           _cand('2', PersonnelCandidateStage.discarded),
         ],
       );
-      expect(
-        row.furthestCandidateStage,
-        PersonnelCandidateStage.preselection,
-      );
+      expect(row.furthestCandidateStage, PersonnelCandidateStage.preselection);
     });
 
     test('sin aspirantes no hay etapa derivada', () {
@@ -155,10 +149,11 @@ void main() {
           {'documento': '3', 'nombres': 'EVA', 'etapa': 'entrevista'},
         ],
       });
-      expect(
-        restored.candidates.map((item) => item.names).toList(),
-        ['LUIS', 'EVA', 'ANA'],
-      );
+      expect(restored.candidates.map((item) => item.names).toList(), [
+        'LUIS',
+        'EVA',
+        'ANA',
+      ]);
     });
 
     test('un candidato sin documento se descarta al leer', () {
@@ -181,9 +176,21 @@ void main() {
   group('orden por establecimiento', () {
     test('agrupa por sede y dentro de cada una lo más reciente primero', () {
       final rows = [
-        _req(id: 'a', establishment: 'PICOTA', requestDate: DateTime(2026, 8, 1)),
-        _req(id: 'b', establishment: 'BUEN PASTOR', requestDate: DateTime(2026, 7, 1)),
-        _req(id: 'c', establishment: 'PICOTA', requestDate: DateTime(2026, 8, 20)),
+        _req(
+          id: 'a',
+          establishment: 'PICOTA',
+          requestDate: DateTime(2026, 8, 1),
+        ),
+        _req(
+          id: 'b',
+          establishment: 'BUEN PASTOR',
+          requestDate: DateTime(2026, 7, 1),
+        ),
+        _req(
+          id: 'c',
+          establishment: 'PICOTA',
+          requestDate: DateTime(2026, 8, 20),
+        ),
       ]..sort(PersonnelRequisitionService.comparePersonnelRequisitions);
       expect(rows.map((row) => row.id).toList(), ['b', 'c', 'a']);
     });

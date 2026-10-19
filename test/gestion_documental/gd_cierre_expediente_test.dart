@@ -51,42 +51,51 @@ GdExpediente _expediente({
 void main() {
   group('motivo de cierre', () {
     test('resuelve el valor guardado sin importar mayúsculas ni espacios', () {
-      expect(GdMotivoCierre.desde(' NO_CORRESPONDE '), GdMotivoCierre.noCorresponde);
+      expect(
+        GdMotivoCierre.desde(' NO_CORRESPONDE '),
+        GdMotivoCierre.noCorresponde,
+      );
       expect(GdMotivoCierre.desde('inventado'), isNull);
       expect(GdMotivoCierre.desde(null), isNull);
     });
 
     test('un valor desconocido se muestra tal cual y no rompe', () {
-      expect(GdMotivoCierre.etiquetaDe('duplicado'), 'Duplicado de otro expediente');
+      expect(
+        GdMotivoCierre.etiquetaDe('duplicado'),
+        'Duplicado de otro expediente',
+      );
       expect(GdMotivoCierre.etiquetaDe('otro_viejo'), 'otro_viejo');
       expect(GdMotivoCierre.etiquetaDe(''), '');
     });
 
-    test('la justificación es obligatoria sin respuesta o con motivo distinto a gestión completa', () {
-      expect(
-        gdCierreExigeJustificacion(
-          motivo: GdMotivoCierre.gestionCompleta,
-          tieneRespuesta: true,
-        ),
-        isFalse,
-      );
-      expect(
-        gdCierreExigeJustificacion(
-          motivo: GdMotivoCierre.gestionCompleta,
-          tieneRespuesta: false,
-        ),
-        isTrue,
-      );
-      for (final motivo in GdMotivoCierre.values.where(
-        (m) => m != GdMotivoCierre.gestionCompleta,
-      )) {
+    test(
+      'la justificación es obligatoria sin respuesta o con motivo distinto a gestión completa',
+      () {
         expect(
-          gdCierreExigeJustificacion(motivo: motivo, tieneRespuesta: true),
-          isTrue,
-          reason: motivo.valor,
+          gdCierreExigeJustificacion(
+            motivo: GdMotivoCierre.gestionCompleta,
+            tieneRespuesta: true,
+          ),
+          isFalse,
         );
-      }
-    });
+        expect(
+          gdCierreExigeJustificacion(
+            motivo: GdMotivoCierre.gestionCompleta,
+            tieneRespuesta: false,
+          ),
+          isTrue,
+        );
+        for (final motivo in GdMotivoCierre.values.where(
+          (m) => m != GdMotivoCierre.gestionCompleta,
+        )) {
+          expect(
+            gdCierreExigeJustificacion(motivo: motivo, tieneRespuesta: true),
+            isTrue,
+            reason: motivo.valor,
+          );
+        }
+      },
+    );
   });
 
   group('cierre en el expediente', () {
@@ -99,26 +108,32 @@ void main() {
       expect(row.resumenCierre, 'Terminado · Gestión completa');
     });
 
-    test('un cierre histórico sin motivo ni respuesta se lee como sin respuesta', () {
-      final row = _expediente();
-      expect(row.motivoCierre, isNull);
-      expect(row.cerradoSinRespuesta, isTrue);
-      expect(row.resumenCierre, 'Terminado · sin respuesta');
-    });
+    test(
+      'un cierre histórico sin motivo ni respuesta se lee como sin respuesta',
+      () {
+        final row = _expediente();
+        expect(row.motivoCierre, isNull);
+        expect(row.cerradoSinRespuesta, isTrue);
+        expect(row.resumenCierre, 'Terminado · sin respuesta');
+      },
+    );
 
-    test('la marca del backend manda aunque después aparezca una respuesta', () {
-      final row = _expediente(
-        enviadoAt: DateTime(2026, 9, 2),
-        cierreMotivo: 'no_corresponde',
-        cierreJustificacion: 'Es de otra EPS.',
-        cierreSinRespuesta: true,
-      );
-      expect(row.cerradoSinRespuesta, isTrue);
-      expect(
-        row.resumenCierre,
-        'Terminado · No corresponde a la entidad · sin respuesta',
-      );
-    });
+    test(
+      'la marca del backend manda aunque después aparezca una respuesta',
+      () {
+        final row = _expediente(
+          enviadoAt: DateTime(2026, 9, 2),
+          cierreMotivo: 'no_corresponde',
+          cierreJustificacion: 'Es de otra EPS.',
+          cierreSinRespuesta: true,
+        );
+        expect(row.cerradoSinRespuesta, isTrue);
+        expect(
+          row.resumenCierre,
+          'Terminado · No corresponde a la entidad · sin respuesta',
+        );
+      },
+    );
 
     test('un expediente abierto no tiene resumen de cierre', () {
       final row = _expediente(estado: 'asignado', cierreMotivo: 'otro');

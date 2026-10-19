@@ -28,7 +28,10 @@ Widget _appConBarraHorizontal(TargetPlatform plataforma) => MaterialApp(
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
-          children: List.generate(40, (i) => SizedBox(width: 120, child: Text('celda $i'))),
+          children: List.generate(
+            40,
+            (i) => SizedBox(width: 120, child: Text('celda $i')),
+          ),
         ),
       ),
     ),
@@ -101,7 +104,8 @@ void main() {
           home: Scaffold(
             body: ListView.builder(
               itemCount: 60,
-              itemBuilder: (_, i) => SizedBox(height: 40, child: Text('fila $i')),
+              itemBuilder: (_, i) =>
+                  SizedBox(height: 40, child: Text('fila $i')),
             ),
           ),
         ),

@@ -12,14 +12,17 @@ List<double> ejeY(double maximo) {
   final crudo = maximo / 4;
   final magnitud = math.pow(10, (math.log(crudo) / math.ln10).floor());
   final paso = (crudo / magnitud).ceil() * magnitud.toDouble();
-  final n = (maximo / maximo.clamp(1e-9, double.infinity) * (maximo / paso))
-          .ceil() +
+  final n =
+      (maximo / maximo.clamp(1e-9, double.infinity) * (maximo / paso)).ceil() +
       1;
   return List.generate(n, (i) => i * paso);
 }
 
-pw.Widget grafico(List<String> etiquetas, List<double> valores,
-    {bool lineas = false}) {
+pw.Widget grafico(
+  List<String> etiquetas,
+  List<double> valores, {
+  bool lineas = false,
+}) {
   final maximo = valores.reduce((a, b) => a > b ? a : b);
   final datos = <pw.PointChartValue>[
     for (var i = 0; i < valores.length; i++)
@@ -86,11 +89,15 @@ void main() {
       pw.MultiPage(
         build: (_) => [
           // Casos reales del estudio.
-          grafico(['04:00', '05:00', '06:00', '10:00', '11:00'],
-              [16, 18, 18, 65, 69],
-              lineas: true),
-          grafico(['Ruta 1', 'Ruta 3', 'Ruta 5', 'Ruta 7', 'Ruta 8'],
-              [134.2, 104.9, 93.6, 178.3, 102.3]),
+          grafico(
+            ['04:00', '05:00', '06:00', '10:00', '11:00'],
+            [16, 18, 18, 65, 69],
+            lineas: true,
+          ),
+          grafico(
+            ['Ruta 1', 'Ruta 3', 'Ruta 5', 'Ruta 7', 'Ruta 8'],
+            [134.2, 104.9, 93.6, 178.3, 102.3],
+          ),
           grafico(['Bajo', 'Medio', 'Alto', 'Crítico'], [120, 80, 40, 10]),
           // Bordes: una sola barra y valores en cero.
           grafico(['Único'], [42]),

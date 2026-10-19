@@ -58,8 +58,10 @@ void main() {
       DisciplinarySanction.ofKind(DisciplinaryOutcomeKind.sancion),
       hasLength(4),
     );
-    expect(DisciplinarySanction.isSanction(DisciplinarySanction.planMejora),
-        isFalse);
+    expect(
+      DisciplinarySanction.isSanction(DisciplinarySanction.planMejora),
+      isFalse,
+    );
     expect(
       DisciplinarySanction.isSanction(DisciplinarySanction.actaCompromiso),
       isFalse,
@@ -68,11 +70,15 @@ void main() {
       DisciplinarySanction.isSanction(DisciplinarySanction.suspensionOchoDias),
       isTrue,
     );
-    expect(DisciplinarySanction.isSanction(DisciplinarySanction.terminacion),
-        isTrue);
+    expect(
+      DisciplinarySanction.isSanction(DisciplinarySanction.terminacion),
+      isTrue,
+    );
     // Exonerar tampoco es sancionar.
-    expect(DisciplinarySanction.isSanction(DisciplinarySanction.exonerado),
-        isFalse);
+    expect(
+      DisciplinarySanction.isSanction(DisciplinarySanction.exonerado),
+      isFalse,
+    );
   });
 
   test('las dos suspensiones son resultados distintos', () {

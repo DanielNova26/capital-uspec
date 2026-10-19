@@ -9,9 +9,7 @@ import 'package:todo/talento_humano/plantilla_combinacion.dart';
 /// Cada elemento de [nodos] es un `<w:t>` distinto: así se reproduce el corte
 /// en `<w:r>` que Word hace por su cuenta.
 String parrafo(List<String> nodos) {
-  final runs = nodos
-      .map((texto) => '<w:r><w:t>$texto</w:t></w:r>')
-      .join();
+  final runs = nodos.map((texto) => '<w:r><w:t>$texto</w:t></w:r>').join();
   return '<w:p>$runs</w:p>';
 }
 
@@ -28,8 +26,11 @@ Uint8List docx(String cuerpo) {
     '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/'
         'package/2006/content-types"/>',
   );
-  agregar('word/document.xml', '<?xml version="1.0"?><w:document><w:body>'
-      '$cuerpo</w:body></w:document>');
+  agregar(
+    'word/document.xml',
+    '<?xml version="1.0"?><w:document><w:body>'
+        '$cuerpo</w:body></w:document>',
+  );
   return Uint8List.fromList(ZipEncoder().encode(archivo)!);
 }
 
@@ -111,9 +112,14 @@ void main() {
     test('un marcador no cruza de un párrafo a otro', () {
       // Un "{{" suelto en un párrafo y un "}}" suelto en otro no pueden
       // emparejarse: eso borraría todo el texto intermedio.
-      final xml = '${parrafo(['Inicio {{ suelto'])}${parrafo(['final }} fin'])}';
+      final xml =
+          '${parrafo(['Inicio {{ suelto'])}${parrafo(['final }} fin'])}';
       final salida = reemplazarEnXml(xml, {'SUELTO': 'X'});
-      expect(textoDe(docx(salida)), 'Inicio {{ suelto' 'final }} fin');
+      expect(
+        textoDe(docx(salida)),
+        'Inicio {{ suelto'
+        'final }} fin',
+      );
     });
 
     test('deja intacto el marcador que ninguna columna alimenta', () {
@@ -174,20 +180,18 @@ void main() {
   });
 
   group('combinación por lote', () {
-    DatosCombinacion datos(List<Map<String, String>> filas) =>
-        DatosCombinacion(
-          encabezados: filas.isEmpty ? [] : filas.first.keys.toList(),
-          filas: [
-            for (var i = 0; i < filas.length; i++)
-              FilaCombinacion(
-                valores: {
-                  for (final e in filas[i].entries)
-                    normalizarClave(e.key): e.value,
-                },
-                numero: i + 1,
-              ),
-          ],
-        );
+    DatosCombinacion datos(List<Map<String, String>> filas) => DatosCombinacion(
+      encabezados: filas.isEmpty ? [] : filas.first.keys.toList(),
+      filas: [
+        for (var i = 0; i < filas.length; i++)
+          FilaCombinacion(
+            valores: {
+              for (final e in filas[i].entries) normalizarClave(e.key): e.value,
+            },
+            numero: i + 1,
+          ),
+      ],
+    );
 
     test('produce un documento por fila, con su nombre', () {
       final plantilla = docx(parrafo(['{{NOMBRE}} — {{CARGO}}']));
@@ -202,7 +206,10 @@ void main() {
       expect(resultado.documentos, hasLength(2));
       expect(resultado.errores, isEmpty);
       expect(resultado.documentos.first.nombreArchivo, '1010 - Ana Gómez.docx');
-      expect(textoDe(resultado.documentos.first.bytes), 'Ana Gómez — Contadora');
+      expect(
+        textoDe(resultado.documentos.first.bytes),
+        'Ana Gómez — Contadora',
+      );
       expect(textoDe(resultado.documentos.last.bytes), 'Luis Ruiz — Auxiliar');
     });
 
@@ -227,9 +234,7 @@ void main() {
           {'Cargo': 'Contadora'},
         ]),
       );
-      final nombres = resultado.documentos
-          .map((d) => d.nombreArchivo)
-          .toList();
+      final nombres = resultado.documentos.map((d) => d.nombreArchivo).toList();
       expect(nombres.toSet(), hasLength(2));
     });
 

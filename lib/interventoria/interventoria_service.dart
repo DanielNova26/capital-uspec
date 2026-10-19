@@ -145,6 +145,10 @@ class InterventoriaUsuario {
   /// Su cargo suma las sedes de sus grupos (`cargoUsaCoberturaPorGrupo`).
   final bool usaGrupos;
 
+  /// Atiende todas las sedes (`coberturaGlobalInterventoria`): tesorero,
+  /// director de operaciones… Va después del titular propio de cada sede.
+  final bool cubreTodas;
+
   /// Jefe inmediato en ESTA empresa (cédula). Es el aprobador que se propone
   /// cuando el maestro no define uno para el numeral.
   final String jefeId;
@@ -161,6 +165,7 @@ class InterventoriaUsuario {
     this.grupos = const {},
     this.gruposIgnorados = false,
     this.usaGrupos = true,
+    this.cubreTodas = false,
     this.jefeId = '',
   });
 
@@ -181,12 +186,22 @@ class InterventoriaUsuario {
     grupos: grupos ?? this.grupos,
     gruposIgnorados: gruposIgnorados,
     usaGrupos: usaGrupos,
+    cubreTodas: cubreTodas,
     jefeId: jefeId,
   );
 
   /// El centro de costos es la adscripción administrativa. La cobertura de
   /// operación/trabajo indica las sedes donde realmente puede atender visitas.
   bool cubreCentro(String targetCentroId) {
+    final target = targetCentroId.trim();
+    if (target.isEmpty) return false;
+    if (cubreTodas) return true;
+    return cubreCentroEspecifico(target);
+  }
+
+  /// Cubre la sede por sus propios centros o grupos, sin contar la marca de
+  /// "todas las sedes". Es lo que gana frente a una persona global.
+  bool cubreCentroEspecifico(String targetCentroId) {
     final target = targetCentroId.trim();
     if (target.isEmpty) return false;
     // Apenas Talento Humano define cobertura operativa, esta reemplaza al
@@ -290,22 +305,28 @@ InterventoriaPersona? resolverCargoUnico(
 ) {
   ({InterventoriaUsuario user, int afinidad})? mejor;
   var mejorEsDelCentro = false;
+  var mejorEsEspecifico = false;
   for (final user in usuarios) {
     final afinidad = afinidadCargo(cargoMatriz, user.cargo);
     if (afinidad == null) continue;
     final delCentro = user.cubreCentro(centroCostoId);
+    final especifico = user.cubreCentroEspecifico(centroCostoId);
     final bool gana;
     if (mejor == null) {
       gana = true;
     } else if (delCentro != mejorEsDelCentro) {
       // El del establecimiento gana aunque su cargo encaje peor.
       gana = delCentro;
+    } else if (delCentro && especifico != mejorEsEspecifico) {
+      // El titular de la sede va antes que quien atiende todas las sedes.
+      gana = especifico;
     } else {
       gana = afinidad < mejor.afinidad;
     }
     if (gana) {
       mejor = (user: user, afinidad: afinidad);
       mejorEsDelCentro = delCentro;
+      mejorEsEspecifico = especifico;
     }
   }
   if (mejor == null) return null;
@@ -2738,6 +2759,7 @@ class InterventoriaService {
         final legacyTrabajo = texto(leer('centroTrabajoId'));
         if (legacyTrabajo.isNotEmpty) trabajo.add(legacyTrabajo);
         final grupos = lista(leer('gruposInterventoria'));
+        var todas = coberturaGlobalDe(leer(kCampoCoberturaGlobal));
 
         operacion
           ..addAll(cambio.agregarCentros)
@@ -2763,6 +2785,7 @@ class InterventoriaService {
             ..clear()
             ..addAll(cambio.fijarGrupos!);
         }
+        if (cambio.fijarTodas != null) todas = cambio.fijarTodas!;
 
         String nombre(String id) => nombresCentro[id] ?? id;
         final operacionIds = operacion.toList()..sort();
@@ -2783,6 +2806,7 @@ class InterventoriaService {
               ? nombre(trabajoIds.single)
               : '',
           'gruposInterventoria': grupos.toList()..sort(),
+          if (cambio.fijarTodas != null) kCampoCoberturaGlobal: todas,
         };
         final update = <String, dynamic>{
           'updatedAt': FieldValue.serverTimestamp(),
@@ -3033,6 +3057,9 @@ class InterventoriaService {
           grupos: grupos,
           gruposIgnorados: !usaGrupos && grupos.isNotEmpty,
           usaGrupos: usaGrupos,
+          cubreTodas: coberturaGlobalDe(
+            scoped?[kCampoCoberturaGlobal] ?? raiz[kCampoCoberturaGlobal],
+          ),
           jefeId: jefeId == doc.id ? '' : jefeId,
         ),
       );
@@ -3089,10 +3116,16 @@ class InterventoriaService {
           .where((c) => c.user.cubreCentro(centroCostoId))
           .toList();
       if (delCentro.isNotEmpty) {
-        // Dentro del establecimiento manda la afinidad: el cargo que mas se
-        // parece al de la matriz.
-        delCentro.sort((a, b) => a.afinidad.compareTo(b.afinidad));
-        return [persona(delCentro.first.user)];
+        // Primero los titulares propios de la sede; las personas que atienden
+        // todas las sedes solo responden si no hay ninguno.
+        final propios = delCentro
+            .where((c) => c.user.cubreCentroEspecifico(centroCostoId))
+            .toList();
+        final pool = propios.isNotEmpty ? propios : delCentro;
+        // Dentro del grupo manda la afinidad: el cargo que mas se parece al de
+        // la matriz.
+        pool.sort((a, b) => a.afinidad.compareTo(b.afinidad));
+        return [persona(pool.first.user)];
       }
     }
 

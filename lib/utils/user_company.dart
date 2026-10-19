@@ -939,7 +939,10 @@ bool cargoUsaGruposPorDefecto(String nombreCargo) =>
 /// ¿El cargo suma las sedes de los grupos de la persona? Lee la marca del
 /// documento del cargo (acepta booleano o texto de Excel) y, si no está,
 /// decide por el nombre.
-bool cargoUsaCoberturaPorGrupo(Map<String, dynamic> cargo, {String nombre = ''}) {
+bool cargoUsaCoberturaPorGrupo(
+  Map<String, dynamic> cargo, {
+  String nombre = '',
+}) {
   final raw = cargo[kCampoCoberturaPorGrupo];
   if (raw is bool) return raw;
   final text = (raw ?? '').toString().trim().toLowerCase();
@@ -949,4 +952,17 @@ bool cargoUsaCoberturaPorGrupo(Map<String, dynamic> cargo, {String nombre = ''})
       ? nombre
       : (cargo['nombre'] ?? cargo['cargoId'] ?? '').toString();
   return cargoUsaGruposPorDefecto(nombreCargo);
+}
+
+/// Marca por persona en `empresasDetalle.{empresa}` (y en la raíz de la
+/// empresa principal): atiende TODAS las sedes en Interventoría (tesorero,
+/// director de operaciones, abogado…). Una persona con titular de sede propio
+/// en un hallazgo siempre va primero; la global responde cuando no lo hay.
+const String kCampoCoberturaGlobal = 'coberturaGlobalInterventoria';
+
+/// Lee la marca (booleano o texto de Excel). Sin dato = false.
+bool coberturaGlobalDe(Object? raw) {
+  if (raw is bool) return raw;
+  final text = (raw ?? '').toString().trim().toLowerCase();
+  return const {'true', 'si', 'sí', '1', 's'}.contains(text);
 }

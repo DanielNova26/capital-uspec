@@ -224,9 +224,10 @@ void main() {
       // la misma y no puede borrarse por error.
       expect(
         PersonnelRequisitionHistoryEntry.mapMatches(
-          crudo(nota: 'Solicitud creada', fecha: fecha.add(
-            const Duration(seconds: 1),
-          )),
+          crudo(
+            nota: 'Solicitud creada',
+            fecha: fecha.add(const Duration(seconds: 1)),
+          ),
           vieja.key,
         ),
         isFalse,
@@ -281,8 +282,9 @@ void main() {
         crudo(id: 'b', nota: 'Avance equivocado', fecha: DateTime(2026, 9, 8)),
       ];
       final restantes = historial
-          .where((item) =>
-              !PersonnelRequisitionHistoryEntry.mapMatches(item, 'b'))
+          .where(
+            (item) => !PersonnelRequisitionHistoryEntry.mapMatches(item, 'b'),
+          )
           .toList();
 
       expect(restantes, hasLength(2));
@@ -293,13 +295,16 @@ void main() {
       // El arreglo se reescribe completo, así que si el filtro trabajara sobre
       // objetos tipados se perderían campos guardados por otras versiones.
       final historial = [
-        {...crudo(id: 'a', nota: 'Creada', fecha: DateTime(2026, 9, 1)),
-          'campoFuturo': 'no se puede perder'},
+        {
+          ...crudo(id: 'a', nota: 'Creada', fecha: DateTime(2026, 9, 1)),
+          'campoFuturo': 'no se puede perder',
+        },
         crudo(id: 'b', nota: 'Equivocado', fecha: DateTime(2026, 9, 8)),
       ];
       final restantes = historial
-          .where((item) =>
-              !PersonnelRequisitionHistoryEntry.mapMatches(item, 'b'))
+          .where(
+            (item) => !PersonnelRequisitionHistoryEntry.mapMatches(item, 'b'),
+          )
           .toList();
 
       expect(restantes, hasLength(1));

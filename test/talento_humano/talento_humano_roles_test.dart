@@ -54,7 +54,9 @@ void main() {
         empresaId: 'A',
         userId: 'persona',
         assignment: {
-          'empresaId': 'A', 'userId': 'persona', 'rol': 'desconocido',
+          'empresaId': 'A',
+          'userId': 'persona',
+          'rol': 'desconocido',
         },
       ),
       TalentoHumanoLevel.ninguno,

@@ -21,6 +21,7 @@ InterventoriaUsuario _u(
 );
 
 void main() {
+  globales();
   test('el estado después replica lo que escribe la aplicación', () {
     const antes = SedesPersona(
       operacion: {'moniquira'},
@@ -148,5 +149,37 @@ void main() {
       expect(r.cambios.map((c) => c.userId), ['1']);
       expect(r.sinCambio, 1);
     });
+  });
+}
+
+void globales() {
+  test('la marca de todas las sedes entra al respaldo y se deshace', () {
+    final antes = InterventoriaUsuario(
+      id: '1',
+      nombre: 'Persona 1',
+      cargo: 'Tesorero',
+      centroId: '',
+      areaId: '',
+    );
+    final lote = prepararLote(
+      const [
+        CambioCobertura(userId: '1', nombre: 'Persona 1', fijarTodas: true),
+      ],
+      {'1': antes},
+    );
+    expect(lote.single.antes.todas, isFalse);
+    expect(lote.single.despues.todas, isTrue);
+    expect(PersonaDelLote.fromMap(lote.single.toMap()).despues.todas, isTrue);
+
+    final hoy = InterventoriaUsuario(
+      id: '1',
+      nombre: 'Persona 1',
+      cargo: 'Tesorero',
+      centroId: '',
+      areaId: '',
+      cubreTodas: true,
+    );
+    final r = planDeshacer(lote, {'1': hoy});
+    expect(r.cambios.single.fijarTodas, isFalse);
   });
 }

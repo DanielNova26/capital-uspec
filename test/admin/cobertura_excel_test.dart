@@ -69,6 +69,7 @@ List<Object> _fila(String cedula, String op, String tr, String gr) => [
 ];
 
 void main() {
+  todasLasSedes();
   agregarGrupo();
   test('el modelo trae todo el personal y las hojas de apoyo', () {
     final bytes = construirPlantillaCobertura(
@@ -269,19 +270,22 @@ void agregarGrupo() {
       expect(ambas.cambios.single.fijarTrabajo, {'picota', 'lamesa'});
     });
 
-    test('lo agregado se suma a lo escrito en el archivo y manda el archivo', () {
-      final r = leerImportacionCobertura(
-        bytes: _excel([fila('1', agregar: 'G6')]),
-        usuarios: [
-          _u('1', trabajo: {'moniquira'}),
-        ],
-        centros: _centros,
-        sedesPorGrupo: sedesG6,
-      );
-      // La columna de trabajo del archivo está vacía (""): manda el archivo;
-      // lo agregado se suma a lo escrito en el archivo.
-      expect(r.cambios.single.fijarTrabajo, {'picota', 'lamesa'});
-    });
+    test(
+      'lo agregado se suma a lo escrito en el archivo y manda el archivo',
+      () {
+        final r = leerImportacionCobertura(
+          bytes: _excel([fila('1', agregar: 'G6')]),
+          usuarios: [
+            _u('1', trabajo: {'moniquira'}),
+          ],
+          centros: _centros,
+          sedesPorGrupo: sedesG6,
+        );
+        // La columna de trabajo del archivo está vacía (""): manda el archivo;
+        // lo agregado se suma a lo escrito en el archivo.
+        expect(r.cambios.single.fijarTrabajo, {'picota', 'lamesa'});
+      },
+    );
 
     test('rechaza COMO inválido y grupos sin sedes', () {
       final r = leerImportacionCobertura(
@@ -308,3 +312,92 @@ void agregarGrupo() {
     });
   });
 }
+
+void todasLasSedes() {
+  List<Object> fila(String cedula, String todas) => [
+    cedula,
+    'x',
+    'x',
+    '',
+    'SI',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    todas,
+  ];
+
+  group('TODAS LAS SEDES', () {
+    test(
+      'SI marca a la persona como global y se muestra en la vista previa',
+      () {
+        final r = leerImportacionCobertura(
+          bytes: _excel([fila('1', 'SI')]),
+          usuarios: [_u('1')],
+          centros: _centros,
+        );
+        expect(r.errores, isEmpty);
+        expect(r.cambios.single.fijarTodas, isTrue);
+        expect(r.cambios.single.fijarOperacion, isNull);
+        expect(r.detalles.single.resumen, contains('Todas las sedes: NO → SI'));
+      },
+    );
+
+    test('NO la quita y vacío no toca nada', () {
+      final global = _g('1');
+      final quitar = leerImportacionCobertura(
+        bytes: _excel([fila('1', 'NO')]),
+        usuarios: [global],
+        centros: _centros,
+      );
+      expect(quitar.cambios.single.fijarTodas, isFalse);
+      final igual = leerImportacionCobertura(
+        bytes: _excel([fila('1', '')]),
+        usuarios: [global],
+        centros: _centros,
+      );
+      expect(igual.cambios, isEmpty);
+      expect(igual.sinCambio, 1);
+    });
+
+    test('otro valor se rechaza', () {
+      final r = leerImportacionCobertura(
+        bytes: _excel([fila('1', 'Quizás')]),
+        usuarios: [_u('1')],
+        centros: _centros,
+      );
+      expect(r.cambios, isEmpty);
+      expect(r.errores.single, contains('TODAS LAS SEDES debe ser SI o NO'));
+    });
+
+    test('el modelo descargado trae SI/NO y se reimporta sin cambios', () {
+      final usuarios = [_g('1'), _u('2')];
+      final bytes = construirPlantillaCobertura(
+        usuarios: usuarios,
+        centros: _centros,
+      );
+      final e = xl.Excel.decodeBytes(bytes);
+      final filas = e.tables[kHojaCobertura]!.rows;
+      // El modelo ordena por cargo: Administrador (NO) antes que Tesorero (SI).
+      expect(filas[1][11]?.value.toString(), 'NO');
+      expect(filas[2][11]?.value.toString(), 'SI');
+      final r = leerImportacionCobertura(
+        bytes: bytes,
+        usuarios: usuarios,
+        centros: _centros,
+      );
+      expect(r.cambios, isEmpty);
+    });
+  });
+}
+
+InterventoriaUsuario _g(String id) => InterventoriaUsuario(
+  id: id,
+  nombre: 'Persona $id',
+  cargo: 'Tesorero',
+  centroId: '',
+  areaId: '',
+  cubreTodas: true,
+);

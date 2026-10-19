@@ -72,7 +72,10 @@ void main() {
             'fechaLimiteResultado': Timestamp.fromDate(manana),
           },
           // Cerrado: no cuenta, aunque su fecha haya quedado atrás.
-          {'etapa': 'cerrado', 'fechaLimiteResultado': Timestamp.fromDate(ayer)},
+          {
+            'etapa': 'cerrado',
+            'fechaLimiteResultado': Timestamp.fromDate(ayer),
+          },
         ],
       );
 

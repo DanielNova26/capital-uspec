@@ -22,11 +22,7 @@ void main() {
       final app = kCatalogoNotificaciones.firstWhere((t) => t.clave == clave);
       expect(app.modulo, entradas[i].group(2), reason: clave);
       expect(app.critico, cuerpo.contains('critico: true'), reason: clave);
-      expect(
-        app.conWhatsapp,
-        cuerpo.contains('rutasWhatsapp'),
-        reason: clave,
-      );
+      expect(app.conWhatsapp, cuerpo.contains('rutasWhatsapp'), reason: clave);
     }
     expect(
       [for (final t in kCatalogoNotificaciones) t.clave],

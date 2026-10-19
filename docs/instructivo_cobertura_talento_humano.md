@@ -27,6 +27,7 @@ manda a una persona de otra sede.
 |---|---|---|
 | Cargos que atienden varias sedes | Coordinador de calidad, Director de operaciones, Supervisor HSE, Nutricionista | **Sí** |
 | Cargos de una sola sede | Administrador Tipo 1, Administrador Tipo 2 | **No** |
+| Cargos que atienden toda la operación | Tesorero, director de operaciones, abogado, auxiliar de talento humano | Se marcan **TODAS LAS SEDES** por persona (ver 3.1) |
 
 Cada cargo tiene una marca **"Cobertura por grupo"**:
 
@@ -93,6 +94,14 @@ persona:
    - Los nombres de sede se copian de la hoja **Sedes**; los grupos son
      `G1`, `G7`… (hoja **Grupos**).
    - Una celda vacía significa "ninguna".
+   - **Personas que atienden toda la operación** (tesorero, director de
+     operaciones, abogado, auxiliar de talento humano…): en **TODAS LAS SEDES**
+     escribe `SI`. Reciben los hallazgos de cualquier sede, pero **solo cuando
+     esa sede no tiene un titular propio de su cargo**: si en La Mesa hay un
+     tesorero que cubre La Mesa, el hallazgo va a él y no al global. `NO` quita
+     la marca; vacío no cambia nada. No hace falta llenar sedes ni grupos para
+     ellos. Hazlo con todos los que correspondan, aunque no estés seguro de que
+     el cargo reciba hallazgos: no estorba.
    - **Llenar sedes de un grupo de un tirón:** en **AGREGAR GRUPO** escribe el
      grupo (por ejemplo `G6`) y en **COMO** elige `TRABAJO`, `OPERACION` o
      `AMBAS` (vacío = trabajo). Al importar, la aplicación copia todas las sedes

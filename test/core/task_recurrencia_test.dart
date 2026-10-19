@@ -27,7 +27,10 @@ void main() {
 
   test('mensual: el día 31 cae el último día de los meses cortos', () {
     const r = TaskRecurrencia(frecuencia: TaskFrecuencia.mensual, diaMes: 31);
-    expect(r.siguienteDespuesDe(DateTime(2026, 10, 31)), DateTime(2026, 11, 30));
+    expect(
+      r.siguienteDespuesDe(DateTime(2026, 10, 31)),
+      DateTime(2026, 11, 30),
+    );
     expect(r.siguienteDespuesDe(DateTime(2027, 1, 31)), DateTime(2027, 2, 28));
     expect(r.descripcion, 'El día 31 de cada mes');
   });

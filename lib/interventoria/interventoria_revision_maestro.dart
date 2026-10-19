@@ -416,6 +416,9 @@ class CambioCobertura {
   final Set<String>? fijarTrabajo;
   final Set<String>? fijarGrupos;
 
+  /// Marca "atiende todas las sedes" (`coberturaGlobalInterventoria`).
+  final bool? fijarTodas;
+
   const CambioCobertura({
     required this.userId,
     required this.nombre,
@@ -426,6 +429,7 @@ class CambioCobertura {
     this.fijarOperacion,
     this.fijarTrabajo,
     this.fijarGrupos,
+    this.fijarTodas,
   });
 
   bool get vacio =>
@@ -435,7 +439,8 @@ class CambioCobertura {
       quitarGrupos.isEmpty &&
       fijarOperacion == null &&
       fijarTrabajo == null &&
-      fijarGrupos == null;
+      fijarGrupos == null &&
+      fijarTodas == null;
 }
 
 /// Centros de costo de cada grupo (`G1` → {centros}).

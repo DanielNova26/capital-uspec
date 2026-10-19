@@ -816,7 +816,7 @@ class _AdminCoberturaPersonalPanelState
   Widget _fila(PersonaCobertura p) {
     final u = p.usuario;
     final color = switch (p.estado) {
-      EstadoCobertura.correcta => _ok,
+      EstadoCobertura.correcta || EstadoCobertura.todasLasSedes => _ok,
       EstadoCobertura.soloCentroDeCostos => _aviso,
       _ => _peligro,
     };

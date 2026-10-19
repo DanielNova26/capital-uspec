@@ -20,6 +20,7 @@ class SedesPersona {
     this.operacion = const {},
     this.trabajo = const {},
     this.grupos = const {},
+    this.todas = false,
   });
 
   final Set<String> operacion;
@@ -28,10 +29,14 @@ class SedesPersona {
   /// Normalizados (`G7`).
   final Set<String> grupos;
 
+  /// Atiende todas las sedes (`coberturaGlobalInterventoria`).
+  final bool todas;
+
   factory SedesPersona.deUsuario(InterventoriaUsuario u) => SedesPersona(
     operacion: {...u.centrosOperacionIds},
     trabajo: {...u.centrosTrabajoIds},
     grupos: {for (final g in u.grupos) claveGrupoTrabajo(g)},
+    todas: u.cubreTodas,
   );
 
   factory SedesPersona.fromMap(Map<dynamic, dynamic>? m) {
@@ -41,6 +46,7 @@ class SedesPersona {
       operacion: set(m?['operacion']),
       trabajo: set(m?['trabajo']),
       grupos: set(m?['grupos']),
+      todas: m?['todas'] == true,
     );
   }
 
@@ -48,12 +54,14 @@ class SedesPersona {
     'operacion': operacion.toList()..sort(),
     'trabajo': trabajo.toList()..sort(),
     'grupos': grupos.toList()..sort(),
+    'todas': todas,
   };
 
   bool igualA(SedesPersona o) =>
       _igual(operacion, o.operacion) &&
       _igual(trabajo, o.trabajo) &&
-      _igual(grupos, o.grupos);
+      _igual(grupos, o.grupos) &&
+      todas == o.todas;
 
   static bool _igual(Set<String> a, Set<String> b) =>
       a.length == b.length && a.containsAll(b);
@@ -71,6 +79,7 @@ SedesPersona estadoDespues(SedesPersona antes, CambioCobertura c) {
     operacion: c.fijarOperacion != null ? {...c.fijarOperacion!} : operacion,
     trabajo: c.fijarTrabajo != null ? {...c.fijarTrabajo!} : trabajo,
     grupos: c.fijarGrupos != null ? {...c.fijarGrupos!} : grupos,
+    todas: c.fijarTodas ?? antes.todas,
   );
 }
 
@@ -171,6 +180,7 @@ ResultadoDeshacer planDeshacer(
           fijarOperacion: {...p.antes.operacion},
           fijarTrabajo: {...p.antes.trabajo},
           fijarGrupos: {...p.antes.grupos},
+          fijarTodas: p.antes.todas,
         ),
       );
     } else {

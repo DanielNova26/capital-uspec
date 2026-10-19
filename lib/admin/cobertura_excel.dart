@@ -31,6 +31,7 @@ const List<String> kColumnasCobertura = [
   'GRUPOS',
   'AGREGAR GRUPO',
   'COMO (TRABAJO U OPERACION)',
+  'TODAS LAS SEDES',
 ];
 
 const String _separador = '; ';
@@ -59,8 +60,9 @@ Uint8List construirPlantillaCobertura({
     '',
     'Cómo se usa:',
     '1. Ve a la hoja "$kHojaCobertura". Cada fila es una persona.',
-    '2. Edita SOLO las cinco últimas columnas: SEDES DE OPERACION, SEDES DE '
-        'TRABAJO, GRUPOS, AGREGAR GRUPO y COMO. Las demás son de consulta.',
+    '2. Edita SOLO las seis últimas columnas: SEDES DE OPERACION, SEDES DE '
+        'TRABAJO, GRUPOS, AGREGAR GRUPO, COMO y TODAS LAS SEDES. Las demás son '
+        'de consulta.',
     '3. Varias sedes o grupos se separan con punto y coma. Ej.: Picota; La Mesa.',
     '4. Escribe las sedes tal como están en la hoja "$kHojaSedes" y los grupos '
         'como G1, G7 (hoja "$kHojaGrupos").',
@@ -79,6 +81,11 @@ Uint8List construirPlantillaCobertura({
     '- OPERACION = la sede donde está la persona. TRABAJO = otras sedes que '
         'atiende. GRUPOS = a qué grupos pertenece (suma las sedes del grupo '
         'solo si su cargo usa grupos).',
+    '- TODAS LAS SEDES (SI/NO) es para quien atiende toda la operación '
+        '(tesorero, director de operaciones, abogado, auxiliar de talento '
+        'humano…): con SI recibe los hallazgos de cualquier sede, pero solo '
+        'cuando la sede no tiene un titular propio de ese cargo. Vacío = no se '
+        'cambia.',
     '- AGREGAR GRUPO sirve para llenar sedes de un tirón: escribe el grupo '
         '(G6) y en COMO elige TRABAJO, OPERACION o AMBAS (vacío = TRABAJO). Al '
         'importar, la aplicación copia todas las sedes de ese grupo a esa '
@@ -114,6 +121,7 @@ Uint8List construirPlantillaCobertura({
       xl.TextCellValue(_unir(u.grupos)),
       xl.TextCellValue(''),
       xl.TextCellValue(''),
+      xl.TextCellValue(u.cubreTodas ? 'SI' : 'NO'),
     ]);
   }
 
@@ -232,6 +240,7 @@ ResultadoImportacionCobertura leerImportacionCobertura({
   final cTr = col('SEDES DE TRABAJO');
   final cGr = col('GRUPOS');
   final cAdd = col('AGREGAR GRUPO');
+  final cTodas = col('TODAS LAS SEDES');
   final cComo = titulos.indexWhere((t) => t.startsWith('como'));
   if (cCedula < 0 || (cOp < 0 && cTr < 0 && cGr < 0)) {
     return const ResultadoImportacionCobertura(
@@ -344,13 +353,32 @@ ResultadoImportacionCobertura leerImportacionCobertura({
       continue;
     }
 
+    // TODAS LAS SEDES: SI / NO. Vacío = no se toca.
+    bool? todas;
+    if (cTodas >= 0) {
+      final v = _canon(celda(fila, cTodas));
+      if (v.isNotEmpty) {
+        if (const {'si', 's', '1', 'true'}.contains(v)) {
+          todas = true;
+        } else if (const {'no', 'n', '0', 'false'}.contains(v)) {
+          todas = false;
+        } else {
+          errores.add(
+            '$etiqueta: TODAS LAS SEDES debe ser SI o NO (dice "${celda(fila, cTodas)}"). No se cambió.',
+          );
+          continue;
+        }
+      }
+    }
+
     bool distinto(Set<String>? nuevo, Set<String> actual) =>
         nuevo != null &&
         (nuevo.length != actual.length || !nuevo.containsAll(actual));
     final cambiaOp = distinto(op, u.centrosOperacionIds);
     final cambiaTr = distinto(tr, u.centrosTrabajoIds);
     final cambiaGr = distinto(gr, u.grupos);
-    if (!cambiaOp && !cambiaTr && !cambiaGr) {
+    final cambiaTodas = todas != null && todas != u.cubreTodas;
+    if (!cambiaOp && !cambiaTr && !cambiaGr && !cambiaTodas) {
       sinCambio++;
       continue;
     }
@@ -366,6 +394,7 @@ ResultadoImportacionCobertura leerImportacionCobertura({
         fijarOperacion: cambiaOp ? op : null,
         fijarTrabajo: cambiaTr ? tr : null,
         fijarGrupos: cambiaGr ? gr : null,
+        fijarTodas: cambiaTodas ? todas : null,
       ),
     );
     detalles.add(
@@ -377,6 +406,8 @@ ResultadoImportacionCobertura leerImportacionCobertura({
             'Operación: ${lista(u.centrosOperacionIds)} → ${lista(op!)}',
           if (cambiaTr)
             'Trabajo: ${lista(u.centrosTrabajoIds)} → ${lista(tr!)}',
+          if (cambiaTodas)
+            'Todas las sedes: ${u.cubreTodas ? 'SI' : 'NO'} → ${todas! ? 'SI' : 'NO'}',
           if (cambiaGr)
             'Grupos: ${u.grupos.isEmpty ? '(ninguno)' : (u.grupos.toList()..sort()).join(', ')}'
                 ' → ${gr!.isEmpty ? '(ninguno)' : (gr.toList()..sort()).join(', ')}',
