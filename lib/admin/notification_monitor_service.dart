@@ -466,3 +466,63 @@ String explicarAlerta(AvisoMonitor aviso, DatosMonitor datos) {
   return '$regla En $sede sí cubre $titulares, pero la tarea quedó con '
       '$nombre, que $sedesDe. $origen Se corrige reasignándola.';
 }
+
+/// Alguien a quien se puede pasar el hallazgo, con lo necesario para filtrar.
+class OpcionReasignar {
+  const OpcionReasignar({
+    required this.persona,
+    required this.areaId,
+    required this.cubreSede,
+  });
+
+  final InterventoriaPersona persona;
+  final String areaId;
+  final bool cubreSede;
+}
+
+/// A quién ofrecer al reasignar. [sugeridos] son quienes la regla pide: el
+/// cargo del numeral, que cubren la sede y reciben tareas. Solo si no hay
+/// ninguno se ofrece [resto], todo el personal que recibe tareas (con los
+/// que cubren la sede primero), para filtrarlo por área o nombre.
+class OpcionesReasignacion {
+  const OpcionesReasignacion({required this.sugeridos, required this.resto});
+
+  final List<OpcionReasignar> sugeridos;
+  final List<OpcionReasignar> resto;
+
+  bool get haySugeridos => sugeridos.isNotEmpty;
+}
+
+OpcionesReasignacion opcionesReasignacion(
+  AvisoMonitor aviso,
+  DatosMonitor datos,
+) {
+  final cargo = aviso.cargoResponsable.trim();
+  final sugeridos = <OpcionReasignar>[];
+  final resto = <OpcionReasignar>[];
+  for (final u in datos.usuarios.values) {
+    if (u.id == aviso.userId || !datos.asignablesIds.contains(u.id)) continue;
+    final cubre = aviso.sedeId.isNotEmpty && u.cubreCentro(aviso.sedeId);
+    final opcion = OpcionReasignar(
+      persona: InterventoriaPersona(
+        id: u.id,
+        nombre: u.nombre,
+        cargo: u.cargo,
+        cargoMatriz: cargo.isEmpty ? u.cargo : cargo,
+        delCentro: cubre,
+      ),
+      areaId: u.areaId,
+      cubreSede: cubre,
+    );
+    final cargoCoincide = cargo.isEmpty || afinidadCargo(cargo, u.cargo) != null;
+    (cubre && cargoCoincide ? sugeridos : resto).add(opcion);
+  }
+  int porNombre(OpcionReasignar a, OpcionReasignar b) =>
+      a.persona.nombre.toLowerCase().compareTo(b.persona.nombre.toLowerCase());
+  sugeridos.sort(porNombre);
+  resto.sort((a, b) {
+    if (a.cubreSede != b.cubreSede) return a.cubreSede ? -1 : 1;
+    return porNombre(a, b);
+  });
+  return OpcionesReasignacion(sugeridos: sugeridos, resto: resto);
+}

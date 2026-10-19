@@ -11660,3 +11660,7 @@ Acta: «La reunión se inició a las 2026_10_15 18_27». Código: `functions/src
 
 ## Monitor 2.7.5+50: la explicación dice quién asignó (19 oct 2026)
 - Caso Gineth Mateus (Tareas 857 y 862, La Mesa y Chiquinquirá): había titular en la sede (Jarod Nieto) y la tarea quedó con ella. La alerta ahora distingue asignación automática (lo probable: la cobertura o la marca "recibe tareas" del titular se cargó después) de asignación a mano (muestra quién). Sin confirmar con datos de producción; para certeza revisar `asignacionAutomatica` y `ejecutadoPorNombre` de esas tareas.
+
+## Monitor 2.7.6+51: reasignar ofrece solo a quien corresponde (19 oct 2026)
+- Al reasignar desde una alerta se ofrece únicamente a quien cumple la regla (cargo del numeral + cubre la sede + recibe tareas). Solo si no hay nadie se muestra todo el personal que recibe tareas, con búsqueda, filtro por área y "solo quienes cubren la sede"; quien no cubre queda marcado "otra sede". Las áreas salen de `AreaCatalogo` (regla 3).
+- Pendiente: si la causa de fondo del caso Gineth fue cobertura cargada después de asignar, no hay reasignación automática al cargarla; hoy queda en "Sin asignar" o se corrige desde el monitor.

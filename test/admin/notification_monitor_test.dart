@@ -40,6 +40,7 @@ AvisoMonitor _aviso({
 void main() {
   candidatos();
   explicacion();
+  opciones();
   test('marca el aviso que llegó a quien no cubre la sede', () {
     final moniquira = _persona('1', cubre: {'moniquira'});
     expect(llegoFueraDeSede(_aviso(userId: '1'), moniquira), isTrue);
@@ -177,5 +178,64 @@ void explicacion() {
       explicarAlerta(aviso('1'), datos),
       contains('En La Mesa sí cubre Persona 2'),
     );
+  });
+}
+
+void opciones() {
+  AvisoMonitor aviso() => AvisoMonitor.fromMap({
+    'id': 'x',
+    'userId': '1',
+    'tipo': 'task_assigned',
+    'modulo': 'interventoria',
+    'sedeId': 'lamesa',
+    'cargoResponsable': 'Coordinador de calidad',
+    'creadaMs': 1000,
+  });
+  InterventoriaUsuario u(String id, String cargo, Set<String> cubre) =>
+      InterventoriaUsuario(
+        id: id,
+        nombre: 'Persona $id',
+        cargo: cargo,
+        centroId: '',
+        areaId: '',
+        centrosAsignadosIds: cubre,
+      );
+
+  test('ofrece solo a quien cumple el cargo y cubre la sede', () {
+    final datos = DatosMonitor(
+      avisos: const [],
+      usuarios: {
+        '1': u('1', 'Coordinador De Calidad', {'picota'}),
+        '2': u('2', 'Coordinador De Calidad', {'lamesa'}),
+        '3': u('3', 'Administrador', {'lamesa'}),
+        '4': u('4', 'Coordinador De Calidad', {'otra'}),
+      },
+      asignablesIds: {'1', '2', '3', '4'},
+      truncado: false,
+      dias: 7,
+    );
+    final o = opcionesReasignacion(aviso(), datos);
+    expect(o.sugeridos.map((e) => e.persona.id), ['2']);
+    expect(o.haySugeridos, isTrue);
+  });
+
+  test('sin nadie que cumpla ofrece a todo el personal, los de la sede primero', () {
+    final datos = DatosMonitor(
+      avisos: const [],
+      usuarios: {
+        '1': u('1', 'Coordinador De Calidad', {'picota'}),
+        '3': u('3', 'Administrador', {'lamesa'}),
+        '4': u('4', 'Nutricionista', {'otra'}),
+        '5': u('5', 'Nutricionista', {'lamesa'}),
+      },
+      asignablesIds: {'3', '4', '5'},
+      truncado: false,
+      dias: 7,
+    );
+    final o = opcionesReasignacion(aviso(), datos);
+    expect(o.haySugeridos, isFalse);
+    expect(o.resto.map((e) => e.persona.id), ['3', '5', '4']);
+    expect(o.resto.first.cubreSede, isTrue);
+    expect(o.resto.last.cubreSede, isFalse);
   });
 }

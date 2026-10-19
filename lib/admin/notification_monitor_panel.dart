@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/area_directory.dart';
 import '../interventoria/interventoria_service.dart';
 import '../widgets/paged_list.dart';
 import '../widgets/user_avatar.dart';
@@ -335,12 +336,17 @@ class _AdminNotificationMonitorPanelState
   // ── Corrección desde una alerta ────────────────────────────────────────────
 
   Future<void> _reasignar(AvisoMonitor aviso, DatosMonitor d) async {
-    final candidatos = candidatosParaSede(aviso, d);
+    final opciones = opcionesReasignacion(aviso, d);
     final elegido = await showDialog<InterventoriaPersona>(
       context: context,
       builder: (_) => _DialogoReasignar(
         sede: aviso.sedeNombre.isEmpty ? aviso.sedeId : aviso.sedeNombre,
-        candidatos: candidatos,
+        cargo: aviso.cargoResponsable,
+        opciones: opciones,
+        catalogoAreas: AreaCatalogo.desde([
+          for (final u in d.usuarios.values)
+            if (u.areaId.isNotEmpty) (id: u.areaId, nombre: null),
+        ]),
       ),
     );
     if (elegido == null || !mounted) return;
@@ -1032,13 +1038,21 @@ class _FilaPersonaSede extends StatelessWidget {
   }
 }
 
-/// Elegir a quién pasar el hallazgo: solo personas que cubren la sede y
-/// pueden recibir tareas.
+/// Elegir a quién pasar el hallazgo. Primero y solo lo que pide la regla (el
+/// cargo del numeral, en la sede y con tareas habilitadas); si no hay nadie,
+/// todo el personal que recibe tareas, con filtro por área y búsqueda.
 class _DialogoReasignar extends StatefulWidget {
-  const _DialogoReasignar({required this.sede, required this.candidatos});
+  const _DialogoReasignar({
+    required this.sede,
+    required this.cargo,
+    required this.opciones,
+    required this.catalogoAreas,
+  });
 
   final String sede;
-  final List<InterventoriaPersona> candidatos;
+  final String cargo;
+  final OpcionesReasignacion opciones;
+  final AreaCatalogo catalogoAreas;
 
   @override
   State<_DialogoReasignar> createState() => _DialogoReasignarState();
@@ -1046,69 +1060,132 @@ class _DialogoReasignar extends StatefulWidget {
 
 class _DialogoReasignarState extends State<_DialogoReasignar> {
   String _q = '';
+  String _area = 'todas';
+  bool _soloSede = false;
 
   @override
   Widget build(BuildContext context) {
-    final q = _q.trim().toLowerCase();
-    final lista = [
-      for (final p in widget.candidatos)
-        if (q.isEmpty ||
-            p.nombre.toLowerCase().contains(q) ||
-            p.cargo.toLowerCase().contains(q))
-          p,
-    ];
     final ancho = MediaQuery.sizeOf(context).width;
+    final hay = widget.opciones.haySugeridos;
+    final q = _q.trim().toLowerCase();
+    final base = hay ? widget.opciones.sugeridos : widget.opciones.resto;
+    final lista = [
+      for (final o in base)
+        if ((q.isEmpty ||
+                o.persona.nombre.toLowerCase().contains(q) ||
+                o.persona.cargo.toLowerCase().contains(q)) &&
+            (hay ||
+                widget.catalogoAreas.coincide(filtro: _area, valor: o.areaId)) &&
+            (hay || !_soloSede || o.cubreSede))
+          o,
+    ];
+    final cargo = widget.cargo.isEmpty ? '' : ' "${widget.cargo}"';
     return AlertDialog(
       title: Text('Reasignar ${widget.sede}'),
       content: SizedBox(
-        width: ancho < 520 ? ancho - 80 : 440,
-        child: widget.candidatos.isEmpty
-            ? const Text(
-                'Nadie que pueda recibir tareas cubre esta sede. Carga la '
-                'cobertura en Talento Humano, o usa "Quitar asignación" y '
-                'asígnala a mano en el tablero.',
-              )
-            : Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
+        width: ancho < 520 ? ancho - 80 : 480,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              hay
+                  ? 'Les corresponde por la regla (cargo$cargo y cubren la sede):'
+                  : 'Nadie con el cargo$cargo cubre esta sede y puede recibir '
+                        'tareas. Elige de todo el personal; quien no cubre la '
+                        'sede queda marcado.',
+              style: const TextStyle(color: _muted, height: 1.4),
+            ),
+            const SizedBox(height: 8),
+            if (!hay || base.length > 6)
+              TextField(
+                decoration: const InputDecoration(
+                  hintText: 'Buscar por nombre o cargo',
+                  prefixIcon: Icon(Icons.search),
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                onChanged: (v) => setState(() => _q = v),
+              ),
+            if (!hay) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  const Text(
-                    'Personas que sí cubren esta sede:',
-                    style: TextStyle(color: _muted),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    decoration: const InputDecoration(
-                      hintText: 'Buscar por nombre o cargo',
-                      prefixIcon: Icon(Icons.search),
-                      border: OutlineInputBorder(),
-                      isDense: true,
+                  SizedBox(
+                    width: 210,
+                    child: DropdownButtonFormField<String>(
+                      initialValue: _area,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Área',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      items: [
+                        for (final e in widget.catalogoAreas.comoMapa().entries)
+                          DropdownMenuItem(
+                            value: e.key,
+                            child: Text(e.value, overflow: TextOverflow.ellipsis),
+                          ),
+                      ],
+                      onChanged: (v) => setState(() => _area = v ?? 'todas'),
                     ),
-                    onChanged: (v) => setState(() => _q = v),
                   ),
-                  const SizedBox(height: 8),
-                  Flexible(
-                    child: ListView(
+                  FilterChip(
+                    label: const Text('Solo quienes cubren la sede'),
+                    selected: _soloSede,
+                    onSelected: (v) => setState(() => _soloSede = v),
+                  ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 8),
+            Flexible(
+              child: lista.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      child: Text(
+                        'Nadie con esos filtros. Si no hay a quién, usa '
+                        '"Quitar asignación" y asígnala a mano en el tablero.',
+                        style: TextStyle(color: _muted),
+                      ),
+                    )
+                  : ListView(
                       shrinkWrap: true,
                       children: [
-                        for (final p in lista)
+                        for (final o in lista)
                           ListTile(
                             dense: true,
                             contentPadding: EdgeInsets.zero,
                             leading: UserAvatar(
-                              userId: p.id,
-                              nameHint: p.nombre,
+                              userId: o.persona.id,
+                              nameHint: o.persona.nombre,
                               radius: 16,
                             ),
-                            title: Text(p.nombre),
-                            subtitle: Text(p.cargo),
-                            onTap: () => Navigator.pop(context, p),
+                            title: Text(o.persona.nombre),
+                            subtitle: Text(
+                              [
+                                o.persona.cargo,
+                                if (o.areaId.isNotEmpty)
+                                  widget.catalogoAreas.nombreDe(o.areaId),
+                              ].join(' · '),
+                            ),
+                            trailing: hay
+                                ? null
+                                : _Insignia(
+                                    o.cubreSede ? 'cubre la sede' : 'otra sede',
+                                    o.cubreSede ? _ok : _aviso,
+                                  ),
+                            onTap: () => Navigator.pop(context, o.persona),
                           ),
                       ],
                     ),
-                  ),
-                ],
-              ),
+            ),
+          ],
+        ),
       ),
       actions: [
         TextButton(
