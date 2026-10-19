@@ -1,5 +1,27 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-19 — Talento: rechazo al crear requerimientos con Administrador (Codex)
+
+- Reproducido `permission-denied` al crear un requerimiento con una ficha
+  habilitada, rol canónico Administrador y roles por empresa: la regla calculaba
+  dos veces `nivelTalentoEn` y superaba las 1000 expresiones de Firestore.
+- Creación y actualización resuelven el nivel una sola vez. Se conservan las
+  restricciones del solicitante, la empresa del documento y los niveles efectivos;
+  no se modifican personas, asignaciones ni datos operativos de producción.
+- Validación: 25 pruebas de reglas (6 nuevas de requerimientos, más roles e
+  inhabilitación), 53 pruebas Flutter de Talento/requerimientos y 3 del compactador.
+  Los casos nuevos cubren catálogos, creación, edición, borrado, niveles, acceso
+  histórico, revocación/reactivación y empresa secundaria/ajena. La prueba de
+  creación fallaba antes de la corrección y pasa después.
+- **Publicación bloqueada:** Firebase devolvió HTTP 503 en dos intentos del CLI
+  (`:test`) y en la creación del ruleset por API (`/rulesets`). Producción conserva
+  `782e025e-5b5f-44aa-ab4c-d0ca85548d47`, equivalente a `main` antes del cambio.
+  Reintentar con `node tool/compactar_reglas_firestore.js` y
+  `firebase deploy --config build/firebase.firestore.json --only firestore:rules --project integra360-94704`.
+  Sin cambios visuales; no se validaron
+  sesiones reales Web, Android ni iOS, anchos ni escala de texto. Falta reintentar
+  la creación con la cuenta afectada después de publicar las reglas.
+
 ## 2026-10-16 — Biométrico 2.7.2+47: borrado real y organización (Codex)
 
 - Integración del módulo independiente y de los avances de Claude (PIN, registro

@@ -789,26 +789,36 @@ service cloud.firestore {
     }
 
     match /TBL_TH_REQUERIMIENTOS_PERSONAL/{docId} {
-      allow get: if resource == null || nivelTalentoEn(resource.data.empresaId) in
-        ['consulta','solicitante','reclutador','gestor','administrador'];
-      allow list: if nivelTalentoEn(resource.data.empresaId) in
-        ['consulta','solicitante','reclutador','gestor','administrador'];
-      allow create: if nivelTalentoEn(request.resource.data.empresaId) in
-        ['solicitante','reclutador','gestor','administrador']
-        && (nivelTalentoEn(request.resource.data.empresaId) != 'solicitante'
-          || (request.resource.data.get('creadoPor', '') == request.auth.token.userDocId
-            && request.resource.data.get('etapa', '') == 'solicitado'
-            && request.resource.data.get('contratados', []) == []
-            && request.resource.data.get('candidatos', []) == []));
-      allow update: if empresaSeConserva()
-        && (nivelTalentoEn(resource.data.empresaId) in
-            ['reclutador','gestor','administrador']
-          || (nivelTalentoEn(resource.data.empresaId) == 'solicitante'
+      // Resolver una sola vez: repetir nivelTalentoEn en la misma escritura
+      // supera las 1000 expresiones con fichas que tienen roles por empresa,
+      // incluso para una administradora habilitada (19 oct 2026).
+      function puedeCrear() {
+        let nivel = nivelTalentoEn(request.resource.data.empresaId);
+        return nivel in ['solicitante','reclutador','gestor','administrador']
+          && (nivel != 'solicitante'
+            || (request.resource.data.get('creadoPor', '') == request.auth.token.userDocId
+              && request.resource.data.get('etapa', '') == 'solicitado'
+              && request.resource.data.get('contratados', []) == []
+              && request.resource.data.get('candidatos', []) == []));
+      }
+
+      function puedeActualizar() {
+        let nivel = nivelTalentoEn(resource.data.empresaId);
+        return nivel in ['reclutador','gestor','administrador']
+          || (nivel == 'solicitante'
             && resource.data.get('creadoPor', '') == request.auth.token.userDocId
             && request.resource.data.get('creadoPor', '') == resource.data.get('creadoPor', '')
             && request.resource.data.get('etapa', '') == resource.data.get('etapa', '')
             && request.resource.data.get('contratados', []) == resource.data.get('contratados', [])
-            && request.resource.data.get('candidatos', []) == resource.data.get('candidatos', [])));
+            && request.resource.data.get('candidatos', []) == resource.data.get('candidatos', []));
+      }
+
+      allow get: if resource == null || nivelTalentoEn(resource.data.empresaId) in
+        ['consulta','solicitante','reclutador','gestor','administrador'];
+      allow list: if nivelTalentoEn(resource.data.empresaId) in
+        ['consulta','solicitante','reclutador','gestor','administrador'];
+      allow create: if puedeCrear();
+      allow update: if empresaSeConserva() && puedeActualizar();
       allow delete: if nivelTalentoEn(resource.data.empresaId) in
         ['gestor','administrador'];
     }
