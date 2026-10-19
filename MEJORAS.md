@@ -1,5 +1,33 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-19 — Despliegue de Talento y solución del 503 del compilador (Codex)
+
+- **Publicado y verificado** en `integra360-94704`, 19 oct 2026, 09:22 Bogotá:
+  ruleset `81999a64-5d7c-4a4c-821a-fe0c28c1ad25`. La fuente recuperada de la
+  publicación activa es equivalente a `firestore.rules` compactado. Incluye la
+  corrección de creación/edición de requerimientos de la entrada siguiente.
+- El 503 persistente no bastaba para atribuirlo a indisponibilidad del servicio:
+  una regla mínima compilaba (HTTP 200), el archivo anterior fallaba (503) y el
+  mismo contrato con auxiliares locales compiló (200). Firebase documenta el
+  agotamiento del compilador por árboles de ámbitos duplicados:
+  https://firebase.google.com/docs/rules/rules-language#expression_complexity_and_compiler_limits.
+- Reubicadas 64 funciones exclusivas de una colección dentro de su `match`;
+  permanecen globales los 65 auxiliares compartidos. Auditoría mecánica: las
+  131 funciones totales mantienen firma y cuerpo; todos los `allow` y `match`
+  conservan condiciones y orden. Se trasladaron también sus comentarios.
+  Al ampliar reglas, colocar los auxiliares exclusivos dentro de su colección.
+- Compilación TypeScript correcta. Batería completa Firestore/Storage:
+  **242 aprobadas, 0 fallidas, 2 omitidas preexistentes** (acceso de TH a cuentas
+  bancarias, fuera de este cambio). Incluye los seis casos de requerimientos,
+  roles, aislamiento por empresa, revocación, Compras, Rutas, Tareas y Visitas.
+  Tres pruebas del compactador aprobadas. El CLI estándar compiló y publicó;
+  permanece un aviso de tipos de `tieneAppsEn` sobre el valor alternativo `null`,
+  protegido por comprobación de tipo y sin impedir el despliegue.
+- No se alteraron fichas, roles ni registros operativos. No requiere publicar
+  Web/Android/iOS: la corrección es de servidor. Pendiente la comprobación con
+  la sesión real de Amalia; no se simularon nuevas pantallas, anchos ni escala
+  de texto porque no cambió la interfaz.
+
 ## 2026-10-19 — Talento: rechazo al crear requerimientos con Administrador (Codex)
 
 - Reproducido `permission-denied` al crear un requerimiento con una ficha

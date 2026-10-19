@@ -1,6 +1,10 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Solo los auxiliares compartidos viven aquí. Los de una colección van
+    // dentro de su match: heredarlos en todos los ámbitos agotaba el compilador
+    // remoto y devolvía HTTP 503 al publicar (19 oct 2026).
+    // https://firebase.google.com/docs/rules/rules-language#expression_complexity_and_compiler_limits
     function isSignedIn() {
       return request.auth != null
         && request.auth.token.authVersion == 2
@@ -137,36 +141,6 @@ service cloud.firestore {
         && get(interventoriaRolePath(empresaId)).data.rol in allowedRoles;
     }
 
-    function interventoriaConfigPath(empresaId) {
-      return /databases/$(database)/documents/TBL_INTERVENTORIA_CONFIG/$(empresaId);
-    }
-
-    // Las empresas sin configuración conservan el flujo histórico. Cuando
-    // Administración asigna programas y actas, el servidor exige que cada
-    // acta nueva use una de esas plantillas; ocultarla en la UI no bastaría.
-    function tipoActaInterventoriaPermitido(empresaId, data) {
-      let path = interventoriaConfigPath(empresaId);
-      return !exists(path)
-        || !('tiposActaHabilitados' in get(path).data)
-        || (
-          get(path).data.tiposActaHabilitados is list
-          && 'tipoActa' in data
-          && data.tipoActa is string
-          && data.tipoActa in get(path).data.tiposActaHabilitados
-        );
-    }
-
-    function conservaTipoActaInterventoria(antes, despues) {
-      return (
-          !('tipoActa' in antes)
-          && !('tipoActa' in despues)
-        ) || (
-          'tipoActa' in antes
-          && 'tipoActa' in despues
-          && antes.tipoActa == despues.tipoActa
-        );
-    }
-
     function visitasRolePath(empresaId) {
       return /databases/$(database)/documents/TBL_VISITAS_ROLES/$(empresaId + '_' + request.auth.token.userDocId);
     }
@@ -206,10 +180,6 @@ service cloud.firestore {
     function gerenciaVisitasEn(empresaId) {
       return rolVisitasEn(empresaId, ['gerencia'])
         || esGerenciaPorFicha(empresaId);
-    }
-
-    function esGerenciaVisitas(empresaId) {
-      return belongsToCompany(empresaId) && gerenciaVisitasEn(empresaId);
     }
 
     function esCargoGerencia(valor) {
@@ -360,13 +330,6 @@ service cloud.firestore {
       return tieneAppsEn(empresaId, ['admindashboard', 'admin'], false);
     }
 
-    // Mismo contrato de empresa activa para la app de Correo. El rol interno
-    // determina las acciones del módulo; la consulta de avisos exige acceso
-    // efectivo a la app incluso si existe una asignación histórica de rol.
-    function tieneAppCorreoEn(empresaId) {
-      return tieneAppsEn(empresaId, ['correodashboard', 'correo'], false);
-    }
-
     function tieneAppTokensDianEn(empresaId) {
       return tieneAppsEn(empresaId, ['tokensdiandashboard', 'tokensdian', 'tokens'], false);
     }
@@ -483,41 +446,6 @@ service cloud.firestore {
         && data.get('rol', '') in niveles;
     }
 
-    function esRolDeModulo(data) {
-      return data.get('type', '') == 'module_role';
-    }
-
-    // Contrato de Codex para `TBL_ROLES/{empresaId}_mod_{módulo}_{nombre}`.
-    function rolDeModuloValido(docId, data) {
-      return data.get('empresaId', '') is string
-        && data.empresaId.size() > 0
-        && docId.size() > data.empresaId.size() + 5
-        && docId[0:data.empresaId.size() + 5] == data.empresaId + '_mod_'
-        && data.get('moduleId', '') in ['correodashboard',
-          'planillaspagodashboard', 'bibliotecadocumentaldashboard',
-          'tareasdashboard', 'comprasdashboard', 'rutasdashboard',
-          'interventoriadashboard', 'visitasdashboard',
-          'tokensdiandashboard', 'talentohumanodashboard', 'biometricodashboard',
-          'nutriciondashboard', 'facturaciondashboard',
-          'gerenciadashboard']
-        && (nivelesDeModulo(data.moduleId).size() == 0
-          || data.get('baseRole', '') in nivelesDeModulo(data.moduleId))
-        && data.get('enabled', null) is bool
-        && data.get('revision', null) is int && data.revision >= 1
-        && data.get('nombre', '') is string
-        && data.nombre.size() > 0 && data.nombre.size() <= 120;
-    }
-
-    // Asignación canónica de Correspondencia que escribe Admin: su id es
-    // `{empresa}_{usuario}` y el nivel es uno de los cuatro del módulo.
-    function asignacionCorreoValida(docId, data) {
-      return data.get('empresaId', '') is string
-        && data.get('usuarioId', '') is string
-        && docId == data.empresaId + '_' + data.usuarioId
-        && data.get('rol', '') in ['visor', 'operador', 'clasificador',
-          'administrador'];
-    }
-
     function isCorreoAdmin(empresaId) {
       return belongsToCompany(empresaId)
         && exists(correoRolePath(empresaId))
@@ -567,6 +495,13 @@ service cloud.firestore {
     // Contiene teléfonos, contenido del aviso y errores del proveedor. Correo
     // y Admin solo lo consultan en su empresa; Functions crea y actualiza.
     match /TBL_CORREO_ALERTAS/{alertId} {
+      // Mismo contrato de empresa activa para la app de Correo. El rol interno
+      // determina las acciones del módulo; la consulta de avisos exige acceso
+      // efectivo a la app incluso si existe una asignación histórica de rol.
+      function tieneAppCorreoEn(empresaId) {
+        return tieneAppsEn(empresaId, ['correodashboard', 'correo'], false);
+      }
+
       allow read: if isDeveloperFor(resource.data.get('empresaId', ''))
         || (belongsToCompany(resource.data.get('empresaId', ''))
           && (tieneAppAdminEn(resource.data.empresaId)
@@ -610,10 +545,6 @@ service cloud.firestore {
         + '|DIETAS|MENUS|PLANTILLAS_MENUS|INGREDIENTES)');
     }
 
-    function nutricionEscribe(collection, empresaId) {
-      return collection.matches('TBL_(DIETAS|MENUS|PLANTILLAS_MENUS|INGREDIENTES)')
-        ? nutricionEscribeMenus(empresaId) : nutricionEscribeClinica(empresaId);
-    }
     // Su `match` está al final, con las colecciones agrupadas.
 
     match /TBL_CITAS_NUTRICION/{docId} {
@@ -638,20 +569,20 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // Las credenciales de WhatsApp se administran exclusivamente mediante
-    // Cloud Functions. Ni siquiera un cliente autenticado puede leer el
-    // ciphertext ni alterar la URL, sesión o módulos habilitados.
-    // Los listados conservan su colección histórica para no romper reglas de
-    // Correo, pero sólo Administración puede modificarlos mediante Functions.
-    // Los filtros son configuración de Admin, no un editor operativo de Correo.
-    // El acceso por la regla general queda excluido al final del archivo.
-    function configuraFiltrosCorreo(empresaId) {
-      return belongsToCompany(empresaId)
-        && (tieneAppAdminEn(empresaId) || isDeveloper()
-          || isDeveloperIn(empresaId));
-    }
-
     match /TBL_CORREO_REGLAS/{docId} {
+      // Las credenciales de WhatsApp se administran exclusivamente mediante
+      // Cloud Functions. Ni siquiera un cliente autenticado puede leer el
+      // ciphertext ni alterar la URL, sesión o módulos habilitados.
+      // Los listados conservan su colección histórica para no romper reglas de
+      // Correo, pero sólo Administración puede modificarlos mediante Functions.
+      // Los filtros son configuración de Admin, no un editor operativo de Correo.
+      // El acceso por la regla general queda excluido al final del archivo.
+      function configuraFiltrosCorreo(empresaId) {
+        return belongsToCompany(empresaId)
+          && (tieneAppAdminEn(empresaId) || isDeveloper()
+            || isDeveloperIn(empresaId));
+      }
+
       allow get: if resource == null || belongsToCompany(resource.data.empresaId);
       allow list: if belongsToCompany(resource.data.empresaId);
       allow create: if configuraFiltrosCorreo(request.resource.data.empresaId);
@@ -678,13 +609,6 @@ service cloud.firestore {
     function esTablaDeRoles(collection) {
       return collection.matches(
         'TBL_(DIAN_TOKEN_ROLES|TALENTO_HUMANO_ROLES|NUTRICION_ROLES|BIOMETRICO_ROLES)');
-    }
-
-    function moduloDeTablaDeRoles(collection) {
-      return collection == 'TBL_DIAN_TOKEN_ROLES' ? 'tokensdiandashboard'
-        : (collection == 'TBL_BIOMETRICO_ROLES' ? 'biometricodashboard'
-          : (collection == 'TBL_TALENTO_HUMANO_ROLES' ? 'talentohumanodashboard'
-            : 'nutriciondashboard'));
     }
 
     // Niveles de los módulos con tabla de roles; son también los roles base
@@ -722,11 +646,6 @@ service cloud.firestore {
         ['clinico','coordinador','administrador'];
     }
 
-    function nutricionEscribeMenus(empresaId) {
-      return nivelNutricionEn(empresaId) in
-        ['menus','coordinador','administrador'];
-    }
-
     // Acceso efectivo al trabajo de Talento Humano. Una app histórica sin
     // fila canónica conserva sus capacidades hasta la consolidación manual.
     function nivelTalentoEn(empresaId) {
@@ -739,45 +658,45 @@ service cloud.firestore {
             : 'administrador';
     }
 
-    // Segunda jefatura: única fuente en Estructura, particionada por empresa.
-    // El marcador identifica la única entrada que esta escritura puede tocar.
-    function segundoJefeValido(empresaId, data) {
-      let mapa = data.get('segundoJefePorEmpresa', {});
-      let jefe = mapa.get(empresaId, {});
-      let detalle = data.get('empresasDetalle', {}).get(empresaId, {});
-      let principal = detalle.get('jefeId', data.get('empresaId', '') == empresaId ? data.get('jefeId', '') : '');
-      return jefe is map && jefe.keys().hasOnly(['id', 'nombre'])
-        && jefe.get('id', '') is string && jefe.get('nombre', '') is string
-        && (jefe.get('id', '') == ''
-          || (jefe.id != data.get('cedula', '') && jefe.id != principal
-            && principal != '' && usuarioActivoParaTarea(empresaId, jefe.id)));
-    }
-
-    function cambiaSegundoJefePermitido(antes, despues) {
-      let a = antes.get('segundoJefePorEmpresa', {});
-      let d = despues.get('segundoJefePorEmpresa', {});
-      let empresaId = despues.get('jefaturaEmpresaId', '');
-      return a == d || (a is map && d is map && empresaId is string
-        && empresaId != '' && d.diff(a).affectedKeys().hasOnly([empresaId])
-        && (despues.get('empresaId', '') == empresaId
-          || empresaId in despues.get('empresas', []))
-        && (antes == {} || antes.get('empresaId', '') == empresaId
-          || empresaId in antes.get('empresas', []))
-        && gestionaSegundaJefatura(empresaId)
-        && segundoJefeValido(empresaId, despues));
-    }
-
-    function gestionaSegundaJefatura(empresaId) {
-      let rolePath = /databases/$(database)/documents/TBL_TALENTO_HUMANO_ROLES/$(empresaId + '_' + request.auth.token.userDocId);
-      return belongsToCompany(empresaId)
-        && ((tieneAppTalentoEn(empresaId) && (!exists(rolePath)
-          || (get(rolePath).data.get('empresaId', '') == empresaId
-            && get(rolePath).data.get('userId', '') == request.auth.token.userDocId
-            && estadoTexto(get(rolePath).data.get('rol', '')) in ['gestor', 'administrador'])))
-          || tieneAppAdminEn(empresaId) || isDeveloper() || isDeveloperIn(empresaId));
-    }
-
     match /TBL_ESTRUCTURA_ORGANIZACIONAL/{personId} {
+      // Segunda jefatura: única fuente en Estructura, particionada por empresa.
+      // El marcador identifica la única entrada que esta escritura puede tocar.
+      function segundoJefeValido(empresaId, data) {
+        let mapa = data.get('segundoJefePorEmpresa', {});
+        let jefe = mapa.get(empresaId, {});
+        let detalle = data.get('empresasDetalle', {}).get(empresaId, {});
+        let principal = detalle.get('jefeId', data.get('empresaId', '') == empresaId ? data.get('jefeId', '') : '');
+        return jefe is map && jefe.keys().hasOnly(['id', 'nombre'])
+          && jefe.get('id', '') is string && jefe.get('nombre', '') is string
+          && (jefe.get('id', '') == ''
+            || (jefe.id != data.get('cedula', '') && jefe.id != principal
+              && principal != '' && usuarioActivoParaTarea(empresaId, jefe.id)));
+      }
+
+      function cambiaSegundoJefePermitido(antes, despues) {
+        let a = antes.get('segundoJefePorEmpresa', {});
+        let d = despues.get('segundoJefePorEmpresa', {});
+        let empresaId = despues.get('jefaturaEmpresaId', '');
+        return a == d || (a is map && d is map && empresaId is string
+          && empresaId != '' && d.diff(a).affectedKeys().hasOnly([empresaId])
+          && (despues.get('empresaId', '') == empresaId
+            || empresaId in despues.get('empresas', []))
+          && (antes == {} || antes.get('empresaId', '') == empresaId
+            || empresaId in antes.get('empresas', []))
+          && gestionaSegundaJefatura(empresaId)
+          && segundoJefeValido(empresaId, despues));
+      }
+
+      function gestionaSegundaJefatura(empresaId) {
+        let rolePath = /databases/$(database)/documents/TBL_TALENTO_HUMANO_ROLES/$(empresaId + '_' + request.auth.token.userDocId);
+        return belongsToCompany(empresaId)
+          && ((tieneAppTalentoEn(empresaId) && (!exists(rolePath)
+            || (get(rolePath).data.get('empresaId', '') == empresaId
+              && get(rolePath).data.get('userId', '') == request.auth.token.userDocId
+              && estadoTexto(get(rolePath).data.get('rol', '')) in ['gestor', 'administrador'])))
+            || tieneAppAdminEn(empresaId) || isDeveloper() || isDeveloperIn(empresaId));
+      }
+
       allow read: if isSignedIn();
       allow create: if isSignedIn() && cambiaSegundoJefePermitido({}, request.resource.data);
       allow update: if isSignedIn() && cambiaSegundoJefePermitido(resource.data, request.resource.data);
@@ -850,6 +769,36 @@ service cloud.firestore {
     // actas desde el 11 sep 2026 (probado en interventoria_visitas.rules.js).
     // Leer un id inexistente no expone nada: solo dice que no existe.
     match /TBL_INTERVENTORIA_VISITAS/{docId} {
+      function interventoriaConfigPath(empresaId) {
+        return /databases/$(database)/documents/TBL_INTERVENTORIA_CONFIG/$(empresaId);
+      }
+
+      // Las empresas sin configuración conservan el flujo histórico. Cuando
+      // Administración asigna programas y actas, el servidor exige que cada
+      // acta nueva use una de esas plantillas; ocultarla en la UI no bastaría.
+      function tipoActaInterventoriaPermitido(empresaId, data) {
+        let path = interventoriaConfigPath(empresaId);
+        return !exists(path)
+          || !('tiposActaHabilitados' in get(path).data)
+          || (
+            get(path).data.tiposActaHabilitados is list
+            && 'tipoActa' in data
+            && data.tipoActa is string
+            && data.tipoActa in get(path).data.tiposActaHabilitados
+          );
+      }
+
+      function conservaTipoActaInterventoria(antes, despues) {
+        return (
+            !('tipoActa' in antes)
+            && !('tipoActa' in despues)
+          ) || (
+            'tipoActa' in antes
+            && 'tipoActa' in despues
+            && antes.tipoActa == despues.tipoActa
+          );
+      }
+
       allow get: if resource == null || belongsToCompany(resource.data.empresaId);
       allow list: if belongsToCompany(resource.data.empresaId);
       allow create: if belongsToCompany(request.resource.data.empresaId)
@@ -899,31 +848,31 @@ service cloud.firestore {
     // Sin `match` propio: la regla general las excluye y ninguna otra las
     // abre (6 oct 2026, reglas más compactas).
 
-    // Concepto higiénico sanitario (28 sep 2026): el acta de la autoridad de
-    // salud con establecimiento, fecha, puntaje y concepto. La ve la empresa;
-    // la registran y corrigen los roles con escritura del módulo
-    // (`kInterventoriaRolesEscritura`) y la borran administración, gerencia y
-    // Desarrollo. Espejo de `validarConceptoSanitario` en el modelo.
-    function registraConceptoSanitario(empresaId) {
-      return isDeveloperFor(empresaId) || isDeveloperIn(empresaId)
-        || (belongsToCompany(empresaId)
-          && rolEnTabla('TBL_INTERVENTORIA_ROLES', empresaId) in [
-            'admin_interventoria', 'registrador_interventoria',
-            'revisor_interventoria', 'gerente_interventoria',
-            'directivo_interventoria']);
-    }
-
-    function conceptoSanitarioValido(d) {
-      return d.get('centroCostoId', '') is string
-        && d.centroCostoId.size() > 0
-        && d.get('fecha', null) is timestamp
-        && d.get('puntaje', -1) is number
-        && d.puntaje >= 0 && d.puntaje <= 100
-        && d.get('concepto', '') in ['FAVORABLE',
-          'FAVORABLE_CON_REQUERIMIENTOS', 'DESFAVORABLE'];
-    }
-
     match /TBL_INTERVENTORIA_CONCEPTOS_SANITARIOS/{docId} {
+      // Concepto higiénico sanitario (28 sep 2026): el acta de la autoridad de
+      // salud con establecimiento, fecha, puntaje y concepto. La ve la empresa;
+      // la registran y corrigen los roles con escritura del módulo
+      // (`kInterventoriaRolesEscritura`) y la borran administración, gerencia y
+      // Desarrollo. Espejo de `validarConceptoSanitario` en el modelo.
+      function registraConceptoSanitario(empresaId) {
+        return isDeveloperFor(empresaId) || isDeveloperIn(empresaId)
+          || (belongsToCompany(empresaId)
+            && rolEnTabla('TBL_INTERVENTORIA_ROLES', empresaId) in [
+              'admin_interventoria', 'registrador_interventoria',
+              'revisor_interventoria', 'gerente_interventoria',
+              'directivo_interventoria']);
+      }
+
+      function conceptoSanitarioValido(d) {
+        return d.get('centroCostoId', '') is string
+          && d.centroCostoId.size() > 0
+          && d.get('fecha', null) is timestamp
+          && d.get('puntaje', -1) is number
+          && d.puntaje >= 0 && d.puntaje <= 100
+          && d.get('concepto', '') in ['FAVORABLE',
+            'FAVORABLE_CON_REQUERIMIENTOS', 'DESFAVORABLE'];
+      }
+
       allow get: if resource == null || belongsToCompany(resource.data.empresaId);
       allow list: if belongsToCompany(resource.data.empresaId);
       allow create: if registraConceptoSanitario(request.resource.data.empresaId)
@@ -1058,6 +1007,158 @@ service cloud.firestore {
     // administrador ~60), así que Firestore la negaba con permission-denied.
     // Lo barato primero: el dueño de la visita, su rol y luego la empresa.
     match /TBL_VISITAS/{docId} {
+      // Coordinador (8 oct 2026): lee solo las visitas que lo nombran en
+      // `coordinadorIds`, campo que escribe el servidor desde los grupos
+      // (`visitasCoordinadores`). Esta vía es solo lectura; puede ejecutar las
+      // visitas donde él mismo sea profesionalId por la vía de visita propia.
+      function esCoordinadorDeVisita() {
+        return request.auth.token.userDocId
+            in resource.data.get('coordinadorIds', [])
+          && rolVisitasEn(resource.data.empresaId, ['coordinador']);
+      }
+
+      // La visita es del profesional que la pide y él tiene el rol en la
+      // empresa. Primero la comparación (gratis), luego su rol (un get) y al
+      // final la empresa, que es lo más caro.
+      function esVisitaPropiaDelProfesional() {
+        return resource.data.profesionalId == request.auth.token.userDocId
+          && rolVisitasEn(resource.data.empresaId, ['profesional', 'coordinador'])
+          && belongsToCompany(resource.data.empresaId);
+      }
+
+      function esFirmanteDeVisita() {
+        return 'firmanteEstablecimientoId' in resource.data
+          && resource.data.firmanteEstablecimientoId is string
+          && resource.data.firmanteEstablecimientoId.size() > 0
+          && resource.data.firmanteEstablecimientoId == request.auth.token.userDocId;
+      }
+
+      // Al programar: el profesional tiene el rol en el departamento de la
+      // visita. Desde el 28 sep 2026 va sin formato (lo elige el profesional
+      // al iniciar); una app vieja que todavía lo mande sigue pasando si la
+      // copia coincide con el formato guardado.
+      function asignacionVisitaValida() {
+        let v = request.resource.data;
+        let profesional = /databases/$(database)/documents/TBL_VISITAS_ROLES/$(v.empresaId + '_' + v.profesionalId);
+        return v.profesionalId is string && v.esPrueba is bool
+          && ((v.get('formatoId', '') == '' && v.get('formatoAsignado', null) == null)
+            || formatoDeVisitaValido(v))
+          && ((exists(profesional)
+            && get(profesional).data.rol in ['profesional', 'coordinador']
+            && areaVisitasUsuario(v.empresaId, v.profesionalId) == v.areaId)
+            || (v.esPrueba && v.profesionalId == request.auth.token.userDocId));
+      }
+
+      // La copia del formato que lleva la visita es la del formato guardado,
+      // de su empresa y de su departamento, y vigente (un borrador solo en
+      // pruebas).
+      function formatoDeVisitaValido(v) {
+        let formato = /databases/$(database)/documents/TBL_VISITAS_FORMATOS/$(v.formatoId);
+        return v.formatoId is string && v.formatoId.size() > 0
+          && v.formatoAsignado is map
+          && exists(formato)
+          && get(formato).data.empresaId == v.empresaId
+          && get(formato).data.estado != 'retirado'
+          && v.formatoAsignado.empresaId == v.empresaId
+          && v.areaId == get(formato).data.areaId
+          && v.formatoAsignado.areaId == v.areaId
+          && v.formatoAsignado.version == get(formato).data.version
+          && v.formatoAsignado.items == get(formato).data.items
+          && v.formatoAsignado.partes == get(formato).data.partes
+          && v.formatoAsignado.tablas == get(formato).data.tablas
+          && (v.get('esPrueba', false) == true || get(formato).data.estado == 'vigente');
+      }
+
+      // La visita se inicia y se cierra el día programado (28 sep 2026: "debe
+      // terminarse el mismo día"). `fechaProgramada` es la medianoche local del
+      // día, así que el día va de ahí a 24 horas después. Las pruebas no.
+      function enElDiaDeLaVisita() {
+        return resource.data.get('esPrueba', false) == true
+          || (request.time >= resource.data.fechaProgramada
+            && request.time < resource.data.fechaProgramada + duration.value(1, 'd'));
+      }
+
+      // El profesional pide el cambio de fecha: solo escribe la solicitud,
+      // pendiente y a su nombre, y no si ya hay otra esperando respuesta.
+      function esSolicitudFechaDelProfesional() {
+        let s = request.resource.data.get('solicitudCambioFecha', null);
+        return request.resource.data.estado == resource.data.estado
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['solicitudCambioFecha', 'updatedAt'])
+          && s is map
+          && s.get('estado', '') == 'pendiente'
+          && s.get('porId', '') == request.auth.token.userDocId
+          && s.get('fecha', null) is timestamp
+          && resource.data.get('solicitudCambioFecha', {}).get('estado', '') != 'pendiente';
+      }
+
+      // El jefe la rechaza (o la responde) sin mover nada más.
+      function esRespuestaDeSolicitudFecha() {
+        return request.resource.data.estado == resource.data.estado
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['solicitudCambioFecha', 'updatedAt'])
+          && resource.data.get('solicitudCambioFecha', {}).get('estado', '') == 'pendiente';
+      }
+
+      // El jefe aprueba el cambio de una visita que se inició y no se cerró
+      // ese día: vuelve a programada en la fecha nueva, sin inicio ni firmas;
+      // las respuestas se conservan.
+      function esAprobacionDeFechaEnCurso() {
+        return request.resource.data.estado == 'programada'
+          && resource.data.get('solicitudCambioFecha', {}).get('estado', '') == 'pendiente'
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['estado', 'fechaProgramada', 'reprogramaciones',
+              'solicitudCambioFecha', 'inicio', 'firmaProfesional',
+              'firmaEstablecimiento', 'firmanteEstablecimientoId', 'updatedAt'])
+          && request.resource.data.get('inicio', null) == null
+          && request.resource.data.get('firmaProfesional', null) == null
+          && request.resource.data.get('firmaEstablecimiento', null) == null;
+      }
+
+      // La primera firma solo se agrega cuando ya se guardó el contenido.
+      // Desde entonces se puede añadir la otra firma, pero no reescribir el
+      // acta ni sustituir una firma existente.
+      function firmaVisitaSinCambiosDeContenido() {
+        let changed = request.resource.data.diff(resource.data).affectedKeys();
+        let firmada = ('firmaProfesional' in resource.data
+            && resource.data.firmaProfesional != null)
+          || ('firmaEstablecimiento' in resource.data
+            && resource.data.firmaEstablecimiento != null);
+        let firmaEstPendiente = !('firmaEstablecimiento' in resource.data)
+          || resource.data.firmaEstablecimiento == null;
+        // Con el contenido firmado solo se agregan firmas; mientras falte la
+        // del establecimiento se puede cambiar a quién se le pide (25 sep 2026).
+        return firmada
+          ? (changed.hasOnly(['firmaProfesional', 'firmaEstablecimiento', 'updatedAt'])
+              || (firmaEstPendiente
+                && changed.hasOnly(['firmanteEstablecimientoId',
+                  'responsableEstablecimiento', 'updatedAt'])))
+            && (!('firmaProfesional' in resource.data)
+              || resource.data.firmaProfesional == null
+              || request.resource.data.firmaProfesional == resource.data.firmaProfesional)
+            && (!('firmaEstablecimiento' in resource.data)
+              || resource.data.firmaEstablecimiento == null
+              || request.resource.data.firmaEstablecimiento == resource.data.firmaEstablecimiento)
+          : (!changed.hasAny(['firmaProfesional', 'firmaEstablecimiento'])
+            || changed.hasOnly(['firmaProfesional', 'firmaEstablecimiento', 'updatedAt']));
+      }
+
+      // Reprogramar solo mueve la fecha y añade al historial; el estado sigue
+      // en 'programada'. Si el profesional había pedido el cambio, queda
+      // resuelto en la misma escritura.
+      // 1 oct 2026: una visita que no se cumplió (ya pasó su día) solo se
+      // mueve si el profesional pidió la reasignación: así queda el registro
+      // del incumplimiento. Mismo criterio que `visitaIncumplida` en la app.
+      function esReprogramacionDeVisita() {
+        return request.resource.data.estado == 'programada'
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['fechaProgramada', 'reprogramaciones',
+              'solicitudCambioFecha', 'updatedAt'])
+          && (resource.data.get('esPrueba', false) == true
+            || request.time < resource.data.fechaProgramada + duration.value(1, 'd')
+            || resource.data.get('solicitudCambioFecha', {}).get('estado', '') == 'pendiente');
+      }
+
       allow get: if resource == null
         || esVisitaPropiaDelProfesional()
         || (belongsToCompany(resource.data.empresaId)
@@ -1165,158 +1266,6 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Coordinador (8 oct 2026): lee solo las visitas que lo nombran en
-    // `coordinadorIds`, campo que escribe el servidor desde los grupos
-    // (`visitasCoordinadores`). Esta vía es solo lectura; puede ejecutar las
-    // visitas donde él mismo sea profesionalId por la vía de visita propia.
-    function esCoordinadorDeVisita() {
-      return request.auth.token.userDocId
-          in resource.data.get('coordinadorIds', [])
-        && rolVisitasEn(resource.data.empresaId, ['coordinador']);
-    }
-
-    // La visita es del profesional que la pide y él tiene el rol en la
-    // empresa. Primero la comparación (gratis), luego su rol (un get) y al
-    // final la empresa, que es lo más caro.
-    function esVisitaPropiaDelProfesional() {
-      return resource.data.profesionalId == request.auth.token.userDocId
-        && rolVisitasEn(resource.data.empresaId, ['profesional', 'coordinador'])
-        && belongsToCompany(resource.data.empresaId);
-    }
-
-    function esFirmanteDeVisita() {
-      return 'firmanteEstablecimientoId' in resource.data
-        && resource.data.firmanteEstablecimientoId is string
-        && resource.data.firmanteEstablecimientoId.size() > 0
-        && resource.data.firmanteEstablecimientoId == request.auth.token.userDocId;
-    }
-
-    // Al programar: el profesional tiene el rol en el departamento de la
-    // visita. Desde el 28 sep 2026 va sin formato (lo elige el profesional
-    // al iniciar); una app vieja que todavía lo mande sigue pasando si la
-    // copia coincide con el formato guardado.
-    function asignacionVisitaValida() {
-      let v = request.resource.data;
-      let profesional = /databases/$(database)/documents/TBL_VISITAS_ROLES/$(v.empresaId + '_' + v.profesionalId);
-      return v.profesionalId is string && v.esPrueba is bool
-        && ((v.get('formatoId', '') == '' && v.get('formatoAsignado', null) == null)
-          || formatoDeVisitaValido(v))
-        && ((exists(profesional)
-          && get(profesional).data.rol in ['profesional', 'coordinador']
-          && areaVisitasUsuario(v.empresaId, v.profesionalId) == v.areaId)
-          || (v.esPrueba && v.profesionalId == request.auth.token.userDocId));
-    }
-
-    // La copia del formato que lleva la visita es la del formato guardado,
-    // de su empresa y de su departamento, y vigente (un borrador solo en
-    // pruebas).
-    function formatoDeVisitaValido(v) {
-      let formato = /databases/$(database)/documents/TBL_VISITAS_FORMATOS/$(v.formatoId);
-      return v.formatoId is string && v.formatoId.size() > 0
-        && v.formatoAsignado is map
-        && exists(formato)
-        && get(formato).data.empresaId == v.empresaId
-        && get(formato).data.estado != 'retirado'
-        && v.formatoAsignado.empresaId == v.empresaId
-        && v.areaId == get(formato).data.areaId
-        && v.formatoAsignado.areaId == v.areaId
-        && v.formatoAsignado.version == get(formato).data.version
-        && v.formatoAsignado.items == get(formato).data.items
-        && v.formatoAsignado.partes == get(formato).data.partes
-        && v.formatoAsignado.tablas == get(formato).data.tablas
-        && (v.get('esPrueba', false) == true || get(formato).data.estado == 'vigente');
-    }
-
-    // La visita se inicia y se cierra el día programado (28 sep 2026: "debe
-    // terminarse el mismo día"). `fechaProgramada` es la medianoche local del
-    // día, así que el día va de ahí a 24 horas después. Las pruebas no.
-    function enElDiaDeLaVisita() {
-      return resource.data.get('esPrueba', false) == true
-        || (request.time >= resource.data.fechaProgramada
-          && request.time < resource.data.fechaProgramada + duration.value(1, 'd'));
-    }
-
-    // El profesional pide el cambio de fecha: solo escribe la solicitud,
-    // pendiente y a su nombre, y no si ya hay otra esperando respuesta.
-    function esSolicitudFechaDelProfesional() {
-      let s = request.resource.data.get('solicitudCambioFecha', null);
-      return request.resource.data.estado == resource.data.estado
-        && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['solicitudCambioFecha', 'updatedAt'])
-        && s is map
-        && s.get('estado', '') == 'pendiente'
-        && s.get('porId', '') == request.auth.token.userDocId
-        && s.get('fecha', null) is timestamp
-        && resource.data.get('solicitudCambioFecha', {}).get('estado', '') != 'pendiente';
-    }
-
-    // El jefe la rechaza (o la responde) sin mover nada más.
-    function esRespuestaDeSolicitudFecha() {
-      return request.resource.data.estado == resource.data.estado
-        && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['solicitudCambioFecha', 'updatedAt'])
-        && resource.data.get('solicitudCambioFecha', {}).get('estado', '') == 'pendiente';
-    }
-
-    // El jefe aprueba el cambio de una visita que se inició y no se cerró
-    // ese día: vuelve a programada en la fecha nueva, sin inicio ni firmas;
-    // las respuestas se conservan.
-    function esAprobacionDeFechaEnCurso() {
-      return request.resource.data.estado == 'programada'
-        && resource.data.get('solicitudCambioFecha', {}).get('estado', '') == 'pendiente'
-        && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['estado', 'fechaProgramada', 'reprogramaciones',
-            'solicitudCambioFecha', 'inicio', 'firmaProfesional',
-            'firmaEstablecimiento', 'firmanteEstablecimientoId', 'updatedAt'])
-        && request.resource.data.get('inicio', null) == null
-        && request.resource.data.get('firmaProfesional', null) == null
-        && request.resource.data.get('firmaEstablecimiento', null) == null;
-    }
-
-    // La primera firma solo se agrega cuando ya se guardó el contenido.
-    // Desde entonces se puede añadir la otra firma, pero no reescribir el
-    // acta ni sustituir una firma existente.
-    function firmaVisitaSinCambiosDeContenido() {
-      let changed = request.resource.data.diff(resource.data).affectedKeys();
-      let firmada = ('firmaProfesional' in resource.data
-          && resource.data.firmaProfesional != null)
-        || ('firmaEstablecimiento' in resource.data
-          && resource.data.firmaEstablecimiento != null);
-      let firmaEstPendiente = !('firmaEstablecimiento' in resource.data)
-        || resource.data.firmaEstablecimiento == null;
-      // Con el contenido firmado solo se agregan firmas; mientras falte la
-      // del establecimiento se puede cambiar a quién se le pide (25 sep 2026).
-      return firmada
-        ? (changed.hasOnly(['firmaProfesional', 'firmaEstablecimiento', 'updatedAt'])
-            || (firmaEstPendiente
-              && changed.hasOnly(['firmanteEstablecimientoId',
-                'responsableEstablecimiento', 'updatedAt'])))
-          && (!('firmaProfesional' in resource.data)
-            || resource.data.firmaProfesional == null
-            || request.resource.data.firmaProfesional == resource.data.firmaProfesional)
-          && (!('firmaEstablecimiento' in resource.data)
-            || resource.data.firmaEstablecimiento == null
-            || request.resource.data.firmaEstablecimiento == resource.data.firmaEstablecimiento)
-        : (!changed.hasAny(['firmaProfesional', 'firmaEstablecimiento'])
-          || changed.hasOnly(['firmaProfesional', 'firmaEstablecimiento', 'updatedAt']));
-    }
-
-    // Reprogramar solo mueve la fecha y añade al historial; el estado sigue
-    // en 'programada'. Si el profesional había pedido el cambio, queda
-    // resuelto en la misma escritura.
-    // 1 oct 2026: una visita que no se cumplió (ya pasó su día) solo se
-    // mueve si el profesional pidió la reasignación: así queda el registro
-    // del incumplimiento. Mismo criterio que `visitaIncumplida` en la app.
-    function esReprogramacionDeVisita() {
-      return request.resource.data.estado == 'programada'
-        && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['fechaProgramada', 'reprogramaciones',
-            'solicitudCambioFecha', 'updatedAt'])
-        && (resource.data.get('esPrueba', false) == true
-          || request.time < resource.data.fechaProgramada + duration.value(1, 'd')
-          || resource.data.get('solicitudCambioFecha', {}).get('estado', '') == 'pendiente');
-    }
-
     // Maestro de ubicaciones de los establecimientos: lo lee cualquiera
     // que participe en Visitas (el profesional lo necesita para iniciar),
     // lo escriben Desarrollo y Gerencia (26 sep 2026). Ni los profesionales
@@ -1326,6 +1275,10 @@ service cloud.firestore {
     // el "¿Dónde estoy?" que lo listaba entero: lee por id la referencia de
     // SU establecimiento al iniciar y al cerrar.
     match /TBL_VISITAS_UBICACIONES/{docId} {
+      function esGerenciaVisitas(empresaId) {
+        return belongsToCompany(empresaId) && gerenciaVisitasEn(empresaId);
+      }
+
       allow get: if resource == null
         || participaEnVisitas(resource.data.empresaId);
       allow list: if belongsToCompany(resource.data.empresaId)
@@ -1350,6 +1303,34 @@ service cloud.firestore {
     // `{empresa}_est_{nombre}` y es el `centroId` con que se programan; no se
     // borran (las visitas y los grupos los nombran), se inactivan.
     match /TBL_VISITAS_ESTABLECIMIENTOS/{docId} {
+      function establecimientoVisitasValido(docId, d) {
+        return d.empresaId is string && d.empresaId.size() > 0
+          && docId.matches('^' + d.empresaId + '_est_[a-z0-9_]+$')
+          && d.centroId == docId
+          && d.nombre is string
+          && d.nombre.trim().size() >= 2 && d.nombre.size() <= 120
+          && d.get('ciudad', '') is string && d.get('ciudad', '').size() <= 80
+          && d.enabled is bool;
+      }
+
+      // `participaEnVisitas` o Admin, siempre de la misma empresa:
+      // `tieneAppAdminEn` solo mira la app, no la empresa.
+      function leeEstablecimientosVisitas(empresaId) {
+        return belongsToCompany(empresaId)
+          && (rolVisitasEn(empresaId,
+              ['jefe', 'gerencia', 'profesional', 'consulta', 'firmante', 'coordinador'])
+            || tieneAppAdminEn(empresaId)
+            || isDeveloper() || isDeveloperIn(empresaId)
+            || esGerenciaPorFicha(empresaId));
+      }
+
+      // Sin volver a mirar la empresa: va después de un `belongsToCompany`.
+      function editaEstablecimientosVisitasEn(empresaId) {
+        return isDeveloper() || isDeveloperIn(empresaId)
+          || tieneAppAdminEn(empresaId)
+          || gerenciaVisitasEn(empresaId);
+      }
+
       allow get: if resource == null
         || leeEstablecimientosVisitas(resource.data.empresaId);
       allow list: if leeEstablecimientosVisitas(resource.data.empresaId);
@@ -1364,54 +1345,26 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    function establecimientoVisitasValido(docId, d) {
-      return d.empresaId is string && d.empresaId.size() > 0
-        && docId.matches('^' + d.empresaId + '_est_[a-z0-9_]+$')
-        && d.centroId == docId
-        && d.nombre is string
-        && d.nombre.trim().size() >= 2 && d.nombre.size() <= 120
-        && d.get('ciudad', '') is string && d.get('ciudad', '').size() <= 80
-        && d.enabled is bool;
-    }
-
-    // `participaEnVisitas` o Admin, siempre de la misma empresa:
-    // `tieneAppAdminEn` solo mira la app, no la empresa.
-    function leeEstablecimientosVisitas(empresaId) {
-      return belongsToCompany(empresaId)
-        && (rolVisitasEn(empresaId,
-            ['jefe', 'gerencia', 'profesional', 'consulta', 'firmante', 'coordinador'])
-          || tieneAppAdminEn(empresaId)
-          || isDeveloper() || isDeveloperIn(empresaId)
-          || esGerenciaPorFicha(empresaId));
-    }
-
-    // Sin volver a mirar la empresa: va después de un `belongsToCompany`.
-    function editaEstablecimientosVisitasEn(empresaId) {
-      return isDeveloper() || isDeveloperIn(empresaId)
-        || tieneAppAdminEn(empresaId)
-        || gerenciaVisitasEn(empresaId);
-    }
-
-    // La colección de roles no puede quedar en el fallback general: de otro
-    // modo un usuario autenticado podría ascenderse a sí mismo. La primera
-    // asignación de administrador la hace Desarrollo; después administra el
-    // rol admin_interventoria de esa empresa.
-    // `isDeveloperIn` además de `isDeveloper`: el desarrollador real está
-    // marcado dentro de `empresasDetalle[empresa]` y no en la raíz, y sin esto
-    // Administración le decía "permission-denied" al cambiar un rol
-    // (11 sep 2026). Probado en functions/test/interventoria_roles.rules.js.
-    function administraInterventoria(empresaId) {
-      return isDeveloperFor(empresaId)
-        || isDeveloperIn(empresaId)
-        || hasInterventoriaRole(empresaId, ['admin_interventoria'])
-        || (hasInterventoriaRole(empresaId, ['gerente_interventoria'])
-          && tieneAppsEn(empresaId, ['interventoriadashboard', 'interventoria'], false));
-    }
-
     // 29 sep 2026: el módulo pregunta primero por `{empresa}_{usuario}`, que
     // puede no existir (responde vacío), y Admin de la empresa asigna con el
     // contrato validado (roles configurables).
     match /TBL_INTERVENTORIA_ROLES/{docId} {
+      // Quién escribe roles de Interventoría: su administrador y Desarrollo,
+      // como siempre, y Admin de la empresa con el contrato validado. La
+      // empresa se mira una sola vez (tope de expresiones).
+      function gestionaRolesInterventoria(empresaId, contratoValido) {
+        return belongsToCompany(empresaId)
+          && (rolEnTabla('TBL_INTERVENTORIA_ROLES', empresaId) == 'admin_interventoria'
+            || (contratoValido && tieneAppAdminEn(empresaId))
+            || isDeveloper() || isDeveloperIn(empresaId));
+      }
+
+      function nivelesInterventoria() {
+        return ['', 'admin_interventoria', 'registrador_interventoria',
+          'revisor_interventoria', 'calidad_interventoria',
+          'gerente_interventoria', 'directivo_interventoria'];
+      }
+
       allow get: if resource == null || belongsToCompany(resource.data.empresaId);
       allow list: if belongsToCompany(resource.data.empresaId);
       allow create: if gestionaRolesInterventoria(request.resource.data.empresaId,
@@ -1424,25 +1377,25 @@ service cloud.firestore {
       allow delete: if gestionaRolesInterventoria(resource.data.empresaId, true);
     }
 
-    // Quién escribe roles de Interventoría: su administrador y Desarrollo,
-    // como siempre, y Admin de la empresa con el contrato validado. La
-    // empresa se mira una sola vez (tope de expresiones).
-    function gestionaRolesInterventoria(empresaId, contratoValido) {
-      return belongsToCompany(empresaId)
-        && (rolEnTabla('TBL_INTERVENTORIA_ROLES', empresaId) == 'admin_interventoria'
-          || (contratoValido && tieneAppAdminEn(empresaId))
-          || isDeveloper() || isDeveloperIn(empresaId));
-    }
-
-    function nivelesInterventoria() {
-      return ['', 'admin_interventoria', 'registrador_interventoria',
-        'revisor_interventoria', 'calidad_interventoria',
-        'gerente_interventoria', 'directivo_interventoria'];
-    }
-
     // La matriz de responsables cambia quién recibe tareas reales. Solo la
     // administra el rol funcional del módulo; el resto conserva lectura.
     match /TBL_INTERVENTORIA_CONFIG/{docId} {
+      // La colección de roles no puede quedar en el fallback general: de otro
+      // modo un usuario autenticado podría ascenderse a sí mismo. La primera
+      // asignación de administrador la hace Desarrollo; después administra el
+      // rol admin_interventoria de esa empresa.
+      // `isDeveloperIn` además de `isDeveloper`: el desarrollador real está
+      // marcado dentro de `empresasDetalle[empresa]` y no en la raíz, y sin esto
+      // Administración le decía "permission-denied" al cambiar un rol
+      // (11 sep 2026). Probado en functions/test/interventoria_roles.rules.js.
+      function administraInterventoria(empresaId) {
+        return isDeveloperFor(empresaId)
+          || isDeveloperIn(empresaId)
+          || hasInterventoriaRole(empresaId, ['admin_interventoria'])
+          || (hasInterventoriaRole(empresaId, ['gerente_interventoria'])
+            && tieneAppsEn(empresaId, ['interventoriadashboard', 'interventoria'], false));
+      }
+
       allow read: if belongsToCompany(docId);
       allow create, update: if administraInterventoria(docId);
       allow delete: if false;
@@ -1489,6 +1442,16 @@ service cloud.firestore {
     }
 
     match /TBL_CORREO_ROLES/{docId} {
+      // Asignación canónica de Correspondencia que escribe Admin: su id es
+      // `{empresa}_{usuario}` y el nivel es uno de los cuatro del módulo.
+      function asignacionCorreoValida(docId, data) {
+        return data.get('empresaId', '') is string
+          && data.get('usuarioId', '') is string
+          && docId == data.empresaId + '_' + data.usuarioId
+          && data.get('rol', '') in ['visor', 'operador', 'clasificador',
+            'administrador'];
+      }
+
       // Mismo caso: quien no tiene rol asignado lee un documento inexistente.
       allow get: if resource == null || belongsToCompany(resource.data.empresaId);
       allow list: if belongsToCompany(resource.data.empresaId);
@@ -1507,18 +1470,19 @@ service cloud.firestore {
         || isCorreoAdmin(resource.data.empresaId);
     }
 
-    // Roles (28 sep 2026). Hasta hoy los cubría la regla general. Los perfiles
-    // generales siguen igual (cualquier sesión, como antes); los roles
-    // configurables por módulo solo los crea, edita o borra quien los
-    // administra en su empresa, y con el contrato de Codex. Un perfil general
-    // no se puede convertir en rol de módulo (ni al revés) para saltarse esto.
-    function asignacionComprasValida(docId, data) {
-      return data.get('empresaId', '') is string && data.get('userId', '') is string
-        && data.empresaId.size() > 0 && data.userId.size() > 0
-        && docId == data.empresaId + '_' + data.userId
-        && data.get('rol', '') in ['admin','calidad','compras','bodega','consultas'];
-    }
     match /TBL_COMPRAS_ROLES/{docId} {
+      // Roles (28 sep 2026). Hasta hoy los cubría la regla general. Los perfiles
+      // generales siguen igual (cualquier sesión, como antes); los roles
+      // configurables por módulo solo los crea, edita o borra quien los
+      // administra en su empresa, y con el contrato de Codex. Un perfil general
+      // no se puede convertir en rol de módulo (ni al revés) para saltarse esto.
+      function asignacionComprasValida(docId, data) {
+        return data.get('empresaId', '') is string && data.get('userId', '') is string
+          && data.empresaId.size() > 0 && data.userId.size() > 0
+          && docId == data.empresaId + '_' + data.userId
+          && data.get('rol', '') in ['admin','calidad','compras','bodega','consultas'];
+      }
+
       allow get: if isSignedIn() && (resource == null || belongsToCompany(resource.data.empresaId));
       allow list: if belongsToCompany(resource.data.empresaId);
       allow create: if asignacionComprasValida(docId,request.resource.data)
@@ -1545,22 +1509,23 @@ service cloud.firestore {
     // después de materializar todas las asignaciones anteriores. Su `match`
     // está al final, con las colecciones agrupadas.
 
-    // Período de consumo de Abastecimiento (30 sep 2026): configuración de
-    // la empresa en Admin › Maestros por módulo › Compras. Espejo de
-    // PeriodoConsumoConfig (lib/compras/abastecimiento_periodo.dart): un
-    // ciclo de 1 a 62 días desde una fecha 'yyyy-MM-dd' o el mes calendario.
-    function periodoConsumoValido(data) {
-      let p = data.get('abastecimientoPeriodo', null);
-      return p == null || (p is map && (
-        (p.keys().hasOnly(['modo']) && p.get('modo', '') == 'mensual')
-        || (p.keys().hasOnly(['modo', 'inicioReferencia', 'duracionDias'])
-          && p.get('modo', '') == 'ciclo'
-          && p.get('inicioReferencia', '') is string
-          && p.inicioReferencia.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-          && p.get('duracionDias', 0) is int
-          && p.duracionDias >= 1 && p.duracionDias <= 62)));
-    }
     match /TBL_COMPRAS_CONFIG/{empresaId} {
+      // Período de consumo de Abastecimiento (30 sep 2026): configuración de
+      // la empresa en Admin › Maestros por módulo › Compras. Espejo de
+      // PeriodoConsumoConfig (lib/compras/abastecimiento_periodo.dart): un
+      // ciclo de 1 a 62 días desde una fecha 'yyyy-MM-dd' o el mes calendario.
+      function periodoConsumoValido(data) {
+        let p = data.get('abastecimientoPeriodo', null);
+        return p == null || (p is map && (
+          (p.keys().hasOnly(['modo']) && p.get('modo', '') == 'mensual')
+          || (p.keys().hasOnly(['modo', 'inicioReferencia', 'duracionDias'])
+            && p.get('modo', '') == 'ciclo'
+            && p.get('inicioReferencia', '') is string
+            && p.inicioReferencia.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+            && p.get('duracionDias', 0) is int
+            && p.duracionDias >= 1 && p.duracionDias <= 62)));
+      }
+
       allow get: if belongsToCompany(empresaId);
       allow list: if belongsToCompany(resource.data.empresaId);
       allow create: if (request.resource.data.keys().hasOnly(['marcaSeq']) && request.resource.data.marcaSeq == 1
@@ -1612,6 +1577,31 @@ service cloud.firestore {
     }
 
     match /TBL_ROLES/{docId} {
+      function esRolDeModulo(data) {
+        return data.get('type', '') == 'module_role';
+      }
+
+      // Contrato de Codex para `TBL_ROLES/{empresaId}_mod_{módulo}_{nombre}`.
+      function rolDeModuloValido(docId, data) {
+        return data.get('empresaId', '') is string
+          && data.empresaId.size() > 0
+          && docId.size() > data.empresaId.size() + 5
+          && docId[0:data.empresaId.size() + 5] == data.empresaId + '_mod_'
+          && data.get('moduleId', '') in ['correodashboard',
+            'planillaspagodashboard', 'bibliotecadocumentaldashboard',
+            'tareasdashboard', 'comprasdashboard', 'rutasdashboard',
+            'interventoriadashboard', 'visitasdashboard',
+            'tokensdiandashboard', 'talentohumanodashboard', 'biometricodashboard',
+            'nutriciondashboard', 'facturaciondashboard',
+            'gerenciadashboard']
+          && (nivelesDeModulo(data.moduleId).size() == 0
+            || data.get('baseRole', '') in nivelesDeModulo(data.moduleId))
+          && data.get('enabled', null) is bool
+          && data.get('revision', null) is int && data.revision >= 1
+          && data.get('nombre', '') is string
+          && data.nombre.size() > 0 && data.nombre.size() <= 120;
+      }
+
       allow read: if isSignedIn();
       allow create: if esRolDeModulo(request.resource.data)
         ? (rolDeModuloValido(docId, request.resource.data)
@@ -1752,37 +1742,28 @@ service cloud.firestore {
         ['admin', 'admin_calidad', 'desarrollador', 'developer']);
     }
 
-    function revisaRutas(empresaId) {
-      return rutasConRol(empresaId,
-        ['calidad', 'admin_calidad', 'desarrollador', 'developer']);
-    }
-
-    function conduceRutas(empresaId) {
-      return rutasConRol(empresaId, ['conductor', 'desarrollador', 'developer']);
-    }
-
     // Borrar evidencias y limpiar el historial: solo el perfil de desarrollo.
     function desarrolloRutas(empresaId) {
       return rutasConRol(empresaId, ['desarrollador', 'developer']);
     }
 
-    // Desarrollo asigna cualquier rol. El administrador de Rutas asigna los
-    // demás, a otras personas: no se cambia a sí mismo ni da o quita el
-    // perfil de desarrollador. [antes] y [despues] son el rol que tenía y el
-    // que queda (iguales al crear o borrar): la empresa se mira una sola vez.
-    // 29 sep 2026: también Admin de la empresa (roles configurables), sin el
-    // perfil de desarrollo.
-    function asignaRolRutas(empresaId, userId, antes, despues) {
-      return belongsToCompany(empresaId)
-        && ((!(antes in ['desarrollador', 'developer'])
-            && !(despues in ['desarrollador', 'developer'])
-            && (tieneAppAdminEn(empresaId)
-              || (userId != request.auth.token.userDocId
-                && rolRutas(empresaId) in ['admin', 'admin_calidad'])))
-          || isDeveloper() || isDeveloperIn(empresaId));
-    }
-
     match /TBL_RUTAS_ROLES/{docId} {
+      // Desarrollo asigna cualquier rol. El administrador de Rutas asigna los
+      // demás, a otras personas: no se cambia a sí mismo ni da o quita el
+      // perfil de desarrollador. [antes] y [despues] son el rol que tenía y el
+      // que queda (iguales al crear o borrar): la empresa se mira una sola vez.
+      // 29 sep 2026: también Admin de la empresa (roles configurables), sin el
+      // perfil de desarrollo.
+      function asignaRolRutas(empresaId, userId, antes, despues) {
+        return belongsToCompany(empresaId)
+          && ((!(antes in ['desarrollador', 'developer'])
+              && !(despues in ['desarrollador', 'developer'])
+              && (tieneAppAdminEn(empresaId)
+                || (userId != request.auth.token.userDocId
+                  && rolRutas(empresaId) in ['admin', 'admin_calidad'])))
+            || isDeveloper() || isDeveloperIn(empresaId));
+      }
+
       allow get: if resource == null || belongsToCompany(resource.data.empresaId);
       allow list: if belongsToCompany(resource.data.empresaId);
       allow create: if docId == request.resource.data.empresaId + '_'
@@ -1843,25 +1824,25 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Asignaciones: las abre y releva Administración de Rutas. Talento
-    // Humano, al inhabilitar a alguien, cierra su asignación o retira al
-    // ayudante (`PersonnelStatusService.changeStatus`); quien lo hace no
-    // tiene por qué tener rol en Rutas, así que ese cierre, y solo ese, lo
-    // puede escribir cualquiera de la empresa. El histórico no se borra.
-    function cierreDeAsignacionPorRetiro() {
-      let cambios = request.resource.data.diff(resource.data).affectedKeys();
-      let d = request.resource.data;
-      return (d.activa == false
-          && d.get('cerradaPor', '') == 'inhabilitacion_talento_humano'
-          && cambios.hasOnly(['activa', 'vigenteHasta', 'cerradaPor',
-            'cerradaCedula']))
-        || (d.get('ayudanteCedula', '') == ''
-          && d.get('ayudanteRetiradoPor', '') == 'inhabilitacion_talento_humano'
-          && cambios.hasOnly(['ayudanteCedula', 'ayudanteNombre',
-            'ayudanteRetiradoPor', 'ayudanteRetiradoAt']));
-    }
-
     match /TBL_RUTAS_ASIGNACIONES/{docId} {
+      // Asignaciones: las abre y releva Administración de Rutas. Talento
+      // Humano, al inhabilitar a alguien, cierra su asignación o retira al
+      // ayudante (`PersonnelStatusService.changeStatus`); quien lo hace no
+      // tiene por qué tener rol en Rutas, así que ese cierre, y solo ese, lo
+      // puede escribir cualquiera de la empresa. El histórico no se borra.
+      function cierreDeAsignacionPorRetiro() {
+        let cambios = request.resource.data.diff(resource.data).affectedKeys();
+        let d = request.resource.data;
+        return (d.activa == false
+            && d.get('cerradaPor', '') == 'inhabilitacion_talento_humano'
+            && cambios.hasOnly(['activa', 'vigenteHasta', 'cerradaPor',
+              'cerradaCedula']))
+          || (d.get('ayudanteCedula', '') == ''
+            && d.get('ayudanteRetiradoPor', '') == 'inhabilitacion_talento_humano'
+            && cambios.hasOnly(['ayudanteCedula', 'ayudanteNombre',
+              'ayudanteRetiradoPor', 'ayudanteRetiradoAt']));
+      }
+
       allow get: if resource == null || belongsToCompany(resource.data.empresaId);
       allow list: if belongsToCompany(resource.data.empresaId);
       allow create: if administraRutas(request.resource.data.empresaId);
@@ -1872,22 +1853,31 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Evidencias: fotos y ubicación de la entrega. Las ve quien tiene un rol
-    // en Rutas. El conductor sube la suya a su nombre, y solo repite la que
-    // Calidad rechazó; Calidad aprueba o rechaza sin tocar la foto.
-    function evidenciaDelConductor() {
-      return request.resource.data.estado == 'pendiente'
-        && request.resource.data.createdBy == request.auth.token.userDocId;
-    }
-
-    function revisionDeEvidencia() {
-      return request.resource.data.estado in ['aprobada', 'rechazada']
-        && request.resource.data.revisadoPor == request.auth.token.userDocId
-        && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['estado', 'revisadoPor', 'revisadoEn', 'motivoRechazo']);
-    }
-
     match /TBL_RUTAS_EVIDENCIAS/{docId} {
+      function revisaRutas(empresaId) {
+        return rutasConRol(empresaId,
+          ['calidad', 'admin_calidad', 'desarrollador', 'developer']);
+      }
+
+      function conduceRutas(empresaId) {
+        return rutasConRol(empresaId, ['conductor', 'desarrollador', 'developer']);
+      }
+
+      // Evidencias: fotos y ubicación de la entrega. Las ve quien tiene un rol
+      // en Rutas. El conductor sube la suya a su nombre, y solo repite la que
+      // Calidad rechazó; Calidad aprueba o rechaza sin tocar la foto.
+      function evidenciaDelConductor() {
+        return request.resource.data.estado == 'pendiente'
+          && request.resource.data.createdBy == request.auth.token.userDocId;
+      }
+
+      function revisionDeEvidencia() {
+        return request.resource.data.estado in ['aprobada', 'rechazada']
+          && request.resource.data.revisadoPor == request.auth.token.userDocId
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['estado', 'revisadoPor', 'revisadoEn', 'motivoRechazo']);
+      }
+
       allow get: if resource == null || participaEnRutas(resource.data.empresaId);
       allow list: if participaEnRutas(resource.data.empresaId);
       allow create: if evidenciaDelConductor()
@@ -1968,37 +1958,6 @@ service cloud.firestore {
       return tieneAppsEn(empresaId, ['tareasdashboard', 'tareas'], true);
     }
 
-    // Una sola consulta de apps con la lista del módulo de origen (antes
-    // cinco funciones casi iguales; 6 oct 2026). Compras y Correo usaban
-    // `tieneAppComprasEn`/`tieneAppCorreoEn`, de la misma forma.
-    function appsDeOrigenTarea(modulo) {
-      return modulo == 'interventoria' ? ['interventoriadashboard', 'interventoria']
-        : (modulo == 'compras' ? ['comprasdashboard', 'compras']
-        : (modulo == 'facturacion' ? ['facturaciondashboard', 'facturacion']
-        : (modulo in ['visita', 'visitas'] ? ['visitasdashboard', 'visitas']
-        : (modulo in ['correo', 'gestion_documental'] ? ['correodashboard', 'correo']
-        : []))));
-    }
-
-    function tieneAppOrigenTareaEn(empresaId, modulo) {
-      let apps = appsDeOrigenTarea(modulo);
-      return apps.size() > 0 && tieneAppsEn(empresaId, apps, true);
-    }
-
-    function puedeVerEquipoTareasEn(empresaId) {
-      let u = currentUser();
-      let detalle = u.get('empresasDetalle', {});
-      let bloque = detalle is map ? detalle.get(empresaId, {}) : {};
-      let propio = bloque is map ? bloque.get('puedeVerEquipo', null) : null;
-      let raiz = raizEsDeEmpresa(u, empresaId)
-        ? u.get('puedeVerEquipo', null) : null;
-      let cargo = bloque is map ? bloque.get('cargo', '') : '';
-      return propio is bool ? propio
-        : (raiz is bool ? raiz
-          : (esGerenciaPorFicha(empresaId)
-            || (cargo is string && cargo.lower().matches('.*(director|jefe|coordinador|supervisor|gerente|gerencia).*'))));
-    }
-
     // Quien Talento Humano marcó "No opera en To-Do" no recibe tareas.
     function usuarioActivoParaTarea(empresaId, uid) {
       let path = /databases/$(database)/documents/TBL_USUARIOS/$(uid);
@@ -2015,368 +1974,399 @@ service cloud.firestore {
         && habilitadaEn(u, empresaId);
     }
 
-    function esResponsableTarea(data) {
-      return data.get('asignado_uid', data.get('assignedTo', ''))
-        == request.auth.token.userDocId;
-    }
-
-    function esAprobadorTarea(data) {
-      let uid = request.auth.token.userDocId;
-      return data.get('aprobador_uid', data.get('approverId', '')) == uid
-        || data.get('jefe_uid', data.get('bossId', '')) == uid
-        || data.get('creador_id', data.get('creatorId', '')) == uid;
-    }
-
-    function esParticipanteTarea(data) {
-      let uid = request.auth.token.userDocId;
-      // Sin `is list`: con esa guarda Firestore no puede demostrar la
-      // consulta `participantes_uid array-contains` ("Antes asignadas").
-      return esResponsableTarea(data) || esAprobadorTarea(data)
-        || data.get('reasignada_desde_uid', '') == uid
-        || uid in data.get('participantes_uid', []);
-    }
-
-    // Presupuesto (2 oct 2026): el tope es 1000 expresiones por petición y
-    // `belongsToCompany` + la app cuestan cerca de 300. Cada regla de tareas
-    // mira primero lo barato (quién es, qué evento, qué campos cambian) y la
-    // empresa una sola vez, al final. Antes se evaluaba varias veces y toda
-    // petición rechazada, y la reasignación, terminaban en "maximum of 1000".
-    //
-    // Desarrollo lee sin filtro de empresa: sus herramientas de Admin (cambio
-    // de cédula, borrar usuario) buscan las tareas de una persona en todas.
-    function puedeLeerTarea(data) {
-      let empresaId = data.get('empresaId', '');
-      let modulo = data.get('sourceModule', '');
-      return (belongsToCompany(empresaId)
-          && ((tieneAppTareasEn(empresaId)
-              && (esParticipanteTarea(data) || puedeVerEquipoTareasEn(empresaId)))
-            || ((modulo == 'interventoria' || esParticipanteTarea(data))
-              && tieneAppOrigenTareaEn(empresaId, modulo))
-            || tieneAppAdminEn(empresaId)
-            || isDeveloperIn(empresaId)
-            || (tieneAppsEn(empresaId, ['gerenciadashboard', 'gerencia'], true)
-              && esGerenciaPorFicha(empresaId))))
-        || isDeveloper();
-    }
-
-    // Tareas o Admin en una sola consulta de apps (lista fija: armarla con
-    // `concat` cuesta tanto como otra consulta). En una tarea de otro módulo
-    // se mira primero la app de ese módulo: quien opera una tarea de
-    // Interventoría casi nunca tiene la app de Tareas.
-    function puedeOperarTarea(data) {
-      let empresaId = data.get('empresaId', '');
-      let modulo = data.get('sourceModule', '');
-      return belongsToCompany(empresaId)
-        && ((modulo != 'tareas' && tieneAppOrigenTareaEn(empresaId, modulo))
-          || tieneAppsEn(empresaId,
-            ['tareasdashboard', 'tareas', 'admindashboard', 'admin'], true)
-          || isDeveloper() || isDeveloperIn(empresaId));
-    }
-
-    // `cambios` = claves que cambia la escritura. Se calcula una vez en
-    // `tareaActualizacionValida` y pasa a cada rama. Las ramas del flujo
-    // (operativo, reasignación directa y aprobador) reciben `propios`: los
-    // mismos cambios sin `updatedAt` ni `lastEvent*`, que todas permiten
-    // (6 oct 2026: listas más cortas).
-    // `numero` es el consecutivo por empresa que asigna el servidor
-    // (`tareasAsignarNumero`, 3 oct 2026): la app no lo crea ni lo cambia.
-    function tareaBaseConservada(antes, d, cambios) {
-      return antes.get('empresaId', '') == d.get('empresaId', '')
-        && !cambios.hasAny([
-          'empresaId', 'empresas', 'creador_id', 'creatorId',
-          'sourceModule', 'source',
-          'sourceType', 'origen', 'hallazgoId', 'sourceEntityId', 'numero'
-        ]);
-    }
-
-    function tareaNuevaValida() {
-      let d = request.resource.data;
-      let empresaId = d.get('empresaId', '');
-      let modulo = d.get('sourceModule', '');
-      return d.get('titulo', '') is string && d.titulo.size() > 0
-        && !d.keys().hasAny(['numero'])
-        && d.get('estado', '') in ['pendiente', 'en_progreso']
-        && d.get('status', d.estado) == d.estado
-        && d.get('creador_id', '') is string
-        && d.creador_id.size() > 0
-        && belongsToCompany(empresaId)
-        && ((d.creador_id == request.auth.token.userDocId
-            && tieneAppTareasEn(empresaId))
-          || tieneAppOrigenTareaEn(empresaId, modulo)
-          || tieneAppAdminEn(empresaId)
-          || isDeveloper() || isDeveloperIn(empresaId))
-        && usuarioActivoParaTarea(empresaId, d.get('asignado_uid', ''));
-    }
-
-    // Quien la tenía queda en `participantes_uid` para seguir viendo su
-    // historial; nadie sale de la lista.
-    function tareaConservaParticipantes(antes, d) {
-      let anterior = antes.get('asignado_uid', '');
-      let nuevo = d.get('asignado_uid', '');
-      return anterior != nuevo
-        && d.get('participantes_uid', []) is list
-        && d.participantes_uid.hasAll(antes.get('participantes_uid', []))
-        && anterior in d.participantes_uid
-        && nuevo in d.participantes_uid;
-    }
-
-    // Además, el destino debe estar activo en la empresa de la tarea.
-    function tareaCambioResponsable(antes, d) {
-      return tareaConservaParticipantes(antes, d)
-        && usuarioActivoParaTarea(antes.get('empresaId', ''),
-          d.get('asignado_uid', ''));
-    }
-
-    function camposSolicitudReasignacion() {
-      return ['solicitud_reasignacion_estado', 'solicitud_reasignacion_at',
-        'solicitud_reasignacion_by_uid', 'solicitud_reasignacion_by_nombre',
-        'solicitud_reasignacion_to_uid', 'solicitud_reasignacion_to_nombre',
-        'solicitud_reasignacion_areaId', 'solicitud_reasignacion_areaNombre',
-        'solicitud_reasignacion_cargoId',
-        'solicitud_reasignacion_cargoNombre'];
-    }
-
-    // Lo que registra el responsable sin cambiar de responsable.
-    function tareaCambioOperativo(antes, d, evento, propios) {
-      let actual = antes.get('estado', antes.get('status', ''));
-      return evento in ['task_avance', 'task_novedad',
-          'solicitud_finalizacion', 'solicitud_reasignacion']
-        && esResponsableTarea(antes)
-        && !(actual in ['finalizado', 'por_aprobar'])
-        // Con una reasignación en espera la tarea solo se consulta (4 oct
-        // 2026): ni avance, ni novedad, ni finalización, ni otra solicitud.
-        && antes.get('solicitud_reasignacion_estado', '') != 'pendiente'
-        && d.get('asignado_uid', '') == antes.get('asignado_uid', '')
-        && (
-          (evento == 'task_avance'
-            && d.get('estado', actual) in [actual, 'en_progreso']
-            && propios.hasOnly(['estado', 'status', 'fecha_limite', 'dueDate',
-              'fecha_actualizacion', 'actualizada_en']))
-          || (evento == 'task_novedad'
-            && d.get('estado', actual) in [actual, 'en_progreso']
-            && propios.hasOnly(['estado', 'status', 'fecha_actualizacion',
-              'actualizada_en']))
-          || (evento == 'solicitud_finalizacion'
-            && antes.get('solicitud_finalizacion_estado', '') != 'pendiente'
-            && d.get('estado', '') == 'por_aprobar'
-            && d.get('solicitud_finalizacion_estado', '') == 'pendiente'
-            && d.get('solicitud_finalizacion_by_uid', '')
-              == request.auth.token.userDocId
-            && propios.hasOnly(['estado', 'status',
-              'solicitud_finalizacion_estado', 'solicitud_finalizacion_at',
-              'solicitud_finalizacion_by_uid',
-              'solicitud_finalizacion_by_nombre', 'fecha_actualizacion',
-              'actualizada_en', 'adjuntos', 'evidencias']))
-          // Hacia cualquier área de la empresa: el destino se valida activo
-          // en la empresa de la tarea, no en el área del responsable.
-          || (evento == 'solicitud_reasignacion'
-            && antes.get('solicitud_reasignacion_estado', '') != 'pendiente'
-            && d.get('solicitud_reasignacion_estado', '') == 'pendiente'
-            && d.get('solicitud_reasignacion_by_uid', '')
-              == request.auth.token.userDocId
-            && d.get('solicitud_reasignacion_to_uid', '')
-              != antes.get('asignado_uid', '')
-            && propios.hasOnly(camposSolicitudReasignacion())
-            && usuarioActivoParaTarea(antes.get('empresaId', ''),
-              d.get('solicitud_reasignacion_to_uid', '')))
-        );
-    }
-
-    // Interventoría (y las tareas que lo permiten) reasigna sin aprobación:
-    // el responsable la entrega a otra persona activa de la empresa, de
-    // cualquier área. Estaba dentro de la rama que exige el mismo
-    // responsable, así que nunca podía pasar.
-    function tareaReasignacionDirecta(antes, d, evento, propios) {
-      let actual = antes.get('estado', antes.get('status', ''));
-      return evento == 'reasignacion_directa'
-        && (antes.get('sourceModule', '') == 'interventoria'
-          || antes.get('origen', '') == 'interventoria')
-        && esResponsableTarea(antes)
-        && !(actual in ['finalizado', 'por_aprobar'])
-        && antes.get('solicitud_finalizacion_estado', '') != 'pendiente'
-        && d.get('estado', '') == 'en_progreso'
-        && d.get('reasignada_por_uid', '') == request.auth.token.userDocId
-        && d.get('reasignada_desde_uid', '') == antes.get('asignado_uid', '')
-        && propios.hasOnly(camposSolicitudReasignacion().concat([
-          'asignado_uid', 'asignado_nombre', 'asignado_cargo_nombre',
-          'areaId', 'estado', 'status', 'reasignado', 'reasignada_en',
-          'reasignada_desde_uid', 'reasignada_desde_nombre',
-          'reasignada_por_uid', 'participantes_uid', 'reasignacion_pendiente',
-          'fecha_actualizacion', 'actualizada_en']))
-        && tareaCambioResponsable(antes, d);
-    }
-
-    function tareaCambioAprobador(antes, d, evento, propios) {
-      return evento in ['aprobada', 'task_devuelta', 'reasignacion_aprobada',
-          'reasignacion_rechazada', 'task_avance_gestionado']
-        && esAprobadorTarea(antes)
-        && (
-          (evento == 'aprobada'
-            && antes.get('solicitud_finalizacion_estado', '') == 'pendiente'
-            && d.get('estado', '') == 'finalizado'
-            && d.get('solicitud_finalizacion_estado', '') == 'aprobado'
-            && d.get('asignado_uid', '') == antes.get('asignado_uid', '')
-            && propios.hasOnly(['estado', 'status', 'approved',
-              'approvedAt', 'solicitud_finalizacion_estado']))
-          || (evento == 'task_devuelta'
-            && antes.get('solicitud_finalizacion_estado', '') == 'pendiente'
-            && d.get('estado', '') == 'devuelta'
-            && d.get('asignado_uid', '') == antes.get('asignado_uid', '')
-            && propios.hasOnly(['estado', 'status', 'fecha_limite',
-              'approved', 'approvedAt', 'solicitud_finalizacion_estado',
-              'solicitud_finalizacion_at', 'solicitud_finalizacion_by_uid',
-              'solicitud_finalizacion_by_nombre']))
-          || (evento == 'reasignacion_aprobada'
-            && antes.get('solicitud_reasignacion_estado', '') == 'pendiente'
-            && d.get('solicitud_reasignacion_estado', '') == 'aprobada'
-            && d.get('asignado_uid', '')
-              == antes.get('solicitud_reasignacion_to_uid', '')
-            && d.get('estado', '') == 'en_progreso'
-            // El aprobador pasa al jefe inmediato del nuevo responsable
-            // (`taskAprobadorTrasReasignar`, 4 oct 2026).
-            && propios.hasOnly(['asignado_uid', 'asignado_nombre',
-              'asignado_cargo_id', 'asignado_cargo_nombre', 'areaId',
-              'estado', 'status', 'reasignado',
-              'solicitud_reasignacion_estado', 'reasignacion_resuelta_at',
-              'participantes_uid', 'jefe_uid', 'jefe_nombre',
-              'aprobador_uid', 'aprobador_nombre', 'approverId',
-              'approverName'])
-            // El destino ya se validó activo al pedir la reasignación y la
-            // aprobación solo puede llevar a ese destino: no se vuelve a leer.
-            && tareaConservaParticipantes(antes, d))
-          || (evento == 'reasignacion_rechazada'
-            && antes.get('solicitud_reasignacion_estado', '') == 'pendiente'
-            && d.get('solicitud_reasignacion_estado', '') == 'rechazada'
-            && d.get('asignado_uid', '') == antes.get('asignado_uid', '')
-            && propios.hasOnly(['solicitud_reasignacion_estado',
-              'reasignacion_resuelta_at']))
-          || (evento == 'task_avance_gestionado'
-            && d.get('asignado_uid', '') == antes.get('asignado_uid', '')
-            && propios.hasOnly(['fecha_limite']))
-        );
-    }
-
-    // Interventoría cierra sus tareas desde el hallazgo. La aprobación de la
-    // subsanación no exige una solicitud pendiente en la tarea: el
-    // responsable puede haberla registrado en el hallazgo. El cambio de
-    // aprobador va por servidor (`interventoriaCambiarAprobador`).
-    function tareaCambioModulo(antes, d, cambios) {
-      return antes.get('sourceModule', '') == 'interventoria'
-        && (
-          (antes.get('sourceType', '') == 'devolucion_acta'
-            && esResponsableTarea(antes)
-            && d.get('estado', '') == 'finalizado'
-            && cambios.hasOnly(['estado', 'status',
-              'solicitud_finalizacion_estado', 'updatedAt']))
-          || (d.get('solicitud_finalizacion_resuelto_por', '')
-              == request.auth.token.userDocId
-            && esAprobadorTarea(antes)
-            && d.get('estado', '') in ['finalizado', 'devuelta']
-            && d.get('solicitud_finalizacion_estado', '')
-              == (d.estado == 'finalizado' ? 'aprobado' : 'rechazado')
-            && cambios.hasOnly(['estado', 'status',
-              'solicitud_finalizacion_estado',
-              'solicitud_finalizacion_resuelto_por', 'updatedAt']))
-        )
-        && tieneAppOrigenTareaEn(antes.get('empresaId', ''), 'interventoria');
-    }
-
-    function tareaVisto(antes, cambios) {
-      return cambios.hasOnly(['visto'])
-        && (esParticipanteTarea(antes)
-          || puedeVerEquipoTareasEn(antes.get('empresaId', '')));
-    }
-
-    // Administración y Desarrollo, fuera del flujo: cierre administrativo por
-    // módulo, herramientas de Admin (cambio de cédula) y, en Interventoría,
-    // pasar al creador automático las tareas que asignó la matriz. Nunca
-    // cambian la empresa. Va al final: solo lo paga quien no pasó arriba.
-    function tareaMantenimiento(antes, d, evento, cambios) {
-      let empresaId = antes.get('empresaId', '');
-      return d.get('empresaId', '') == empresaId
-        && belongsToCompany(empresaId)
-        && (isDeveloper() || isDeveloperIn(empresaId)
-          || (evento == 'admin_module_closeout' && tieneAppAdminEn(empresaId))
-          || (antes.get('sourceModule', '') == 'interventoria'
-            && d.get('creador_id', '') == 'interventoria_automatica'
-            && cambios.hasOnly(['creador_id', 'creatorId', 'creador_nombre',
-              'creatorName', 'ejecutadoPorId', 'ejecutadoPorNombre'])
-            && rolEnTabla('TBL_INTERVENTORIA_ROLES', empresaId)
-              in ['admin_interventoria', 'gerente_interventoria']));
-    }
-
-    function tareaActualizacionValida() {
-      let antes = resource.data;
-      let d = request.resource.data;
-      let evento = d.get('lastEventType', '');
-      let cambios = d.diff(antes).affectedKeys();
-      // Sin la marca del último evento, que escribe toda acción del flujo.
-      let propios = cambios.difference(['updatedAt', 'lastEventType',
-        'lastEventAt', 'lastEventText'].toSet());
-      return (tareaBaseConservada(antes, d, cambios)
-          && (tareaCambioOperativo(antes, d, evento, propios)
-            || tareaReasignacionDirecta(antes, d, evento, propios)
-            || tareaCambioAprobador(antes, d, evento, propios)
-            || tareaCambioModulo(antes, d, cambios)
-            || tareaVisto(antes, cambios))
-          && puedeOperarTarea(antes))
-        || tareaMantenimiento(antes, d, evento, cambios);
-    }
-
-    function puedeLeerEventoTarea(taskId) {
-      let path = /databases/$(database)/documents/TBL_TAREAS/$(taskId);
-      return exists(path) && puedeLeerTarea(get(path).data);
-    }
-
-    // Bitácora: el comentario de cierre es obligatorio (2 oct 2026, "completar
-    // tareas con comentario") y queda en el historial junto con novedades y
-    // avances. `posterior` es la tarea al terminar el lote: el evento de
-    // finalización solo existe si la tarea cambió de estado en la misma
-    // escritura.
-    function puedeCrearEventoTarea(taskId, tipo) {
-      let path = /databases/$(database)/documents/TBL_TAREAS/$(taskId);
-      let tarea = exists(path) ? get(path).data : {};
-      let evento = request.resource.data;
-      let uid = request.auth.token.userDocId;
-      return exists(path)
-        && ((tipo == 'avances'
-            && evento.get('by', '') == uid
-            && evento.get('message', '') is string
-            && evento.message.size() > 0
-            && esResponsableTarea(tarea))
-          || (tipo == 'novedades'
-            && ((evento.get('by', '') == uid && esResponsableTarea(tarea))
-              || (evento.get('type', '') in ['devolucion', 'respuesta_avance']
-                && esAprobadorTarea(tarea))
-              // Retroalimentación de quien asignó o aprueba a una novedad
-              // del responsable (4 oct 2026).
-              || (evento.get('type', '') == 'respuesta_novedad'
-                && evento.get('by', '') == uid
-                && evento.get('message', '') is string
-                && evento.message.size() > 0
-                && esAprobadorTarea(tarea))))
-          || (tipo == 'finalizacion'
-            && evento.get('createdBy', '') == uid
-            && ((evento.get('type', '') in ['solicitud_finalizacion', 'finalizacion']
-                && evento.get('comment', '') is string
-                && evento.comment.trim().size() > 0
-                && esResponsableTarea(tarea)
-                // El cambio de estado ocurre en la misma escritura: no se
-                // agrega una finalización a una tarea ya cerrada o en espera.
-                && (evento.type == 'solicitud_finalizacion'
-                  ? (tarea.get('solicitud_finalizacion_estado', '') != 'pendiente'
-                    && getAfter(path).data.get('solicitud_finalizacion_estado', '') == 'pendiente')
-                  : (tarea.get('estado', '') != 'finalizado'
-                    && getAfter(path).data.get('estado', '') == 'finalizado')))
-              || (evento.get('type', '') == 'aprobacion_finalizacion'
-                && esAprobadorTarea(tarea)
-                && tarea.get('solicitud_finalizacion_estado', '') == 'pendiente'
-                && getAfter(path).data.get('estado', '') == 'finalizado'
-                && getAfter(path).data.get('solicitud_finalizacion_estado', '') == 'aprobado'))))
-        && puedeOperarTarea(tarea);
-    }
-
     match /TBL_TAREAS/{taskId} {
+      // Una sola consulta de apps con la lista del módulo de origen (antes
+      // cinco funciones casi iguales; 6 oct 2026). Compras y Correo usaban
+      // `tieneAppComprasEn`/`tieneAppCorreoEn`, de la misma forma.
+      function appsDeOrigenTarea(modulo) {
+        return modulo == 'interventoria' ? ['interventoriadashboard', 'interventoria']
+          : (modulo == 'compras' ? ['comprasdashboard', 'compras']
+          : (modulo == 'facturacion' ? ['facturaciondashboard', 'facturacion']
+          : (modulo in ['visita', 'visitas'] ? ['visitasdashboard', 'visitas']
+          : (modulo in ['correo', 'gestion_documental'] ? ['correodashboard', 'correo']
+          : []))));
+      }
+
+      function tieneAppOrigenTareaEn(empresaId, modulo) {
+        let apps = appsDeOrigenTarea(modulo);
+        return apps.size() > 0 && tieneAppsEn(empresaId, apps, true);
+      }
+
+      function puedeVerEquipoTareasEn(empresaId) {
+        let u = currentUser();
+        let detalle = u.get('empresasDetalle', {});
+        let bloque = detalle is map ? detalle.get(empresaId, {}) : {};
+        let propio = bloque is map ? bloque.get('puedeVerEquipo', null) : null;
+        let raiz = raizEsDeEmpresa(u, empresaId)
+          ? u.get('puedeVerEquipo', null) : null;
+        let cargo = bloque is map ? bloque.get('cargo', '') : '';
+        return propio is bool ? propio
+          : (raiz is bool ? raiz
+            : (esGerenciaPorFicha(empresaId)
+              || (cargo is string && cargo.lower().matches('.*(director|jefe|coordinador|supervisor|gerente|gerencia).*'))));
+      }
+
+      function esResponsableTarea(data) {
+        return data.get('asignado_uid', data.get('assignedTo', ''))
+          == request.auth.token.userDocId;
+      }
+
+      function esAprobadorTarea(data) {
+        let uid = request.auth.token.userDocId;
+        return data.get('aprobador_uid', data.get('approverId', '')) == uid
+          || data.get('jefe_uid', data.get('bossId', '')) == uid
+          || data.get('creador_id', data.get('creatorId', '')) == uid;
+      }
+
+      function esParticipanteTarea(data) {
+        let uid = request.auth.token.userDocId;
+        // Sin `is list`: con esa guarda Firestore no puede demostrar la
+        // consulta `participantes_uid array-contains` ("Antes asignadas").
+        return esResponsableTarea(data) || esAprobadorTarea(data)
+          || data.get('reasignada_desde_uid', '') == uid
+          || uid in data.get('participantes_uid', []);
+      }
+
+      // Presupuesto (2 oct 2026): el tope es 1000 expresiones por petición y
+      // `belongsToCompany` + la app cuestan cerca de 300. Cada regla de tareas
+      // mira primero lo barato (quién es, qué evento, qué campos cambian) y la
+      // empresa una sola vez, al final. Antes se evaluaba varias veces y toda
+      // petición rechazada, y la reasignación, terminaban en "maximum of 1000".
+      //
+      // Desarrollo lee sin filtro de empresa: sus herramientas de Admin (cambio
+      // de cédula, borrar usuario) buscan las tareas de una persona en todas.
+      function puedeLeerTarea(data) {
+        let empresaId = data.get('empresaId', '');
+        let modulo = data.get('sourceModule', '');
+        return (belongsToCompany(empresaId)
+            && ((tieneAppTareasEn(empresaId)
+                && (esParticipanteTarea(data) || puedeVerEquipoTareasEn(empresaId)))
+              || ((modulo == 'interventoria' || esParticipanteTarea(data))
+                && tieneAppOrigenTareaEn(empresaId, modulo))
+              || tieneAppAdminEn(empresaId)
+              || isDeveloperIn(empresaId)
+              || (tieneAppsEn(empresaId, ['gerenciadashboard', 'gerencia'], true)
+                && esGerenciaPorFicha(empresaId))))
+          || isDeveloper();
+      }
+
+      // Tareas o Admin en una sola consulta de apps (lista fija: armarla con
+      // `concat` cuesta tanto como otra consulta). En una tarea de otro módulo
+      // se mira primero la app de ese módulo: quien opera una tarea de
+      // Interventoría casi nunca tiene la app de Tareas.
+      function puedeOperarTarea(data) {
+        let empresaId = data.get('empresaId', '');
+        let modulo = data.get('sourceModule', '');
+        return belongsToCompany(empresaId)
+          && ((modulo != 'tareas' && tieneAppOrigenTareaEn(empresaId, modulo))
+            || tieneAppsEn(empresaId,
+              ['tareasdashboard', 'tareas', 'admindashboard', 'admin'], true)
+            || isDeveloper() || isDeveloperIn(empresaId));
+      }
+
+      // `cambios` = claves que cambia la escritura. Se calcula una vez en
+      // `tareaActualizacionValida` y pasa a cada rama. Las ramas del flujo
+      // (operativo, reasignación directa y aprobador) reciben `propios`: los
+      // mismos cambios sin `updatedAt` ni `lastEvent*`, que todas permiten
+      // (6 oct 2026: listas más cortas).
+      // `numero` es el consecutivo por empresa que asigna el servidor
+      // (`tareasAsignarNumero`, 3 oct 2026): la app no lo crea ni lo cambia.
+      function tareaBaseConservada(antes, d, cambios) {
+        return antes.get('empresaId', '') == d.get('empresaId', '')
+          && !cambios.hasAny([
+            'empresaId', 'empresas', 'creador_id', 'creatorId',
+            'sourceModule', 'source',
+            'sourceType', 'origen', 'hallazgoId', 'sourceEntityId', 'numero'
+          ]);
+      }
+
+      function tareaNuevaValida() {
+        let d = request.resource.data;
+        let empresaId = d.get('empresaId', '');
+        let modulo = d.get('sourceModule', '');
+        return d.get('titulo', '') is string && d.titulo.size() > 0
+          && !d.keys().hasAny(['numero'])
+          && d.get('estado', '') in ['pendiente', 'en_progreso']
+          && d.get('status', d.estado) == d.estado
+          && d.get('creador_id', '') is string
+          && d.creador_id.size() > 0
+          && belongsToCompany(empresaId)
+          && ((d.creador_id == request.auth.token.userDocId
+              && tieneAppTareasEn(empresaId))
+            || tieneAppOrigenTareaEn(empresaId, modulo)
+            || tieneAppAdminEn(empresaId)
+            || isDeveloper() || isDeveloperIn(empresaId))
+          && usuarioActivoParaTarea(empresaId, d.get('asignado_uid', ''));
+      }
+
+      // Quien la tenía queda en `participantes_uid` para seguir viendo su
+      // historial; nadie sale de la lista.
+      function tareaConservaParticipantes(antes, d) {
+        let anterior = antes.get('asignado_uid', '');
+        let nuevo = d.get('asignado_uid', '');
+        return anterior != nuevo
+          && d.get('participantes_uid', []) is list
+          && d.participantes_uid.hasAll(antes.get('participantes_uid', []))
+          && anterior in d.participantes_uid
+          && nuevo in d.participantes_uid;
+      }
+
+      // Además, el destino debe estar activo en la empresa de la tarea.
+      function tareaCambioResponsable(antes, d) {
+        return tareaConservaParticipantes(antes, d)
+          && usuarioActivoParaTarea(antes.get('empresaId', ''),
+            d.get('asignado_uid', ''));
+      }
+
+      function camposSolicitudReasignacion() {
+        return ['solicitud_reasignacion_estado', 'solicitud_reasignacion_at',
+          'solicitud_reasignacion_by_uid', 'solicitud_reasignacion_by_nombre',
+          'solicitud_reasignacion_to_uid', 'solicitud_reasignacion_to_nombre',
+          'solicitud_reasignacion_areaId', 'solicitud_reasignacion_areaNombre',
+          'solicitud_reasignacion_cargoId',
+          'solicitud_reasignacion_cargoNombre'];
+      }
+
+      // Lo que registra el responsable sin cambiar de responsable.
+      function tareaCambioOperativo(antes, d, evento, propios) {
+        let actual = antes.get('estado', antes.get('status', ''));
+        return evento in ['task_avance', 'task_novedad',
+            'solicitud_finalizacion', 'solicitud_reasignacion']
+          && esResponsableTarea(antes)
+          && !(actual in ['finalizado', 'por_aprobar'])
+          // Con una reasignación en espera la tarea solo se consulta (4 oct
+          // 2026): ni avance, ni novedad, ni finalización, ni otra solicitud.
+          && antes.get('solicitud_reasignacion_estado', '') != 'pendiente'
+          && d.get('asignado_uid', '') == antes.get('asignado_uid', '')
+          && (
+            (evento == 'task_avance'
+              && d.get('estado', actual) in [actual, 'en_progreso']
+              && propios.hasOnly(['estado', 'status', 'fecha_limite', 'dueDate',
+                'fecha_actualizacion', 'actualizada_en']))
+            || (evento == 'task_novedad'
+              && d.get('estado', actual) in [actual, 'en_progreso']
+              && propios.hasOnly(['estado', 'status', 'fecha_actualizacion',
+                'actualizada_en']))
+            || (evento == 'solicitud_finalizacion'
+              && antes.get('solicitud_finalizacion_estado', '') != 'pendiente'
+              && d.get('estado', '') == 'por_aprobar'
+              && d.get('solicitud_finalizacion_estado', '') == 'pendiente'
+              && d.get('solicitud_finalizacion_by_uid', '')
+                == request.auth.token.userDocId
+              && propios.hasOnly(['estado', 'status',
+                'solicitud_finalizacion_estado', 'solicitud_finalizacion_at',
+                'solicitud_finalizacion_by_uid',
+                'solicitud_finalizacion_by_nombre', 'fecha_actualizacion',
+                'actualizada_en', 'adjuntos', 'evidencias']))
+            // Hacia cualquier área de la empresa: el destino se valida activo
+            // en la empresa de la tarea, no en el área del responsable.
+            || (evento == 'solicitud_reasignacion'
+              && antes.get('solicitud_reasignacion_estado', '') != 'pendiente'
+              && d.get('solicitud_reasignacion_estado', '') == 'pendiente'
+              && d.get('solicitud_reasignacion_by_uid', '')
+                == request.auth.token.userDocId
+              && d.get('solicitud_reasignacion_to_uid', '')
+                != antes.get('asignado_uid', '')
+              && propios.hasOnly(camposSolicitudReasignacion())
+              && usuarioActivoParaTarea(antes.get('empresaId', ''),
+                d.get('solicitud_reasignacion_to_uid', '')))
+          );
+      }
+
+      // Interventoría (y las tareas que lo permiten) reasigna sin aprobación:
+      // el responsable la entrega a otra persona activa de la empresa, de
+      // cualquier área. Estaba dentro de la rama que exige el mismo
+      // responsable, así que nunca podía pasar.
+      function tareaReasignacionDirecta(antes, d, evento, propios) {
+        let actual = antes.get('estado', antes.get('status', ''));
+        return evento == 'reasignacion_directa'
+          && (antes.get('sourceModule', '') == 'interventoria'
+            || antes.get('origen', '') == 'interventoria')
+          && esResponsableTarea(antes)
+          && !(actual in ['finalizado', 'por_aprobar'])
+          && antes.get('solicitud_finalizacion_estado', '') != 'pendiente'
+          && d.get('estado', '') == 'en_progreso'
+          && d.get('reasignada_por_uid', '') == request.auth.token.userDocId
+          && d.get('reasignada_desde_uid', '') == antes.get('asignado_uid', '')
+          && propios.hasOnly(camposSolicitudReasignacion().concat([
+            'asignado_uid', 'asignado_nombre', 'asignado_cargo_nombre',
+            'areaId', 'estado', 'status', 'reasignado', 'reasignada_en',
+            'reasignada_desde_uid', 'reasignada_desde_nombre',
+            'reasignada_por_uid', 'participantes_uid', 'reasignacion_pendiente',
+            'fecha_actualizacion', 'actualizada_en']))
+          && tareaCambioResponsable(antes, d);
+      }
+
+      function tareaCambioAprobador(antes, d, evento, propios) {
+        return evento in ['aprobada', 'task_devuelta', 'reasignacion_aprobada',
+            'reasignacion_rechazada', 'task_avance_gestionado']
+          && esAprobadorTarea(antes)
+          && (
+            (evento == 'aprobada'
+              && antes.get('solicitud_finalizacion_estado', '') == 'pendiente'
+              && d.get('estado', '') == 'finalizado'
+              && d.get('solicitud_finalizacion_estado', '') == 'aprobado'
+              && d.get('asignado_uid', '') == antes.get('asignado_uid', '')
+              && propios.hasOnly(['estado', 'status', 'approved',
+                'approvedAt', 'solicitud_finalizacion_estado']))
+            || (evento == 'task_devuelta'
+              && antes.get('solicitud_finalizacion_estado', '') == 'pendiente'
+              && d.get('estado', '') == 'devuelta'
+              && d.get('asignado_uid', '') == antes.get('asignado_uid', '')
+              && propios.hasOnly(['estado', 'status', 'fecha_limite',
+                'approved', 'approvedAt', 'solicitud_finalizacion_estado',
+                'solicitud_finalizacion_at', 'solicitud_finalizacion_by_uid',
+                'solicitud_finalizacion_by_nombre']))
+            || (evento == 'reasignacion_aprobada'
+              && antes.get('solicitud_reasignacion_estado', '') == 'pendiente'
+              && d.get('solicitud_reasignacion_estado', '') == 'aprobada'
+              && d.get('asignado_uid', '')
+                == antes.get('solicitud_reasignacion_to_uid', '')
+              && d.get('estado', '') == 'en_progreso'
+              // El aprobador pasa al jefe inmediato del nuevo responsable
+              // (`taskAprobadorTrasReasignar`, 4 oct 2026).
+              && propios.hasOnly(['asignado_uid', 'asignado_nombre',
+                'asignado_cargo_id', 'asignado_cargo_nombre', 'areaId',
+                'estado', 'status', 'reasignado',
+                'solicitud_reasignacion_estado', 'reasignacion_resuelta_at',
+                'participantes_uid', 'jefe_uid', 'jefe_nombre',
+                'aprobador_uid', 'aprobador_nombre', 'approverId',
+                'approverName'])
+              // El destino ya se validó activo al pedir la reasignación y la
+              // aprobación solo puede llevar a ese destino: no se vuelve a leer.
+              && tareaConservaParticipantes(antes, d))
+            || (evento == 'reasignacion_rechazada'
+              && antes.get('solicitud_reasignacion_estado', '') == 'pendiente'
+              && d.get('solicitud_reasignacion_estado', '') == 'rechazada'
+              && d.get('asignado_uid', '') == antes.get('asignado_uid', '')
+              && propios.hasOnly(['solicitud_reasignacion_estado',
+                'reasignacion_resuelta_at']))
+            || (evento == 'task_avance_gestionado'
+              && d.get('asignado_uid', '') == antes.get('asignado_uid', '')
+              && propios.hasOnly(['fecha_limite']))
+          );
+      }
+
+      // Interventoría cierra sus tareas desde el hallazgo. La aprobación de la
+      // subsanación no exige una solicitud pendiente en la tarea: el
+      // responsable puede haberla registrado en el hallazgo. El cambio de
+      // aprobador va por servidor (`interventoriaCambiarAprobador`).
+      function tareaCambioModulo(antes, d, cambios) {
+        return antes.get('sourceModule', '') == 'interventoria'
+          && (
+            (antes.get('sourceType', '') == 'devolucion_acta'
+              && esResponsableTarea(antes)
+              && d.get('estado', '') == 'finalizado'
+              && cambios.hasOnly(['estado', 'status',
+                'solicitud_finalizacion_estado', 'updatedAt']))
+            || (d.get('solicitud_finalizacion_resuelto_por', '')
+                == request.auth.token.userDocId
+              && esAprobadorTarea(antes)
+              && d.get('estado', '') in ['finalizado', 'devuelta']
+              && d.get('solicitud_finalizacion_estado', '')
+                == (d.estado == 'finalizado' ? 'aprobado' : 'rechazado')
+              && cambios.hasOnly(['estado', 'status',
+                'solicitud_finalizacion_estado',
+                'solicitud_finalizacion_resuelto_por', 'updatedAt']))
+          )
+          && tieneAppOrigenTareaEn(antes.get('empresaId', ''), 'interventoria');
+      }
+
+      function tareaVisto(antes, cambios) {
+        return cambios.hasOnly(['visto'])
+          && (esParticipanteTarea(antes)
+            || puedeVerEquipoTareasEn(antes.get('empresaId', '')));
+      }
+
+      // Administración y Desarrollo, fuera del flujo: cierre administrativo por
+      // módulo, herramientas de Admin (cambio de cédula) y, en Interventoría,
+      // pasar al creador automático las tareas que asignó la matriz. Nunca
+      // cambian la empresa. Va al final: solo lo paga quien no pasó arriba.
+      function tareaMantenimiento(antes, d, evento, cambios) {
+        let empresaId = antes.get('empresaId', '');
+        return d.get('empresaId', '') == empresaId
+          && belongsToCompany(empresaId)
+          && (isDeveloper() || isDeveloperIn(empresaId)
+            || (evento == 'admin_module_closeout' && tieneAppAdminEn(empresaId))
+            || (antes.get('sourceModule', '') == 'interventoria'
+              && d.get('creador_id', '') == 'interventoria_automatica'
+              && cambios.hasOnly(['creador_id', 'creatorId', 'creador_nombre',
+                'creatorName', 'ejecutadoPorId', 'ejecutadoPorNombre'])
+              && rolEnTabla('TBL_INTERVENTORIA_ROLES', empresaId)
+                in ['admin_interventoria', 'gerente_interventoria']));
+      }
+
+      function tareaActualizacionValida() {
+        let antes = resource.data;
+        let d = request.resource.data;
+        let evento = d.get('lastEventType', '');
+        let cambios = d.diff(antes).affectedKeys();
+        // Sin la marca del último evento, que escribe toda acción del flujo.
+        let propios = cambios.difference(['updatedAt', 'lastEventType',
+          'lastEventAt', 'lastEventText'].toSet());
+        return (tareaBaseConservada(antes, d, cambios)
+            && (tareaCambioOperativo(antes, d, evento, propios)
+              || tareaReasignacionDirecta(antes, d, evento, propios)
+              || tareaCambioAprobador(antes, d, evento, propios)
+              || tareaCambioModulo(antes, d, cambios)
+              || tareaVisto(antes, cambios))
+            && puedeOperarTarea(antes))
+          || tareaMantenimiento(antes, d, evento, cambios);
+      }
+
+      function puedeLeerEventoTarea(taskId) {
+        let path = /databases/$(database)/documents/TBL_TAREAS/$(taskId);
+        return exists(path) && puedeLeerTarea(get(path).data);
+      }
+
+      // Bitácora: el comentario de cierre es obligatorio (2 oct 2026, "completar
+      // tareas con comentario") y queda en el historial junto con novedades y
+      // avances. `posterior` es la tarea al terminar el lote: el evento de
+      // finalización solo existe si la tarea cambió de estado en la misma
+      // escritura.
+      function puedeCrearEventoTarea(taskId, tipo) {
+        let path = /databases/$(database)/documents/TBL_TAREAS/$(taskId);
+        let tarea = exists(path) ? get(path).data : {};
+        let evento = request.resource.data;
+        let uid = request.auth.token.userDocId;
+        return exists(path)
+          && ((tipo == 'avances'
+              && evento.get('by', '') == uid
+              && evento.get('message', '') is string
+              && evento.message.size() > 0
+              && esResponsableTarea(tarea))
+            || (tipo == 'novedades'
+              && ((evento.get('by', '') == uid && esResponsableTarea(tarea))
+                || (evento.get('type', '') in ['devolucion', 'respuesta_avance']
+                  && esAprobadorTarea(tarea))
+                // Retroalimentación de quien asignó o aprueba a una novedad
+                // del responsable (4 oct 2026).
+                || (evento.get('type', '') == 'respuesta_novedad'
+                  && evento.get('by', '') == uid
+                  && evento.get('message', '') is string
+                  && evento.message.size() > 0
+                  && esAprobadorTarea(tarea))))
+            || (tipo == 'finalizacion'
+              && evento.get('createdBy', '') == uid
+              && ((evento.get('type', '') in ['solicitud_finalizacion', 'finalizacion']
+                  && evento.get('comment', '') is string
+                  && evento.comment.trim().size() > 0
+                  && esResponsableTarea(tarea)
+                  // El cambio de estado ocurre en la misma escritura: no se
+                  // agrega una finalización a una tarea ya cerrada o en espera.
+                  && (evento.type == 'solicitud_finalizacion'
+                    ? (tarea.get('solicitud_finalizacion_estado', '') != 'pendiente'
+                      && getAfter(path).data.get('solicitud_finalizacion_estado', '') == 'pendiente')
+                    : (tarea.get('estado', '') != 'finalizado'
+                      && getAfter(path).data.get('estado', '') == 'finalizado')))
+                || (evento.get('type', '') == 'aprobacion_finalizacion'
+                  && esAprobadorTarea(tarea)
+                  && tarea.get('solicitud_finalizacion_estado', '') == 'pendiente'
+                  && getAfter(path).data.get('estado', '') == 'finalizado'
+                  && getAfter(path).data.get('solicitud_finalizacion_estado', '') == 'aprobado'))))
+          && puedeOperarTarea(tarea);
+      }
+
       allow get: if isSignedIn() && (resource == null || puedeLeerTarea(resource.data));
       allow list: if puedeLeerTarea(resource.data);
       allow create: if tareaNuevaValida();
@@ -2447,6 +2437,16 @@ service cloud.firestore {
     // Nutrición: las quince colecciones con el mismo contrato
     // (`esColeccionNutricion`).
     match /{collection}/{docId} {
+      function nutricionEscribe(collection, empresaId) {
+        return collection.matches('TBL_(DIETAS|MENUS|PLANTILLAS_MENUS|INGREDIENTES)')
+          ? nutricionEscribeMenus(empresaId) : nutricionEscribeClinica(empresaId);
+      }
+
+      function nutricionEscribeMenus(empresaId) {
+        return nivelNutricionEn(empresaId) in
+          ['menus','coordinador','administrador'];
+      }
+
       allow get: if esColeccionNutricion(collection) && (resource == null
         || (documentoDeSuEmpresa() && nutricionLee(resource.data.empresaId)));
       allow list: if esColeccionNutricion(collection)
@@ -2461,6 +2461,13 @@ service cloud.firestore {
     // Tablas de roles de Tokens DIAN, Talento Humano y Nutrición
     // (`esTablaDeRoles`).
     match /{collection}/{docId} {
+      function moduloDeTablaDeRoles(collection) {
+        return collection == 'TBL_DIAN_TOKEN_ROLES' ? 'tokensdiandashboard'
+          : (collection == 'TBL_BIOMETRICO_ROLES' ? 'biometricodashboard'
+            : (collection == 'TBL_TALENTO_HUMANO_ROLES' ? 'talentohumanodashboard'
+              : 'nutriciondashboard'));
+      }
+
       allow get: if esTablaDeRoles(collection) && isSignedIn()
         && (resource == null || belongsToCompany(resource.data.empresaId));
       allow list: if esTablaDeRoles(collection)
