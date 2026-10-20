@@ -3,8 +3,9 @@ import '../interventoria/interventoria_service.dart';
 
 /// Situación de la cobertura de una persona frente a Interventoría.
 enum EstadoCobertura {
-  /// Tiene grupos marcados pero su cargo no los usa (administradores por
-  /// sede): no le suman sedes. Conviene quitarlos para que no confundan.
+  /// Tiene grupos marcados pero su cargo no los usa para cubrir sedes
+  /// (administradores por sede): el grupo queda registrado para llevar el
+  /// orden y no le suma sedes. No es un error ni hay que quitarlo.
   gruposSinEfecto,
 
   /// No tiene centros de operación ni de trabajo: hoy solo cubre su centro de
@@ -23,14 +24,15 @@ enum EstadoCobertura {
   correcta;
 
   String get etiqueta => switch (this) {
-    gruposSinEfecto => 'Grupos que su cargo no usa',
+    gruposSinEfecto => 'Grupo solo de orden (no suma sedes)',
     soloCentroDeCostos => 'Solo centro de costos',
     sinCobertura => 'Sin ninguna sede',
     todasLasSedes => 'Todas las sedes',
     correcta => 'Correcta',
   };
 
-  bool get requiereAtencion => this != correcta && this != todasLasSedes;
+  bool get requiereAtencion =>
+      this != correcta && this != todasLasSedes && this != gruposSinEfecto;
 }
 
 /// Diagnóstico de una persona, con lo necesario para decidir y para actuar.

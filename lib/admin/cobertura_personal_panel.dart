@@ -145,7 +145,7 @@ class _AdminCoberturaPersonalPanelState
   List<LoteCobertura> _lotes = const [];
   String? _error;
 
-  EstadoCobertura? _estado = EstadoCobertura.gruposSinEfecto;
+  EstadoCobertura? _estado = EstadoCobertura.soloCentroDeCostos;
   String _cargo = '';
   String _busqueda = '';
   final Set<String> _seleccion = {};
@@ -783,8 +783,9 @@ class _AdminCoberturaPersonalPanelState
               ? null
               : () => _ejecutar(
                   'Quitar grupos',
-                  'A estas personas se les quitan los grupos de Interventoría: '
-                      'su cargo no los usa y solo cubrirán sus centros propios.',
+                  'Se les borra el grupo registrado en Talento Humano. Su cargo no '
+                      'lo usa para cubrir sedes, así que NO es necesario: hazlo solo '
+                      'si ya no necesitan el grupo para llevar el orden.',
                   TipoLoteCobertura.quitarGrupos,
                   quitables,
                 ),
@@ -817,6 +818,7 @@ class _AdminCoberturaPersonalPanelState
     final u = p.usuario;
     final color = switch (p.estado) {
       EstadoCobertura.correcta || EstadoCobertura.todasLasSedes => _ok,
+      EstadoCobertura.gruposSinEfecto => _muted,
       EstadoCobertura.soloCentroDeCostos => _aviso,
       _ => _peligro,
     };

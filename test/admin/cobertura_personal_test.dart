@@ -225,10 +225,14 @@ void main() {
       await tester.pump();
 
       expect(
-        find.textContaining('Grupos que su cargo no usa (1)'),
+        find.textContaining('Grupo solo de orden (no suma sedes) (1)'),
         findsOneWidget,
       );
       expect(tester.takeException(), isNull);
+      await tester.tap(
+        find.textContaining('Grupo solo de orden (no suma sedes) (1)'),
+      );
+      await tester.pump();
       await tester.tap(find.textContaining('Seleccionar los 1'));
       await tester.pump();
       expect(find.textContaining('Quitar grupos (1)'), findsOneWidget);

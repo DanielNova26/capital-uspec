@@ -63,6 +63,9 @@ Uint8List construirPlantillaCobertura({
     '2. Edita SOLO las seis últimas columnas: SEDES DE OPERACION, SEDES DE '
         'TRABAJO, GRUPOS, AGREGAR GRUPO, COMO y TODAS LAS SEDES. Las demás son '
         'de consulta.',
+    '   GRUPOS: el grupo de una persona NO se borra aunque su cargo no '
+        'use grupos para cubrir sedes (administradores): queda registrado '
+        'para llevar el orden y simplemente no le suma sedes.',
     '3. Varias sedes o grupos se separan con punto y coma. Ej.: Picota; La Mesa.',
     '4. Escribe las sedes tal como están en la hoja "$kHojaSedes" y los grupos '
         'como G1, G7 (hoja "$kHojaGrupos").',
@@ -74,7 +77,7 @@ Uint8List construirPlantillaCobertura({
     '',
     'Reglas que conviene recordar:',
     '- Administrador (una sola sede): sede de operación y de trabajo = su sede '
-        'y GRUPOS vacío. Sus grupos no le suman sedes.',
+        'y GRUPOS como esté (su grupo se queda para el orden y no le suma sedes).',
     '- Coordinador, director, supervisor: el grupo que atiende, o sus sedes una '
         'a una si no atiende todo el grupo.',
     '- Una celda vacía en una de las tres columnas editables significa "ninguna".',

@@ -53,14 +53,16 @@ Ruta: **Admin › Maestros por módulo › Tareas y notificaciones › Cobertura
 3. Abrir los cargos de coordinación, dirección y supervisión y dejarla
    **encendida**.
 
-### Paso 2. Quitar grupos a quien su cargo no los usa
-1. En **Cobertura**, elegir el filtro **"Grupos que su cargo no usa"**.
-2. Revisar la lista (se puede buscar por nombre, cédula o cargo).
-3. Pulsar **"Seleccionar los N de la lista"**.
-4. Pulsar **"Quitar grupos (N)"** y confirmar.
+### Paso 2. Los grupos de los administradores se quedan
 
-Queda guardado en Talento Humano igual que si se hubiera editado a cada
-persona. Si alguien quedó sin sede propia, pasa al filtro del paso 3.
+El grupo de una persona (por ejemplo el Grupo 7 de un administrador) **no se
+borra**: sirve para llevar el orden. Lo único que cambia es que, si su cargo no
+usa grupos, el grupo **no le suma sedes**: su cobertura sale de sus sedes de
+operación y de trabajo. En Cobertura esas personas aparecen como **"Grupo solo
+de orden (no suma sedes)"** y no es un error.
+
+El botón "Quitar grupos" existe, pero **no hace falta usarlo**: solo si algún
+día una persona ya no necesita el grupo para llevar el orden.
 
 ### Paso 3. Dejar explícita la sede de quien solo tiene centro de costos
 1. Filtro **"Solo centro de costos"**.
@@ -91,6 +93,7 @@ persona:
 2. En la hoja **Cobertura** editar solo tres columnas: **SEDES DE OPERACION**,
    **SEDES DE TRABAJO** y **GRUPOS**. Las demás son de consulta.
    - Varias sedes o grupos se separan con punto y coma: `Picota; La Mesa`.
+   - Los grupos de los administradores se dejan como están: no suman sedes.
    - Los nombres de sede se copian de la hoja **Sedes**; los grupos son
      `G1`, `G7`… (hoja **Grupos**).
    - Una celda vacía significa "ninguna".
@@ -110,7 +113,7 @@ persona:
      una a una. Después de importar, las sedes quedan escritas en su fila.
    - Se puede filtrar por cargo en Excel para trabajar por bloques (por
      ejemplo, todos los "Administrador Tipo 1": su sede en operación y en
-     trabajo, y GRUPOS vacío).
+     trabajo; su grupo se deja como está).
    - No cambiar la CEDULA ni los títulos; no hace falta borrar las filas que no
      se cambian.
 3. Guardar como `.xlsx` y pulsar **"Importar Excel"**.
@@ -150,12 +153,13 @@ tareas que aún no se han iniciado.
 
 Al **vincular personal nuevo**:
 
-- **Administrador:** centro de operación y de trabajo = su sede. **Sin grupos.**
+- **Administrador:** centro de operación y de trabajo = su sede. Puede tener
+  su grupo para llevar el orden: no le suma sedes.
 - **Coordinador, director, supervisor:** el grupo que atiende (o las sedes una
   a una si no cubre todo el grupo).
 - Si se cambia a alguien de sede, cambiar su centro de operación y de trabajo
   (no solo el centro de costos).
-- Una vez al mes, mirar el filtro **"Grupos que su cargo no usa"** y
+- Una vez al mes, mirar los filtros **"Solo centro de costos"** y
   **"Sin ninguna sede"**: deben estar en 0.
 
 ## 6. Cómo repartir el trabajo para que no sea pesado
