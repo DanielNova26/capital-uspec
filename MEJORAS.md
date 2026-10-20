@@ -1,5 +1,12 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-20 — Visitas descargadas: ventana de fechas y error legible, 2.8.7+60 (Claude)
+
+- Prueba en tablet real: «Preparar visita sin conexión» mostraba el rastro técnico del error
+  `failed-precondition`. Causa: la lista ofrecía cualquier visita programada, pero el
+  servidor solo acepta de hace 24 h a 7 días adelante. La lista ahora aplica la misma
+  ventana y las fallas muestran solo el motivo.
+
 ## 2026-10-20 — Visitas descargadas y acceso local tras reinicio, 2.8.6+59 (Codex)
 
 - Implementado en Android/iOS: Visitas → Descargadas permite preparar una visita
