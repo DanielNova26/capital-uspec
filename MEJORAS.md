@@ -54,6 +54,9 @@
   además de publicación en Play/App Store e instalación de la actualización.
 - El despliegue informa que Node 20 deja de admitir despliegues el 30/10/2026;
   actualizar el runtime compartido queda registrado como mantenimiento aparte.
+  Actualizado el 2026-10-20: `functions/package.json` pasa a Node 22 y las 115
+  funciones de `integra360-94704` quedaron en `nodejs22` (el primer despliegue
+  masivo dio «Quota Exceeded» en 12; se reintentaron por tandas).
 - Verificación final (Claude): 194 pruebas Flutter y 14 de servidor aprobadas,
   analizador sin errores (solo avisos previos). AAB release firmado generado:
   `build/app/outputs/bundle/release/app-release.aab` (2.8.6, código 59,
