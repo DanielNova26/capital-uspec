@@ -3,7 +3,7 @@
   "private": true,
   "main": "lib/index.js",
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "scripts": {
     "clean": "node -e \"require('fs').rmSync('lib',{recursive:true,force:true})\"",
