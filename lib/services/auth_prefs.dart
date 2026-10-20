@@ -21,6 +21,7 @@ import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
+import '../visitas/visitas_local_store.dart';
 
 /// Identidad mínima de una sesión guardada en el dispositivo.
 class SavedSession {
@@ -129,6 +130,8 @@ class AuthPrefs {
   /// Borra la identidad de sesión y apaga el auto-ingreso.
   /// Conserva "recordar usuario" (comodidad inofensiva).
   Future<void> clearSession() async {
+    // Revoke local unlocking without deleting encrypted, unsent field work.
+    await VisitasLocalStore.instance.revocarAcceso();
     try {
       await _secure.delete(key: _kSessDocId);
       await _secure.delete(key: _kSessEmpresaId);

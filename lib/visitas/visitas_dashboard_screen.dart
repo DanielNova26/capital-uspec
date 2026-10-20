@@ -39,6 +39,9 @@ import 'visitas_equipo.dart';
 import 'visitas_marca_agua.dart';
 import 'visitas_models.dart';
 import 'visitas_offline.dart';
+import 'visitas_local_store.dart';
+import 'visitas_local_service.dart';
+import 'visitas_local_screen.dart';
 import 'visitas_programar.dart';
 import 'visitas_service.dart';
 import 'visitas_ubicaciones_screen.dart';
@@ -298,6 +301,15 @@ class _VisitasDashboardScreenState extends State<VisitasDashboardScreen>
             empresaId: widget.empresaId,
             rol: rol,
             nombreUsuario: widget.nombreUsuario,
+          ),
+        ),
+      if (visitasRolEjecuta(rol) && VisitasLocalStore.disponible)
+        _TabDef(
+          'Descargadas',
+          Icons.offline_pin_outlined,
+          (_) => VisitasDescargadasTab(
+            userId: widget.userId,
+            empresaId: widget.empresaId,
           ),
         ),
       if (visitasPuedeProgramar(rol) ||
@@ -1845,7 +1857,7 @@ class _MisVisitasTabState extends State<_MisVisitasTab> {
                       context,
                       MaterialPageRoute(
                         builder: (_) => ejecuta
-                            ? _EjecutarVisitaScreen(
+                            ? VisitaEntradaScreen(
                                 svc: widget.svc,
                                 visitaId: v.id,
                                 empresaId: widget.empresaId,
@@ -1939,7 +1951,7 @@ class _RegistroVisitaTabState extends State<_RegistroVisitaTab> {
   void _abrir(VisitaProfesional v) => Navigator.push(
     context,
     MaterialPageRoute(
-      builder: (_) => _EjecutarVisitaScreen(
+      builder: (_) => VisitaEntradaScreen(
         svc: widget.svc,
         visitaId: v.id,
         empresaId: widget.empresaId,
@@ -2108,6 +2120,37 @@ class _RegistroVisitaTabState extends State<_RegistroVisitaTab> {
 // Ejecutar la visita (profesional, en el establecimiento)
 // ═════════════════════════════════════════════════════════════════════════════
 
+Widget pantallaEjecutarVisita(
+  VisitasService svc,
+  String visitaId,
+  String empresaId,
+  String userId,
+  String nombreUsuario,
+) => _EjecutarVisitaScreen(
+  svc: svc,
+  visitaId: visitaId,
+  empresaId: empresaId,
+  userId: userId,
+  nombreUsuario: nombreUsuario,
+);
+
+Widget pantallaVisitaDescargada(VisitasLocalService svc) =>
+    svc.visita.estado == kVisitaTerminada
+    ? _VisitaDetalleScreen(
+        svc: svc,
+        visitaId: svc.visitaId,
+        empresaId: svc.empresaId,
+        userId: svc.userId,
+        rol: kVisitasRolProfesional,
+      )
+    : pantallaEjecutarVisita(
+        svc,
+        svc.visitaId,
+        svc.empresaId,
+        svc.userId,
+        svc.visita.profesionalNombre,
+      );
+
 class _EjecutarVisitaScreen extends StatefulWidget {
   final VisitasService svc;
   final String visitaId;
@@ -2183,7 +2226,27 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
     super.initState();
     _stream = widget.svc.streamVisita(widget.visitaId);
     // Modo sin conexión: vigila la red y carga la cola de fotos pendientes.
-    VisitasOffline.instance.vigilar();
+    if (widget.svc is! VisitasLocalService) VisitasOffline.instance.vigilar();
+    if (widget.svc case final VisitasLocalService local) {
+      _obsGeneral.addListener(() {
+        if (_obsGeneralCargada &&
+            local.visita.estado == kVisitaEnCurso &&
+            local.visita.firmaProfesional == null &&
+            local.visita.firmaEstablecimiento == null) {
+          _guardarOperacion(
+            local.guardarObservacionGeneral(local.visitaId, _obsGeneral.text),
+          );
+        }
+      });
+    }
+  }
+
+  Future<void> _guardarOperacion(Future<void> operation) async {
+    try {
+      await operation;
+    } catch (e) {
+      if (mounted) _snack(context, 'No se pudo guardar: $e', error: true);
+    }
   }
 
   /// Una sola lectura por pantalla; quien la pida mientras carga espera la
@@ -2240,7 +2303,11 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
       }
       return;
     }
-    final f = v.formatoAsignado ?? await widget.svc.getFormato(v.formatoId);
+    if (v.formatoAsignado != null) {
+      _formato = v.formatoAsignado;
+      return;
+    }
+    final f = await widget.svc.getFormato(v.formatoId);
     if (mounted) setState(() => _formato = f);
   }
 
@@ -2275,6 +2342,7 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
   }
 
   Future<Uint8List?> _logoEmpresa() async {
+    if (widget.svc case final VisitasLocalService local) return local.logo;
     if (_logoCargado) return _logo;
     _logoCargado = true;
     try {
@@ -2452,7 +2520,11 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
         ciudad: _ciudad.text.trim(),
         cargoProfesional: _cargoProf.text.trim(),
       );
-    } catch (_) {}
+    } catch (e) {
+      if (mounted && widget.svc is VisitasLocalService) {
+        _snack(context, 'No se pudo guardar el encabezado: $e', error: true);
+      }
+    }
   }
 
   Future<void> _iniciar(VisitaProfesional v) async {
@@ -2558,7 +2630,11 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
   /// o el estado de la que ya se pidió.
   List<Widget> _cambioDeFecha(VisitaProfesional v) => [
     ?_estadoSolicitud(v),
-    if (v.solicitudFecha?.pendiente != true)
+    if (widget.svc is VisitasLocalService)
+      const Text(
+        'Para cambiar la fecha de una visita descargada, conéctate y coordina el cambio con tu jefe.',
+      )
+    else if (v.solicitudFecha?.pendiente != true)
       TextButton.icon(
         onPressed: _ocupado ? null : () => _pedirOtraFecha(v),
         icon: const Icon(Icons.edit_calendar_outlined, size: 18),
@@ -2743,7 +2819,12 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
         actorNombre: widget.nombreUsuario,
       );
       if (!mounted) return;
-      _snack(context, 'Visita cerrada. ${tareas.length} tarea(s) creada(s).');
+      _snack(
+        context,
+        widget.svc is VisitasLocalService
+            ? 'Visita finalizada en este equipo. Sincronízala cuando tengas internet.'
+            : 'Visita cerrada. ${tareas.length} tarea(s) creada(s).',
+      );
       Navigator.pop(context);
     } on VisitasException catch (e) {
       if (mounted) _snack(context, e.mensaje, error: true);
@@ -3323,8 +3404,9 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
           key: ValueKey('tabla_${paso.tabla!.id}'),
           tabla: paso.tabla!,
           filas: v.filasDe(paso.tabla!.id),
-          onGuardar: (filas) =>
-              widget.svc.guardarFilas(v.id, paso.tabla!.id, filas),
+          onGuardar: (filas) => _guardarOperacion(
+            widget.svc.guardarFilas(v.id, paso.tabla!.id, filas),
+          ),
           onFoto: (fila) => _tomarFotoFila(v, paso.tabla!, fila),
         )
       else
@@ -3333,7 +3415,9 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
             key: ValueKey(it.id),
             item: it,
             respuesta: v.respuestas[it.id] ?? const VisitaRespuesta(),
-            onCambio: (r) => widget.svc.guardarRespuesta(v.id, it.id, r),
+            onCambio: (r) =>
+                _guardarOperacion(widget.svc.guardarRespuesta(v.id, it.id, r)),
+            guardarAlEscribir: widget.svc is VisitasLocalService,
             onFoto: () => _tomarFoto(v, it),
             areas: _areasMapa,
             personal: _personal,
@@ -3420,7 +3504,7 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
     }
 
     return SizedBox(
-      height: 46,
+      height: 28 + MediaQuery.textScalerOf(context).scale(12) * 1.5,
       child: ListView(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
@@ -3537,11 +3621,13 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
         style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w800),
       ),
       const SizedBox(height: 4),
-      const Text(
-        'Las dos son obligatorias para cerrar. El responsable del '
-        'establecimiento puede firmar aquí o, mejor, desde su propio módulo: '
-        'así la firma queda con su cuenta y su equipo.',
-        style: TextStyle(
+      Text(
+        widget.svc is VisitasLocalService
+            ? 'Las dos firmas se capturan en este equipo. El contenido se protege con la primera firma y se envía al sincronizar.'
+            : 'Las dos son obligatorias para cerrar. El responsable del '
+                  'establecimiento puede firmar aquí o, mejor, desde su propio módulo: '
+                  'así la firma queda con su cuenta y su equipo.',
+        style: const TextStyle(
           fontFamily: _kFont,
           fontSize: 12,
           color: Colors.black54,
@@ -3564,7 +3650,7 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
             ? null
             : () => _firmar(v, 'establecimiento'),
       ),
-      if (firmaEst == null) ...[
+      if (firmaEst == null && widget.svc is! VisitasLocalService) ...[
         if (v.firmanteEstablecimientoId.isNotEmpty)
           Container(
             margin: const EdgeInsets.only(bottom: 8),
@@ -3631,7 +3717,13 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
             ? null
             : () => _cerrar(v),
         icon: const Icon(Icons.check_circle_outline),
-        label: Text(_ocupado ? 'Cerrando…' : 'Cerrar visita y generar informe'),
+        label: Text(
+          _ocupado
+              ? 'Cerrando…'
+              : widget.svc is VisitasLocalService
+              ? 'Finalizar en este equipo'
+              : 'Cerrar visita y generar informe',
+        ),
       ),
     ];
   }
@@ -3772,7 +3864,7 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Image.network(
+                        imagenVisita(
                           evs[i].url,
                           height: 96,
                           fit: BoxFit.cover,
@@ -3989,6 +4081,17 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
     String descripcion = '',
     bool conMarca = false,
   }) async {
+    if (widget.svc is VisitasLocalService) {
+      return widget.svc.subirEvidencia(
+        empresaId: v.empresaId,
+        visitaId: v.id,
+        itemId: carpeta,
+        bytes: bytes,
+        nombre: nombre,
+        descripcion: descripcion,
+        conMarca: conMarca,
+      );
+    }
     final off = VisitasOffline.instance;
     Future<VisitaEvidencia?> aLocal() async {
       await off.guardar(
@@ -4090,53 +4193,64 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
   }
 
   /// Aviso fijo arriba del formato: sin conexión y fotos por cargar.
-  Widget _bannerSinConexion(VisitaProfesional v) => ListenableBuilder(
-    listenable: VisitasOffline.instance,
-    builder: (context, _) {
-      final off = VisitasOffline.instance;
-      final pendientes = off.de(v.id).length;
-      if (off.conectado && pendientes == 0) return const SizedBox.shrink();
-      return Container(
-        width: double.infinity,
-        color: off.conectado
-            ? const Color(0xFFFEF3C7)
-            : const Color(0xFFFEE2E2),
-        padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
-        child: Row(
-          children: [
-            Icon(
-              off.conectado ? Icons.cloud_upload_outlined : Icons.cloud_off,
-              size: 18,
+  Widget _bannerSinConexion(VisitaProfesional v) =>
+      widget.svc is VisitasLocalService
+      ? const Padding(
+          padding: EdgeInsets.all(12),
+          child: Text(
+            'Visita descargada · guardado local. Las fotos y firmas se enviarán al sincronizar la visita finalizada.',
+          ),
+        )
+      : ListenableBuilder(
+          listenable: VisitasOffline.instance,
+          builder: (context, _) {
+            final off = VisitasOffline.instance;
+            final pendientes = off.de(v.id).length;
+            if (off.conectado && pendientes == 0)
+              return const SizedBox.shrink();
+            return Container(
+              width: double.infinity,
               color: off.conectado
-                  ? const Color(0xFFB45309)
-                  : const Color(0xFFB91C1C),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                off.conectado
-                    ? '$pendientes foto(s) por cargar a la visita.'
-                    : 'Sin conexión. Lo que respondes se guarda en este '
-                          'equipo${pendientes == 0 ? '' : ' ($pendientes foto(s) por cargar)'}.',
-                style: const TextStyle(fontFamily: _kFont, fontSize: 12),
+                  ? const Color(0xFFFEF3C7)
+                  : const Color(0xFFFEE2E2),
+              padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
+              child: Row(
+                children: [
+                  Icon(
+                    off.conectado
+                        ? Icons.cloud_upload_outlined
+                        : Icons.cloud_off,
+                    size: 18,
+                    color: off.conectado
+                        ? const Color(0xFFB45309)
+                        : const Color(0xFFB91C1C),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      off.conectado
+                          ? '$pendientes foto(s) por cargar a la visita.'
+                          : 'Sin conexión. Lo que respondes se guarda en este '
+                                'equipo${pendientes == 0 ? '' : ' ($pendientes foto(s) por cargar)'}.',
+                      style: const TextStyle(fontFamily: _kFont, fontSize: 12),
+                    ),
+                  ),
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: kVisitasColor,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    onPressed: _ocupado || !off.conectado
+                        ? null
+                        : () => _cargarVisita(v),
+                    icon: const Icon(Icons.cloud_upload, size: 16),
+                    label: const Text('Cargar visita'),
+                  ),
+                ],
               ),
-            ),
-            FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: kVisitasColor,
-                visualDensity: VisualDensity.compact,
-              ),
-              onPressed: _ocupado || !off.conectado
-                  ? null
-                  : () => _cargarVisita(v),
-              icon: const Icon(Icons.cloud_upload, size: 16),
-              label: const Text('Cargar visita'),
-            ),
-          ],
-        ),
-      );
-    },
-  );
+            );
+          },
+        );
 
   Future<void> _agregarEvidenciaAdicional(VisitaProfesional v) async {
     final fuente = await _preguntarFuenteFoto();
@@ -4215,40 +4329,33 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
         : ini.tieneUbicacion
         ? ' · con ubicación'
         : ' · sin ubicación';
+    final cabecera = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Wrap(
+        spacing: 16,
+        runSpacing: 6,
+        children: [
+          Text(
+            'Iniciada ${ini == null ? '—' : _horaDe(ini)}$ubic · lo que respondes se guarda solo',
+            style: const TextStyle(fontFamily: _kFont, fontSize: 12),
+          ),
+          Text(
+            totalPendientes == 0
+                ? '${resumen.total}/${resumen.total} ✓'
+                : '${resumen.total - resumen.sinResponder}/${resumen.total} · faltan $totalPendientes',
+            style: TextStyle(
+              fontFamily: _kFont,
+              fontWeight: FontWeight.w800,
+              color: totalPendientes == 0
+                  ? const Color(0xFF15803D)
+                  : const Color(0xFFB91C1C),
+            ),
+          ),
+        ],
+      ),
+    );
     return Column(
       children: [
-        _bannerSinConexion(v),
-        Container(
-          color: kVisitasColor.withValues(alpha: .08),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            children: [
-              Expanded(
-                // "Permitir ir grabando parcialmente" (28 sep 2026): cada
-                // respuesta ya se guarda al marcarla; se dice para que nadie
-                // tema salir de la pantalla.
-                child: Text(
-                  'Iniciada ${ini == null ? '—' : _horaDe(ini)}$ubic'
-                  ' · lo que respondes se guarda solo',
-                  style: const TextStyle(fontFamily: _kFont, fontSize: 12),
-                ),
-              ),
-              Text(
-                totalPendientes == 0
-                    ? '${resumen.total}/${resumen.total} ✓'
-                    : '${resumen.total - resumen.sinResponder}/${resumen.total}'
-                          ' · faltan $totalPendientes',
-                style: TextStyle(
-                  fontFamily: _kFont,
-                  fontWeight: FontWeight.w800,
-                  color: totalPendientes == 0
-                      ? const Color(0xFF15803D)
-                      : const Color(0xFFB91C1C),
-                ),
-              ),
-            ],
-          ),
-        ),
         _navegador(pasos, pendientes, paso, cierreListo),
         const Divider(height: 1),
         Expanded(
@@ -4256,27 +4363,31 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
             // Clave por sección: al cambiar de página se arranca arriba.
             key: ValueKey('paso-$paso'),
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
-            children: esCierre
-                ? _pasoCierre(v, pasos, pendientes, contenidoFirmado)
-                : [
-                    Text(
-                      'Sección ${paso + 1} de ${pasos.length}'
-                      '${pendientes[paso] == 0 ? ' · completa' : ' · faltan ${pendientes[paso]}'}',
-                      style: const TextStyle(
-                        fontFamily: _kFont,
-                        fontSize: 12,
-                        color: Colors.black54,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    IgnorePointer(
-                      ignoring: contenidoFirmado,
-                      child: Opacity(
-                        opacity: contenidoFirmado ? .7 : 1,
-                        child: _pasoPreguntas(v, pasos[paso]),
-                      ),
-                    ),
-                  ],
+            children: [
+              _bannerSinConexion(v),
+              cabecera,
+              if (esCierre)
+                ..._pasoCierre(v, pasos, pendientes, contenidoFirmado)
+              else ...[
+                Text(
+                  'Sección ${paso + 1} de ${pasos.length}'
+                  '${pendientes[paso] == 0 ? ' · completa' : ' · faltan ${pendientes[paso]}'}',
+                  style: const TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 12,
+                    color: Colors.black54,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                IgnorePointer(
+                  ignoring: contenidoFirmado,
+                  child: Opacity(
+                    opacity: contenidoFirmado ? .7 : 1,
+                    child: _pasoPreguntas(v, pasos[paso]),
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
         SafeArea(
@@ -4287,26 +4398,20 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
               color: Colors.white,
               border: Border(top: BorderSide(color: Colors.black12)),
             ),
-            child: Row(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              alignment: WrapAlignment.spaceBetween,
               children: [
                 OutlinedButton.icon(
                   onPressed: paso == 0 ? null : () => _irAPaso(paso - 1),
                   icon: const Icon(Icons.chevron_left),
                   label: const Text('Anterior'),
                 ),
-                Expanded(
-                  child: Center(
-                    // Entre «Anterior» y «Siguiente» quedan ~110 px en el
-                    // teléfono: el botón se reduce en vez de desbordar.
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: TextButton.icon(
-                        onPressed: _ocupado ? null : () => _guardarAvance(v),
-                        icon: const Icon(Icons.save_outlined, size: 18),
-                        label: const Text('Guardar avance'),
-                      ),
-                    ),
-                  ),
+                TextButton.icon(
+                  onPressed: _ocupado ? null : () => _guardarAvance(v),
+                  icon: const Icon(Icons.save_outlined, size: 18),
+                  label: const Text('Guardar avance'),
                 ),
                 FilledButton.icon(
                   style: FilledButton.styleFrom(backgroundColor: kVisitasColor),
@@ -4436,6 +4541,7 @@ String _labelResultado(String tipo, String resultado) =>
     };
 
 class _ItemCard extends StatefulWidget {
+  final bool guardarAlEscribir;
   final VisitaFormatoItem item;
   final VisitaRespuesta respuesta;
   final ValueChanged<VisitaRespuesta> onCambio;
@@ -4455,6 +4561,7 @@ class _ItemCard extends StatefulWidget {
     this.areas = const {},
     this.personal = const [],
     this.establecimiento = '',
+    this.guardarAlEscribir = false,
   });
 
   @override
@@ -4482,7 +4589,21 @@ class _ItemCardState extends State<_ItemCard> {
     _vencimiento = TextEditingController(text: r.vencimiento);
     _accion = TextEditingController(text: r.accion);
     _valor = TextEditingController(text: r.valor);
+    if (widget.guardarAlEscribir) {
+      for (final pair in [
+        (_obs, _focus),
+        (_cantidad, _focusCantidad),
+        (_vencimiento, _focusVenc),
+        (_accion, _focusAccion),
+        (_valor, _focusValor),
+      ]) {
+        pair.$1.addListener(() {
+          if (pair.$2.hasFocus) widget.onCambio(_actual);
+        });
+      }
+    }
     _focusValor.addListener(() {
+      if (widget.guardarAlEscribir) return;
       if (!_focusValor.hasFocus &&
           _valor.text.trim() != widget.respuesta.valor) {
         widget.onCambio(widget.respuesta.copyWith(valor: _valor.text.trim()));
@@ -4491,6 +4612,7 @@ class _ItemCardState extends State<_ItemCard> {
     // Se guarda al salir del campo, no en cada tecla: cada tecla sería una
     // escritura a Firestore.
     _focus.addListener(() {
+      if (widget.guardarAlEscribir) return;
       if (!_focus.hasFocus &&
           _obs.text.trim() != widget.respuesta.observacion) {
         widget.onCambio(
@@ -4499,6 +4621,7 @@ class _ItemCardState extends State<_ItemCard> {
       }
     });
     _focusCantidad.addListener(() {
+      if (widget.guardarAlEscribir) return;
       if (!_focusCantidad.hasFocus &&
           _cantidad.text.trim() != widget.respuesta.cantidad) {
         widget.onCambio(
@@ -4507,6 +4630,7 @@ class _ItemCardState extends State<_ItemCard> {
       }
     });
     _focusVenc.addListener(() {
+      if (widget.guardarAlEscribir) return;
       if (!_focusVenc.hasFocus &&
           _vencimiento.text.trim() != widget.respuesta.vencimiento) {
         widget.onCambio(
@@ -4515,6 +4639,7 @@ class _ItemCardState extends State<_ItemCard> {
       }
     });
     _focusAccion.addListener(() {
+      if (widget.guardarAlEscribir) return;
       if (!_focusAccion.hasFocus &&
           _accion.text.trim() != widget.respuesta.accion) {
         widget.onCambio(widget.respuesta.copyWith(accion: _accion.text.trim()));
@@ -4525,6 +4650,8 @@ class _ItemCardState extends State<_ItemCard> {
   @override
   void didUpdateWidget(_ItemCard old) {
     super.didUpdateWidget(old);
+    // Local writes are queued; earlier confirmations must not replace newer typing.
+    if (widget.guardarAlEscribir) return;
     final r = widget.respuesta;
     if (!_focus.hasFocus && old.respuesta.observacion != r.observacion) {
       _obs.text = r.observacion;
@@ -4897,7 +5024,7 @@ class _ItemCardState extends State<_ItemCard> {
                       padding: const EdgeInsets.only(right: 4),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(6),
-                        child: Image.network(
+                        child: imagenVisita(
                           ev.url,
                           width: 40,
                           height: 40,
@@ -5006,7 +5133,7 @@ class _ItemCardState extends State<_ItemCard> {
                       padding: const EdgeInsets.only(right: 4),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(6),
-                        child: Image.network(
+                        child: imagenVisita(
                           ev.url,
                           width: 40,
                           height: 40,
@@ -5302,7 +5429,7 @@ class _FilaCard extends StatelessWidget {
                     padding: const EdgeInsets.only(right: 4),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(6),
-                      child: Image.network(
+                      child: imagenVisita(
                         ev.url,
                         width: 40,
                         height: 40,
@@ -5566,7 +5693,11 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
     // Programada sin formato (28 sep 2026): lo elige el profesional al
     // iniciar; no hay nada que buscar.
     if (_formato != null || !v.tieneFormato) return;
-    final f = v.formatoAsignado ?? await widget.svc.getFormato(v.formatoId);
+    if (v.formatoAsignado != null) {
+      _formato = v.formatoAsignado;
+      return;
+    }
+    final f = await widget.svc.getFormato(v.formatoId);
     if (mounted) setState(() => _formato = f);
   }
 
@@ -5578,8 +5709,14 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
       final bytes = await generarInformeVisita(
         v: v,
         formato: f,
-        empresaNombre: await _nombreEmpresa(widget.empresaId),
-        logo: await CompanyBrandingService().loadLogoBytes(widget.empresaId),
+        empresaNombre: widget.svc is VisitasLocalService
+            ? ((widget.svc as VisitasLocalService).paquete['empresaNombre']
+                      as String? ??
+                  widget.empresaId)
+            : await _nombreEmpresa(widget.empresaId),
+        logo: widget.svc is VisitasLocalService
+            ? (widget.svc as VisitasLocalService).logo
+            : await CompanyBrandingService().loadLogoBytes(widget.empresaId),
         cargarImagen: widget.svc.bytesEvidencia,
       );
       await entregarPdf(
@@ -5979,7 +6116,7 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
                           children: [
                             ClipRRect(
                               borderRadius: BorderRadius.circular(8),
-                              child: Image.network(
+                              child: imagenVisita(
                                 e.url,
                                 height: 90,
                                 width: 140,
@@ -6213,7 +6350,7 @@ class _ItemLectura extends StatelessWidget {
                         for (final ev in respuesta.evidencias)
                           ClipRRect(
                             borderRadius: BorderRadius.circular(6),
-                            child: Image.network(
+                            child: imagenVisita(
                               ev.url,
                               width: 56,
                               height: 56,
@@ -6309,7 +6446,7 @@ class _FilaLectura extends StatelessWidget {
                         for (final ev in fila.evidencias)
                           ClipRRect(
                             borderRadius: BorderRadius.circular(6),
-                            child: Image.network(
+                            child: imagenVisita(
                               ev.url,
                               width: 56,
                               height: 56,

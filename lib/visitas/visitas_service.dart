@@ -221,17 +221,22 @@ class VisitaRolDoc {
 }
 
 class VisitasService {
-  final FirebaseFirestore _db;
-  final FirebaseStorage _storage;
-  final TaskService _tasks;
+  final FirebaseFirestore? _providedDb;
+  final FirebaseStorage? _providedStorage;
+  final TaskService? _providedTasks;
+  // The local adapter shares validation/GPS without initializing online clients.
+  late final FirebaseFirestore _db = _providedDb ?? FirebaseFirestore.instance;
+  late final FirebaseStorage _storage =
+      _providedStorage ?? FirebaseStorage.instance;
+  late final TaskService _tasks = _providedTasks ?? TaskService();
 
   VisitasService({
     FirebaseFirestore? db,
     FirebaseStorage? storage,
     TaskService? tasks,
-  }) : _db = db ?? FirebaseFirestore.instance,
-       _storage = storage ?? FirebaseStorage.instance,
-       _tasks = tasks ?? TaskService();
+  }) : _providedDb = db,
+       _providedStorage = storage,
+       _providedTasks = tasks;
 
   CollectionReference<Map<String, dynamic>> get _visitas =>
       _db.collection(kVisitasCol);

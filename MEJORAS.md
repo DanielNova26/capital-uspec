@@ -1,5 +1,65 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-20 — Visitas descargadas y acceso local tras reinicio, 2.8.6+59 (Codex)
+
+- Implementado en Android/iOS: Visitas → Descargadas permite preparar una visita
+  propia programada (hoy o próximos siete días), elegir su formato y guardar
+  catálogos, ubicación y marca de empresa. La copia se diligencia siempre en el
+  equipo, con fotos y dos firmas presenciales. La primera firma congela el
+  contenido; el inicio y la finalización conservan fecha y GPS del lugar.
+- Archivos y fotos cifrados con AES-GCM; clave y autorización en almacenamiento
+  seguro. Guardado serializado y reemplazo atómico; una escritura fallida no
+  sustituye la copia anterior. Respuestas de texto se guardan al escribir;
+  tablas/dialogos se guardan al confirmar. Las fallas de lectura o escritura se
+  muestran, sin tratar una descarga dañada como una visita vacía.
+- AuthGate ofrece entrada exclusiva a visitas descargadas, incluso sin sesión
+  Firebase restaurada, mediante biometría o PIN/patrón del dispositivo. Acceso
+  ligado a usuario y empresa, vigente siete días, con control de retroceso del
+  reloj. No se guarda contraseña ni se permite navegar a otros módulos desde
+  esta entrada. Cerrar sesión o cambiar clave revoca ese acceso y conserva el
+  trabajo; una respuesta tardía de preparación no reactiva una sesión cerrada.
+- «Sincronizar» exige volver a iniciar sesión con la misma cuenta si fuera
+  necesario. Revalida pertenencia, habilitación, app y rol profesional o
+  coordinador; valida formato, respuestas, firmas, día y GPS. Carga de fotos
+  por hash y cierre transaccional con tareas deterministas: repetir un envío no
+  duplica acta, fotos ni tareas. El plazo de hallazgos conserva los cinco días
+  desde el cierre capturado. Solo la confirmación del servidor marca enviada.
+- Si la visita cambió en servidor o se retiró un permiso, conserva la copia y
+  muestra el motivo. Los conflictos requieren revisión con el responsable;
+  esta entrega no incorpora una herramienta de fusión o recuperación manual
+  de actas. No modifica permisos históricos, asignaciones ni datos productivos
+  mediante migraciones. La revocación remota no se conoce mientras no hay red;
+  se aplica al revalidar/sincronizar y el acceso local tiene vencimiento.
+- Contrato de módulo: utiliza el identificador existente `visitasdashboard`,
+  roles y catálogos ya registrados. No crea maestros ni roles duplicados.
+  `TBL_VISITAS_OFFLINE` es privada de servidor y queda excluida del permiso
+  genérico de Firestore. Reglas publicadas primero; después las cuatro funciones
+  `visitasPrepararOffline`, `visitasRevalidarOffline`, `visitasSubirFotoOffline`
+  y `visitasSincronizarOffline`, en `integra360-94704/us-central1`.
+- Validación: 194 pruebas Flutter de Visitas + catálogo de maestros aprobadas;
+  14 pruebas unitarias de servidor y 6 integradas con emuladores Firestore/Storage
+  aprobadas. Incluyen reinicio del almacén, cifrado, aislamiento, corrupción,
+  cierre con fotos/firmas, revocación/reactivación, empresa secundaria, rol
+  histórico, conflicto y reintentos. Analizador de los archivos nuevos sin
+  incidencias; TypeScript y lint de funciones sin errores (avisos previos).
+- Pantallas de descargas probadas a 390/768/1024/1366 con texto 1,8×, en modos
+  Android e iOS; formulario reabierto sin inicializar Firebase a 390/1024 con
+  texto 1,5×. Se corrigieron desbordes de navegación y actualización de estado
+  durante el render del formato ya descargado. Web mantiene ejecución online
+  y revisión de actas sincronizadas; la descarga local se ofrece en móviles.
+- Compilaciones Web release y Android debug correctas. Pendiente registrar el
+  resultado final del APK release. iOS no se puede compilar aquí (Windows).
+  Sin dispositivos móviles conectados: quedan pendientes modo avión, reinicio
+  físico, cámara, GPS, permisos, biometría/PIN y teclado reales en Android/iOS,
+  además de publicación en Play/App Store e instalación de la actualización.
+- El despliegue informa que Node 20 deja de admitir despliegues el 30/10/2026;
+  actualizar el runtime compartido queda registrado como mantenimiento aparte.
+- Verificación final (Claude): 194 pruebas Flutter y 14 de servidor aprobadas,
+  analizador sin errores (solo avisos previos). AAB release firmado generado:
+  `build/app/outputs/bundle/release/app-release.aab` (2.8.6, código 59,
+  144,8 MB). iOS requiere compilar en macOS/Xcode; pendiente subirlo a
+  App Store Connect. Siguen pendientes las pruebas físicas en modo avión.
+
 ## 2026-10-20 — Visitas offline: reentrada tras reiniciar la tablet (Codex)
 
 - El usuario plantea poder entrar localmente después de reiniciar la tablet

@@ -25,9 +25,12 @@ import '../theme/app_typography.dart';
 import '../home/home_screen.dart';
 import 'login_screen.dart';
 import 'change_password_screen.dart' hide kArial;
+import '../visitas/visitas_local_store.dart';
+import '../visitas/visitas_local_screen.dart';
 
 class AuthGate extends StatefulWidget {
-  const AuthGate({super.key});
+  final bool soloOnline;
+  const AuthGate({super.key, this.soloOnline = false});
 
   @override
   State<AuthGate> createState() => _AuthGateState();
@@ -38,6 +41,7 @@ class _AuthGateState extends State<AuthGate> {
   bool _authInProgress = false;
   String? _error;
   SavedSession? _session;
+  VisitasAccesoLocal? _localGrant;
 
   @override
   void initState() {
@@ -46,6 +50,22 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   Future<void> _decide() async {
+    if (!widget.soloOnline && VisitasLocalStore.disponible) {
+      try {
+        final grant = await VisitasLocalStore.instance.acceso();
+        final auth = grant == null
+            ? FirebaseAuth.instance.currentUser
+            : await _esperarUsuarioAuth();
+        if (grant != null &&
+            grant.vigente(DateTime.now()) &&
+            (auth == null || auth.uid == grant.uid)) {
+          if (mounted) setState(() => _localGrant = grant);
+          return;
+        }
+      } catch (_) {
+        // Unreadable local authorization must never grant access.
+      }
+    }
     final prefs = AuthPrefs.instance;
     final session = await prefs.getSession();
     if (session == null || !await prefs.canAutoResume()) {
@@ -61,6 +81,32 @@ class _AuthGateState extends State<AuthGate> {
     } else {
       // "Mantener sesión iniciada" sin biometría -> entra directo.
       await _resume();
+    }
+  }
+
+  Future<void> _enterLocal() async {
+    final grant = _localGrant;
+    if (grant == null || _authInProgress) return;
+    setState(() {
+      _authInProgress = true;
+      _error = null;
+    });
+    try {
+      if (await desbloquearVisitasLocal(grant.userId, grant.empresaId) &&
+          mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => VisitasLocalScreen(
+              userId: grant.userId,
+              empresaId: grant.empresaId,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _authInProgress = false);
     }
   }
 
@@ -221,6 +267,14 @@ class _AuthGateState extends State<AuthGate> {
         ),
       );
     } catch (e) {
+      if (e is FirebaseAuthException &&
+          [
+            'user-disabled',
+            'user-token-expired',
+            'invalid-user-token',
+          ].contains(e.code)) {
+        await VisitasLocalStore.instance.revocarAcceso();
+      }
       // Error transitorio (p. ej. sin red): NO borramos la sesión ni cerramos
       // la de Firebase; dejamos que el usuario inicie sesión manualmente y
       // reintente en otro arranque.
@@ -232,6 +286,61 @@ class _AuthGateState extends State<AuthGate> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+
+    if (_localGrant != null) {
+      return Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 440),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.offline_pin_outlined, size: 64),
+                    const SizedBox(height: 20),
+                    const Text(
+                      'Tus visitas están en este equipo',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Puedes continuar sin internet usando el desbloqueo del dispositivo.',
+                      textAlign: TextAlign.center,
+                    ),
+                    if (_error != null)
+                      Text(_error!, style: TextStyle(color: scheme.error)),
+                    const SizedBox(height: 20),
+                    FilledButton.icon(
+                      onPressed: _authInProgress ? null : _enterLocal,
+                      icon: const Icon(Icons.lock_open),
+                      label: const Text('Continuar visitas descargadas'),
+                    ),
+                    TextButton(
+                      onPressed: _authInProgress
+                          ? null
+                          : () => Navigator.of(context).pushReplacement(
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    const AuthGate(soloOnline: true),
+                              ),
+                            ),
+                      child: const Text('Entrar a la app con internet'),
+                    ),
+                    if (_authInProgress) const CircularProgressIndicator(),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       body: SafeArea(

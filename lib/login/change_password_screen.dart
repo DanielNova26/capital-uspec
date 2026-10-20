@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../services/secure_auth_service.dart';
+import '../services/auth_prefs.dart';
 import 'login_screen.dart'; // Ajusta si tu LoginScreen está en otra carpeta
 import 'package:todo/utils/user_company.dart';
 
@@ -112,6 +113,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
         answer2: _answer2Ctrl.text.trim(),
       );
       await FirebaseAuth.instance.signOut();
+      await AuthPrefs.instance.clearSession();
 
       if (!mounted) return;
       setState(() => _isLoading = false);
