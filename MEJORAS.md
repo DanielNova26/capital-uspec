@@ -1,5 +1,30 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-20 — Visitas offline: reentrada tras reiniciar la tablet (Codex)
+
+- El usuario plantea poder entrar localmente después de reiniciar la tablet
+  con visitas descargadas. Revisión de `auth_gate.dart`, `auth_prefs.dart`
+  y `secure_auth_service.dart`: hay identidad en almacenamiento seguro,
+  preferencia de mantener sesión y desbloqueo con biometría/respaldo del
+  dispositivo, pero `_resume` fuerza `getIdTokenResult(true)` antes de entrar.
+  Si no hay red, vuelve al login; el login manual llama a `authIniciarSesion`
+  y también necesita conexión. Conservar la sesión no resuelve ese bloqueo.
+- Diseño propuesto, no implementado: al preparar las visitas con internet,
+  preparar también acceso local autorizado ligado a usuario, empresa y equipo,
+  con vigencia definida y desbloqueo local. Tras reinicio, permitir únicamente
+  las visitas descargadas autorizadas, sin depender de renovar el token para
+  abrir el trabajo local. No guardar la contraseña de la cuenta.
+- La primera validación requiere internet. Sin autorización local previa, o
+  si se borran los datos de la app, no se puede reconstruir ese acceso offline.
+  Diferenciar bloqueo local de cierre explícito de sesión; este último debe
+  invalidar el acceso local sin borrar silenciosamente trabajo pendiente.
+  Revalidar identidad y permisos al volver la red antes de sincronizar;
+  una revocación remota no puede conocerse mientras el dispositivo está aislado.
+- Validación de esta ampliación: inspección de código, sin cambios funcionales
+  ni pruebas nuevas. Pendientes reinicio en modo avión en Android/iOS,
+  token vencido, falta de biometría, cierre explícito, cambio de cuenta/empresa,
+  vigencia del acceso local y conservación de visitas pendientes.
+
 ## 2026-10-20 — Revisión de viabilidad de Visitas sin conexión (Codex)
 
 - Es viable, pero el soporte actual es parcial: Android/iOS usan la caché de
