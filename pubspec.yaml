@@ -84,7 +84,7 @@ dependencies:
 
   mime: ^2.0.0
   google_mlkit_selfie_segmentation: ^0.12.1
-  device_info_plus: ^12.4.0
+  device_info_plus: ">=12.3.0 <12.4.0"
   cryptography: ^2.9.0
 dependency_overrides:
   flutter_keyboard_visibility: ^6.0.0
