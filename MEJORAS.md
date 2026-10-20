@@ -1,5 +1,34 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-20 — Revisión de viabilidad de Visitas sin conexión (Codex)
+
+- Es viable, pero el soporte actual es parcial: Android/iOS usan la caché de
+  Firestore para inicio, respuestas y tablas; las fotos quedan en archivos
+  locales y se envían con «Cargar visita». Se requiere haber cargado previamente
+  los datos necesarios con internet. No hay preparación explícita que confirme
+  que toda la visita está disponible; Web no tiene este flujo offline.
+- Bloqueo funcional confirmado en `VisitasService.firmar`: con fotos locales
+  pendientes no se permite firmar, porque las reglas congelan el contenido
+  desde la primera firma. No basta con retirar esa comprobación.
+- `cerrar` exige internet y después valida el día y la ubicación actuales:
+  recuperar señal fuera del establecimiento o al día siguiente puede impedir
+  cerrar. Para completar la visita en campo hace falta registrar su finalización
+  local con hora/ubicación y distinguirla de su posterior envío al servidor.
+- `_local` descarta rechazos posteriores del servidor; el indicador de conexión
+  usa DNS y no confirma acceso efectivo a Firebase. Falta confirmación visible
+  de sincronización, recuperación de errores y reintentos sin duplicar datos.
+- Flujo propuesto, todavía sin implementar: preparar/descargar visita con sesión
+  y empresa verificadas; diligenciar, fotografiar y capturar firmas sin red;
+  congelar el contenido final local; sincronizar evidencias, contenido, firmas
+  y cierre respetando reglas, permisos vigentes y empresa. Conservar lo pendiente
+  si el servidor rechaza el envío y mostrar el motivo.
+- Validación: 3/3 pruebas existentes de `visitas_offline_test.dart` aprobadas.
+  Cubren serialización, carpetas y clasificación de errores; no prueban una
+  visita completa sin red. Pendientes Android/iOS físicos, modo avión,
+  reinicio de app, firma con fotos, cierre fuera de cobertura, revocación,
+  cambio de usuario/empresa, recuperación de red y Web en los cuatro anchos
+  con texto ampliado. Esta revisión no cambia comportamiento ni despliegues.
+
 ## 2026-10-19 — Despliegue de Talento y solución del 503 del compilador (Codex)
 
 - **Publicado y verificado** en `integra360-94704`, 19 oct 2026, 09:22 Bogotá:
