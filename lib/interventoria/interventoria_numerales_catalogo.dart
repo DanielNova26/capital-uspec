@@ -633,100 +633,200 @@ String normalizarCargo(String value) {
   return buffer.toString();
 }
 
-/// Alternativas de búsqueda por cargo de la matriz, EN ORDEN DE PREFERENCIA.
+/// Palabra de rango → nivel jerárquico del cargo.
 ///
-/// Cada alternativa es un conjunto de fragmentos que deben aparecer TODOS en el
-/// cargo del usuario. Se usan fragmentos y no palabras completas para que
-/// "director" también reconozca "directora" y "coordinador" reconozca
-/// "coordinadora", sin duplicar cada entrada.
+/// El nivel de un cargo es la PRIMERA palabra de rango que aparece: en
+/// "Auxiliar de dirección de calidad" manda "auxiliar", no "dirección". Se
+/// comparan palabras completas: "subdirector" no contiene a "director".
+/// `functions/src/interventoria_aprobador_maestro.ts` replica esta tabla y
+/// las pruebas comparan ambas con el mismo archivo de casos.
+const Map<String, String> kInterventoriaNivelPorPalabra = {
+  'director': 'director',
+  'directora': 'director',
+  'direccion': 'director',
+  'subdirector': 'subdirector',
+  'subdirectora': 'subdirector',
+  'subdireccion': 'subdirector',
+  'gerente': 'gerente',
+  'gerenta': 'gerente',
+  'gerencia': 'gerente',
+  'subgerente': 'subgerente',
+  'subgerencia': 'subgerente',
+  'coordinador': 'coordinador',
+  'coordinadora': 'coordinador',
+  'coordinacion': 'coordinador',
+  'supervisor': 'supervisor',
+  'supervisora': 'supervisor',
+  'supervision': 'supervisor',
+  'jefe': 'jefe',
+  'jefa': 'jefe',
+  'jefatura': 'jefe',
+  'lider': 'lider',
+  'lideresa': 'lider',
+  'responsable': 'responsable',
+  'encargado': 'encargado',
+  'encargada': 'encargado',
+  'analista': 'analista',
+  'auxiliar': 'auxiliar',
+  'asistente': 'asistente',
+  'profesional': 'profesional',
+  'tecnico': 'tecnico',
+  'tecnica': 'tecnico',
+  'tecnologo': 'tecnico',
+  'tecnologa': 'tecnico',
+  'practicante': 'aprendiz',
+  'aprendiz': 'aprendiz',
+  'secretario': 'secretario',
+  'secretaria': 'secretario',
+  'administrador': 'administrador',
+  'administradora': 'administrador',
+  'tesorero': 'tesorero',
+  'tesorera': 'tesorero',
+  'nutricionista': 'nutricionista',
+  'contador': 'contador',
+  'contadora': 'contador',
+  'operario': 'operario',
+  'operaria': 'operario',
+};
+
+/// Palabras normalizadas del cargo ("Directora de Calidad" → directora, de,
+/// calidad).
+List<String> palabrasCargo(String cargo) => normalizarCargo(
+  cargo,
+).split(RegExp(r'[^a-z0-9]+')).where((p) => p.isNotEmpty).toList();
+
+/// Nivel jerárquico del cargo, o '' si no nombra ninguno ("Calidad").
+String nivelDeCargo(String cargo) {
+  for (final palabra in palabrasCargo(cargo)) {
+    final nivel = kInterventoriaNivelPorPalabra[palabra];
+    if (nivel != null) return nivel;
+  }
+  return '';
+}
+
+/// Alternativas de ÁREA por cargo de la matriz, EN ORDEN DE PREFERENCIA.
+///
+/// El nivel del cargo (director, coordinador, supervisor…) se exige aparte y
+/// siempre: pertenecer a la misma área no convierte a un supervisor, analista
+/// o coordinador en director (auditoría del 21 oct 2026; antes "Director de
+/// operaciones" aceptaba cualquier cargo con "operación" y la prioridad de
+/// sede elegía al supervisor del establecimiento sobre el director).
+///
+/// Cada alternativa es una lista de fragmentos que deben iniciar alguna
+/// palabra del cargo de la persona ("operacion" reconoce "operaciones").
+/// Una lista vacía acepta cualquier cargo de ese nivel; `=` exige que el
+/// cargo no tenga más palabras que el nivel ("Gerente", no "Gerente de
+/// operaciones").
 const Map<String, List<List<String>>> kInterventoriaCargoAlternativas = {
-  'Administrador': [
-    ['administrador'],
-  ],
+  'Administrador': [[]],
   'Analista de Compras': [
-    ['analista', 'compras'],
     ['compras'],
   ],
   'Coordinador de calidad': [
-    ['coordinador', 'calidad'],
     ['calidad'],
   ],
   'Coordinador de mantenimiento': [
-    ['coordinador', 'mantenimiento'],
     ['mantenimiento'],
   ],
   'Director de operaciones': [
-    ['director', 'operacion'],
     ['operacion'],
+    ['operativ'],
   ],
   'Director de talento humano': [
-    ['director', 'talento'],
-    ['talento', 'humano'],
+    ['talento', 'human'],
+    ['gestion', 'human'],
+    ['recursos', 'human'],
   ],
-  'Nutricionista': [
-    ['nutricionista'],
-    ['nutricion'],
-  ],
+  'Nutricionista': [[]],
   'Supervisor de Hse': [
     ['hse'],
-    ['supervisor', 'seguridad'],
+    ['sst'],
     ['seguridad', 'salud'],
+    ['seguridad'],
   ],
-  'Tesorero': [
-    ['tesorer'],
-  ],
+  'Tesorero': [[]],
   'Coordinadora de Nutrición': [
-    ['coordinador', 'nutricion'],
     ['nutricion'],
   ],
   'Dirección de talento humano': [
-    ['director', 'talento'],
-    ['talento', 'humano'],
+    ['talento', 'human'],
+    ['gestion', 'human'],
+    ['recursos', 'human'],
   ],
   'Director de calidad': [
-    ['director', 'calidad'],
+    ['calidad'],
   ],
   'Gerencia': [
-    ['gerencia'],
-    ['gerente'],
+    ['general'],
+    ['='],
   ],
 };
 
+/// Palabras que no aportan área al comparar cargos escritos a mano.
+const Set<String> _kPalabrasVaciasCargo = {
+  'de',
+  'del',
+  'la',
+  'las',
+  'los',
+  'el',
+  'y',
+  'e',
+  'en',
+  'para',
+  'por',
+  'con',
+};
+
+bool _tieneFragmento(List<String> palabras, String fragmento) =>
+    RegExp(r'^\d+$').hasMatch(fragmento)
+    ? palabras.contains(fragmento)
+    : palabras.any((p) => p.startsWith(fragmento));
+
 /// Qué tan bien encaja [cargoUsuario] con el [cargoMatriz] de la matriz.
 ///
-/// Devuelve el índice de la alternativa que coincidió (0 = la más específica)
-/// o `null` si no coincide ninguna. Sirve para elegir entre varios candidatos:
-/// gana el de índice más bajo.
+/// Devuelve el índice de la alternativa que coincidió (0 = la más específica,
+/// -1 = el mismo cargo escrito igual) o `null` si no coincide ninguna. Sirve
+/// para elegir entre varios candidatos: gana el de índice más bajo.
+///
+/// Primero el nivel: si el cargo de la matriz nombra uno, el de la persona
+/// debe tener el mismo como primera palabra de rango. Después el área.
 int? afinidadCargo(String cargoMatriz, String cargoUsuario) {
-  // La sede no convierte a un supervisor/coordinador en director. Tampoco
-  // basta que "director" aparezca dentro de "subdirector".
-  if (normalizarCargo(cargoMatriz) == 'director de calidad' &&
-      !RegExp(r'\bdirectora?\b').hasMatch(normalizarCargo(cargoUsuario))) {
-    return null;
-  }
-  final alternativas = kInterventoriaCargoAlternativas[cargoMatriz];
   final objetivo = normalizarCargo(cargoUsuario);
   if (objetivo.isEmpty) return null;
+  final nivel = nivelDeCargo(cargoMatriz);
+  if (nivel.isNotEmpty && nivelDeCargo(cargoUsuario) != nivel) return null;
   if (objetivo == normalizarCargo(cargoMatriz)) return -1;
+  final palabras = palabrasCargo(cargoUsuario);
+  final alternativas = kInterventoriaCargoAlternativas[cargoMatriz];
   if (alternativas == null) {
-    // Se exigen las palabras de tres letras o mas... y tambien los numeros,
-    // aunque sean de un solo caracter.
-    //
-    // El "1" y el "2" de "Administrador tipo 1" / "tipo 2" se estaban cayendo
-    // por el filtro de longitud, asi que ambos cargos quedaban reducidos a
-    // {administrador, tipo} y eran indistinguibles: una regla escrita para el
-    // tipo 1 resolvia igual de bien a un tipo 2. Toda la diferencia entre los
-    // dos administradores vivia en el caracter que se descartaba.
-    final palabras = normalizarCargo(cargoMatriz)
-        .split(RegExp(r'\s+'))
+    // Cargo escrito en una regla de la empresa: se exigen sus palabras de
+    // área (tres letras o más) y también los números, aunque sean de un solo
+    // carácter: el "1" y el "2" son lo único que separa a "Administrador
+    // tipo 1" de "tipo 2".
+    final area = palabrasCargo(cargoMatriz)
         .where(
-          (p) => (p.length > 2 || RegExp(r'^\d+$').hasMatch(p)) && p != 'del',
+          (p) =>
+              !kInterventoriaNivelPorPalabra.containsKey(p) &&
+              !_kPalabrasVaciasCargo.contains(p) &&
+              (p.length > 2 || RegExp(r'^\d+$').hasMatch(p)),
         )
         .toList();
-    return palabras.isNotEmpty && palabras.every(objetivo.contains) ? 0 : null;
+    if (area.isEmpty && nivel.isEmpty) return null;
+    return area.every((p) => _tieneFragmento(palabras, p)) ? 0 : null;
   }
   for (var i = 0; i < alternativas.length; i++) {
-    if (alternativas[i].every(objetivo.contains)) return i;
+    final alternativa = alternativas[i];
+    if (alternativa.length == 1 && alternativa.single == '=') {
+      final sobrantes = palabras.where(
+        (p) =>
+            !kInterventoriaNivelPorPalabra.containsKey(p) &&
+            !_kPalabrasVaciasCargo.contains(p),
+      );
+      if (sobrantes.isEmpty) return i;
+      continue;
+    }
+    if (alternativa.every((f) => _tieneFragmento(palabras, f))) return i;
   }
   return null;
 }

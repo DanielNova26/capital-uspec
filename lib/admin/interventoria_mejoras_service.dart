@@ -13,7 +13,25 @@ typedef EjecutarMejorasInterventoria =
       required bool Function() vigente,
     });
 
+/// Propuesta de aprobador para un hallazgo, con el mismo resolvedor del
+/// maestro que usan la sugerencia y la asignación
+/// ([InterventoriaService.resolucionAprobador]). Un empate no propone a
+/// nadie: queda como pendiente con las personas empatadas en el motivo.
+Map<String, dynamic> propuestaAprobadorMejoras(
+  String hallazgoId,
+  ResolucionAprobadorMaestro resolucion,
+) => {
+  'hallazgoId': hallazgoId,
+  'candidatoId': resolucion.persona?.id ?? '',
+  'cargoRequerido': resolucion.persona == null ? '' : resolucion.cargoMatriz,
+  'motivoMaestro': resolucion.motivo,
+};
+
 class InterventoriaMejorasService {
+  /// Revisa (sin escribir) o aplica los hallazgos de [revision].
+  ///
+  /// Al aplicar, [revision] trae solo los cambios que Desarrollo dejó
+  /// marcados, con la huella que devolvió el servidor al revisarlos.
   Future<List<Map<String, dynamic>>> ejecutar({
     required String empresaId,
     required bool aplicar,
@@ -36,14 +54,17 @@ class InterventoriaMejorasService {
           .get();
       for (final doc in hallazgos.docs) {
         final h = InterventoriaHallazgo.fromMap(doc.id, doc.data());
-        final candidato = servicio.sugerirAprobador(
-          h,
-          usuarios,
-          reglas: reglas,
+        items.add(
+          propuestaAprobadorMejoras(
+            doc.id,
+            servicio.resolucionAprobador(h, usuarios, reglas: reglas),
+          ),
         );
-        items.add({'hallazgoId': doc.id, 'candidatoId': candidato?.id ?? ''});
       }
     }
+    final motivos = {
+      for (final r in items) r['hallazgoId']: r['motivoMaestro'] ?? '',
+    };
     final resultado = <Map<String, dynamic>>[];
     final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
         .httpsCallable(
@@ -58,7 +79,8 @@ class InterventoriaMejorasService {
           .map(
             (r) => {
               'hallazgoId': r['hallazgoId'],
-              'candidatoId': r['candidatoId'],
+              'candidatoId': r['candidatoId'] ?? '',
+              'cargoRequerido': r['cargoRequerido'] ?? '',
               if (aplicar) 'huella': r['huella'],
             },
           )
@@ -70,9 +92,11 @@ class InterventoriaMejorasService {
       });
       final data = Map<String, dynamic>.from(res.data as Map);
       resultado.addAll(
-        (data['resultados'] as List).map(
-          (r) => Map<String, dynamic>.from(r as Map),
-        ),
+        (data['resultados'] as List).map((r) {
+          final fila = Map<String, dynamic>.from(r as Map);
+          fila['motivoMaestro'] = motivos[fila['hallazgoId']] ?? '';
+          return fila;
+        }),
       );
       progreso(resultado.length, items.length);
     }

@@ -19,7 +19,7 @@ async function fixture(id) {
       empresasDetalle: {e: {cargoId: 'director', estadoLaboral: 'activo'}}, nombre: 'Directora'}),
     db.doc('TBL_CARGOS/director').set({empresaId: 'e', nombre: 'Directora de Calidad'}),
     db.doc(`TBL_INTERVENTORIA_HALLAZGOS/${id}`).set({empresaId: 'e', tareaId: id, visitaId: id,
-      centroCostoId: 'c', centroCostoNombre: 'Picota', aprobadorId: 's', aprobadorNombre: 'Supervisor',
+      centroCostoId: 'c', centroCostoNombre: 'Picota', numeralActa: '8.18', aprobadorId: 's', aprobadorNombre: 'Supervisor',
       cargoAprobador: 'Director de calidad', responsableId: 'r'}),
     db.doc(`TBL_INTERVENTORIA_VISITAS/${id}`).set({empresaId: 'e', centroCostoId: 'c',
       subcentroId: 'sur', subcentroNombre: 'Sur'}),
@@ -28,7 +28,8 @@ async function fixture(id) {
       titulo: 'Picota Obs.8.18: Revisar', descripcion: 'Aprueba la subsanación: Supervisor · Director de calidad',
       avances: ['no borrar'], fecha_limite: '2026-10-22'}),
   ]);
-  const request = {empresaId: 'e', modo: 'revisar', items: [{hallazgoId: id, candidatoId: 'd'}]};
+  const request = {empresaId: 'e', modo: 'revisar',
+    items: [{hallazgoId: id, candidatoId: 'd', cargoRequerido: 'Director de calidad'}]};
   const preview = await sync.run(request, context());
   assert.equal(preview.resultados[0].error, undefined);
   return {...request, modo: 'aplicar', items: preview.resultados};
@@ -44,9 +45,46 @@ test('revisión sin escrituras, aplicación atómica, cargo por empresa y reinte
   assert.equal(task.cargoAprobador, 'Directora de Calidad');
   assert.equal(task.subcentroNombre, 'Sur'); assert.equal(h.subcentroNombre, 'Sur');
   assert.deepEqual(task.avances, ['no borrar']); assert.equal(task.fecha_limite, '2026-10-22');
-  const again = await sync.run(req, context()); assert.equal(again.resultados[0].cambia, false);
+  assert.equal(task.estado, 'pendiente'); assert.equal(task.origenAprobador, 'maestro');
+  assert.equal(h.aprobadorCambiadoPor, undefined);
+  // Reintentar con la misma revisión no escribe ni avisa dos veces.
+  const again = await sync.run(req, context());
+  assert.equal(again.resultados[0].cambia, false); assert.equal(again.resultados[0].aplicado, false);
+  const otra = await sync.run({...req, modo: 'revisar'}, context()); assert.equal(otra.resultados[0].cambia, false);
   const logs = await db.collection('TBL_MIGRATIONS_LOGS').where('hallazgoId', '==', 'normal').get();
   assert.equal(logs.size, 1);
+  const avisos = await db.collection('TBL_NOTIFICACIONES/d/notifications').where('sourceEntityId', '==', 'normal').get();
+  assert.equal(avisos.size, 1); assert.equal(avisos.docs[0].data().empresaId, 'e');
+});
+
+test('la revisión muestra quién aprueba, quién quedaría y por qué', async () => {
+  const req = await fixture('detalle');
+  const [r] = req.items;
+  assert.deepEqual(r.anterior, {id: 's', nombre: 'Supervisor', cargo: 'Supervisor de Calidad'});
+  assert.deepEqual(r.nuevo, {id: 'd', nombre: 'Directora', cargo: 'Directora de Calidad'});
+  assert.match(r.razon, /no cumple el cargo Director de calidad/);
+  assert.equal(r.cambiaAprobador, true);
+});
+
+test('solo aplica la propuesta revisada: otra persona con la misma huella se rechaza', async () => {
+  const req = await fixture('otra-propuesta');
+  await db.doc('TBL_USUARIOS/d2').set({empresas: ['e'], empresaId: 'e', cargo: 'Director de calidad', nombre: 'Otro'});
+  const cambiado = {...req, items: req.items.map((r) => ({...r, candidatoId: 'd2'}))};
+  const res = await sync.run(cambiado, context()); assert.match(res.resultados[0].error, /cambiaron/);
+  assert.equal((await db.doc('TBL_TAREAS/otra-propuesta').get()).data().jefe_uid, 's');
+});
+
+test('elección manual y propuesta sin el cargo del maestro no sustituyen', async () => {
+  const req = await fixture('manual');
+  await db.doc('TBL_TAREAS/manual').update({origenAprobador: 'elegido'});
+  const manual = await sync.run({...req, modo: 'revisar'}, context());
+  assert.equal(manual.resultados[0].cambiaAprobador, false);
+  await db.doc('TBL_TAREAS/manual').update({origenAprobador: 'maestro'});
+  await db.doc('TBL_USUARIOS/coord').set({empresas: ['e'], empresaId: 'e', cargo: 'Coordinadora de calidad', nombre: 'Coord'});
+  const falso = await sync.run({...req, modo: 'revisar',
+    items: [{hallazgoId: 'manual', candidatoId: 'coord', cargoRequerido: 'Director de calidad'}]}, context());
+  assert.equal(falso.resultados[0].cambiaAprobador, false);
+  assert.match(falso.resultados[0].avisos.join(), /no cumple el cargo/);
 });
 
 test('rechaza concurrencia entre revisión y aplicación', async () => {

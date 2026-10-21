@@ -4,7 +4,7 @@ import {createHash} from 'crypto';
 import {empresasDe, empresasSeleccionables} from './acceso';
 import {isInterventoriaDeveloper, requireActor} from './interventoria_deletion';
 import {tareaPorAprobar} from './interventoria_aprobador';
-import {planMejorasInterventoria, texto} from './interventoria_mejoras_policy';
+import {PersonaSync, planMejorasInterventoria, texto} from './interventoria_mejoras_policy';
 
 type Datos = Record<string, any>;
 const H = 'TBL_INTERVENTORIA_HALLAZGOS';
@@ -16,9 +16,11 @@ const idSeguro = (v: unknown) => {
   return id;
 };
 
-// El cliente propone con el mismo resolvedor del maestro que crea las tareas.
-// Desarrollo revisa esa propuesta; el servidor limita la reparación al fallo
-// conocido, comprueba empresa/vigencia y compara la versión revisada.
+// El cliente propone con el mismo resolvedor del maestro que crea las tareas
+// (cobertura, prioridad de sede y empates). Desarrollo revisa esa propuesta;
+// el servidor solo sustituye aprobadores que salieron del maestro, comprueba
+// empresa, habilitación y que el cargo real cumpla el que pide la regla
+// vigente del numeral, y compara la versión revisada.
 export const interventoriaSincronizarMejoras = functions.region('us-central1')
   .runWith({timeoutSeconds: 120}).https.onCall(async (raw, context) => {
     const actor = await requireActor(raw, context);
@@ -36,6 +38,7 @@ export const interventoriaSincronizarMejoras = functions.region('us-central1')
     for (const item of input.items) {
       const hallazgoId = idSeguro(item.hallazgoId);
       const candidatoId = texto(item.candidatoId) ? idSeguro(item.candidatoId) : '';
+      const cargoRequerido = texto(item.cargoRequerido).slice(0, 160);
       try {
         const resultado = await db.runTransaction(async (tx) => {
           const leidos: FirebaseFirestore.DocumentSnapshot[] = [];
@@ -56,11 +59,13 @@ export const interventoriaSincronizarMejoras = functions.region('us-central1')
           if (texto(h.tareaId) && !t) throw Error('La tarea vinculada ya no existe.');
           const v = await leer('TBL_INTERVENTORIA_VISITAS', texto(h.visitaId));
           // Una edición de reglas entre revisión y aplicación invalida el plan.
-          await leer('TBL_INTERVENTORIA_CONFIG', actor.empresaId);
-          const persona = async (id: string, exigirActivo: boolean) => {
+          const config = await leer('TBL_INTERVENTORIA_CONFIG', actor.empresaId);
+          const reglas = config?.reglasSubsanacion && typeof config.reglasSubsanacion === 'object' ?
+            config.reglasSubsanacion : {};
+          const persona = async (id: string): Promise<PersonaSync | undefined> => {
             const data = await leer(U, id);
-            if (!data || !empresasDe(data).includes(actor.empresaId) ||
-                (exigirActivo && !empresasSeleccionables(data).includes(actor.empresaId))) return undefined;
+            if (!data || !empresasDe(data).includes(actor.empresaId)) return undefined;
+            const habilitado = empresasSeleccionables(data).includes(actor.empresaId);
             const scoped = data.empresasDetalle?.[actor.empresaId] || {};
             const raiz = texto(data.empresaId) === actor.empresaId ||
               (!texto(data.empresaId) && empresasDe(data).length === 1) ? data : {};
@@ -71,20 +76,30 @@ export const interventoriaSincronizarMejoras = functions.region('us-central1')
             if (cargoDoc && texto(cargoDoc.empresaId) === actor.empresaId) cargo = texto(cargoDoc.nombre);
             const nombre = texto(data.nombreCompleto || data.displayName) ||
               [texto(data.nombres || data.nombre), texto(data.apellidos || data.apellido)].filter(Boolean).join(' ') || id;
-            return {id, nombre, cargo};
+            return {id, nombre, cargo, habilitado};
           };
-          const actual = await persona(texto(h.aprobadorId), false);
-          const propuesto = candidatoId ? await persona(candidatoId, true) : undefined;
+          const aprobadorId = texto(h.aprobadorId);
+          // Un aprobador que ya no pertenece a la empresa se muestra con el
+          // nombre guardado y como no habilitado.
+          const actual = aprobadorId ? (await persona(aprobadorId) ??
+            {id: aprobadorId, nombre: texto(h.aprobadorNombre) || aprobadorId, cargo: '', habilitado: false}) :
+            undefined;
+          const propuesto = candidatoId && candidatoId !== aprobadorId ? await persona(candidatoId) :
+            candidatoId ? actual : undefined;
           const plan = planMejorasInterventoria({empresaId: actor.empresaId, hallazgoId,
-            hallazgo: h, tarea: t, visita: v, actual, propuesto});
+            hallazgo: h, tarea: t, visita: v, reglas, actual, propuesto, cargoRequerido});
           const cambia = Object.keys(plan.hallazgo).length + Object.keys(plan.tarea).length > 0;
-          const huella = createHash('sha256').update(JSON.stringify({plan, candidatoId,
+          const huella = createHash('sha256').update(JSON.stringify({plan, candidatoId, cargoRequerido,
             versiones: leidos.map((s) => [s.ref.path, s.updateTime?.seconds, s.updateTime?.nanoseconds])})).digest('hex');
-          const resumen = {hallazgoId, candidatoId, huella, cambia, avisos: plan.avisos,
+          const resumen = {hallazgoId, candidatoId, cargoRequerido, huella, cambia, avisos: plan.avisos,
             establecimiento: plan.establecimiento, anterior: plan.anterior, nuevo: plan.nuevo,
+            razon: plan.razon, origen: plan.origen, requeridos: plan.requeridos,
             cambiaAprobador: !!plan.hallazgo.aprobadorId,
             campos: [...Object.keys(plan.hallazgo), ...Object.keys(plan.tarea)]};
+          // Un reintento de algo ya aplicado no tiene nada que escribir.
           if (input.modo !== 'aplicar' || !cambia) return {...resumen, aplicado: false};
+          // Solo se aplica lo que se revisó: cualquier diferencia de datos,
+          // reglas o propuesta desde la revisión obliga a revisar de nuevo.
           if (huella !== texto(item.huella)) throw Error('Los datos cambiaron desde la revisión. Revisa de nuevo.');
           const ahora = admin.firestore.FieldValue.serverTimestamp();
           if (Object.keys(plan.hallazgo).length) {

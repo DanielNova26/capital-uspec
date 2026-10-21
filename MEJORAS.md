@@ -1,5 +1,60 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-21 — Interventoría: aprobadores automáticos de todas las áreas en «Sincronizar mejoras» (Claude)
+
+- **Auditoría de equivalencias.** El fallo de Director de Calidad era general:
+  `kInterventoriaCargoAlternativas` aceptaba el área sin el nivel
+  (`Director de operaciones` ← cualquier cargo con «operación»; `Dirección de
+  talento humano` ← «Analista de talento humano»; `Gerencia` ← «Asistente de
+  gerencia»; `Coordinadora de Nutrición` ← «Nutricionista»; también responsables
+  como `Coordinador de mantenimiento` ← «Técnico de mantenimiento»), y la
+  prioridad de sede elegía a esa persona sobre el titular corporativo. Afectaba a
+  los 141 numerales de la matriz (85 aprobados por Director de operaciones).
+- **Regla nueva (`afinidadCargo`).** Se exige el nivel del cargo (primera
+  palabra de rango, por palabra completa: «Subdirector» no es director y
+  «Auxiliar de dirección» es auxiliar) y después el área. Equivalentes válidos
+  aceptados: Directora/Director, Dirección, «Director operativo», «Gestión
+  humana»/«Recursos humanos», «Supervisor SST/seguridad y salud»; `Gerencia`
+  solo «Gerente», «Gerente general» o «Gerencia general» (no «Gerente de
+  operaciones»). Las reglas escritas por la empresa siguen la misma exigencia.
+  `nivelJerarquiaCargo` (responsable por área) dejó de comparar subcadenas.
+- **Selector único del aprobador** (`resolverAprobadorMaestro` /
+  `InterventoriaService.resolucionAprobador`): lo usan la sugerencia del tablero
+  y del panel, la asignación automática y manual, Maestro › Revisión y el botón
+  de Admin. La sede ordena solo entre quienes ya tienen el cargo; dos personas
+  igual de válidas son **ambigüedad** (sin desempate por orden) y la asignación
+  automática se detiene con el motivo concreto. Director y Directora empatan.
+  El responsable conserva su desempate histórico. Política sin cambios: el
+  maestro manda y el jefe inmediato solo respalda asignaciones manuales.
+- **Servidor** (`interventoriaSincronizarMejoras`): ya no se limita a Calidad.
+  `functions/src/interventoria_aprobador_maestro.ts` replica niveles,
+  alternativas, matriz regular de aprobadores y lectura de la regla guardada
+  (familia del acta, legado regular). Sustituye solo si el origen es el maestro
+  (o automática heredada sin origen), la tarea está abierta, hallazgo y tarea
+  coinciden, la persona está habilitada en la empresa, su cargo real cumple el
+  cargo que pide la regla vigente y no es quien responde. Elección manual, jefe
+  inmediato, cambio posterior y tareas cerradas se conservan (solo se corrige el
+  cargo mostrado); origen desconocido, ambigüedad, falta de candidato o datos
+  contradictorios quedan como pendiente concreto. Ya no marca
+  `revisionAprobadorPendiente`; la limpia al resolver.
+- **Revisión**: muestra quién aprueba hoy (nombre y cargo real), quién quedaría,
+  por qué, y el motivo del maestro; filtros Cambios/Pendientes/Todos con 20 por
+  página y casilla por cambio. «Aplicar» envía solo los cambios marcados con su
+  huella; la huella incluye candidato y cargo requerido, de modo que otra
+  persona, reglas o datos modificados exigen revisar de nuevo. Un reintento de
+  algo ya aplicado devuelve «sin cambios» sin escribir ni avisar otra vez.
+- **Transición de datos**: no se ejecutó sobre producción. Desarrollo debe
+  abrir Admin → Apps, roles y permisos → Módulos → Interventoría, «Revisar
+  mejoras» en cada empresa, revisar los pendientes y aplicar. Tras publicar,
+  nuevas asignaciones automáticas pueden quedar en «Sin asignar» donde antes se
+  elegía por sede a alguien sin el cargo o se desempataba por orden: es el
+  comportamiento pedido; se resuelven a mano o corrigiendo cargos/cobertura.
+- **Límite conocido**: la cobertura (centros, grupos, «todas las sedes») la
+  resuelve la app con el mismo código que crea las tareas; el servidor valida
+  empresa, habilitación, cargo y regla, no recalcula la cobertura.
+  `resolverDirectorDeArea` (responsable por área elegida a mano) sigue tomando
+  a la persona de mayor rango del área; no interviene en aprobadores.
+
 ## 2026-10-21 — Admin: sincronizar mejoras de Interventoría y subcentro en tareas (Codex)
 
 - Admin → Apps, roles y permisos → Módulos → Interventoría incorpora

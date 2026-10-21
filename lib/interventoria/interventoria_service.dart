@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -264,6 +265,10 @@ class InterventoriaAsignacionSugerida {
   final InterventoriaPersona? responsable;
   final InterventoriaPersona? aprobador;
 
+  /// Por qué el maestro resolvió (o no) al aprobador: sin regla, sin nadie
+  /// con el cargo o varias personas empatadas.
+  final String motivoAprobador;
+
   /// Fecha límite calculada para la tarea.
   final DateTime fechaLimite;
 
@@ -273,6 +278,7 @@ class InterventoriaAsignacionSugerida {
     required this.cargoAprobador,
     required this.responsable,
     required this.aprobador,
+    this.motivoAprobador = '',
     required this.fechaLimite,
   });
 
@@ -302,41 +308,153 @@ InterventoriaPersona? resolverCargoUnico(
   String cargoMatriz,
   String centroCostoId,
   List<InterventoriaUsuario> usuarios,
+) => mejoresParaCargo(cargoMatriz, centroCostoId, usuarios).firstOrNull;
+
+/// Todas las personas que empatan en el primer lugar para un cargo de la
+/// matriz, en el orden en que llegaron.
+///
+/// El orden de prioridad es el de [resolverCargoUnico]: primero quien cubre
+/// el establecimiento, dentro de ellos el titular propio de la sede antes que
+/// quien atiende todas, y al final la afinidad del cargo. La sede solo ordena
+/// entre personas que YA tienen el cargo ([afinidadCargo] no es null): nunca
+/// convierte otro cargo en el requerido.
+///
+/// Más de una persona significa que el maestro no basta para decidir. El
+/// responsable conserva su desempate histórico (la primera); el aprobador lo
+/// trata como ambigüedad ([resolverAprobadorMaestro]).
+List<InterventoriaPersona> mejoresParaCargo(
+  String cargoMatriz,
+  String centroCostoId,
+  List<InterventoriaUsuario> usuarios,
 ) {
-  ({InterventoriaUsuario user, int afinidad})? mejor;
-  var mejorEsDelCentro = false;
-  var mejorEsEspecifico = false;
+  final mejores = <({InterventoriaPersona persona, int afinidad})>[];
+  (int, int, int)? mejorClave;
+  final vistos = <String>{};
   for (final user in usuarios) {
     final afinidad = afinidadCargo(cargoMatriz, user.cargo);
-    if (afinidad == null) continue;
+    if (afinidad == null || !vistos.add(user.id)) continue;
     final delCentro = user.cubreCentro(centroCostoId);
     final especifico = user.cubreCentroEspecifico(centroCostoId);
-    final bool gana;
-    if (mejor == null) {
-      gana = true;
-    } else if (delCentro != mejorEsDelCentro) {
-      // El del establecimiento gana aunque su cargo encaje peor.
-      gana = delCentro;
-    } else if (delCentro && especifico != mejorEsEspecifico) {
-      // El titular de la sede va antes que quien atiende todas las sedes.
-      gana = especifico;
-    } else {
-      gana = afinidad < mejor.afinidad;
+    // El del establecimiento gana aunque su cargo encaje peor, y el titular
+    // de la sede va antes que quien atiende todas las sedes. El cargo escrito
+    // igual que en la matriz (-1) no es "más cargo" que su variante
+    // ("Directora"): empatan.
+    final clave = (
+      delCentro ? 0 : 1,
+      especifico ? 0 : 1,
+      math.max(afinidad, 0),
+    );
+    final comparacion = mejorClave == null
+        ? -1
+        : _compararClave(clave, mejorClave);
+    if (comparacion > 0) continue;
+    if (comparacion < 0) {
+      mejores.clear();
+      mejorClave = clave;
     }
-    if (gana) {
-      mejor = (user: user, afinidad: afinidad);
-      mejorEsDelCentro = delCentro;
-      mejorEsEspecifico = especifico;
-    }
+    mejores.add((
+      persona: InterventoriaPersona(
+        id: user.id,
+        nombre: user.nombre,
+        cargo: user.cargo,
+        cargoMatriz: cargoMatriz,
+        delCentro: delCentro,
+      ),
+      afinidad: afinidad,
+    ));
   }
-  if (mejor == null) return null;
-  return InterventoriaPersona(
-    id: mejor.user.id,
-    nombre: mejor.user.nombre,
-    cargo: mejor.user.cargo,
-    cargoMatriz: cargoMatriz,
-    delCentro: mejorEsDelCentro,
+  // Primero quien ganaba el desempate histórico del responsable: el de menor
+  // afinidad y, a igualdad, el primero de la lista.
+  if (mejores.isEmpty) return const [];
+  final primero = mejores.indexWhere(
+    (m) => m.afinidad == mejores.map((m) => m.afinidad).reduce(math.min),
   );
+  if (primero > 0) mejores.insert(0, mejores.removeAt(primero));
+  return [for (final m in mejores) m.persona];
+}
+
+int _compararClave((int, int, int) a, (int, int, int) b) {
+  if (a.$1 != b.$1) return a.$1.compareTo(b.$1);
+  if (a.$2 != b.$2) return a.$2.compareTo(b.$2);
+  return a.$3.compareTo(b.$3);
+}
+
+/// Qué resolvió el maestro para el aprobador de un hallazgo, con la razón.
+///
+/// Es la única fuente para la sugerencia en pantalla, la asignación (manual o
+/// automática) y la sincronización de Admin: así las tres dicen lo mismo.
+class ResolucionAprobadorMaestro {
+  /// Cargos que aprueban el numeral, en el orden de la regla.
+  final List<String> cargos;
+
+  /// Cargo de la regla que encontró personas ('' si ninguno).
+  final String cargoMatriz;
+
+  /// Personas empatadas en el primer lugar para [cargoMatriz].
+  final List<InterventoriaPersona> candidatos;
+
+  const ResolucionAprobadorMaestro({
+    required this.cargos,
+    this.cargoMatriz = '',
+    this.candidatos = const [],
+  });
+
+  /// La persona que aprueba, solo cuando no hay empate.
+  InterventoriaPersona? get persona =>
+      candidatos.length == 1 ? candidatos.single : null;
+
+  bool get ambiguo => candidatos.length > 1;
+
+  bool get sinRegla => cargos.isEmpty;
+
+  /// Explicación legible de la resolución.
+  String get motivo {
+    if (sinRegla) return 'El maestro no define quién aprueba este numeral.';
+    if (candidatos.isEmpty) {
+      return 'Nadie activo tiene el cargo ${cargos.join(' o ')}.';
+    }
+    final sede = candidatos.first.delCentro
+        ? 'cubren el establecimiento'
+        : 'y ninguna con ese cargo cubre el establecimiento';
+    if (ambiguo) {
+      return 'Varias personas con el cargo $cargoMatriz $sede: '
+          '${candidatos.map((p) => '${p.nombre} (${p.cargo})').join(', ')}. '
+          'Elige el aprobador a mano.';
+    }
+    final p = candidatos.single;
+    return '${p.cargo} cumple el cargo $cargoMatriz del maestro'
+        '${p.delCentro ? ' y cubre el establecimiento' : '; nadie con ese cargo cubre el establecimiento'}.';
+  }
+}
+
+/// Aprobador del maestro para una lista de cargos de la regla.
+///
+/// Igual que [resolverPrimerCargoQueResuelva]: el establecimiento se agota
+/// en todos los cargos antes de aceptar a alguien de fuera. A diferencia del
+/// responsable, un empate no se resuelve por el orden de la lista: queda
+/// [ResolucionAprobadorMaestro.ambiguo] para que alguien decida.
+ResolucionAprobadorMaestro resolverAprobadorMaestro(
+  List<String> cargos,
+  String centroCostoId,
+  List<InterventoriaUsuario> usuarios,
+) {
+  final limpios = [
+    for (final cargo in cargos)
+      if (cargo.trim().isNotEmpty) cargo.trim(),
+  ];
+  ResolucionAprobadorMaestro? fuera;
+  for (final cargo in limpios) {
+    final mejores = mejoresParaCargo(cargo, centroCostoId, usuarios);
+    if (mejores.isEmpty) continue;
+    final resolucion = ResolucionAprobadorMaestro(
+      cargos: limpios,
+      cargoMatriz: cargo,
+      candidatos: mejores,
+    );
+    if (mejores.first.delCentro) return resolucion;
+    fuera ??= resolucion;
+  }
+  return fuera ?? ResolucionAprobadorMaestro(cargos: limpios);
 }
 
 /// Recorre los cargos de una regla y devuelve a la persona que responde.
@@ -501,7 +619,8 @@ contextoTareaInterventoria(InterventoriaHallazgo hallazgo) {
 /// El índice más bajo = mayor rango. Si el cargo contiene cualquiera de
 /// estas palabras se asigna ese nivel; de lo contrario nivel máximo (99).
 int nivelJerarquiaCargo(String cargo) {
-  final c = cargo.toLowerCase();
+  // Por palabra de rango (`nivelDeCargo`), no por subcadena: "Subdirector"
+  // contenía "director" y "Auxiliar de dirección" quedaba como director.
   const niveles = [
     'director',
     'gerente',
@@ -512,12 +631,9 @@ int nivelJerarquiaCargo(String cargo) {
     'encargado',
     'responsable',
     'lider',
-    'líder',
   ];
-  for (int i = 0; i < niveles.length; i++) {
-    if (c.contains(niveles[i])) return i;
-  }
-  return 99;
+  final i = niveles.indexOf(nivelDeCargo(cargo));
+  return i < 0 ? 99 : i;
 }
 
 /// Quién responde por un área entre [usuarios]: si hay una sola persona, esa;
@@ -3237,7 +3353,15 @@ class InterventoriaService {
     InterventoriaHallazgo hallazgo,
     List<InterventoriaUsuario> usuariosActivos, {
     Map<String, dynamic> reglas = const {},
-  }) => resolverPrimerCargoQueResuelva(
+  }) => resolucionAprobador(hallazgo, usuariosActivos, reglas: reglas).persona;
+
+  /// Resolución completa del aprobador del maestro (con empates y motivo).
+  /// La usan la sugerencia, la asignación y la sincronización de Admin.
+  ResolucionAprobadorMaestro resolucionAprobador(
+    InterventoriaHallazgo hallazgo,
+    List<InterventoriaUsuario> usuariosActivos, {
+    Map<String, dynamic> reglas = const {},
+  }) => resolverAprobadorMaestro(
     cargosAprobadoresDe(hallazgo, reglas),
     hallazgo.centroCostoId,
     usuariosActivos,
@@ -4095,11 +4219,12 @@ class InterventoriaService {
       centroCostoId,
       responsables,
     );
-    final personaAprobador = resolverPrimerCargoQueResuelva(
+    final resolucionAprobador = resolverAprobadorMaestro(
       cargosAprobadores,
       centroCostoId,
       usuariosActivos,
     );
+    final personaAprobador = resolucionAprobador.persona;
 
     return InterventoriaAsignacionSugerida(
       numeral: clave,
@@ -4113,6 +4238,7 @@ class InterventoriaService {
           (cargosAprobadores.isEmpty ? '' : cargosAprobadores.first),
       responsable: personaResponsable,
       aprobador: personaAprobador,
+      motivoAprobador: resolucionAprobador.motivo,
       fechaLimite: sumarDiasHabiles(desde ?? DateTime.now(), dias),
     );
   }
@@ -4332,8 +4458,9 @@ class InterventoriaService {
                   '${destinatarioNombre.isEmpty ? 'el responsable' : destinatarioNombre}'
                   ' no tiene jefe inmediato registrado. Elige quién aprueba '
                   'al asignar.'
-            : 'El maestro no resuelve quién aprueba$paraNumeral: asígnalo a '
-                  'mano en Subsanaciones.',
+            : 'El maestro no resuelve quién aprueba$paraNumeral'
+                  '${(asignacion?.motivoAprobador ?? '').isEmpty ? '' : ' (${asignacion!.motivoAprobador})'}'
+                  ': asígnalo a mano en Subsanaciones.',
       );
     }
     final jefeId = aprobador.id;

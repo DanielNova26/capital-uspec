@@ -6,6 +6,7 @@ import 'interventoria_service.dart'
     show
         InterventoriaPersona,
         InterventoriaUsuario,
+        resolverAprobadorMaestro,
         resolverPrimerCargoQueResuelva;
 
 /// Revisión del maestro de subsanaciones (25 sep 2026).
@@ -336,11 +337,12 @@ List<RevisionSede> revisarSedes({
         centro.centroId,
         candidatos(g.resp, usuariosAsignables, candidatosAsignables),
       );
-      final aprobador = resolverPrimerCargoQueResuelva(
+      // Mismo criterio que la asignación: un empate no es un aprobador.
+      final aprobador = resolverAprobadorMaestro(
         g.aprob,
         centro.centroId,
         candidatos(g.aprob, usuariosActivos, candidatosActivos),
-      );
+      ).persona;
       filas.add(
         GrupoReglaSede(
           responsable: ResolucionRolSede(g.resp, responsable),
@@ -935,11 +937,11 @@ PrevisionAsignacionPendiente preverAsignacionPendiente({
       h.centroCostoId,
       usuariosAsignables,
     );
-    final aprobador = resolverPrimerCargoQueResuelva(
+    final aprobador = resolverAprobadorMaestro(
       regla.fila.aprobadores,
       h.centroCostoId,
       usuariosActivos,
-    );
+    ).persona;
     if (responsable == null) {
       motivos.update(
         MotivoSinAsignar.sinResponsable,

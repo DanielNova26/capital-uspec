@@ -818,7 +818,8 @@ class _InterventoriaTableroAsignacionState
       return;
     }
     if (!mounted) return;
-    final delMaestro = widget.service.sugerirAprobador(
+    // Con un empate se marcan todas las personas que cumplen el maestro.
+    final delMaestro = widget.service.resolucionAprobador(
       h,
       activos,
       reglas: _reglas,
@@ -828,7 +829,7 @@ class _InterventoriaTableroAsignacionState
       hallazgo: h,
       usuarios: activos,
       areas: _areas,
-      sugeridosIds: {if (delMaestro != null) delMaestro.id},
+      sugeridosIds: {for (final p in delMaestro.candidatos) p.id},
     );
     if (nuevo == null || !mounted) return;
     setState(() => _asignando.add(clave));

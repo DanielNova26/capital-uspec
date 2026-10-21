@@ -919,7 +919,8 @@ class _InterventoriaHallazgoPanelState
       reglas = await widget.service.reglasSubsanacion(widget.empresaId);
     } catch (_) {}
     if (!mounted) return;
-    final delMaestro = widget.service.sugerirAprobador(
+    // Con un empate se marcan todas las personas que cumplen el maestro.
+    final delMaestro = widget.service.resolucionAprobador(
       _h,
       activos,
       reglas: reglas,
@@ -929,7 +930,7 @@ class _InterventoriaHallazgoPanelState
       hallazgo: _h,
       usuarios: activos,
       areas: _areas,
-      sugeridosIds: {if (delMaestro != null) delMaestro.id},
+      sugeridosIds: {for (final p in delMaestro.candidatos) p.id},
     );
     if (nuevo == null || !mounted) return;
     setState(() => _asignando = true);

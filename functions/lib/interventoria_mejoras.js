@@ -40,9 +40,11 @@ const idSeguro = (v) => {
         throw new functions.https.HttpsError('invalid-argument', 'Identificador inválido.');
     return id;
 };
-// El cliente propone con el mismo resolvedor del maestro que crea las tareas.
-// Desarrollo revisa esa propuesta; el servidor limita la reparación al fallo
-// conocido, comprueba empresa/vigencia y compara la versión revisada.
+// El cliente propone con el mismo resolvedor del maestro que crea las tareas
+// (cobertura, prioridad de sede y empates). Desarrollo revisa esa propuesta;
+// el servidor solo sustituye aprobadores que salieron del maestro, comprueba
+// empresa, habilitación y que el cargo real cumpla el que pide la regla
+// vigente del numeral, y compara la versión revisada.
 exports.interventoriaSincronizarMejoras = functions.region('us-central1')
     .runWith({ timeoutSeconds: 120 }).https.onCall(async (raw, context) => {
     const actor = await (0, interventoria_deletion_1.requireActor)(raw, context);
@@ -60,6 +62,7 @@ exports.interventoriaSincronizarMejoras = functions.region('us-central1')
     for (const item of input.items) {
         const hallazgoId = idSeguro(item.hallazgoId);
         const candidatoId = (0, interventoria_mejoras_policy_1.texto)(item.candidatoId) ? idSeguro(item.candidatoId) : '';
+        const cargoRequerido = (0, interventoria_mejoras_policy_1.texto)(item.cargoRequerido).slice(0, 160);
         try {
             const resultado = await db.runTransaction(async (tx) => {
                 const leidos = [];
@@ -83,12 +86,14 @@ exports.interventoriaSincronizarMejoras = functions.region('us-central1')
                     throw Error('La tarea vinculada ya no existe.');
                 const v = await leer('TBL_INTERVENTORIA_VISITAS', (0, interventoria_mejoras_policy_1.texto)(h.visitaId));
                 // Una edición de reglas entre revisión y aplicación invalida el plan.
-                await leer('TBL_INTERVENTORIA_CONFIG', actor.empresaId);
-                const persona = async (id, exigirActivo) => {
+                const config = await leer('TBL_INTERVENTORIA_CONFIG', actor.empresaId);
+                const reglas = config?.reglasSubsanacion && typeof config.reglasSubsanacion === 'object' ?
+                    config.reglasSubsanacion : {};
+                const persona = async (id) => {
                     const data = await leer(U, id);
-                    if (!data || !(0, acceso_1.empresasDe)(data).includes(actor.empresaId) ||
-                        (exigirActivo && !(0, acceso_1.empresasSeleccionables)(data).includes(actor.empresaId)))
+                    if (!data || !(0, acceso_1.empresasDe)(data).includes(actor.empresaId))
                         return undefined;
+                    const habilitado = (0, acceso_1.empresasSeleccionables)(data).includes(actor.empresaId);
                     const scoped = data.empresasDetalle?.[actor.empresaId] || {};
                     const raiz = (0, interventoria_mejoras_policy_1.texto)(data.empresaId) === actor.empresaId ||
                         (!(0, interventoria_mejoras_policy_1.texto)(data.empresaId) && (0, acceso_1.empresasDe)(data).length === 1) ? data : {};
@@ -100,21 +105,31 @@ exports.interventoriaSincronizarMejoras = functions.region('us-central1')
                         cargo = (0, interventoria_mejoras_policy_1.texto)(cargoDoc.nombre);
                     const nombre = (0, interventoria_mejoras_policy_1.texto)(data.nombreCompleto || data.displayName) ||
                         [(0, interventoria_mejoras_policy_1.texto)(data.nombres || data.nombre), (0, interventoria_mejoras_policy_1.texto)(data.apellidos || data.apellido)].filter(Boolean).join(' ') || id;
-                    return { id, nombre, cargo };
+                    return { id, nombre, cargo, habilitado };
                 };
-                const actual = await persona((0, interventoria_mejoras_policy_1.texto)(h.aprobadorId), false);
-                const propuesto = candidatoId ? await persona(candidatoId, true) : undefined;
+                const aprobadorId = (0, interventoria_mejoras_policy_1.texto)(h.aprobadorId);
+                // Un aprobador que ya no pertenece a la empresa se muestra con el
+                // nombre guardado y como no habilitado.
+                const actual = aprobadorId ? (await persona(aprobadorId) ??
+                    { id: aprobadorId, nombre: (0, interventoria_mejoras_policy_1.texto)(h.aprobadorNombre) || aprobadorId, cargo: '', habilitado: false }) :
+                    undefined;
+                const propuesto = candidatoId && candidatoId !== aprobadorId ? await persona(candidatoId) :
+                    candidatoId ? actual : undefined;
                 const plan = (0, interventoria_mejoras_policy_1.planMejorasInterventoria)({ empresaId: actor.empresaId, hallazgoId,
-                    hallazgo: h, tarea: t, visita: v, actual, propuesto });
+                    hallazgo: h, tarea: t, visita: v, reglas, actual, propuesto, cargoRequerido });
                 const cambia = Object.keys(plan.hallazgo).length + Object.keys(plan.tarea).length > 0;
-                const huella = (0, crypto_1.createHash)('sha256').update(JSON.stringify({ plan, candidatoId,
+                const huella = (0, crypto_1.createHash)('sha256').update(JSON.stringify({ plan, candidatoId, cargoRequerido,
                     versiones: leidos.map((s) => [s.ref.path, s.updateTime?.seconds, s.updateTime?.nanoseconds]) })).digest('hex');
-                const resumen = { hallazgoId, candidatoId, huella, cambia, avisos: plan.avisos,
+                const resumen = { hallazgoId, candidatoId, cargoRequerido, huella, cambia, avisos: plan.avisos,
                     establecimiento: plan.establecimiento, anterior: plan.anterior, nuevo: plan.nuevo,
+                    razon: plan.razon, origen: plan.origen, requeridos: plan.requeridos,
                     cambiaAprobador: !!plan.hallazgo.aprobadorId,
                     campos: [...Object.keys(plan.hallazgo), ...Object.keys(plan.tarea)] };
+                // Un reintento de algo ya aplicado no tiene nada que escribir.
                 if (input.modo !== 'aplicar' || !cambia)
                     return { ...resumen, aplicado: false };
+                // Solo se aplica lo que se revisó: cualquier diferencia de datos,
+                // reglas o propuesta desde la revisión obliga a revisar de nuevo.
                 if (huella !== (0, interventoria_mejoras_policy_1.texto)(item.huella))
                     throw Error('Los datos cambiaron desde la revisión. Revisa de nuevo.');
                 const ahora = admin.firestore.FieldValue.serverTimestamp();

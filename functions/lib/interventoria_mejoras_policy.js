@@ -1,14 +1,38 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.esDirectorCalidad = exports.texto = void 0;
+exports.texto = void 0;
+exports.origenAprobador = origenAprobador;
 exports.establecimiento = establecimiento;
 exports.planMejorasInterventoria = planMejorasInterventoria;
 const interventoria_aprobador_1 = require("./interventoria_aprobador");
+const interventoria_aprobador_maestro_1 = require("./interventoria_aprobador_maestro");
 const texto = (v) => String(v ?? '').trim();
 exports.texto = texto;
 const normal = (v) => (0, exports.texto)(v).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-const esDirectorCalidad = (cargo) => /\bdirectora?\b/.test(normal(cargo)) && /\bcalidad\b/.test(normal(cargo));
-exports.esDirectorCalidad = esDirectorCalidad;
+const ESTADOS_CERRADOS = ['finalizada', 'finalizado', 'completada', 'completado', 'aprobada', 'aprobado', 'cerrada',
+    'cerrado', 'cancelada', 'cancelado', 'terminada', 'terminado', 'completed', 'done', 'approved', 'closed',
+    'cancelled', 'canceled'];
+/**
+ * De d\u00f3nde sali\u00f3 el aprobador guardado. Solo el del maestro se puede
+ * sustituir; el elegido a mano (o cambiado despu\u00e9s) se conserva, y el de
+ * origen desconocido queda como pendiente para una persona.
+ * @param {Datos} h Hallazgo.
+ * @param {Datos} t Tarea, si existe.
+ * @return {string} maestro, manual o desconocido.
+ */
+function origenAprobador(h, t) {
+    const origen = (0, exports.texto)(t?.origenAprobador || h.origenAprobador);
+    const automatica = t?.asignacionAutomatica === true || (0, exports.texto)(t?.creador_id) === 'interventoria_automatica';
+    if ((0, exports.texto)(h.aprobadorCambiadoPor) || ['elegido', 'jefeInmediato'].includes(origen))
+        return 'manual';
+    if (origen === 'maestro' || (!origen && automatica))
+        return 'maestro';
+    // "actual" en una asignaci\u00f3n a mano lo confirm\u00f3 una persona en el di\u00e1logo;
+    // en una autom\u00e1tica es un aprobador heredado que nadie revis\u00f3.
+    if (origen === 'actual')
+        return automatica ? 'desconocido' : 'manual';
+    return 'desconocido';
+}
 function establecimiento(centro, sub) {
     const palabras = (0, exports.texto)(centro).split(/\s+/).length;
     const partes = (0, exports.texto)(sub).split(/\s+/);
@@ -30,6 +54,17 @@ function lineaCabecera(descripcion, etiqueta, valor) {
         cabecera = `${linea}\n${cabecera}`;
     return cabecera + cuerpo;
 }
+/**
+ * Plan de sincronización de un hallazgo y su tarea. No escribe: devuelve los
+ * campos que cambiarían, lo que queda pendiente y por qué.
+ *
+ * El aprobador lo propone la app con el mismo resolvedor del maestro que usa
+ * al asignar (cobertura, prioridad de sede y empates). Aquí se valida que esa
+ * persona esté habilitada en la empresa, que su cargo real cumpla el cargo
+ * que el maestro vigente pide para el numeral y que no sea quien responde.
+ * @param {object} input Documentos leídos y personas resueltas.
+ * @return {object} Plan.
+ */
 function planMejorasInterventoria(input) {
     const { empresaId, hallazgoId, hallazgo: h, tarea: t, visita: v, actual, propuesto } = input;
     const hp = {};
@@ -64,18 +99,15 @@ function planMejorasInterventoria(input) {
     Object.assign(hp, datosSub);
     if (t)
         Object.assign(tp, datosSub, { centroCostoNombre: (0, exports.texto)(h.centroCostoNombre) });
-    const origen = (0, exports.texto)(t?.origenAprobador || h.origenAprobador);
-    const automatica = !(0, exports.texto)(h.aprobadorCambiadoPor) &&
-        (origen === 'maestro' || (!origen && (t?.asignacionAutomatica === true ||
-            (0, exports.texto)(t?.creador_id) === 'interventoria_automatica')));
+    const origen = origenAprobador(h, t);
     const cerrada = h.subsanado === true || ['subsanado', 'cerrado'].includes(normal(h.estado)) ||
-        ['finalizada', 'finalizado', 'completada', 'completado', 'aprobada', 'aprobado', 'cerrada', 'cerrado', 'cancelada', 'cancelado',
-            'terminada', 'terminado', 'completed', 'done', 'approved', 'closed', 'cancelled', 'canceled']
-            .includes(normal(t?.estado || t?.status));
-    const equivocada = automatica && !cerrada &&
-        (normal(h.cargoAprobador) === 'director de calidad' || h.revisionAprobadorPendiente === true) &&
-        (!actual || !(0, exports.esDirectorCalidad)(actual.cargo));
+        ESTADOS_CERRADOS.includes(normal(t?.estado || t?.status));
+    const requeridos = (0, interventoria_aprobador_maestro_1.cargosAprobadoresDe)(h, input.reglas || {});
+    const pide = requeridos.join(' o ');
+    const actualCumple = !!actual && actual.habilitado && (0, interventoria_aprobador_maestro_1.cumpleCargo)(requeridos, actual.cargo);
+    const quien = actual ? `${actual.nombre} (${actual.cargo || 'sin cargo registrado'})` : 'El hallazgo no tiene aprobador';
     let persona = actual;
+    let razon = '';
     const identidades = [t?.jefe_uid, t?.aprobador_uid, t?.approverId, t?.aprobadorId]
         .map(exports.texto).filter(Boolean);
     const conflicto = identidades.some((id) => id !== (0, exports.texto)(h.aprobadorId));
@@ -83,26 +115,53 @@ function planMejorasInterventoria(input) {
         persona = undefined;
         avisos.push('Hallazgo y tarea tienen aprobadores diferentes: revisar manualmente.');
     }
-    if (equivocada) {
-        if (conflicto) {
-            hp.revisionAprobadorPendiente = true;
+    else if (cerrada) {
+        razon = 'Tarea cerrada: se conserva quien aprobó.';
+    }
+    else if (origen === 'manual') {
+        razon = 'Aprobador elegido a mano: se conserva la persona.';
+        if (requeridos.length && actual && !actualCumple) {
+            avisos.push(`Aprobador elegido a mano que no cumple ${pide}: se conserva la persona y se corrige su cargo.`);
         }
-        else if (propuesto && (0, exports.esDirectorCalidad)(propuesto.cargo) && propuesto.id !== (0, exports.texto)(h.responsableId) &&
-            propuesto.id !== (0, exports.texto)(t?.asignado_uid || t?.assignedTo)) {
+    }
+    else if (origen === 'desconocido') {
+        razon = 'No consta si el aprobador salió del maestro o se eligió a mano: no se sustituye.';
+        if (!actualCumple) {
+            avisos.push(`Origen del aprobador desconocido y ${actual ? quien : 'sin aprobador'} ` +
+                `${requeridos.length ? `no cumple ${pide}` : 'sin regla del maestro'}: revisar manualmente.`);
+        }
+    }
+    else if (propuesto && propuesto.id !== actual?.id) {
+        const requerido = (0, exports.texto)(input.cargoRequerido);
+        const responsables = [h.responsableId, t?.asignado_uid, t?.assignedTo].map(exports.texto).filter(Boolean);
+        if (!propuesto.habilitado) {
+            avisos.push(`${propuesto.nombre} no está habilitado en la empresa: revisar de nuevo.`);
+        }
+        else if (!requeridos.some((c) => (0, interventoria_aprobador_maestro_1.normalizarCargo)(c) === (0, interventoria_aprobador_maestro_1.normalizarCargo)(requerido)) ||
+            (0, interventoria_aprobador_maestro_1.afinidadCargo)(requeridos.find((c) => (0, interventoria_aprobador_maestro_1.normalizarCargo)(c) === (0, interventoria_aprobador_maestro_1.normalizarCargo)(requerido)) || requerido, propuesto.cargo) === null) {
+            avisos.push(`${propuesto.nombre} (${propuesto.cargo || 'sin cargo'}) no cumple el cargo que pide el maestro ` +
+                `(${pide || 'sin regla'}): elegir aprobador manualmente.`);
+        }
+        else if (responsables.includes(propuesto.id)) {
+            avisos.push(`El aprobador del maestro (${propuesto.nombre}) es quien responde la tarea: elegir aprobador manualmente.`);
+        }
+        else {
+            razon = !actual ? `Sin aprobador; el maestro pide ${requerido}.` :
+                !actual.habilitado ? `${actual.nombre} ya no está habilitado en la empresa.` :
+                    !actualCumple ? `${quien} no cumple el cargo ${pide} que pide el maestro.` :
+                        `El maestro vigente asigna a otra persona con el cargo ${requerido} para este establecimiento.`;
             persona = propuesto;
-            Object.assign(hp, { aprobadorId: propuesto.id, aprobadorNombre: propuesto.nombre,
-                revisionAprobadorPendiente: false });
+            Object.assign(hp, { aprobadorId: propuesto.id, aprobadorNombre: propuesto.nombre });
+            // Marca de la versión anterior de este botón: se limpia al resolver.
+            if (h.revisionAprobadorPendiente === true)
+                hp.revisionAprobadorPendiente = false;
             if (t)
                 Object.assign(tp, (0, interventoria_aprobador_1.camposAprobadorTarea)(propuesto.id, propuesto.nombre), { origenAprobador: 'maestro' });
         }
-        else {
-            hp.revisionAprobadorPendiente = true;
-            avisos.push('No hay director de Calidad válido según el maestro: elegir aprobador manualmente.');
-        }
     }
-    if (!automatica && !cerrada && normal(h.cargoAprobador) === 'director de calidad' &&
-        actual && !(0, exports.esDirectorCalidad)(actual.cargo)) {
-        avisos.push('Aprobador manual o de origen no confirmado: se conserva la persona y se corrige su cargo.');
+    else if (!propuesto && !actualCumple) {
+        avisos.push(!requeridos.length ? 'El maestro no define aprobador para este numeral: elegir manualmente.' :
+            `${actual ? quien : 'Sin aprobador'}: no cumple ${pide} y el maestro no resuelve una persona única. Elegir manualmente.`);
     }
     if (persona && persona.cargo) {
         hp.cargoAprobador = persona.cargo;
@@ -135,7 +194,10 @@ function planMejorasInterventoria(input) {
         }
     }
     const distintos = (patch, original) => Object.fromEntries(Object.entries(patch).filter(([k, val]) => val !== (original[k] ?? (typeof val === 'string' ? '' : undefined))));
-    return { hallazgo: distintos(hp, h), tarea: distintos(tp, t || {}), avisos,
-        anterior: (0, exports.texto)(h.aprobadorNombre), nuevo: persona?.nombre || (0, exports.texto)(h.aprobadorNombre),
+    const hallazgo = distintos(hp, h);
+    const resumen = (p, nombre = '') => ({ id: p?.id || (0, exports.texto)(h.aprobadorId),
+        nombre: p?.nombre || nombre || (0, exports.texto)(h.aprobadorNombre), cargo: p?.cargo || '' });
+    return { hallazgo, tarea: distintos(tp, t || {}), avisos, origen, razon, requeridos,
+        anterior: resumen(actual), nuevo: resumen(hallazgo.aprobadorId ? propuesto : actual),
         establecimiento: establecimiento((0, exports.texto)(h.centroCostoNombre), subNombre) };
 }
