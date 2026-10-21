@@ -330,7 +330,7 @@ class _InterventoriaHallazgoPanelState
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _h.centroCostoNombre,
+                  _h.establecimiento,
                   style: const TextStyle(
                     fontWeight: FontWeight.w900,
                     fontSize: 15,

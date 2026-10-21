@@ -474,6 +474,29 @@ AprobadorPropuesto resolverAprobadorAsignacion({
 String cargoDelAprobador(AprobadorPropuesto propuesto) =>
     propuesto.persona?.cargo.trim() ?? '';
 
+/// Contexto de ubicación compartido por las tareas enviadas desde Web y móvil.
+({String titulo, String ubicacion, Map<String, String> campos})
+contextoTareaInterventoria(InterventoriaHallazgo hallazgo) {
+  final numero = hallazgo.numeroHallazgo.isEmpty
+      ? ''
+      : ' Obs.${hallazgo.numeroHallazgo}:';
+  final descripcion = hallazgo.descripcion.length > 80
+      ? '${hallazgo.descripcion.substring(0, 77)}…'
+      : hallazgo.descripcion;
+  return (
+    titulo: '${hallazgo.establecimiento}$numero $descripcion',
+    ubicacion:
+        'Centro de costo: ${hallazgo.centroCostoNombre}\n'
+        '${hallazgo.subcentroNombre.trim().isEmpty ? '' : 'Subcentro: ${hallazgo.subcentroNombre.trim()}\n'}',
+    campos: {
+      'centroCostoId': hallazgo.centroCostoId,
+      'centroCostoNombre': hallazgo.centroCostoNombre,
+      'subcentroId': hallazgo.subcentroId,
+      'subcentroNombre': hallazgo.subcentroNombre,
+    },
+  );
+}
+
 /// Jerarquía de cargos para elegir quién responde por un área.
 /// El índice más bajo = mayor rango. Si el cargo contiene cualquiera de
 /// estas palabras se asigna ese nivel; de lo contrario nivel máximo (99).
@@ -4325,19 +4348,14 @@ class InterventoriaService {
         );
 
     // ── 3. Título: "CentroCosto · Obs.N: descripción corta" ─────────────────
-    final numPart = hallazgo.numeroHallazgo.isNotEmpty
-        ? ' Obs.${hallazgo.numeroHallazgo}:'
-        : '';
-    final descCorta = hallazgo.descripcion.length > 80
-        ? '${hallazgo.descripcion.substring(0, 77)}…'
-        : hallazgo.descripcion;
-    final titulo = '${hallazgo.centroCostoNombre}$numPart $descCorta';
+    final contexto = contextoTareaInterventoria(hallazgo);
+    final titulo = contexto.titulo;
 
     // ── 4. Descripción completa ──────────────────────────────────────────────
     final sb = StringBuffer();
     sb.writeln('📌 OBSERVACIÓN DE INTERVENTORÍA');
     sb.writeln('Hallazgo N°: ${hallazgo.numeroHallazgo}');
-    sb.writeln('Centro de costo: ${hallazgo.centroCostoNombre}');
+    sb.write(contexto.ubicacion);
     if (hallazgo.dptoEncargado.isNotEmpty) {
       sb.writeln('Departamento: ${hallazgo.dptoEncargado}');
     }
@@ -4444,7 +4462,7 @@ class InterventoriaService {
       extra: {
         'hallazgoId': hallazgo.id,
         'visitaId': hallazgo.visitaId,
-        'centroCostoId': hallazgo.centroCostoId,
+        ...contexto.campos,
         'origen': 'interventoria',
         'sourceModule': 'interventoria',
         'sourceType': 'hallazgo',
@@ -4509,7 +4527,7 @@ class InterventoriaService {
         taskId: taskId,
         hallazgoId: hallazgo.id,
         empresaId: hallazgo.empresaId,
-        centroCostoNombre: hallazgo.centroCostoNombre,
+        centroCostoNombre: hallazgo.establecimiento,
         responsableId: destinatarioId,
         responsableNombre: destinatarioNombre,
         aprobadorId: aprobador.id,

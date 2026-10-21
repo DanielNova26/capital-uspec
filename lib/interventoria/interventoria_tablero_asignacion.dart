@@ -465,7 +465,7 @@ class _InterventoriaTableroAsignacionState
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      h.centroCostoNombre,
+                      h.establecimiento,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -1377,7 +1377,7 @@ Future<AsignacionManual?> elegirAsignacionManual(
     builder: (_) => InterventoriaSelectorPersona(
       usuarios: usuarios,
       centroCostoId: hallazgo.centroCostoId,
-      centroCostoNombre: hallazgo.centroCostoNombre,
+      centroCostoNombre: hallazgo.establecimiento,
       areas: areas,
       sugeridosIds: sugeridosIds,
       mostrarTodaEmpresaInicialmente: mostrarTodaEmpresaInicialmente,
@@ -1438,7 +1438,7 @@ Future<InterventoriaPersona?> elegirAprobadorHallazgo(
       etiquetaSugerido: 'Aprobador del maestro',
       usuarios: usuarios,
       centroCostoId: hallazgo.centroCostoId,
-      centroCostoNombre: hallazgo.centroCostoNombre,
+      centroCostoNombre: hallazgo.establecimiento,
       areas: areas,
       sugeridosIds: sugeridosIds,
       mostrarTodaEmpresaInicialmente: true,
@@ -1568,7 +1568,7 @@ class _ConfirmarAsignacionDialogState
             children: [
               Text(
                 '${numeral.isEmpty ? 'Hallazgo' : 'Numeral $numeral'}'
-                ' · ${h.centroCostoNombre}',
+                ' · ${h.establecimiento}',
                 style: const TextStyle(fontSize: 12, color: _muted),
               ),
               const SizedBox(height: 14),

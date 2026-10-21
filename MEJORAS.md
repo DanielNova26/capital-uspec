@@ -1,5 +1,44 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-21 — Admin: sincronizar mejoras de Interventoría y subcentro en tareas (Codex)
+
+- Admin → Apps, roles y permisos → Módulos → Interventoría incorpora
+  «Sincronizar mejoras de Interventoría», exclusivo de Desarrollo en interfaz
+  y servidor. «Revisar mejoras» muestra cambios y pendientes; «Aplicar
+  sincronización» aplica solo el plan revisado en la empresa seleccionada.
+  Cambiar de empresa invalida la revisión y detiene los siguientes lotes.
+- Usa el resolvedor común del maestro para proponer al director de Calidad.
+  El servidor limita la sustitución al fallo conocido de asignación automática,
+  verifica persona vigente y cargo de esa empresa, conserva elecciones manuales
+  y aprobaciones cerradas, y deja pendientes los casos sin candidato válido o
+  con identidades contradictorias. Corrige el cargo personal y el texto viejo
+  de la descripción; actualiza conjuntamente hallazgo y aliases de aprobador de
+  la tarea. Una nueva persona recibe aviso; no cambia estados, avances ni fechas.
+- Recupera el subcentro faltante desde el acta vinculada de la misma empresa y
+  centro. Las tareas nuevas incluyen subcentro en título, descripción y campos;
+  el botón completa las enviadas. Tablero, panel de seguimiento y confirmación
+  de asignación muestran establecimiento y subcentro sin repetir el centro.
+  Si los datos se contradicen se señala para revisión; no se inventan subcentros.
+- Lotes de hasta 20 hallazgos, transacción por hallazgo/tarea, huella de la revisión
+  para detectar modificaciones concurrentes, reintentos idempotentes y bitácora
+  antes/después en `TBL_MIGRATIONS_LOGS`. No ejecuta migraciones al desplegar.
+  No añade roles, maestros ni fuentes de configuración; conserva el catálogo
+  existente de Interventoría y la lógica compartida de Web/Android/iOS.
+- Validación: 337 pruebas Flutter aprobadas (14 del botón y 3 de contexto de
+  tareas nuevas), 28 pruebas unitarias de servidor y 7 integradas con emulador
+  Firestore. Incluyen autorización, retiro/reactivación, autoridad histórica,
+  empresa secundaria, revisión sin escrituras, concurrencia y reintento.
+  Botón probado a 390/768/1024/1366 y texto 1,8× con temas Windows/Android/iOS.
+  TypeScript y lint de archivos nuevos sin incidencias; análisis de archivos
+  nuevos/Interventoría sin incidencias. Admin conserva siete avisos previos.
+- Web release publicada en `https://to-do-gestion.web.app`; JavaScript descargado
+  del sitio verificado por SHA-256 contra la compilación local. Función indispensable
+  `interventoriaSincronizarMejoras` publicada en `integra360-94704/us-central1`
+  (Node 22). No se generan ni publican Android/iOS.
+  Pendientes: usar el botón para revisar/aplicar los datos productivos y comprobar
+  la sesión autenticada en navegador real. Sin prueba física Android/iOS de
+  teclado, áreas seguras o permisos; no se compilaron aplicaciones móviles.
+
 ## 2026-10-21 — Interventoría: supervisor mostrado como director de Calidad (Codex)
 
 - Causa reproducida: `Director de calidad` aceptaba cualquier cargo con

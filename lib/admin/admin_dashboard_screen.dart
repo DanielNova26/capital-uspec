@@ -1,5 +1,6 @@
 import 'task_numeracion_card.dart';
 import 'task_jefes_sync_card.dart';
+import 'interventoria_mejoras_card.dart';
 import 'purchase_module_role.dart';
 import 'purchase_module_roles_repository.dart';
 import 'purchase_module_roles_panel.dart';
@@ -8340,6 +8341,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           ),
         ),
         const SizedBox(height: 14),
+        if (module.key == 'interventoria' &&
+            _users.any(
+              (u) =>
+                  u.id == widget.userId &&
+                  isDeveloperUser(u.data(), empresaId: empresaId),
+            )) ...[
+          InterventoriaMejorasCard(
+            key: ValueKey('interventoria_mejoras_$empresaId'),
+            empresaId: empresaId,
+          ),
+          const SizedBox(height: 14),
+        ],
         if (module.key == 'tareas') ...[
           TaskModuleRolesPanel(
             key: ValueKey('task_roles_$empresaId'),
