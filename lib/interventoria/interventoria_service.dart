@@ -469,22 +469,10 @@ AprobadorPropuesto resolverAprobadorAsignacion({
 
 /// Cargo que queda escrito como "aprueba" en el hallazgo y en la tarea.
 ///
-/// Si salió de la regla, el cargo tal como lo nombra el maestro; si se eligió
-/// a mano o es el jefe inmediato, el cargo real de esa persona.
-String cargoDelAprobador(
-  AprobadorPropuesto propuesto, {
-  String cargoRegla = '',
-}) {
-  final persona = propuesto.persona;
-  if (persona == null) return '';
-  if (propuesto.origen == OrigenAprobador.maestro &&
-      cargoRegla.trim().isNotEmpty) {
-    return cargoRegla.trim();
-  }
-  return persona.cargoMatriz.trim().isNotEmpty
-      ? persona.cargoMatriz.trim()
-      : persona.cargo.trim();
-}
+/// Siempre el cargo de la persona. El cargo solicitado por el maestro es un
+/// criterio de selección, no un cargo que se pueda atribuir al aprobador.
+String cargoDelAprobador(AprobadorPropuesto propuesto) =>
+    propuesto.persona?.cargo.trim() ?? '';
 
 /// Jerarquía de cargos para elegir quién responde por un área.
 /// El índice más bajo = mayor rango. Si el cargo contiene cualquiera de
@@ -4327,10 +4315,7 @@ class InterventoriaService {
     }
     final jefeId = aprobador.id;
     final jefeNombre = aprobador.nombre;
-    final cargoAprobador = cargoDelAprobador(
-      propuesto,
-      cargoRegla: asignacion?.cargoAprobador ?? '',
-    );
+    final cargoAprobador = cargoDelAprobador(propuesto);
 
     final fechaLimite =
         asignacion?.fechaLimite ??

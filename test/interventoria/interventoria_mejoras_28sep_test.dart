@@ -110,18 +110,12 @@ void main() {
       expect(porRegla.origen, OrigenAprobador.maestro);
     });
 
-    test(
-      'el cargo de la regla se conserva cuando el aprobador sale de ella',
-      () {
-        final propuesto = resolverAprobadorAsignacion(
-          delMaestro: persona(miguel),
-        );
-        expect(
-          cargoDelAprobador(propuesto, cargoRegla: 'Director de operaciones'),
-          'Director de operaciones',
-        );
-      },
-    );
+    test('se registra el cargo real del aprobador', () {
+      final propuesto = resolverAprobadorAsignacion(
+        delMaestro: persona(miguel),
+      );
+      expect(cargoDelAprobador(propuesto), 'Director de operaciones');
+    });
   });
 
   group('el 3.1 que "no aparece" en el maestro', () {

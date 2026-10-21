@@ -890,9 +890,9 @@ class _InterventoriaHallazgoPanelState
           cargoResponsable: persona.cargo,
           aprobadorId: aprobador.id,
           aprobadorNombre: aprobador.nombre,
-          cargoAprobador: aprobador.cargoMatriz.trim().isNotEmpty
-              ? aprobador.cargoMatriz
-              : aprobador.cargo,
+          cargoAprobador: cargoDelAprobador(
+            AprobadorPropuesto(aprobador, OrigenAprobador.elegido),
+          ),
         );
       });
       _aviso('Asignado a ${persona.nombre} · aprueba ${aprobador.nombre}');

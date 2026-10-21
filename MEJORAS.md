@@ -1,5 +1,29 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-21 — Interventoría: supervisor mostrado como director de Calidad (Codex)
+
+- Causa reproducida: `Director de calidad` aceptaba cualquier cargo con
+  «calidad». La prioridad de sede podía elegir al supervisor por encima de
+  la dirección corporativa; después se guardaba el cargo del maestro como
+  si fuera el de esa persona. Se retiró esa equivalencia y se exige director
+  o directora (tampoco subdirector). Las nuevas asignaciones guardan el cargo
+  personal y el panel muestra el mismo valor inmediatamente.
+- Se conserva la política vigente: el aprobador del maestro tiene prioridad;
+  el jefe inmediato es respaldo para asignación manual cuando falta aprobador.
+  Si la regla automática no encuentra director, queda pendiente de asignación
+  manual. No se cambia la jefatura ni se sustituye automáticamente el aprobador
+  de hallazgos históricos. Revisarlos en «Cambiar aprobador» con la persona
+  autorizada, verificando el responsable y el maestro vigente de esa empresa.
+- Validación: 320 pruebas Flutter de Interventoría aprobadas, incluidas diez
+  regresiones nuevas de selección, jerarquía, jefe inmediato y cargo mostrado;
+  analizador de los seis archivos Dart modificados sin incidencias.
+- Lógica compartida por Web/Android/iOS, sin cambios de navegación ni permisos.
+  Sin consulta ni modificación de datos productivos. Pendientes: publicación
+  de clientes y revisión de las asignaciones históricas reportadas. No se
+  verificó este flujo en Web a 390/768/1024/1366 con texto aumentado ni en
+  dispositivos Android/iOS; las pruebas de widgets existentes no sustituyen
+  esa comprobación del flujo afectado.
+
 ## 2026-10-20 — Visitas descargadas sin filtro de fechas, 2.8.8+61 (Claude)
 
 - Decisión del usuario: quitar el filtro de fechas al descargar. La persona descarga de

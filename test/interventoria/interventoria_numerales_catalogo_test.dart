@@ -309,7 +309,7 @@ void main() {
       expect(afinidadCargo('Supervisor de Hse', 'Supervisor HSE'), isNotNull);
     });
 
-    test('prefiere la coincidencia más específica', () {
+    test('director de calidad exige el cargo, no solo pertenecer al área', () {
       final exacto = afinidadCargo(
         'Director de calidad',
         'Director de calidad',
@@ -319,8 +319,7 @@ void main() {
         'Analista de calidad',
       );
       expect(exacto, isNotNull);
-      expect(parcial, isNotNull);
-      expect(exacto! < parcial!, isTrue);
+      expect(parcial, isNull);
     });
 
     test('no confunde cargos de áreas distintas', () {

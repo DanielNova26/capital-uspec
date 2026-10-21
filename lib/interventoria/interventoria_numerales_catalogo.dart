@@ -685,7 +685,6 @@ const Map<String, List<List<String>>> kInterventoriaCargoAlternativas = {
   ],
   'Director de calidad': [
     ['director', 'calidad'],
-    ['calidad'],
   ],
   'Gerencia': [
     ['gerencia'],
@@ -699,6 +698,12 @@ const Map<String, List<List<String>>> kInterventoriaCargoAlternativas = {
 /// o `null` si no coincide ninguna. Sirve para elegir entre varios candidatos:
 /// gana el de índice más bajo.
 int? afinidadCargo(String cargoMatriz, String cargoUsuario) {
+  // La sede no convierte a un supervisor/coordinador en director. Tampoco
+  // basta que "director" aparezca dentro de "subdirector".
+  if (normalizarCargo(cargoMatriz) == 'director de calidad' &&
+      !RegExp(r'\bdirectora?\b').hasMatch(normalizarCargo(cargoUsuario))) {
+    return null;
+  }
   final alternativas = kInterventoriaCargoAlternativas[cargoMatriz];
   final objetivo = normalizarCargo(cargoUsuario);
   if (objetivo.isEmpty) return null;
