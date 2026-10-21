@@ -191,9 +191,6 @@ export const visitasPrepararOffline = functions.region("us-central1").https.onCa
       fail("Solo puedes descargar tus visitas programadas, todavía sin iniciar.");
     }
     const now = Date.now();
-    if (ms(v.fechaProgramada) + DAY <= now || ms(v.fechaProgramada) >= now + 7 * DAY) {
-      fail("Descarga visitas de hoy o de los próximos siete días.");
-    }
     const fs = await tx.get(db.collection("TBL_VISITAS_FORMATOS").doc(formatoId));
     const formato = fs.data() || {};
     if (!fs.exists || formato.empresaId !== empresaId || formato.areaId !== v.areaId ||

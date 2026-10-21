@@ -201,16 +201,10 @@ class _VisitasDescargadasTabState extends State<VisitasDescargadasTab> {
         .first
         .timeout(const Duration(seconds: 15));
     final existing = await _packages;
-    // Misma ventana que valida el servidor: de hace 24 h a 7 días adelante.
-    final ahora = DateTime.now();
-    final desde = ahora.subtract(const Duration(days: 1));
-    final hasta = ahora.add(const Duration(days: 7));
     final choices = list
         .where(
           (v) =>
               v.estado == kVisitaProgramada &&
-              v.fechaProgramada.isAfter(desde) &&
-              v.fechaProgramada.isBefore(hasta) &&
               !existing.any((p) => p['visitaId'] == v.id),
         )
         .toList();
@@ -223,7 +217,7 @@ class _VisitasDescargadasTabState extends State<VisitasDescargadasTab> {
           width: 480,
           child: choices.isEmpty
               ? const Text(
-                  'No hay visitas programadas para hoy ni para los próximos siete días.',
+                  'No hay visitas programadas nuevas para descargar.',
                 )
               : ListView(
                   shrinkWrap: true,

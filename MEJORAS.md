@@ -1,5 +1,13 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-20 — Visitas descargadas sin filtro de fechas, 2.8.8+61 (Claude)
+
+- Decisión del usuario: quitar el filtro de fechas al descargar. La persona descarga de
+  noche las visitas del día siguiente y elige cuál llevar; la responsabilidad es suya.
+  Se retiró la ventana tanto en la lista como en `visitasPrepararOffline` (desplegada).
+  Se mantienen: visita propia y programada, y que las marcas de inicio/fin (hora y GPS en
+  el lugar) caigan en el día programado al sincronizar. Acceso local: siete días.
+
 ## 2026-10-20 — Visitas descargadas: ventana de fechas y error legible, 2.8.7+60 (Claude)
 
 - Prueba en tablet real: «Preparar visita sin conexión» mostraba el rastro técnico del error
