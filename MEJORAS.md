@@ -1,5 +1,35 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-21 — Interventoría: «Asignar por grupo» en Sin asignar (Claude)
+
+- Pedido del usuario: que «Sin asignar» diga qué cargo pide el maestro y no
+  encuentra, y que él ponga a quien corresponde eligiendo un grupo de
+  Interventoría (G1, G9…).
+- Cada tarjeta sin asignar muestra los dos roles: «Responde: …» y «Aprueba: …»
+  con la persona del maestro o el motivo concreto (falta el cargo X, varias
+  personas, sin numeral, el maestro no define cargo). Usa el selector común
+  (`resolucionAprobador`) ya compartido con asignación y sincronización.
+- Botón «Asignar por grupo (n)» junto a «Asignar por el maestro» (las acciones
+  pasan debajo del título para no desbordar en teléfono). Flujo: grupo → qué
+  falta (lotes de hallazgos a los que les falta lo mismo, con sedes) → persona
+  del grupo para cada rol faltante (primero quienes tienen el cargo; búsqueda y
+  «Toda la empresa») → vista previa → «Asignar n». Solo llena huecos: donde el
+  maestro resuelve responsable en la sede o aprobador único, se respeta (el
+  aprobador del maestro conserva origen `maestro`). Se omite, con motivo, el
+  hallazgo donde la misma persona respondería y aprobaría. Crea las tareas una
+  por una con un aviso por persona, como «Asignar por el maestro»; el
+  aprobador elegido queda como elección manual y «Sincronizar mejoras» no lo
+  cambia. Teléfono: pantalla completa; Web: ventana acotada a 760 px.
+- Grupos: `InterventoriaService.centrosPorGrupoInterventoria` (grupo del centro
+  de costo + Admin › Grupos), extraído de la carga de personal para no
+  duplicarlo. Lógica pura en `interventoria_asignacion_grupo.dart`.
+- No guarda la elección para hallazgos futuros (decisión del usuario: por
+  ahora solo asignación). No hay cambios de servidor ni de reglas: usa la misma
+  creación de tareas y permisos del tablero.
+- Validación: `flutter test` completo 1916/1916; nuevas pruebas de lotes,
+  candidatos del grupo, llenado de huecos y diálogo a 390/768/1024/1366 con
+  texto 1,6×. Sin prueba con sesión real ni en dispositivos Android/iOS.
+
 ## 2026-10-21 — Interventoría: aprobadores automáticos de todas las áreas en «Sincronizar mejoras» (Claude)
 
 - **Auditoría de equivalencias.** El fallo de Director de Calidad era general:

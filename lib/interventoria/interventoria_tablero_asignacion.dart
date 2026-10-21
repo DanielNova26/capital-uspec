@@ -7,6 +7,8 @@ import '../core/area_directory.dart';
 import '../widgets/paged_list.dart';
 import '../widgets/user_avatar.dart';
 import 'interventoria_actas_catalogo.dart';
+import 'interventoria_asignacion_grupo.dart';
+import 'interventoria_asignar_grupo_dialog.dart';
 import 'interventoria_models.dart';
 import 'interventoria_service.dart';
 import 'interventoria_avisos_asignacion.dart';
@@ -96,6 +98,13 @@ class _InterventoriaTableroAsignacionState
   Future<List<InterventoriaUsuario>> _cargarActivos() =>
       _activos ??= _leerActivos(widget.empresaId);
 
+  /// El mismo personal activo ya cargado, para explicar en cada tarjeta quién
+  /// aprobaría. null mientras carga o si falló.
+  List<InterventoriaUsuario>? _activosListos;
+
+  /// Establecimientos de cada grupo de Interventoría (`G1` → centros).
+  Map<String, Set<String>> _porGrupo = const {};
+
   Future<List<InterventoriaUsuario>> _leerActivos(String empresaId) async {
     try {
       return await widget.service.listarUsuariosActivos(empresaId);
@@ -130,6 +139,8 @@ class _InterventoriaTableroAsignacionState
       _reglasListas = false;
       _errorReglas = false;
       _activos = null;
+      _activosListos = null;
+      _porGrupo = const {};
       _cargarUsuarios();
       _escucharReglas();
     }
@@ -204,6 +215,7 @@ class _InterventoriaTableroAsignacionState
           _areas = areas;
           _cargandoUsuarios = false;
         });
+        unawaited(_cargarApoyos(empresaId, service));
       }
     } catch (_) {
       if (mounted &&
@@ -214,6 +226,30 @@ class _InterventoriaTableroAsignacionState
           _errorUsuarios = true;
         });
       }
+    }
+  }
+
+  /// Personal activo (aprobadores) y grupos: no bloquean el tablero; si
+  /// fallan, la tarjeta lo dice y «Asignar por grupo» no aparece.
+  Future<void> _cargarApoyos(
+    String empresaId,
+    InterventoriaService service,
+  ) async {
+    List<InterventoriaUsuario>? activos;
+    var grupos = const <String, Set<String>>{};
+    try {
+      activos = await _cargarActivos();
+    } catch (_) {}
+    try {
+      grupos = await service.centrosPorGrupoInterventoria(empresaId);
+    } catch (_) {}
+    if (mounted &&
+        widget.empresaId == empresaId &&
+        identical(widget.service, service)) {
+      setState(() {
+        _activosListos = activos;
+        _porGrupo = grupos;
+      });
     }
   }
 
@@ -310,9 +346,9 @@ class _InterventoriaTableroAsignacionState
             icono: Icons.person_off_outlined,
             rows: sinAsignar,
             columnas: columnas,
-            accion: widget.canWrite && asignablesEnSede.isNotEmpty
-                ? _botonAsignarTodos(asignablesEnSede)
-                : null,
+            accion: !widget.canWrite
+                ? null
+                : _accionesSinAsignar(asignablesEnSede, sinAsignar),
           ),
           _seccion(
             titulo: 'Vencidos',
@@ -405,10 +441,13 @@ class _InterventoriaTableroAsignacionState
                   style: const TextStyle(fontSize: 11, color: _muted),
                 ),
               ),
-              ?accion,
             ],
           ),
         ),
+        // Las acciones van debajo del título: en un teléfono dos botones en
+        // la misma fila que el título se salen de la pantalla.
+        if (accion != null)
+          Padding(padding: const EdgeInsets.only(bottom: 10), child: accion),
         if (columnas == 1)
           ...visibles.map(_tarjeta)
         else
@@ -622,7 +661,61 @@ class _InterventoriaTableroAsignacionState
     );
   }
 
-  Widget _lineaSinResponsable(InterventoriaHallazgo h) {
+  /// Qué falta en un hallazgo sin asignar, por rol: quién respondería y quién
+  /// aprobaría según el maestro, o qué cargo pide y no encuentra.
+  Widget _lineaSinResponsable(InterventoriaHallazgo h) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _motivoResponsable(h),
+      const SizedBox(height: 4),
+      _motivoAprobador(h),
+    ],
+  );
+
+  Widget _motivoAprobador(InterventoriaHallazgo h) {
+    final activos = _activosListos;
+    if (!_reglasListas || _cargandoUsuarios) return const SizedBox.shrink();
+    if (activos == null) {
+      return const Text(
+        'Buscando quién aprueba…',
+        style: TextStyle(fontSize: 12, color: _muted),
+      );
+    }
+    final r = widget.service.resolucionAprobador(h, activos, reglas: _reglas);
+    final p = r.persona;
+    final texto = p != null
+        ? 'Aprueba: ${p.nombre}${p.cargo.trim().isEmpty ? '' : ' · ${p.cargo}'}'
+        : h.numeralParaMatriz.isEmpty
+        ? 'Aprueba: sin numeral, elige tú'
+        : r.sinRegla
+        ? 'Aprueba: el maestro no define cargo, elige tú'
+        : r.ambiguo
+        ? 'Aprueba: ${r.cargoMatriz} — varias personas '
+              '(${r.candidatos.map((c) => c.nombre).join(', ')}), elige tú'
+        : 'Aprueba: falta ${r.cargos.join(' o ')} — nadie activo tiene ese '
+              'cargo, elige tú';
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          p != null ? Icons.verified_user_outlined : Icons.help_outline,
+          size: 14,
+          color: p != null ? _accent : _warn,
+        ),
+        const SizedBox(width: 5),
+        Expanded(
+          child: Text(
+            texto,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 12, color: p != null ? _accent : _warn),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _motivoResponsable(InterventoriaHallazgo h) {
     if (_cargandoUsuarios) {
       return const Text(
         'Buscando responsable…',
@@ -720,8 +813,9 @@ class _InterventoriaTableroAsignacionState
                 : cargos.isEmpty
                 ? '${_mayuscula(nombreMaestroDeActa(h.tipoActa))} no define '
                       'responsable para ${h.numeralParaMatriz}: elige tú'
-                : 'No hay personal asignable en esta empresa para '
-                      '${h.numeralParaMatriz} (${cargos.join(' o ')}): elige tú',
+                : 'Responde: falta ${cargos.join(' o ')} — nadie que '
+                      'reciba tareas tiene ese cargo para ${h.numeralParaMatriz}, '
+                      'elige tú',
             maxLines: 3,
             style: const TextStyle(fontSize: 12, color: _warn),
           ),
@@ -890,18 +984,125 @@ class _InterventoriaTableroAsignacionState
         ),
       );
     }
-    return Padding(
-      padding: const EdgeInsets.only(left: 10),
-      child: FilledButton.icon(
-        onPressed: () => _asignarTodosSugeridos(sugeridos),
-        style: FilledButton.styleFrom(
-          visualDensity: VisualDensity.compact,
-          backgroundColor: _accent,
+    return FilledButton.icon(
+      onPressed: () => _asignarTodosSugeridos(sugeridos),
+      style: FilledButton.styleFrom(
+        visualDensity: VisualDensity.compact,
+        backgroundColor: _accent,
+      ),
+      icon: const Icon(Icons.done_all_rounded, size: 16),
+      label: Text(
+        'Asignar por el maestro (${sugeridos.length})',
+        style: const TextStyle(fontSize: 12),
+      ),
+    );
+  }
+
+  /// Hallazgos sin asignar con lo que resuelve el maestro para cada uno.
+  List<HuecoAsignacion> _huecos(List<InterventoriaHallazgo> sinAsignar) {
+    final activos = _activosListos;
+    if (_cargandoUsuarios || _errorUsuarios || !_reglasListas) return const [];
+    if (activos == null) return const [];
+    return [
+      for (final h in sinAsignar)
+        huecoDe(
+          h,
+          service: widget.service,
+          asignables: _usuarios,
+          activos: activos,
+          reglas: _reglas,
         ),
-        icon: const Icon(Icons.done_all_rounded, size: 16),
-        label: Text(
-          'Asignar por el maestro (${sugeridos.length})',
-          style: const TextStyle(fontSize: 12),
+    ];
+  }
+
+  Widget? _accionesSinAsignar(
+    List<InterventoriaHallazgo> asignablesEnSede,
+    List<InterventoriaHallazgo> sinAsignar,
+  ) {
+    if (_asignandoMasivo) {
+      return const SizedBox(
+        width: 16,
+        height: 16,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      );
+    }
+    final huecos = _huecos(sinAsignar);
+    final porGrupo = gruposConHuecos(huecos, _porGrupo);
+    if (asignablesEnSede.isEmpty && porGrupo.isEmpty) return null;
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        if (asignablesEnSede.isNotEmpty) _botonAsignarTodos(asignablesEnSede),
+        if (porGrupo.isNotEmpty && !_asignandoMasivo)
+          OutlinedButton.icon(
+            onPressed: () => _asignarPorGrupo(huecos),
+            style: OutlinedButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+            ),
+            icon: const Icon(Icons.groups_2_outlined, size: 16),
+            label: Text(
+              'Asignar por grupo (${porGrupo.values.fold<int>(0, (a, b) => a + b)})',
+              style: const TextStyle(fontSize: 12),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// Elegir grupo, qué falta y a quién poner; crea las tareas uno por uno
+  /// con un aviso por persona al final, como «Asignar por el maestro».
+  Future<void> _asignarPorGrupo(List<HuecoAsignacion> huecos) async {
+    final activos = _activosListos;
+    if (activos == null) return;
+    final elegido = await mostrarAsignarPorGrupo(
+      context,
+      huecos: huecos,
+      centrosPorGrupo: _porGrupo,
+      asignables: _usuarios,
+      activos: activos,
+    );
+    if (elegido == null || !mounted) return;
+    setState(() => _asignandoMasivo = true);
+    var ok = 0;
+    var fallidos = 0;
+    final creadas = <InterventoriaTareaCreada>[];
+    await widget.service.enLote(() async {
+      for (final a in elegido.asignar) {
+        final clave = _claveOcupado(a.hueco.hallazgo);
+        if (_asignando.contains(clave)) continue;
+        try {
+          var hallazgo = a.hueco.hallazgo;
+          if (hallazgo.id.isEmpty) {
+            final id = await widget.service.guardarHallazgo(hallazgo);
+            hallazgo = hallazgo.copyWithId(id);
+          }
+          await widget.service.crearTareaYNotificarHallazgo(
+            hallazgo: hallazgo,
+            creadorId: widget.userId,
+            creadorNombre: widget.userId,
+            responsableForzado: a.responsable,
+            // Sin elegido, el del maestro: la tarea conserva ese origen.
+            aprobadorForzado: a.aprobadorElegido,
+            notificarCreacion: false,
+            alCrear: creadas.add,
+          );
+          ok++;
+        } catch (_) {
+          fallidos++;
+        }
+      }
+      await widget.service.enviarAvisosAsignacion(creadas);
+    });
+    if (!mounted) return;
+    setState(() => _asignandoMasivo = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: fallidos == 0 ? _ok : _warn,
+        content: Text(
+          fallidos == 0
+              ? 'Grupo ${elegido.lote.grupo}: asignados $ok hallazgos'
+              : 'Grupo ${elegido.lote.grupo}: asignados $ok · $fallidos no se pudieron asignar',
         ),
       ),
     );

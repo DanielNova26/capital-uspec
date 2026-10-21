@@ -2989,11 +2989,16 @@ class InterventoriaService {
     () => _leerUsuariosDeEmpresa(empresaId, soloAsignables: soloAsignables),
   );
 
-  Future<List<InterventoriaUsuario>> _leerUsuariosDeEmpresa(
-    String empresaId, {
-    bool soloAsignables = true,
-  }) async {
-    final snap = await _db.collection('TBL_USUARIOS').get();
+  /// Establecimientos de cada grupo de Interventoría (`G1` → centros), por
+  /// el grupo del centro de costo y por Admin › Gestión interna › Grupos. Es
+  /// la misma cobertura por grupo que usa la asignación.
+  Future<Map<String, Set<String>>> centrosPorGrupoInterventoria(
+    String empresaId,
+  ) => _leerEnLote('grupos|$empresaId', () => _leerCentrosPorGrupo(empresaId));
+
+  Future<Map<String, Set<String>>> _leerCentrosPorGrupo(
+    String empresaId,
+  ) async {
     final centrosPorGrupo = <String, Set<String>>{};
     try {
       final centrosSnap = await _db
@@ -3039,6 +3044,15 @@ class InterventoriaService {
     } catch (_) {
       // Sin permiso o sin red se sigue con la cobertura de cada persona.
     }
+    return centrosPorGrupo;
+  }
+
+  Future<List<InterventoriaUsuario>> _leerUsuariosDeEmpresa(
+    String empresaId, {
+    bool soloAsignables = true,
+  }) async {
+    final snap = await _db.collection('TBL_USUARIOS').get();
+    final centrosPorGrupo = await _leerCentrosPorGrupo(empresaId);
 
     Set<String> stringSet(Object? raw) {
       if (raw is! Iterable || raw is String) return <String>{};
