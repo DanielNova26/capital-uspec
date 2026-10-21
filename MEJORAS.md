@@ -54,6 +54,26 @@
   empresa, habilitación, cargo y regla, no recalcula la cobertura.
   `resolverDirectorDeArea` (responsable por área elegida a mano) sigue tomando
   a la persona de mayor rango del área; no interviene en aprobadores.
+- **Validación**: `flutter test` completo 1909/1909 (nuevas: 58 casos de
+  equivalencia compartidos con el servidor, paridad de matriz/niveles/
+  alternativas Dart↔TS, cinco áreas y jerarquías, cobertura, empates, regla de
+  la empresa con varios cargos, acta propia sin regla, maestro vs jefe
+  inmediato; tarjeta a 390/768/1024/1366 con texto 1,8× y temas
+  Windows/Android/iOS, pendientes, casillas y paginación). Funciones: 310/310
+  unitarias (incluye manual, jefe inmediato, origen desconocido/heredado,
+  cerradas, responsable, regla nueva, inhabilitado, empresa ajena) y 17/17 en
+  emulador Firestore (revisión sin escrituras, transacción, actual/nuevo/motivo,
+  propuesta distinta con la misma huella, manual y cargo falso, concurrencia,
+  permisos revocados, rol histórico, empresa secundaria, retiro, reintento sin
+  duplicar bitácora ni aviso). Lint/TS y análisis de los archivos tocados sin
+  incidencias.
+- **Publicado** (commit `697005c`): solo `interventoriaSincronizarMejoras` en
+  `integra360-94704/us-central1` (Node 22) y hosting `to-do-gestion` 2.8.8 (61);
+  `main.dart.js` servido = compilación probada (SHA-256 `547be284…ea8b755`).
+  No se generaron ni publicaron Android/iOS.
+- **Pendientes reales**: ejecutar la revisión/aplicación en producción desde el
+  botón (empresa por empresa); no se probó con sesión autenticada en navegador
+  real ni en dispositivos Android/iOS (teclado, áreas seguras).
 
 ## 2026-10-21 — Admin: sincronizar mejoras de Interventoría y subcentro en tareas (Codex)
 
