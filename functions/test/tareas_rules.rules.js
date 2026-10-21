@@ -324,6 +324,15 @@ test("reasignación directa conserva participantes y valida destino", async () =
     reasignada_desde_uid: "alice",
     participantes_uid: arrayUnion("alice", "compras"),
   }));
+  // Quien aprueba no queda respondiendo su propia subsanación (21 oct 2026).
+  await assertFails(updateDoc(root, cambio("jefe")));
+  // Interventoría no usa la solicitud: aprobarla cambiaría el aprobador.
+  await assertFails(updateDoc(root, {
+    solicitud_reasignacion_estado: "pendiente",
+    solicitud_reasignacion_by_uid: "inter",
+    solicitud_reasignacion_to_uid: "destino",
+    lastEventType: "solicitud_reasignacion",
+  }));
   await assertSucceeds(updateDoc(root, cambio("destino")));
   await assertSucceeds(getDoc(doc(auth("destino"), "TBL_TAREAS/inter1")));
   // Quien la tenía sigue viendo su historial.

@@ -690,6 +690,29 @@ class TaskService {
           'La tarea ya está finalizada o pendiente de aprobación.',
         );
       }
+      // Interventoría: quien aprueba no puede quedar respondiendo su propia
+      // subsanación (21 oct 2026; también en las reglas de TBL_TAREAS).
+      final aprobadores = {
+        for (final k in [
+          'aprobador_uid',
+          'approverId',
+          'jefe_uid',
+          'aprobadorId',
+        ])
+          _s(t, [k]),
+      }..remove('');
+      if (aprobadores.contains(targetUid)) {
+        final nombre = _s(t, [
+          'aprobador_nombre',
+          'approverName',
+          'jefe_nombre',
+        ]);
+        throw StateError(
+          '${nombre.isEmpty ? 'Esa persona' : nombre} aprueba esta '
+          'subsanación: no puede quedar también como responsable. Elige a '
+          'otra persona.',
+        );
+      }
       final target = targetSnap.data();
       if (target == null ||
           !userBelongsToEmpresa(target, empresaId) ||

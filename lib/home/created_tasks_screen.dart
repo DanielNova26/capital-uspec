@@ -1536,6 +1536,14 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
           if (latestNewUid.isEmpty) {
             throw StateError('La solicitud no tiene responsable destino.');
           }
+          // Aprobarla cambiaría el aprobador del maestro por el jefe del nuevo
+          // responsable; las reglas tampoco lo permiten (21 oct 2026).
+          if ((latest['sourceModule'] ?? '').toString() == 'interventoria') {
+            throw StateError(
+              'Las tareas de Interventoría se reasignan directamente desde '
+              'la tarea o el tablero: rechaza esta solicitud.',
+            );
+          }
           // El aprobador pasa al jefe inmediato del nuevo responsable (4 oct
           // 2026, tarea 2090: reasignada y terminada, no le salía a quien
           // debía aprobarla).

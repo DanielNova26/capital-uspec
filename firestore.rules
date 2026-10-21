@@ -2194,7 +2194,10 @@ service cloud.firestore {
                 'actualizada_en', 'adjuntos', 'evidencias']))
             // Hacia cualquier área de la empresa: el destino se valida activo
             // en la empresa de la tarea, no en el área del responsable.
+            // Interventoría reasigna en directo; la solicitud cambiaría el
+            // aprobador del maestro por el jefe del nuevo responsable.
             || (evento == 'solicitud_reasignacion'
+              && antes.get('sourceModule', '') != 'interventoria'
               && antes.get('solicitud_reasignacion_estado', '') != 'pendiente'
               && d.get('solicitud_reasignacion_estado', '') == 'pendiente'
               && d.get('solicitud_reasignacion_by_uid', '')
@@ -2228,7 +2231,12 @@ service cloud.firestore {
             'reasignada_desde_uid', 'reasignada_desde_nombre',
             'reasignada_por_uid', 'participantes_uid', 'reasignacion_pendiente',
             'fecha_actualizacion', 'actualizada_en']))
-          && tareaCambioResponsable(antes, d);
+          && tareaCambioResponsable(antes, d)
+          // Quien aprueba no queda respondiendo su propia subsanación
+          // (21 oct 2026).
+          && !(d.get('asignado_uid', '') in [antes.get('aprobador_uid', ''),
+            antes.get('approverId', ''), antes.get('jefe_uid', ''),
+            antes.get('aprobadorId', '')]);
       }
 
       function tareaCambioAprobador(antes, d, evento, propios) {
@@ -2252,6 +2260,7 @@ service cloud.firestore {
                 'solicitud_finalizacion_at', 'solicitud_finalizacion_by_uid',
                 'solicitud_finalizacion_by_nombre']))
             || (evento == 'reasignacion_aprobada'
+              && antes.get('sourceModule', '') != 'interventoria'
               && antes.get('solicitud_reasignacion_estado', '') == 'pendiente'
               && d.get('solicitud_reasignacion_estado', '') == 'aprobada'
               && d.get('asignado_uid', '')

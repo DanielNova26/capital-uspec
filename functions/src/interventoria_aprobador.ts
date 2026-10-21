@@ -114,6 +114,30 @@ export function cargoEnEmpresa(
     "";
 }
 
+/**
+ * ¿La persona responde hoy esta subsanación? Mira el hallazgo y, si es de la
+ * misma empresa, la tarea vinculada.
+ * @param {string} personaId Cédula.
+ * @param {FirebaseFirestore.DocumentData} hallazgo Hallazgo.
+ * @param {FirebaseFirestore.DocumentData|undefined} tarea Tarea vinculada.
+ * @param {string} empresaId Empresa activa.
+ * @return {boolean} true si responde.
+ */
+export function esResponsableDe(
+  personaId: string,
+  hallazgo: FirebaseFirestore.DocumentData,
+  tarea: FirebaseFirestore.DocumentData | undefined,
+  empresaId: string
+): boolean {
+  const id = texto(personaId, 300);
+  if (!id) return false;
+  const responsables = [texto(hallazgo.responsableId, 300)];
+  if (tarea && texto(tarea.empresaId) === empresaId) {
+    responsables.push(texto(tarea.asignado_uid ?? tarea.assignedTo, 300));
+  }
+  return responsables.includes(id);
+}
+
 function perteneceAEmpresa(
   data: FirebaseFirestore.DocumentData,
   empresaId: string
@@ -179,6 +203,19 @@ export const interventoriaCambiarAprobador = functions
       return {ok: true, sinCambios: true, nombre};
     }
 
+    const tareaId = texto(hallazgo.tareaId, 300);
+    const tareaDoc = tareaId ? await db.collection(TAREAS).doc(tareaId).get() : null;
+    const tarea = tareaDoc?.data();
+    // Nadie aprueba su propia subsanación (21 oct 2026): ni el responsable
+    // del hallazgo ni quien tiene hoy la tarea.
+    if (esResponsableDe(aprobadorId, hallazgo, tarea, actor.empresaId)) {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        `${nombre} responde esta subsanación: no puede aprobarla también. ` +
+          "Elige a otra persona o reasigna primero la tarea."
+      );
+    }
+
     const ahora = admin.firestore.FieldValue.serverTimestamp();
     const batch = db.batch();
     batch.update(hallazgoDoc.ref, {
@@ -191,11 +228,8 @@ export const interventoriaCambiarAprobador = functions
       updatedAt: ahora,
     });
 
-    const tareaId = texto(hallazgo.tareaId, 300);
     let porAprobar = false;
-    if (tareaId) {
-      const tareaDoc = await db.collection(TAREAS).doc(tareaId).get();
-      const tarea = tareaDoc.data();
+    if (tareaDoc) {
       // Una tarea de otra empresa con el mismo id no se toca.
       if (tareaDoc.exists && tarea && texto(tarea.empresaId) === actor.empresaId) {
         porAprobar = tareaPorAprobar(tarea);

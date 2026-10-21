@@ -625,6 +625,15 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     final centroOptions = centros.entries.toList()
       ..sort((a, b) => a.value.compareTo(b.value));
     final centroTarea = _str(taskData, ['centroId', 'centroCostoId']).trim();
+    final aprobadoresTarea = {
+      for (final k in [
+        'aprobador_uid',
+        'approverId',
+        'jefe_uid',
+        'aprobadorId',
+      ])
+        _str(taskData, [k]).trim(),
+    }..remove('');
 
     if (!mounted) return;
     final bool? ok = await showDialog<bool>(
@@ -641,6 +650,11 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
 
           final filteredUsers = usuarios.where((u) {
             if (u['id'] == widget.userId) return false;
+            // Interventoría: quien aprueba no puede quedar respondiendo su
+            // propia subsanación (también lo validan servicio y reglas).
+            if (esInterventoria && aprobadoresTarea.contains(u['id'])) {
+              return false;
+            }
             if (selectedCentroId.isNotEmpty &&
                 !(u['centrosCobertura'] ?? '')
                     .split('|')

@@ -585,6 +585,13 @@ AprobadorPropuesto resolverAprobadorAsignacion({
   );
 }
 
+/// Por qué no se puede dejar a una persona respondiendo y aprobando la misma
+/// subsanación. Igual en la app, las reglas y el servidor.
+String responsableEsAprobadorMensaje(String nombre) =>
+    '${nombre.trim().isEmpty ? 'Esa persona' : nombre.trim()} aprueba esta '
+    'subsanación: no puede quedar también como responsable. Elige a otra '
+    'persona o cambia primero quién aprueba.';
+
 /// Cargo que queda escrito como "aprueba" en el hallazgo y en la tarea.
 ///
 /// Siempre el cargo de la persona. El cargo solicitado por el maestro es un
@@ -4476,6 +4483,11 @@ class InterventoriaService {
                   '${(asignacion?.motivoAprobador ?? '').isEmpty ? '' : ' (${asignacion!.motivoAprobador})'}'
                   ': asígnalo a mano en Subsanaciones.',
       );
+    }
+    // Nadie aprueba su propia subsanación (21 oct 2026). Cubre asignar,
+    // reasignar desde el tablero, el panel, el monitor y por grupos.
+    if (aprobador.id.trim() == destinatarioId.trim()) {
+      throw StateError(responsableEsAprobadorMensaje(aprobador.nombre));
     }
     final jefeId = aprobador.id;
     final jefeNombre = aprobador.nombre;

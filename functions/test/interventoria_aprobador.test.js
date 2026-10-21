@@ -6,6 +6,7 @@ const {
   camposAprobadorTarea,
   tareaPorAprobar,
   cargoEnEmpresa,
+  esResponsableDe,
 } = require('../lib/interventoria_aprobador.js');
 
 // 28 sep 2026: al reasignar solo se podía cambiar al responsable.
@@ -47,4 +48,15 @@ test('el cargo sale de la empresa, y de la raíz solo si es la principal', () =>
   assert.equal(cargoEnEmpresa(data, 'emp2'), 'Director de operaciones');
   assert.equal(cargoEnEmpresa(data, 'emp1'), 'Raíz');
   assert.equal(cargoEnEmpresa(data, 'emp3'), '');
+});
+
+test('nadie aprueba la subsanación que responde (21 oct 2026)', () => {
+  const hallazgo = {responsableId: 'admin'};
+  const tarea = {empresaId: 'e', asignado_uid: 'auxiliar'};
+  assert.equal(esResponsableDe('admin', hallazgo, tarea, 'e'), true);
+  assert.equal(esResponsableDe('auxiliar', hallazgo, tarea, 'e'), true);
+  assert.equal(esResponsableDe('director', hallazgo, tarea, 'e'), false);
+  // Una tarea de otra empresa con el mismo id no cuenta.
+  assert.equal(esResponsableDe('auxiliar', hallazgo, {...tarea, empresaId: 'otra'}, 'e'), false);
+  assert.equal(esResponsableDe('', hallazgo, tarea, 'e'), false);
 });

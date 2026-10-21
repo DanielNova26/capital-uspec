@@ -1759,6 +1759,8 @@ class _ConfirmarAsignacionDialogState
     final h = widget.hallazgo;
     final aprobador = _aprobador.persona;
     final numeral = h.numeralParaMatriz;
+    final mismaPersona =
+        aprobador != null && aprobador.id == widget.responsable.id;
     return AlertDialog(
       title: const Text('Confirmar asignación'),
       content: ConstrainedBox(
@@ -1804,11 +1806,12 @@ class _ConfirmarAsignacionDialogState
                     style: const TextStyle(fontSize: 12.5, color: _warn),
                   ),
                 ),
-              if (aprobador != null && aprobador.id == widget.responsable.id)
+              if (mismaPersona)
                 const Padding(
                   padding: EdgeInsets.only(top: 8),
                   child: Text(
-                    'La misma persona responde y aprueba.',
+                    'Quien responde no puede aprobar su propia subsanación: '
+                    'cambia quién aprueba o elige otro responsable.',
                     style: TextStyle(fontSize: 11.5, color: _warn),
                   ),
                 ),
@@ -1835,7 +1838,7 @@ class _ConfirmarAsignacionDialogState
           child: const Text('Cancelar'),
         ),
         FilledButton.icon(
-          onPressed: aprobador == null
+          onPressed: aprobador == null || mismaPersona
               ? null
               : () => Navigator.pop(context, aprobador),
           style: FilledButton.styleFrom(backgroundColor: _accent),

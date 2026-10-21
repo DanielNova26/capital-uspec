@@ -1,5 +1,33 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-21 — Interventoría: quien aprueba no puede quedar como responsable (Claude)
+
+- Pedido del usuario: bloquear en todos los caminos que una tarea de
+  Interventoría quede respondida por la misma persona que la aprueba.
+- **Reasignación directa (Tareas)**: `TaskService.reassignTask` rechaza el
+  destino si es `aprobador_uid`/`approverId`/`jefe_uid`/`aprobadorId`, y el
+  selector de Asignadas ya no lo ofrece. Reglas: `tareaReasignacionDirecta`
+  exige el mismo límite.
+- **Asignación y reasignación que recrean la tarea** (tablero, panel, monitor
+  de avisos, reasignación por grupos, asignación automática y «Asignar por
+  grupo»): `_crearTareaYNotificarHallazgo` falla con
+  `responsableEsAprobadorMensaje`; el diálogo «Confirmar asignación» ya no
+  deja confirmar (antes solo advertía).
+- **Cambiar aprobador** (`interventoriaCambiarAprobador`): el servidor rechaza
+  al responsable del hallazgo o a quien tiene la tarea (`esResponsableDe`).
+  «Sincronizar mejoras» ya lo rechazaba.
+- **Solicitud de reasignación**: cerrada para Interventoría en reglas (pedir y
+  aprobar) y en Creadas, porque al aprobarse ponía como aprobador al jefe del
+  nuevo responsable en vez del aprobador del maestro. La app ya reasignaba
+  Interventoría en directo; una solicitud pendiente antigua debe rechazarse.
+- Validación: `flutter test` 1919/1919 (nueva: reasignar al aprobador falla,
+  a otra persona conserva el aprobador); funciones 311/311; reglas en
+  emulador 36/36 (tareas, sincronización y roles de Interventoría). Publicados
+  web, reglas de Firestore y `interventoriaCambiarAprobador`. Android/iOS sin
+  publicar: la app móvil vieja sigue permitiéndolo en pantalla para
+  reasignación directa y «Cambiar aprobador»; las reglas y el servidor ya lo
+  impiden, pero la recreación de tareas desde el tablero móvil viejo no.
+
 ## 2026-10-21 — Interventoría: «Asignar por grupo» en Sin asignar (Claude)
 
 - Pedido del usuario: que «Sin asignar» diga qué cargo pide el maestro y no
