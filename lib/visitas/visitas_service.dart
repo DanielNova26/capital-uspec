@@ -1034,6 +1034,17 @@ class VisitasService {
         .call({'empresaId': empresaId, 'formatoId': formatoId});
   }
 
+  /// Desarrollo elimina visitas reales mediante el servidor. Conserva las
+  /// tareas generadas y sus soportes; el servidor registra la operación.
+  Future<void> eliminarVisita({
+    required String empresaId,
+    required String visitaId,
+  }) async {
+    await FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('visitasEliminar')
+        .call({'empresaId': empresaId, 'visitaId': visitaId});
+  }
+
   /// Solo elimina recorridos marcados como prueba al programarlos.
   Future<void> eliminarPrueba({
     required String empresaId,

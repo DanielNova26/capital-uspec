@@ -53,7 +53,7 @@ class _Servicio extends Fake implements VisitasService {
     String? areaId,
     String? coordinadorId,
   }) => Stream.value([
-    for (var n = 1; n <= 4; n++)
+    for (var n = 1; n <= 7; n++)
       VisitaProfesional(
         id: '$empresaId-$n',
         empresaId: empresaId,
@@ -70,7 +70,13 @@ class _Servicio extends Fake implements VisitasService {
         asignadoPorId: 'jefe',
         asignadoPorNombre: 'Jefe',
         fechaProgramada: DateTime.now(),
-        estado: n == 4 ? kVisitaCancelada : kVisitaTerminada,
+        esPrueba: n == 7,
+        estado: switch (n) {
+          4 => kVisitaCancelada,
+          5 => kVisitaProgramada,
+          6 => kVisitaEnCurso,
+          _ => kVisitaTerminada,
+        },
         respuestas: const {
           'original': VisitaRespuesta(
             resultado: kItemNoCumple,
@@ -90,6 +96,27 @@ class _Servicio extends Fake implements VisitasService {
     fotos.add(e.path);
     return Uint8List.fromList(img.encodeJpg(img.Image(width: 60, height: 40)));
   }
+}
+
+class _SoloPendientes extends _Servicio {
+  @override
+  Stream<List<VisitaProfesional>> streamVisitas(
+    String empresaId, {
+    String? profesionalId,
+    String? areaId,
+    String? coordinadorId,
+  }) => super
+      .streamVisitas(empresaId)
+      .map(
+        (vs) => [
+          for (final v in vs)
+            VisitaProfesional.fromMap(v.id, {
+              ...v.toMap(),
+              'estado': kVisitaProgramada,
+              'esPrueba': false,
+            }),
+        ],
+      );
 }
 
 Widget _app(
@@ -125,6 +152,22 @@ Future<void> _mostrar(WidgetTester tester, String id) async {
 }
 
 void main() {
+  testWidgets('sin terminadas el consolidado no permite generar PDF', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _app(_SoloPendientes(), _Branding(), (_, _) async {}),
+    );
+    await tester.pumpAndSettle();
+    final boton = find.widgetWithText(FilledButton, 'Informe consolidado PDF');
+    await tester.scrollUntilVisible(
+      boton,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(tester.widget<FilledButton>(boton).onPressed, isNull);
+    expect(find.byKey(const ValueKey('pdf-visita-A-1')), findsNothing);
+  });
   testWidgets(
     'descarga el PDF de la visita elegida con su formato original y fotos',
     (tester) async {
@@ -162,21 +205,25 @@ void main() {
     },
   );
 
-  testWidgets(
-    'permite formato histórico de catálogo, bloquea acta sin formato y cancelada',
-    (tester) async {
-      await tester.pumpWidget(_app(_Servicio(), _Branding(), (_, _) async {}));
-      await tester.pumpAndSettle();
-      for (final n in [2, 3, 4]) {
-        await _mostrar(tester, 'A-$n');
-        final boton = tester.widget<OutlinedButton>(
-          find.byKey(ValueKey('pdf-visita-A-$n')),
-        );
-        expect(boton.onPressed, n == 2 ? isNotNull : isNull);
-      }
-      expect(tester.takeException(), isNull);
-    },
-  );
+  testWidgets('solo lista terminadas reales y bloquea el acta sin formato', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_app(_Servicio(), _Branding(), (_, _) async {}));
+    await tester.pumpAndSettle();
+    expect(find.text('Sin realizar'), findsNothing);
+    expect(find.text('Canceladas'), findsNothing);
+    for (final n in [2, 3]) {
+      await _mostrar(tester, 'A-$n');
+      final boton = tester.widget<OutlinedButton>(
+        find.byKey(ValueKey('pdf-visita-A-$n')),
+      );
+      expect(boton.onPressed, n == 2 ? isNotNull : isNull);
+    }
+    for (final n in [4, 5, 6, 7]) {
+      expect(find.byKey(ValueKey('pdf-visita-A-$n')), findsNothing);
+    }
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'cambiar de empresa interrumpe la entrega de un informe en preparación',

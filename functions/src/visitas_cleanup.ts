@@ -2,6 +2,7 @@ import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
 import {createHash} from "crypto";
 import {raizEsDeEmpresa} from "./apps_por_empresa";
+import {empresasSeleccionables} from "./acceso";
 
 const REGION = "us-central1";
 const VISITAS = "TBL_VISITAS";
@@ -21,6 +22,76 @@ function isDeveloper(data: FirebaseFirestore.DocumentData, empresaId: string): b
       (v ?? "").toString().toLowerCase()
     ));
 }
+
+/**
+ * Desarrollo habilitado en la empresa; Gerencia y jefatura no equivalen.
+ * @param {FirebaseFirestore.DocumentData} user Ficha vigente del usuario.
+ * @param {string} empresaId Empresa activa.
+ * @return {boolean} Si puede eliminar la visita.
+ */
+export function puedeEliminarVisita(
+  user: FirebaseFirestore.DocumentData,
+  empresaId: string
+): boolean {
+  return isDeveloper(user, empresaId) &&
+    empresasSeleccionables(user).includes(empresaId) &&
+    user.needsPasswordChange !== true;
+}
+
+/**
+ * Elimina solo la visita solicitada, con autorización y auditoría atómicas.
+ * @param {unknown} raw Empresa e identificador de la visita.
+ * @param {functions.https.CallableContext} context Sesión de la petición.
+ * @param {FirebaseFirestore.Firestore} db Base de datos del servidor.
+ * @return {Promise<object>} Confirmación de la eliminación.
+ */
+export async function eliminarVisitaDesarrollo(
+  raw: unknown,
+  context: functions.https.CallableContext,
+  db: FirebaseFirestore.Firestore
+): Promise<{ok: boolean}> {
+  const input = raw as Record<string, unknown> | null;
+  const empresaId = id(input?.empresaId);
+  const visitaId = id(input?.visitaId);
+  const userId = id(context.auth?.token?.userDocId);
+  const expectedUid = userId ? `todo_${createHash("sha256")
+    .update(userId, "utf8").digest("hex")}` : "";
+  if (!context.auth || context.auth.token.authVersion !== 2 ||
+      !userId || context.auth.uid !== expectedUid) {
+    throw new functions.https.HttpsError("unauthenticated", "Inicia sesión de nuevo.");
+  }
+  if (!empresaId || !visitaId) {
+    throw new functions.https.HttpsError("invalid-argument", "Falta la empresa o la visita.");
+  }
+  const ref = db.collection(VISITAS).doc(visitaId);
+  const log = db.collection("TBL_MIGRATIONS_LOGS").doc();
+  await db.runTransaction(async (tx) => {
+    const user = await tx.get(db.collection("TBL_USUARIOS").doc(userId));
+    if (!user.exists || !puedeEliminarVisita(user.data() || {}, empresaId)) {
+      throw new functions.https.HttpsError("permission-denied",
+        "Solo Desarrollo habilitado en esta empresa puede eliminar visitas.");
+    }
+    const visita = await tx.get(ref);
+    if (!visita.exists || visita.data()?.empresaId !== empresaId) {
+      throw new functions.https.HttpsError("not-found", "Visita no encontrada.");
+    }
+    const data = visita.data()!;
+    // Las tareas y sus fotografías siguen siendo compromisos operativos.
+    // No se borran en cascada al retirar su visita de origen.
+    tx.create(log, {
+      action: "visitasEliminar", adminUserId: userId, empresaId, visitaId,
+      numero: data.numero ?? null, estado: data.estado ?? "",
+      areaId: data.areaId ?? "", profesionalId: data.profesionalId ?? "",
+      tareasConservadas: true, soportesConservados: true,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    tx.delete(ref);
+  });
+  return {ok: true};
+}
+
+export const visitasEliminar = functions.region(REGION)
+  .https.onCall((raw, context) => eliminarVisitaDesarrollo(raw, context, admin.firestore()));
 
 /**
  * Gerencia por la ficha, sin rol asignado (27 sep 2026). Mismo criterio que

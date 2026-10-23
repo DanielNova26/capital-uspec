@@ -103,7 +103,14 @@ exports.visitasCoordinadoresAlCrear = functions
     if (!empresaId || !pid)
         return;
     const coordinadorIds = coordinadoresDeProfesional(await gruposDeEmpresa(empresaId), pid);
-    await snap.ref.set({ coordinadorIds }, { merge: true });
+    // Desarrollo pudo eliminarla mientras se consultaban los grupos.
+    // No recrear un documento retirado mediante set(merge: true).
+    await admin.firestore().runTransaction(async (tx) => {
+        const actual = await tx.get(snap.ref);
+        if (actual.exists && actual.get("empresaId") === empresaId) {
+            tx.update(snap.ref, { coordinadorIds });
+        }
+    });
 });
 /** Al cambiar un grupo, recalcula las visitas de la empresa (solo si cambió). */
 exports.visitasCoordinadoresAlCambiarGrupo = functions
@@ -124,8 +131,9 @@ exports.visitasCoordinadoresAlCambiarGrupo = functions
         .collection(VISITAS)
         .where("empresaId", "==", empresaId)
         .get();
-    let batch = db.batch();
-    let n = 0;
+    const writer = db.bulkWriter();
+    const errores = [];
+    writer.onWriteError((e) => e.code !== 5 && e.failedAttempts < 3);
     for (const v of visitas.docs) {
         const pid = (v.get("profesionalId") ?? "").toString().trim();
         if (!pid)
@@ -134,12 +142,14 @@ exports.visitasCoordinadoresAlCambiarGrupo = functions
         const actuales = [...lista(v.get("coordinadorIds"))].sort();
         if (igual(nuevos, actuales))
             continue;
-        batch.set(v.ref, { coordinadorIds: nuevos }, { merge: true });
-        if (++n % 400 === 0) {
-            await batch.commit();
-            batch = db.batch();
-        }
+        // Una baja concurrente no recrea la visita ni impide las otras
+        // actualizaciones. Solo se ignora NOT_FOUND; otros fallos se informan.
+        writer.update(v.ref, { coordinadorIds: nuevos }).catch((e) => {
+            if (e.code !== 5)
+                errores.push(e);
+        });
     }
-    if (n % 400 !== 0)
-        await batch.commit();
+    await writer.close();
+    if (errores.length)
+        throw errores[0];
 });

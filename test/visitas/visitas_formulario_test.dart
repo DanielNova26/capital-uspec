@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -550,6 +551,61 @@ void main() {
   group('informes PDF', () {
     Uint8List foto() =>
         Uint8List.fromList(img.encodeJpg(img.Image(width: 60, height: 40)));
+
+    test(
+      'el PDF consolida solo terminadas aunque reciba un resumen mixto',
+      () async {
+        final visitas = [
+          for (final (id, estado, prueba) in [
+            ('ACTATERMINADA', kVisitaTerminada, false),
+            ('ACTAPENDIENTE', kVisitaProgramada, false),
+            ('ACTACANCELADA', kVisitaCancelada, false),
+            ('ACTAENPROCESO', kVisitaEnCurso, false),
+            ('ACTADEPRUEBA', kVisitaTerminada, true),
+          ])
+            VisitaProfesional.fromMap(id, {
+              ...visita(estado: estado).toMap(),
+              'centroId': id,
+              'centroNombre': id,
+              'esPrueba': prueba,
+            }),
+        ];
+        final bytes = await generarConsolidadoVisitas(
+          c: consolidarMes(visitas),
+          titulo: 'Calidad',
+          desde: DateTime(2026, 9),
+          hasta: DateTime(2026, 9, 30),
+          empresaNombre: 'Capital',
+          visitas: visitas,
+          colorAreas: {},
+        );
+        final raw = String.fromCharCodes(bytes);
+        final contenido = StringBuffer();
+        for (final stream in RegExp(
+          r'stream\r?\n([\s\S]*?)\r?\nendstream',
+        ).allMatches(raw)) {
+          try {
+            contenido.write(
+              String.fromCharCodes(zlib.decode(stream.group(1)!.codeUnits)),
+            );
+          } on FormatException {
+            // Otros streams binarios no llevan texto comprimido.
+          }
+        }
+        final texto = contenido.toString();
+        expect(texto, contains('ACTATERMINADA'));
+        for (final excluido in [
+          'ACTAPENDIENTE',
+          'ACTACANCELADA',
+          'ACTAENPROCESO',
+          'ACTADEPRUEBA',
+          'Sin realizar',
+          'Canceladas',
+        ]) {
+          expect(texto, isNot(contains(excluido)));
+        }
+      },
+    );
 
     test('la visita sale con hojas, observaciones, firmas y anexos', () async {
       final v = VisitaProfesional.fromMap('v1', {

@@ -1365,6 +1365,13 @@ Future<Uint8List> generarConsolidadoVisitas({
     title: _s('Consolidado de visitas ${_dd(desde)} - ${_dd(hasta)}'),
     author: _s(empresaNombre),
   );
+  // El PDF recalcula el resumen con las mismas actas que incluye: ni una
+  // llamada antigua ni un resumen mixto pueden introducir pendientes.
+  c = consolidarMes(
+    visitas.where((v) => v.estado == kVisitaTerminada && !v.esPrueba),
+    formatos: formatos,
+    separarPorArea: c.porArea.length > 1,
+  );
   PdfColor color(String areaId) =>
       PdfColor.fromInt(colorAreaVisitas(colorAreas, areaId));
   PdfColor suave(String areaId) {
@@ -1533,8 +1540,6 @@ Future<Uint8List> generarConsolidadoVisitas({
         pw.Row(
           children: [
             kpi('Terminadas', '${c.visitasTerminadas}', PdfColors.green700),
-            kpi('Sin realizar', '${c.visitasProgramadas}', PdfColors.blue700),
-            kpi('Canceladas', '${c.visitasCanceladas}', PdfColors.grey600),
             kpi(
               'Cumplimiento',
               c.promedioGeneral == null ? '-' : '${c.promedioGeneral}%',
@@ -1561,8 +1566,6 @@ Future<Uint8List> generarConsolidadoVisitas({
                   _celda(''),
                   _celda('DEPARTAMENTO', negrita: true),
                   _celda('TERMINADAS', negrita: true),
-                  _celda('SIN REALIZAR', negrita: true),
-                  _celda('CANCELADAS', negrita: true),
                   _celda('CUMPLIMIENTO', negrita: true),
                   _celda('HALLAZGOS', negrita: true),
                 ],
@@ -1577,8 +1580,6 @@ Future<Uint8List> generarConsolidadoVisitas({
                     ),
                     _celda(a.nombre, negrita: true),
                     _celda('${a.terminadas}', align: pw.Alignment.center),
-                    _celda('${a.programadas}', align: pw.Alignment.center),
-                    _celda('${a.canceladas}', align: pw.Alignment.center),
                     _celda(
                       a.promedio == null ? '-' : '${a.promedio}%',
                       align: pw.Alignment.center,

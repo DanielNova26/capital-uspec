@@ -1,5 +1,43 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-23 — Informes solo de terminadas y eliminación por Desarrollo (Codex)
+
+- Consolidado e informes individuales muestran únicamente visitas reales
+  terminadas. Se excluyen programadas, en curso, canceladas y pruebas de los
+  filtros, listados y cifras del informe. Sin terminadas, generar PDF queda
+  deshabilitado. El generador del consolidado recalcula sus cifras con las
+  actas terminadas, incluso si recibe un resumen antiguo con otros estados.
+- Desarrollo puede abrir una visita desde Cronograma y eliminarla con el
+  botón de papelera y confirmación de número, establecimiento y fecha.
+  El alcance general de consulta de Gerencia/Consulta se mantiene separado
+  de la autoridad real de Desarrollo; no concede eliminación de visitas reales.
+  La eliminación de pruebas para jefatura conserva su camino anterior.
+- Callable `visitasEliminar`: exige sesión v2 ligada al documento de usuario,
+  vuelve a leer autoridad de Desarrollo y habilitación/pertenencia en la empresa
+  activa dentro de la transacción, valida la empresa de la visita y registra
+  actor, número, estado e identidad en `TBL_MIGRATIONS_LOGS` antes de borrarla.
+  El cliente sigue sin poder borrar directamente por Firestore.
+- Se conservan tareas, soportes y consecutivos; no se borran compromisos
+  reales en cascada ni se reutiliza el número eliminado. Los sincronizadores
+  de coordinadores no recrean una visita retirada durante sus lecturas.
+  Abrir una visita retirada muestra que ya no está disponible.
+- Corregido el borde redondeado de observaciones y el ajuste de su título,
+  detectados al probar el detalle con texto ampliado.
+- Validación: **221/221 pruebas Flutter de Visitas** y **328/328 de Functions**.
+  Incluye contenido descomprimido del PDF, confirmación/conservar, empresa
+  secundaria, autoridad histórica, revocación, reactivación, cuenta inactiva,
+  identidad falsa, visita ajena y concurrencia con sincronización de grupos.
+  Flujo visual a 390/768/1024/1366 con texto 1.6 en widgets Windows/Web,
+  Android e iOS. TypeScript y ESLint de los dos módulos de servidor correctos;
+  análisis Dart sin errores, con ocho avisos de estilo preexistentes en Dashboard.
+- No se ejecutaron eliminaciones autenticadas sobre datos reales. Pendiente
+  comprobación en dispositivos físicos Android/iPhone; no se publicaron tiendas.
+- Publicada la Web **2.8.11+64** en `https://to-do-gestion.web.app`, con HTTP 200
+  y SHA-256 iguales al build en los seis archivos de versión, arranque y aplicación.
+  Publicados y verificados ACTIVE/Node.js 22: `visitasEliminar` v1,
+  `visitasCoordinadoresAlCrear` v6 y `visitasCoordinadoresAlCambiarGrupo` v7.
+  La nueva eliminación rechaza peticiones sin autenticar con HTTP 401.
+
 ## 2026-10-23 — Fechas compactas e informe individual de Visitas (Codex)
 
 - Consolidado: controles «Desde» y «Hasta» con calendario mensual compacto,

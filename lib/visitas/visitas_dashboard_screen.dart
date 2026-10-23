@@ -301,6 +301,7 @@ class _VisitasDashboardScreenState extends State<VisitasDashboardScreen>
             empresaId: widget.empresaId,
             rol: rol,
             nombreUsuario: widget.nombreUsuario,
+            esDesarrollador: widget.esDesarrollador,
           ),
         ),
       if (visitasRolEjecuta(rol) && VisitasLocalStore.disponible)
@@ -325,6 +326,7 @@ class _VisitasDashboardScreenState extends State<VisitasDashboardScreen>
             rol: rol,
             nombreUsuario: widget.nombreUsuario,
             esDesarrollador: todo || rol == kVisitasRolConsulta,
+            puedeEliminarVisitas: widget.esDesarrollador,
           ),
         ),
       if (visitasPuedeGestionarFormatos(rol))
@@ -473,6 +475,9 @@ class VisitasCronograma extends StatefulWidget {
   final String? rol;
   final String nombreUsuario;
   final bool esDesarrollador;
+  // El alcance de consulta anterior también incluye Gerencia y Consulta.
+  // El borrado usa exclusivamente la autoridad real de Desarrollo.
+  final bool puedeEliminarVisitas;
   const VisitasCronograma({
     super.key,
     required this.svc,
@@ -481,6 +486,7 @@ class VisitasCronograma extends StatefulWidget {
     required this.rol,
     required this.nombreUsuario,
     required this.esDesarrollador,
+    this.puedeEliminarVisitas = false,
   });
 
   @override
@@ -789,6 +795,7 @@ class VisitasCronogramaState extends State<VisitasCronograma> {
                                 userId: widget.userId,
                                 rol: widget.rol,
                                 nombreUsuario: widget.nombreUsuario,
+                                esDesarrollador: widget.puedeEliminarVisitas,
                               ),
                             ),
                           ),
@@ -1618,12 +1625,14 @@ class _MisVisitasTab extends StatefulWidget {
   final String empresaId;
   final String? rol;
   final String nombreUsuario;
+  final bool esDesarrollador;
   const _MisVisitasTab({
     required this.svc,
     required this.userId,
     required this.empresaId,
     required this.rol,
     required this.nombreUsuario,
+    this.esDesarrollador = false,
   });
 
   @override
@@ -1878,6 +1887,7 @@ class _MisVisitasTabState extends State<_MisVisitasTab> {
                                 userId: widget.userId,
                                 rol: widget.rol,
                                 nombreUsuario: widget.nombreUsuario,
+                                esDesarrollador: widget.esDesarrollador,
                               ),
                       ),
                     );
@@ -2854,7 +2864,11 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
               backgroundColor: kVisitasColor,
               foregroundColor: Colors.white,
             ),
-            body: const Center(child: CircularProgressIndicator()),
+            body: Center(
+              child: snap.connectionState == ConnectionState.waiting
+                  ? const CircularProgressIndicator()
+                  : const Text('La visita ya no está disponible.'),
+            ),
           );
         }
         _asegurarFormato(v);
@@ -3743,12 +3757,7 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
     decoration: BoxDecoration(
       color: const Color(0xFFFFFBEB),
       borderRadius: BorderRadius.circular(12),
-      border: const Border(
-        left: BorderSide(color: Color(0xFFF59E0B), width: 5),
-        top: BorderSide(color: Color(0xFFFCD34D)),
-        right: BorderSide(color: Color(0xFFFCD34D)),
-        bottom: BorderSide(color: Color(0xFFFCD34D)),
-      ),
+      border: Border.all(color: const Color(0xFFF59E0B)),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -5672,6 +5681,7 @@ class _VisitaDetalleScreen extends StatefulWidget {
   final String userId;
   final String? rol;
   final String nombreUsuario;
+  final bool esDesarrollador;
   const _VisitaDetalleScreen({
     required this.svc,
     required this.visitaId,
@@ -5679,6 +5689,7 @@ class _VisitaDetalleScreen extends StatefulWidget {
     required this.userId,
     required this.rol,
     this.nombreUsuario = '',
+    this.esDesarrollador = false,
   });
 
   @override
@@ -5831,6 +5842,48 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
     }
   }
 
+  Future<void> _eliminarVisita(VisitaProfesional v) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        scrollable: true,
+        title: const Text('Eliminar visita'),
+        content: Text(
+          '${v.numeroTexto.isEmpty ? 'Visita' : v.numeroTexto} · '
+          '${v.establecimiento}\n${_dd(v.fechaProgramada)}\n\n'
+          'Se retirará esta visita del cronograma y de los informes. '
+          'Las tareas generadas y sus soportes se conservarán. '
+          'La eliminación quedará registrada.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Conservar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Eliminar visita'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _ocupado = true);
+    try {
+      await widget.svc.eliminarVisita(
+        empresaId: widget.empresaId,
+        visitaId: v.id,
+      );
+      if (!mounted) return;
+      _snack(context, 'Visita eliminada.');
+      Navigator.pop(context);
+    } catch (e) {
+      if (mounted) _snack(context, 'No se pudo eliminar: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _ocupado = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<VisitaProfesional?>(
@@ -5843,7 +5896,11 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
               backgroundColor: kVisitasColor,
               foregroundColor: Colors.white,
             ),
-            body: const Center(child: CircularProgressIndicator()),
+            body: Center(
+              child: snap.connectionState == ConnectionState.waiting
+                  ? const CircularProgressIndicator()
+                  : const Text('La visita ya no está disponible.'),
+            ),
           );
         }
         _asegurarFormato(v);
@@ -5880,7 +5937,13 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
                   onPressed: () => _cancelar(v),
                   icon: const Icon(Icons.event_busy_outlined),
                 ),
-              if (v.esPrueba && visitasPuedeProgramar(widget.rol))
+              if (widget.esDesarrollador)
+                IconButton(
+                  tooltip: 'Eliminar visita',
+                  onPressed: _ocupado ? null : () => _eliminarVisita(v),
+                  icon: const Icon(Icons.delete_outline),
+                )
+              else if (v.esPrueba && visitasPuedeProgramar(widget.rol))
                 IconButton(
                   tooltip: 'Eliminar visita de prueba',
                   onPressed: _ocupado ? null : () => _eliminarPrueba(v),
@@ -6193,12 +6256,7 @@ class _ObservacionGeneralLectura extends StatelessWidget {
     decoration: BoxDecoration(
       color: const Color(0xFFFFFBEB),
       borderRadius: BorderRadius.circular(12),
-      border: const Border(
-        left: BorderSide(color: Color(0xFFF59E0B), width: 5),
-        top: BorderSide(color: Color(0xFFFCD34D)),
-        right: BorderSide(color: Color(0xFFFCD34D)),
-        bottom: BorderSide(color: Color(0xFFFCD34D)),
-      ),
+      border: Border.all(color: const Color(0xFFF59E0B)),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -6207,13 +6265,15 @@ class _ObservacionGeneralLectura extends StatelessWidget {
           children: [
             Icon(Icons.campaign_outlined, color: Color(0xFFB45309), size: 20),
             SizedBox(width: 8),
-            Text(
-              'OBSERVACIONES GENERALES',
-              style: TextStyle(
-                fontFamily: _kFont,
-                fontWeight: FontWeight.w900,
-                color: Color(0xFF92400E),
-                letterSpacing: .5,
+            Expanded(
+              child: Text(
+                'OBSERVACIONES GENERALES',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF92400E),
+                  letterSpacing: .5,
+                ),
               ),
             ),
           ],

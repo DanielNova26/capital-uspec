@@ -206,7 +206,9 @@ class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
             if (!vSnap.hasData) {
               return const Center(child: CircularProgressIndicator());
             }
-            final todas = vSnap.data!;
+            final todas = vSnap.data!
+                .where((v) => v.estado == kVisitaTerminada && !v.esPrueba)
+                .toList();
             // Los departamentos que tienen visitas, con el nombre del
             // maestro de la empresa si está.
             final nombres = <String, String>{};
@@ -329,16 +331,6 @@ class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
                       'Terminadas',
                       '${c.visitasTerminadas}',
                       const Color(0xFF16A34A),
-                    ),
-                    _Kpi(
-                      'Sin realizar',
-                      '${c.visitasProgramadas}',
-                      const Color(0xFF2563EB),
-                    ),
-                    _Kpi(
-                      'Canceladas',
-                      '${c.visitasCanceladas}',
-                      const Color(0xFF9CA3AF),
                     ),
                     _Kpi(
                       'Cumplimiento',
@@ -599,7 +591,7 @@ class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
         _titulo('Informes por visita'),
         const SizedBox(height: 4),
         const Text(
-          'Descarga el acta de una visita terminada con sus evidencias. '
+          'Solo visitas terminadas. Descarga su acta con las evidencias. '
           'Se aplican el periodo y los filtros de arriba.',
         ),
         const SizedBox(height: 8),
@@ -776,8 +768,7 @@ class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
             alignment: Alignment.centerRight,
             child: FilledButton.icon(
               style: FilledButton.styleFrom(backgroundColor: _kColor),
-              onPressed:
-                  _ocupado || (c.visitasTerminadas + c.visitasProgramadas == 0)
+              onPressed: _ocupado || c.visitasTerminadas == 0
                   ? null
                   : () => _pdf(c, titulo, visitas, formatos, colores),
               icon: _ocupado && _visitaGenerando == null

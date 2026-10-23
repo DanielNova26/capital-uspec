@@ -41,6 +41,7 @@ class _Reporte extends Fake implements VisitasService {
         asignadoPorId: 'jefe',
         asignadoPorNombre: 'Jefe',
         fechaProgramada: DateTime.now(),
+        estado: kVisitaTerminada,
       ),
   ]);
 }

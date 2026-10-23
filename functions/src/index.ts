@@ -144,7 +144,7 @@ export {tareasReemplazarJefeInmediato, tareasSincronizarJefes} from "./jefe_inme
 export {tareasAsignarNumero, tareasNumerarHistoricas} from "./tareas_numero";
 // Tareas repetitivas — cada día crea las tareas de las plantillas que tocan.
 export {tareasRecurrentesGenerar} from "./tareas_recurrentes";
-export {visitasEliminarFormato, visitasEliminarPrueba} from "./visitas_cleanup";
+export {visitasEliminar, visitasEliminarFormato, visitasEliminarPrueba} from "./visitas_cleanup";
 export {visitasPrepararOffline, visitasRevalidarOffline, visitasSubirFotoOffline, visitasSincronizarOffline} from "./visitas_offline";
 export {visitasBuscarLugar} from "./visitas_lugares";
 export {visitasAsignarNumero, visitasNumerarHistoricas} from "./visitas_numero";
