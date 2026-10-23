@@ -1766,6 +1766,11 @@ class InterventoriaHallazgo {
     this.updatedAt,
   });
 
+  /// Número del acta; nunca confundir el ordinal interno con su numeral.
+  String get numeroVisible => numeralParaMatriz.isNotEmpty
+      ? numeralParaMatriz
+      : (fuente == 'acta' ? 'Sin numeral identificado' : numeroHallazgo.trim());
+
   bool get isSubsanado => estado == 'subsanado';
   bool get isPendienteAprobacion => estado == 'pendiente_aprobacion';
 
@@ -2575,3 +2580,12 @@ InterventoriaItem itemConConceptoVigente(
     'conceptoSanitarioAutomatico': true,
   },
 );
+
+/// La referencia de una tarea debe coincidir en empresa, módulo y hallazgo.
+bool tareaVinculadaInterventoria(
+  InterventoriaHallazgo h,
+  Map<String, dynamic> data,
+) =>
+    data['empresaId'] == h.empresaId &&
+    (data['hallazgoId'] ?? data['sourceEntityId']) == h.id &&
+    (data['sourceModule'] ?? data['origen']) == 'interventoria';

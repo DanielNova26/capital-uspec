@@ -1833,7 +1833,13 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
 
-      if (_moduleVisible(apps, isDev, 'biometricodashboard', disabledAppIds))
+      if (_moduleVisible(apps, isDev, 'biometricodashboard', disabledAppIds) &&
+          !_moduleVisible(
+            apps,
+            isDev,
+            'talentohumanodashboard',
+            disabledAppIds,
+          ))
         _HomeModulo(
           'biometricodashboard',
           ModuleCard(

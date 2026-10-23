@@ -622,6 +622,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     String? selectedCargoId;
     String search = '';
     Map<String, String>? pickedUser;
+    String observacionesReasignacion = '';
     final centroOptions = centros.entries.toList()
       ..sort((a, b) => a.value.compareTo(b.value));
     final centroTarea = _str(taskData, ['centroId', 'centroCostoId']).trim();
@@ -824,6 +825,20 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                         pickedUser = null;
                       }),
                     ),
+                    if (!esInterventoria) ...[
+                      const SizedBox(height: 12),
+                      TextField(
+                        minLines: 2,
+                        maxLines: 4,
+                        maxLength: 2000,
+                        decoration: const InputDecoration(
+                          labelText: 'Observaciones de la solicitud',
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (value) =>
+                            observacionesReasignacion = value.trim(),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     Container(
                       constraints: const BoxConstraints(maxHeight: 260),
@@ -971,6 +986,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
           }
           trx.update(doc.reference, {
             'solicitud_reasignacion_estado': 'pendiente',
+            'solicitud_reasignacion_observaciones': observacionesReasignacion,
             'solicitud_reasignacion_at': now,
             'solicitud_reasignacion_by_uid': widget.userId,
             'solicitud_reasignacion_by_nombre': _currentUserName(),
@@ -983,7 +999,9 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
             'updatedAt': now,
             'lastEventType': 'solicitud_reasignacion',
             'lastEventAt': now,
-            'lastEventText': 'Solicitud de reasignación enviada',
+            'lastEventText':
+                'Solicitud de reasignación enviada'
+                '${observacionesReasignacion.isEmpty ? '' : ': $observacionesReasignacion'}',
           });
         });
       } catch (e) {
@@ -1029,6 +1047,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
             description: conNumeroDeTarea(
               taskData,
               '$titulo · $actorName solicita reasignar a $toName'
+              '${observacionesReasignacion.isEmpty ? '' : ' · $observacionesReasignacion'}'
               ' · Fecha: $fechaTexto · Emisor: $actorName'
               ' · Responsable: $responsable',
             ),

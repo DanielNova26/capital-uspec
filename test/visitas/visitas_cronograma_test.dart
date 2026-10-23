@@ -66,6 +66,15 @@ void main() {
             ),
           );
           await tester.pumpAndSettle();
+          await tester.ensureVisible(find.text('Ver visitas del mes'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Ver visitas del mes'));
+          await tester.pumpAndSettle();
+          expect(find.text('Visitas del mes (1)'), findsWidgets);
+          if (width < 1000) {
+            await tester.tap(find.byTooltip('Cerrar visitas del mes'));
+            await tester.pumpAndSettle();
+          }
           await tester.ensureVisible(find.text('15').first);
           await tester.pumpAndSettle();
           await tester.tap(find.text('15').first);
@@ -107,6 +116,10 @@ void main() {
           await tester.tap(find.text('16').first);
           await tester.pumpAndSettle();
           expect(find.textContaining('Nada programado ese día.'), findsWidgets);
+          if (width < 1000) {
+            await tester.tap(find.byTooltip('Cerrar visitas del día'));
+            await tester.pumpAndSettle();
+          }
           expect(tester.takeException(), isNull);
         },
       );

@@ -355,7 +355,11 @@ test("solicitud de reasignación hacia otra área y aprobación del jefe", async
   await assertFails(updateDoc(doc(alice, "TBL_TAREAS/reas"), solicitud("otro")));
   await assertFails(updateDoc(doc(alice, "TBL_TAREAS/reas"), solicitud("retirado")));
   await assertFails(updateDoc(doc(alice, "TBL_TAREAS/reas"), solicitud("alice")));
-  await assertSucceeds(updateDoc(doc(alice, "TBL_TAREAS/reas"), solicitud("compras")));
+  const ref = doc(alice, "TBL_TAREAS/reas");
+  await assertFails(updateDoc(ref, {...solicitud("compras"), solicitud_reasignacion_observaciones: 123}));
+  await assertFails(updateDoc(ref, {...solicitud("compras"), solicitud_reasignacion_observaciones: "a".repeat(2001)}));
+  await assertSucceeds(updateDoc(ref, {...solicitud("compras"), solicitud_reasignacion_observaciones: "Compras tiene el soporte necesario."}));
+  assert.equal((await getDoc(ref)).data().solicitud_reasignacion_observaciones, "Compras tiene el soporte necesario.");
   await assertFails(updateDoc(doc(alice, "TBL_TAREAS/reas"), solicitud("destino")));
 
   const jefe = auth("jefe");

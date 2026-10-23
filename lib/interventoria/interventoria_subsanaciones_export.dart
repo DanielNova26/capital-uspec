@@ -4,6 +4,7 @@ import 'package:excel/excel.dart';
 import 'package:intl/intl.dart';
 
 import 'interventoria_models.dart';
+import '../core/task_estado_visible.dart';
 
 /// Exporta la tabla de subsanaciones a Excel.
 ///
@@ -31,6 +32,9 @@ const List<String> kColumnasSubsanaciones = [
   'Seguimiento',
   'F. Subsanación',
   'Tarea vinculada',
+  'ID de visita',
+  'N° de tarea',
+  'Estado de tarea',
 ];
 
 /// Estado del hallazgo en palabras.
@@ -49,7 +53,11 @@ String estadoSubsanacionLegible(InterventoriaHallazgo h) {
 /// y similares: si Excel los toma por números, "1.10" se convierte en "1.1" y
 /// deja de existir un numeral. Lo mismo con las fechas, que cambian de formato
 /// según la configuración regional de quien abra el archivo.
-List<String> filaSubsanacion(InterventoriaHallazgo h) {
+List<String> filaSubsanacion(
+  InterventoriaHallazgo h, {
+  String idVisita = '',
+  Map<String, dynamic> tarea = const {},
+}) {
   final fmt = DateFormat('dd/MM/yyyy');
   String fecha(DateTime? t) => t == null ? '' : fmt.format(t);
 
@@ -61,18 +69,27 @@ List<String> filaSubsanacion(InterventoriaHallazgo h) {
     h.establecimiento.trim(),
     estadoSubsanacionLegible(h),
     (h.tipoActa ?? '').trim(),
-    h.numeroHallazgo.trim(),
+    h.numeroVisible,
     h.descripcion.trim(),
     fecha(h.fechaHallazgo.toDate()),
     h.observaciones.trim(),
     h.seguimiento.trim(),
     fecha(h.fechaSubsanacion?.toDate()),
     h.tareaId.trim().isEmpty ? 'Sin tarea' : 'Sí',
+    idVisita.trim(),
+    taskNumeroTexto(tarea),
+    tarea.isEmpty
+        ? (h.tareaId.isEmpty ? 'Sin tarea' : 'No disponible')
+        : taskEstadoVisible(tarea).nombre,
   ];
 }
 
 /// Construye el archivo.
-Uint8List generarExcelSubsanaciones(List<InterventoriaHallazgo> hallazgos) {
+Uint8List generarExcelSubsanaciones(
+  List<InterventoriaHallazgo> hallazgos, {
+  Map<String, String> idsVisita = const {},
+  Map<String, Map<String, dynamic>> tareas = const {},
+}) {
   final excel = Excel.createExcel();
   final hoja = excel['Subsanaciones'];
 
@@ -83,7 +100,16 @@ Uint8List generarExcelSubsanaciones(List<InterventoriaHallazgo> hallazgos) {
 
   hoja.appendRow([for (final c in kColumnasSubsanaciones) TextCellValue(c)]);
   for (final h in hallazgos) {
-    hoja.appendRow([for (final v in filaSubsanacion(h)) TextCellValue(v)]);
+    hoja.appendRow([
+      for (final v in filaSubsanacion(
+        h,
+        idVisita: idsVisita[h.visitaId] ?? '',
+        tarea: tareaVinculadaInterventoria(h, tareas[h.tareaId] ?? const {})
+            ? tareas[h.tareaId]!
+            : const {},
+      ))
+        TextCellValue(v),
+    ]);
   }
 
   final bytes = excel.encode();

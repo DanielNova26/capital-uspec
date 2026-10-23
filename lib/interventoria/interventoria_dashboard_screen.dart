@@ -22,6 +22,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:url_launcher/url_launcher_string.dart';
 
 import '../core/guarded_module_page.dart';
+import '../core/task_estado_visible.dart';
 import '../core/user_directory.dart';
 import '../utils/mobile_ocr.dart';
 import '../utils/pdf_extractor.dart';
@@ -2815,7 +2816,18 @@ class _SeguimientoMatrizState extends State<_SeguimientoMatriz> {
     setState(() => _exportando = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final bytes = generarExcelSubsanaciones(hallazgos);
+      final tareas = await widget.service.tareasParaExportar(
+        widget.empresaId,
+        hallazgos,
+      );
+      final bytes = generarExcelSubsanaciones(
+        hallazgos,
+        idsVisita: {
+          for (final v in widget.visitas)
+            if (v.empresaId == widget.empresaId) v.id: v.idVisitaK2,
+        },
+        tareas: tareas,
+      );
       await descargarExcelCompras(
         nombreArchivo: nombreArchivoSubsanaciones(),
         bytes: bytes,
@@ -2950,6 +2962,7 @@ class _SeguimientoMatrizState extends State<_SeguimientoMatriz> {
     InterventoriaTableroAsignacion tablero({required bool dentroDeScroll}) =>
         InterventoriaTableroAsignacion(
           hallazgos: sorted,
+          visitas: visitas,
           service: service,
           userId: widget.userId,
           empresaId: widget.empresaId,
@@ -3007,6 +3020,7 @@ class _SeguimientoMatrizState extends State<_SeguimientoMatriz> {
                   DataColumn(label: Text('Responsable')),
                   DataColumn(label: Text('Fecha límite')),
                   DataColumn(label: Text('Establecimiento')),
+                  DataColumn(label: Text('ID de visita')),
                   DataColumn(label: Text('Estado')),
                   DataColumn(label: Text('Tipo acta')),
                   DataColumn(label: Text('N° Hallazgo')),
@@ -3048,6 +3062,19 @@ class _SeguimientoMatrizState extends State<_SeguimientoMatriz> {
                       DataCell(_VenceHallazgoCell(hallazgo: h)),
                       DataCell(Text(h.establecimiento)),
                       DataCell(
+                        Text(
+                          visitas
+                                  .where(
+                                    (v) =>
+                                        v.id == h.visitaId &&
+                                        v.empresaId == h.empresaId,
+                                  )
+                                  .firstOrNull
+                                  ?.idVisitaK2 ??
+                              'Sin ID de visita',
+                        ),
+                      ),
+                      DataCell(
                         _EstadoChip(
                           isSubsanado: h.isSubsanado,
                           isPendiente: h.isPendienteAprobacion,
@@ -3056,7 +3083,7 @@ class _SeguimientoMatrizState extends State<_SeguimientoMatriz> {
                       DataCell(Text(h.tipoActa ?? '')),
                       DataCell(
                         Text(
-                          h.numeroHallazgo,
+                          h.numeroVisible,
                           style: const TextStyle(fontWeight: FontWeight.w900),
                         ),
                       ),
@@ -3286,31 +3313,10 @@ class _TareaEstadoMiniState extends State<_TareaEstadoMini> {
           });
         }
 
-        // Visual
-        String label;
-        Color color;
-        IconData icon;
-        if (tareaEstado == 'finalizado' && solEstado == 'aprobado') {
-          label = 'Aprobada';
-          color = const Color(0xFF0F766E);
-          icon = Icons.verified_rounded;
-        } else if (tareaEstado == 'por_aprobar' || solEstado == 'pendiente') {
-          label = 'Por aprobar';
-          color = const Color(0xFFD97706);
-          icon = Icons.hourglass_top_rounded;
-        } else if (tareaEstado == 'finalizado') {
-          label = 'Finalizada';
-          color = const Color(0xFF0F766E);
-          icon = Icons.task_alt_rounded;
-        } else if (tareaEstado == 'en_progreso') {
-          label = 'En progreso';
-          color = const Color(0xFF3B82F6);
-          icon = Icons.autorenew_rounded;
-        } else {
-          label = 'Pendiente';
-          color = const Color(0xFF94A3B8);
-          icon = Icons.schedule_rounded;
-        }
+        final visible = taskEstadoVisible(data);
+        final label = '${taskNumeroTexto(data)} · ${visible.nombre}';
+        final color = visible.texto;
+        const icon = Icons.task_alt_rounded;
 
         return Row(
           mainAxisSize: MainAxisSize.min,
@@ -5651,6 +5657,7 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
 
   // _centroId eliminado: usa widget.centroFiltro (compartido entre tabs)
   String _categoriaKey = '';
+  String _tipoActa = '';
 
   Future<void> _seleccionarFecha(bool esDesde) async {
     final actual = esDesde ? widget.fechaDesde : widget.fechaHasta;
@@ -5727,6 +5734,13 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
         }
 
         // Todas las visitas como columnas, de la más reciente a la más vieja.
+        visitasFiltradas = visitasFiltradas
+            .where(
+              (v) =>
+                  _tipoActa.isEmpty ||
+                  (v.tipoActa ?? '').trim().toUpperCase() == _tipoActa,
+            )
+            .toList();
         final visitasParaTabla = visitasFiltradas.toList()
           ..sort((a, b) => b.fechaVisita.compareTo(a.fechaVisita));
 
@@ -5827,6 +5841,27 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
           value: widget.centroFiltro,
           onChanged: widget.onCentroChanged,
         );
+        final dropTipo = DropdownButtonFormField<String>(
+          initialValue: _tipoActa,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            labelText: 'Tipo de acta',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          items: [
+            const DropdownMenuItem(value: '', child: Text('Todos')),
+            for (final tipo in kTodosTiposActaInterventoria)
+              DropdownMenuItem(
+                value: tipo,
+                child: Text(etiquetaTipoActa(tipo)),
+              ),
+          ],
+          onChanged: (v) => setState(() {
+            _tipoActa = v ?? '';
+            _paginaColumnas = 0;
+          }),
+        );
         final dropCategoria = DropdownButtonFormField<String>(
           initialValue: _categoriaKey,
           isExpanded: true,
@@ -5902,6 +5937,8 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
               const SizedBox(height: 10),
               dropEstablecimiento,
               const SizedBox(height: 8),
+              dropTipo,
+              const SizedBox(height: 8),
               dropCategoria,
               const SizedBox(height: 8),
               Wrap(
@@ -5930,6 +5967,7 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
               ),
             ),
             SizedBox(width: 220, child: dropEstablecimiento),
+            SizedBox(width: 220, child: dropTipo),
             SizedBox(width: 240, child: dropCategoria),
             btnDesde,
             btnHasta,

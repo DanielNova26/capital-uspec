@@ -734,7 +734,10 @@ class VisitasCronogramaState extends State<VisitasCronograma> {
                     );
               Widget detalleDia(DateTime? dia) {
                 final seleccion = dia == null
-                    ? <VisitaProfesional>[]
+                    ? (delMes.toList()..sort(
+                        (a, b) =>
+                            a.fechaProgramada.compareTo(b.fechaProgramada),
+                      ))
                     : (delDia(dia).toList()..sort(
                         (a, b) =>
                             a.establecimiento.compareTo(b.establecimiento),
@@ -746,7 +749,7 @@ class VisitasCronogramaState extends State<VisitasCronograma> {
                       padding: const EdgeInsets.fromLTRB(4, 8, 4, 6),
                       child: Text(
                         dia == null
-                            ? 'Toca un día para ver sus visitas'
+                            ? 'Visitas del mes (${seleccion.length})'
                             : 'Visitas del ${_dd(dia)} (${seleccion.length})',
                         style: const TextStyle(
                           fontFamily: _kFont,
@@ -795,6 +798,50 @@ class VisitasCronogramaState extends State<VisitasCronograma> {
                 );
               }
 
+              void abrirLista(DateTime? dia) {
+                showModalBottomSheet<void>(
+                  context: context,
+                  isScrollControlled: true,
+                  useSafeArea: true,
+                  showDragHandle: true,
+                  builder: (sheetContext) => SafeArea(
+                    top: false,
+                    child: SizedBox(
+                      height: MediaQuery.sizeOf(sheetContext).height * .75,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: IconButton(
+                              tooltip: dia == null
+                                  ? 'Cerrar visitas del mes'
+                                  : 'Cerrar visitas del día',
+                              onPressed: () => Navigator.pop(sheetContext),
+                              icon: const Icon(Icons.close),
+                            ),
+                          ),
+                          Expanded(
+                            child: SingleChildScrollView(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                              child: detalleDia(dia),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }
+
+              final verMes = TextButton.icon(
+                onPressed: () {
+                  setState(() => _diaElegido = null);
+                  if (!ancho) abrirLista(null);
+                },
+                icon: const Icon(Icons.calendar_month_outlined),
+                label: const Text('Ver visitas del mes'),
+              );
               final calendario = Card(
                 margin: EdgeInsets.zero,
                 shape: RoundedRectangleBorder(
@@ -805,6 +852,7 @@ class VisitasCronogramaState extends State<VisitasCronograma> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      verMes,
                       TableCalendar<VisitaProfesional>(
                         locale: 'es_CO',
                         firstDay: DateTime.utc(2024, 1, 1),
@@ -820,48 +868,7 @@ class VisitasCronogramaState extends State<VisitasCronograma> {
                             _diaElegido = dia;
                             _mesEnfocado = foc;
                           });
-                          if (!ancho) {
-                            showModalBottomSheet<void>(
-                              context: context,
-                              isScrollControlled: true,
-                              useSafeArea: true,
-                              showDragHandle: true,
-                              builder: (sheetContext) => SafeArea(
-                                top: false,
-                                child: SizedBox(
-                                  height:
-                                      MediaQuery.sizeOf(sheetContext).height *
-                                      .75,
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                      Align(
-                                        alignment: Alignment.centerRight,
-                                        child: IconButton(
-                                          tooltip: 'Cerrar visitas del día',
-                                          onPressed: () =>
-                                              Navigator.pop(sheetContext),
-                                          icon: const Icon(Icons.close),
-                                        ),
-                                      ),
-                                      Expanded(
-                                        child: SingleChildScrollView(
-                                          padding: const EdgeInsets.fromLTRB(
-                                            16,
-                                            0,
-                                            16,
-                                            24,
-                                          ),
-                                          child: detalleDia(dia),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            );
-                          }
+                          if (!ancho) abrirLista(dia);
                         },
                         onPageChanged: (foc) => setState(() {
                           _mesEnfocado = foc;

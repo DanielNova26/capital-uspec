@@ -89,19 +89,44 @@ test('seguimiento exige gestor vigente, conserva historial y no declara envío s
   await assert.rejects(call('calidad', input), {code: 'permission-denied'});
 });
 
-test('fuentes no expone textos ni soportes mientras la tarea espera aprobación', async () => {
+test('Calidad previsualiza pendientes sin incorporar ni aprobar; otros usuarios no ven fuentes', async () => {
   await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']});
-  await db.doc('TBL_TAREAS/t/finalizacion/f').set({comment: 'Texto que aún no se aprobó', attachments: [{path: 'tareas/t/test.pdf', name: 'test.pdf'}]});
+  const file = {path: 'tareas/t/test.pdf', name: 'test.pdf'};
+  await db.doc('TBL_TAREAS/t/finalizacion/f').set({comment: 'Respuesta pendiente de aprobación', attachments: [file]});
   await db.doc('TBL_TAREAS/t').update({estado: 'por_aprobar', solicitud_finalizacion_estado: 'pendiente', aprobador_uid: 'otro'});
+  await db.doc('TBL_USUARIOS/otro').update({'empresasDetalle.A.cargo': 'Director de Calidad', cargo: 'Cargo de otra empresa'});
+  const before = (await itemRef().get()).data();
   let sources = await call('calidad', {accion: 'fuentes', itemId: itemId()});
-  assert.deepEqual(sources.archivos, []); assert.deepEqual(sources.avances, []);
-  assert.equal(sources.tareaAprobada, false); assert.equal(sources.aprobadorNombre, 'otro');
+  assert.equal(sources.soloConsulta, true);
+  assert.equal(sources.archivos.length, 1);
+  assert.equal(sources.avances[0].message, 'Respuesta pendiente de aprobación');
+  assert.equal(sources.tareaAprobada, false);
+  assert.equal(sources.aprobadorCargo, 'Director de Calidad');
   assert.equal(sources.responsableNombre, 'Ana');
-  await assert.rejects(call('calidad', {accion: 'verFuente', itemId: itemId(), path: 'tareas/t/test.pdf'}));
+  await assert.rejects(call('calidad', {accion: 'responder', itemId: itemId(), version: 0}), /tarea debe estar aprobada/);
+  await assert.rejects(call('calidad', {accion: 'soportes', itemId: itemId(), version: 0}), /tarea debe estar aprobada/);
+  await assert.rejects(call('calidad', {accion: 'adjuntar', itemId: itemId(), nombre: 'x.pdf', base64: 'WA=='}), /tarea debe estar aprobada/);
+  await assert.rejects(call('calidad', {accion: 'retirarSoporte', itemId: itemId(), path: 'x'}), /tarea debe estar aprobada/);
+  assert.deepEqual((await call('responsable', {accion: 'fuentes', itemId: itemId()})).avances, []);
+  await assert.rejects(call('otro', {accion: 'fuentes', itemId: itemId()}), {code: 'permission-denied'});
+  await assert.rejects(call('calidad', {accion: 'fuentes', itemId: itemId(), empresaId: 'B'}), {code: 'permission-denied'});
+  await assert.rejects(call('calidad', {accion: 'usarFuente', itemId: itemId(), fuenteKey: sources.archivos[0].key}), /tarea debe estar aprobada/);
+  await assert.rejects(call('calidad', {accion: 'usarTexto', itemId: itemId(), fuenteId: sources.avances[0].id, version: 0}), /tarea debe estar aprobada/);
+  await assert.rejects(call('calidad', {accion: 'revisar', itemId: itemId(), etapa: 'respuesta', version: 0, estado: 'satisfactorio'}), /tarea debe estar aprobada/);
+  if (process.env.FIREBASE_STORAGE_EMULATOR_HOST) {
+    const pdf = await require('pdf-lib').PDFDocument.create(); pdf.addPage();
+    const bytes = Buffer.from(await pdf.save());
+    await admin.storage().bucket().file(file.path).save(bytes);
+    const preview = await call('calidad', {accion: 'verFuente', itemId: itemId(), fuenteKey: sources.archivos[0].key});
+    assert.deepEqual(Buffer.from(preview.base64, 'base64'), bytes);
+    await assert.rejects(call('responsable', {accion: 'verFuente', itemId: itemId(), fuenteKey: sources.archivos[0].key}));
+  }
+  assert.deepEqual((await itemRef().get()).data(), before);
   await db.doc('TBL_TAREAS/t').update({estado: 'finalizado', solicitud_finalizacion_estado: 'aprobado'});
   sources = await call('calidad', {accion: 'fuentes', itemId: itemId()});
-  assert.equal(sources.tareaAprobada, true); assert.equal(sources.archivos.length, 1);
-  assert.equal(sources.avances[0].message, 'Texto que aún no se aprobó');
+  assert.equal(sources.soloConsulta, false);
+  await call('calidad', {accion: 'usarTexto', itemId: itemId(), fuenteId: sources.avances[0].id, version: 0});
+  assert.equal((await itemRef().get()).data().respuestaTarea, 'Respuesta pendiente de aprobación');
 });
 
 test('agenda respeta empresa y responsable vigente, y elimina plazos presentados', async () => {
@@ -166,13 +191,13 @@ test('solo Calidad canónica crea y lista planes; histórico no recupera privile
   assert.equal((await call('calidad', {accion: 'listar'})).planes.length, 1);
 });
 
-test('Calidad responde con tarea pendiente; responsable y revisión siguen exigiendo aprobación', async () => {
+test('Calidad y responsable esperan aprobación antes de enviar o revisar', async () => {
   await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']});
   await db.doc('TBL_TAREAS/t').update({estado: 'por_aprobar', solicitud_finalizacion_estado: 'pendiente'});
   const respuesta = {accion: 'responder', itemId: itemId(), version: 0,
     compromiso: 'Corregiremos el rotulado de los productos.', fechaEjecucion: '2026-10-20', fechaSeguimiento: '2026-10-25'};
   await assert.rejects(call('responsable', respuesta));
-  await call('calidad', respuesta);
+  await assert.rejects(call('calidad', respuesta), /tarea debe estar aprobada/);
   await assert.rejects(call('calidad', {accion: 'revisar', itemId: itemId(), etapa: 'respuesta', version: 1, estado: 'satisfactorio'}));
 });
 
@@ -626,4 +651,91 @@ test('PDF del plan y por etapa disponible como borrador sin cambiar aprobación'
   await assert.rejects(call('responsable', {accion: 'generarPdf', planId}), {code: 'permission-denied'});
   assert.equal((await itemRef().get()).data().respuestaVersion, 0);
   assert.equal((await itemRef().get()).data().respuestaPresentado, undefined);
+});
+
+
+test('descuento directo entrega compromiso y soportes atómicamente sin saltar versiones ni aprobación', async () => {
+  await db.collection(policy.PLANES_COL).doc(planId).update({tipo: 'descuento_directo'});
+  await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']});
+  const input = {accion: 'entregaDirecta', itemId: itemId(), respuestaVersion: 0, soportesVersion: 0,
+    compromiso: 'Corregiremos las condiciones reportadas.', fechaEjecucion: '2026-10-05',
+    fechaSeguimiento: '2026-10-05', respuestaSoportes: 'La corrección está documentada en los soportes.'};
+  await assert.rejects(call('responsable', input), /adjunta al menos/);
+  assert.equal((await itemRef().get()).data().respuestaVersion, 0);
+  await itemRef().update({evidencias: [{nombre: 'evidencia.pdf', path: 'solo-prueba'}]});
+  await assert.rejects(call('responsable', {...input, soportesVersion: 2}), {code: 'aborted'});
+  await assert.rejects(call('responsable', {...input, accion: 'responder', version: 0}), /juntos/);
+  await call('responsable', input);
+  const result = (await itemRef().get()).data();
+  assert.equal(result.respuestaVersion, 1); assert.equal(result.soportesVersion, 1);
+  assert.equal(result.respuestaRevision.estado, 'por_revisar'); assert.equal(result.soportesRevision.estado, 'por_revisar');
+  assert.equal(result.respuestaSoportes, input.respuestaSoportes);
+  await assert.rejects(call('responsable', input), {code: 'aborted'});
+  await db.doc('TBL_TAREAS/t').update({estado: 'por_aprobar', solicitud_finalizacion_estado: 'pendiente'});
+  await assert.rejects(call('calidad', {...input, respuestaVersion: 1, soportesVersion: 1}), /tarea debe estar aprobada/);
+  assert.equal((await itemRef().get()).data().respuestaVersion, 1);
+});
+
+
+test('fotografía inicial cifrada es contexto opcional, no soporte de subsanación', {skip: !process.env.FIREBASE_STORAGE_EMULATOR_HOST}, async () => {
+  await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']});
+  const bytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aK1sAAAAASUVORK5CYII=', 'base64');
+  const input = {accion: 'adjuntarInicial', itemId: itemId(), nombre: 'visita.png', base64: bytes.toString('base64')};
+  await assert.rejects(call('responsable', input), {code: 'permission-denied'});
+  await assert.rejects(call('calidad', {...input, nombre: 'visita.pdf'}));
+  await call('calidad', input);
+  const raw = (await itemRef().get()).data();
+  assert.equal(raw.evidenciasIniciales.length, 1); assert.equal(raw.evidencias.length, 0);
+  assert.equal(raw.soportesVersion, 0);
+  const ev = raw.evidenciasIniciales[0];
+  const [stored] = await admin.storage().bucket().file(ev.path).download();
+  assert.notDeepEqual(stored, bytes);
+  const publicItem = (await call('calidad', {accion: 'detalle', planId})).items[0];
+  assert.ok(!JSON.stringify(publicItem).includes('_crypto'));
+  const view = await call('calidad', {accion: 'evidencia', itemId: itemId(), path: ev.path});
+  assert.deepEqual(Buffer.from(view.base64, 'base64'), bytes);
+  await assert.rejects(call('responsable', {accion: 'retirarInicial', itemId: itemId(), path: ev.path}), {code: 'permission-denied'});
+  await assert.rejects(call('calidad', {accion: 'soportes', itemId: itemId(), version: 0, respuestaSoportes: 'Se realizó la corrección completa.'}), /adjunta al menos/);
+  const result = await call('calidad', {accion: 'expediente', planId});
+  const zip = await require('jszip').loadAsync(Buffer.from(result.base64, 'base64'));
+  const name = Object.keys(zip.files).find((n) => n.startsWith('fotografias_iniciales/') && n.endsWith('.png'));
+  assert.ok(name); assert.deepEqual(await zip.file(name).async('nodebuffer'), bytes);
+  await call('calidad', {accion: 'retirarInicial', itemId: itemId(), path: ev.path});
+  assert.equal((await itemRef().get()).data().evidenciasIniciales.length, 0);
+});
+
+
+test('Calidad reactiva la misma tarea y neutraliza aprobaciones en todos sus planes sin cruzar empresa', async () => {
+  await db.doc('TBL_TAREAS/t').update({aprobador_uid: 'otro'});
+  await call('calidad', {accion: 'vincular', planId, hallazgoIds: ['h']});
+  const segundo = (await call('calidad', {accion: 'crear', numero: 'PM-OTRO', csc: 'CRF-K2-OTRO', fechaNotificacion: '2026-10-01'})).id;
+  await call('calidad', {accion: 'vincular', planId: segundo, hallazgoIds: ['h']});
+  const segundoItem = createHash('sha256').update(`${segundo}|h`).digest('hex');
+  for (const iid of [itemId(), segundoItem]) await db.collection(policy.ITEMS_COL).doc(iid).update({
+    respuestaVersion: 2, soportesVersion: 3,
+    respuestaRevision: {estado: 'satisfactorio', version: 2}, soportesRevision: {estado: 'satisfactorio', version: 3},
+    respuestaPresentado: {fecha: '2026-10-01'}, soportesPresentado: {fecha: '2026-10-02'},
+  });
+  await db.collection(policy.ITEMS_COL).doc('ajeno').set({empresaId: 'B', tareaId: 't', respuestaVersion: 7});
+  const input = {accion: 'reactivarTarea', itemId: itemId(), respuestaVersion: 2, soportesVersion: 3,
+    motivo: 'La evidencia enviada no corresponde al hallazgo.', fechaLimite: policy.sumarDiasPlan(policy.hoyColombia(), 2)};
+  await assert.rejects(call('responsable', input), {code: 'permission-denied'});
+  await assert.rejects(call('calidad', {...input, empresaId: 'B'}), {code: 'permission-denied'});
+  await assert.rejects(call('calidad', {...input, respuestaVersion: 1}), {code: 'aborted'});
+  await assert.rejects(call('calidad', {...input, fechaLimite: '2020-01-01'}));
+  await call('calidad', input);
+  const task = (await db.doc('TBL_TAREAS/t').get()).data();
+  assert.equal(task.numero, 123); assert.equal(task.asignado_uid, 'responsable'); assert.equal(task.aprobador_uid, 'otro');
+  assert.equal(task.estado, 'devuelta'); assert.equal(task.solicitud_finalizacion_estado, undefined);
+  assert.equal((await db.doc('TBL_INTERVENTORIA_HALLAZGOS/h').get()).data().estado, 'activo');
+  assert.equal((await db.doc(`${policy.ITEMS_COL}/ajeno`).get()).data().respuestaVersion, 7);
+  for (const iid of [itemId(), segundoItem]) {
+    const d = (await db.collection(policy.ITEMS_COL).doc(iid).get()).data();
+    assert.equal(d.respuestaVersion, 3); assert.equal(d.soportesVersion, 4);
+    assert.equal(d.respuestaRevision.estado, 'devuelto'); assert.equal(d.soportesRevision.estado, 'devuelto');
+    assert.equal(d.respuestaPresentado, undefined); assert.equal(d.soportesPresentado, undefined);
+    assert.ok((await db.collection(policy.ITEMS_COL).doc(iid).collection('historial').get()).docs.some((h) => h.data().accion === 'tarea_reactivada'));
+  }
+  await assert.rejects(call('calidad', input), {code: 'aborted'});
+  assert.equal((await db.doc('TBL_TAREAS/t').collection('novedades').get()).size, 1);
 });

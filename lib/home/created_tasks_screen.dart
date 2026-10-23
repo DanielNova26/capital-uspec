@@ -2200,6 +2200,16 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                         ],
                       ),
                     ),
+                    if ((data['solicitud_reasignacion_observaciones'] ?? '')
+                        .toString()
+                        .trim()
+                        .isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        child: SelectableText(
+                          'Observaciones: ${data['solicitud_reasignacion_observaciones']}',
+                        ),
+                      ),
                     _ActionTile(
                       icon: Icons.swap_horiz_rounded,
                       color: Colors.purple,

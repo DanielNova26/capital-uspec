@@ -1,4 +1,6 @@
 import 'dart:async';
+import '../core/task_estado_visible.dart';
+import '../widgets/memo_stream_builder.dart';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -45,6 +47,7 @@ String? areaVigenteInterventoria(
 /// resuelto. Es una bandeja de trabajo, no un reporte.
 class InterventoriaTableroAsignacion extends StatefulWidget {
   final List<InterventoriaHallazgo> hallazgos;
+  final List<InterventoriaVisita> visitas;
   final InterventoriaService service;
   final String userId;
   final String empresaId;
@@ -59,6 +62,7 @@ class InterventoriaTableroAsignacion extends StatefulWidget {
   const InterventoriaTableroAsignacion({
     super.key,
     required this.hallazgos,
+    this.visitas = const [],
     required this.service,
     required this.userId,
     required this.empresaId,
@@ -498,20 +502,20 @@ class _InterventoriaTableroAsignacionState
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   _chipNumeral(h),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      h.establecimiento,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 13,
-                        color: _ink,
-                      ),
+                  Text(
+                    h.establecimiento,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                      color: _ink,
                     ),
                   ),
                   Tooltip(
@@ -523,6 +527,25 @@ class _InterventoriaTableroAsignacionState
                   ),
                 ],
               ),
+              const SizedBox(height: 6),
+              Text(
+                'ID visita: ${widget.visitas.where((v) => v.id == h.visitaId && v.empresaId == h.empresaId).firstOrNull?.idVisitaK2 ?? 'Sin registrar'}',
+              ),
+              if (h.tareaId.isEmpty)
+                const Text('Sin tarea · Sin asignar')
+              else
+                MemoStreamBuilder<Map<String, dynamic>>(
+                  memoKey: '${h.empresaId}:${h.tareaId}:${h.id}',
+                  create: () => widget.service.streamTareaHallazgo(h),
+                  builder: (context, snap) {
+                    final data = snap.data ?? <String, dynamic>{};
+                    return Text(
+                      data.isEmpty
+                          ? 'Tarea: datos no disponibles'
+                          : 'Tarea ${taskNumeroTexto(data)} · ${taskEstadoVisible(data).nombre}',
+                    );
+                  },
+                ),
               // El 3.1 de un acta de policía no es el 3.1 del acta regular:
               // sin decir de qué acta es, se buscaba en el maestro equivocado.
               if (tieneCatalogoPropio(h.tipoActa)) ...[
@@ -564,7 +587,7 @@ class _InterventoriaTableroAsignacionState
     // interno y en los hallazgos viejos apunta a una sección que no existe,
     // así que solo se muestra cuando no hay numeral real.
     final numeral = h.numeralParaMatriz;
-    final texto = numeral.isNotEmpty ? numeral : h.numeroHallazgo;
+    final texto = h.numeroVisible;
     if (texto.trim().isEmpty) return const SizedBox.shrink();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),

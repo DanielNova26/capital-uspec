@@ -67,8 +67,8 @@ class VisitasConsolidadoTab extends StatefulWidget {
 enum _Atajo { mes, mesAnterior, semana, treinta, anio, otro }
 
 class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
-  late final Stream<List<VisitaProfesional>> _visitas;
-  late final Stream<List<VisitaFormato>> _formatos;
+  late Stream<List<VisitaProfesional>> _visitas;
+  late Stream<List<VisitaFormato>> _formatos;
   late DateTime _desde;
   late DateTime _hasta;
   _Atajo _atajo = _Atajo.mes;
@@ -76,15 +76,35 @@ class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
   /// El departamento elegido (Gerencia, Desarrollo, Consulta). Vacío = el
   /// primero que tenga visitas.
   String _area = '';
+  String _establecimiento = '', _profesional = '';
   Map<String, String> _departamentos = const {};
-  bool _incluirActas = false;
-  bool _conFotos = false;
+  bool _incluirActas = true;
+  bool _conFotos = true;
   bool _ocupado = false;
 
   @override
   void initState() {
     super.initState();
     _aplicar(_Atajo.mes);
+    _cargarStreams();
+  }
+
+  @override
+  void didUpdateWidget(covariant VisitasConsolidadoTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.empresaId != widget.empresaId ||
+        oldWidget.userId != widget.userId ||
+        oldWidget.svc != widget.svc ||
+        oldWidget.soloPropias != widget.soloPropias ||
+        oldWidget.todasLasAreas != widget.todasLasAreas) {
+      _area = _establecimiento = _profesional = '';
+      _departamentos = const {};
+      _cargarStreams();
+    }
+  }
+
+  void _cargarStreams() {
+    final empresa = widget.empresaId;
     Stream<List<T>> porArea<T>(Stream<List<T>> Function(String? area) crear) =>
         widget.todasLasAreas
         ? crear(null)
@@ -104,7 +124,9 @@ class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
       (a) => widget.svc.streamFormatos(widget.empresaId, areaId: a),
     );
     widget.svc.areasDeEmpresa(widget.empresaId).then((a) {
-      if (mounted) setState(() => _departamentos = a);
+      if (mounted && widget.empresaId == empresa) {
+        setState(() => _departamentos = a);
+      }
     }, onError: (_) {});
   }
 
@@ -153,6 +175,9 @@ class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<VisitaFormato>>(
+      key: ValueKey(
+        '${widget.empresaId}:${widget.userId}:${widget.soloPropias}:${widget.todasLasAreas}',
+      ),
       stream: _formatos,
       builder: (context, fSnap) {
         final formatos = fSnap.data ?? const <VisitaFormato>[];
@@ -191,10 +216,28 @@ class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
                 : (nombres.containsKey(_area)
                       ? _area
                       : (areaIds.firstOrNull ?? ''));
+            final delArea = todas
+                .where((v) => area.isEmpty || v.areaId == area)
+                .toList();
+            final establecimientos = {
+              for (final v in delArea)
+                v.claveEstablecimiento: v.establecimiento,
+            };
+            final profesionales = {
+              for (final v in delArea) v.profesionalId: v.profesionalNombre,
+            };
+            final est = establecimientos.containsKey(_establecimiento)
+                ? _establecimiento
+                : '';
+            final prof = profesionales.containsKey(_profesional)
+                ? _profesional
+                : '';
             final delPeriodo = [
               for (final v in todas)
                 if (visitaEnRango(v, _desde, _hasta) &&
-                    (area.isEmpty || v.areaId == area))
+                    (area.isEmpty || v.areaId == area) &&
+                    (est.isEmpty || v.claveEstablecimiento == est) &&
+                    (prof.isEmpty || v.profesionalId == prof))
                   v,
             ];
             final c = consolidarMes(
@@ -206,9 +249,14 @@ class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
                 : (areaIds.length == 1
                       ? nombres[areaIds.single]!
                       : 'Sin visitas todavía');
-            final titulo = widget.soloPropias
-                ? '$nombreArea · actas de ${widget.nombreUsuario}'
-                : nombreArea;
+            final titulo = [
+              nombreArea,
+              if (widget.soloPropias)
+                'actas de ${widget.nombreUsuario}'
+              else if (prof.isNotEmpty)
+                profesionales[prof]!,
+              if (est.isNotEmpty) establecimientos[est]!,
+            ].join(' · ');
             final colores = indiceColorAreas([
               if (area.isNotEmpty) area else ...areaIds,
             ]);
@@ -230,6 +278,32 @@ class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
                       fontWeight: FontWeight.w800,
                     ),
                   ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    SizedBox(
+                      width: 320,
+                      child: _filtroReporte(
+                        'Establecimiento',
+                        est,
+                        establecimientos,
+                        (v) => setState(() => _establecimiento = v),
+                      ),
+                    ),
+                    if (!widget.soloPropias)
+                      SizedBox(
+                        width: 320,
+                        child: _filtroReporte(
+                          'Profesional',
+                          prof,
+                          profesionales,
+                          (v) => setState(() => _profesional = v),
+                        ),
+                      ),
+                  ],
+                ),
                 const SizedBox(height: 12),
                 Wrap(
                   spacing: 8,
@@ -373,6 +447,34 @@ class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
     );
   }
 
+  Widget _filtroReporte(
+    String label,
+    String value,
+    Map<String, String> opciones,
+    ValueChanged<String> change,
+  ) {
+    final entries = opciones.entries.toList()
+      ..sort((a, b) => a.value.compareTo(b.value));
+    return DropdownButtonFormField<String>(
+      key: ValueKey('$label:$value'),
+      initialValue: value,
+      isExpanded: true,
+      decoration: InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(),
+      ),
+      items: [
+        const DropdownMenuItem(value: '', child: Text('Todos')),
+        for (final e in entries)
+          DropdownMenuItem(
+            value: e.key,
+            child: Text(e.value, overflow: TextOverflow.ellipsis),
+          ),
+      ],
+      onChanged: (v) => change(v ?? ''),
+    );
+  }
+
   Widget _titulo(String t) => Text(
     t,
     style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w800),
@@ -420,26 +522,40 @@ class _VisitasConsolidadoTabState extends State<VisitasConsolidadoTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              children: [
-                const Icon(Icons.date_range_outlined, color: _kColor),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Del ${_dd(_desde)} al ${_dd(_hasta)}',
-                    style: const TextStyle(
-                      fontFamily: _kFont,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 15,
+            LayoutBuilder(
+              builder: (context, constraints) => Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  SizedBox(
+                    width: constraints.maxWidth < 500
+                        ? constraints.maxWidth
+                        : 300,
+                    child: Row(
+                      children: [
+                        const Icon(Icons.date_range_outlined, color: _kColor),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Del ${_dd(_desde)} al ${_dd(_hasta)}',
+                            style: const TextStyle(
+                              fontFamily: _kFont,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-                OutlinedButton.icon(
-                  onPressed: _elegirRango,
-                  icon: const Icon(Icons.edit_calendar_outlined, size: 18),
-                  label: const Text('Elegir fechas'),
-                ),
-              ],
+                  OutlinedButton.icon(
+                    onPressed: _elegirRango,
+                    icon: const Icon(Icons.edit_calendar_outlined, size: 18),
+                    label: const Text('Elegir fechas'),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 8),
             Wrap(

@@ -6,6 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../core/guarded_module_page.dart';
+import '../core/access_guard.dart';
+import '../core/user_resolver.dart';
+import '../biometrico/biometrico_screen.dart';
 import '../home/widgets/home_shared_widgets.dart'
     show CompanyLogoAvatar, CompanyNameWidget;
 import '../widgets/internal_module_layout.dart';
@@ -53,6 +56,31 @@ class _TalentoHumanoDashboardScreenState
   late Future<TalentoHumanoDashboardData> _dashboardFuture;
   late Future<TalentoHumanoLevel> _roleFuture;
   bool _exportingResumeReport = false;
+  bool _biometricoDisponible = false;
+  int _bioGeneration = 0;
+
+  Future<void> _cargarAccesoBiometrico() async {
+    final generation = ++_bioGeneration;
+    try {
+      final user = await UserResolver().resolve(
+        docId: userId,
+        cedula: userId,
+        uid: userId,
+      );
+      final access = await AccessGuard().canAccess(
+        userData: user.data,
+        empresaId: empresaId,
+        appId: 'biometricodashboard',
+      );
+      if (mounted && generation == _bioGeneration) {
+        setState(() => _biometricoDisponible = access.allowed);
+      }
+    } catch (_) {
+      if (mounted && generation == _bioGeneration) {
+        setState(() => _biometricoDisponible = false);
+      }
+    }
+  }
 
   String get userId => widget.userId;
   String get empresaId => widget.empresaId;
@@ -60,6 +88,7 @@ class _TalentoHumanoDashboardScreenState
   @override
   void initState() {
     super.initState();
+    _cargarAccesoBiometrico();
     _dashboardFuture = _dashboardService.load(empresaId);
     _roleFuture = TalentoHumanoRolesService().load(
       userId: userId,
@@ -71,6 +100,8 @@ class _TalentoHumanoDashboardScreenState
   void didUpdateWidget(covariant TalentoHumanoDashboardScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.empresaId != empresaId || oldWidget.userId != userId) {
+      _biometricoDisponible = false;
+      _cargarAccesoBiometrico();
       _refreshDashboard();
       _roleFuture = TalentoHumanoRolesService().load(
         userId: userId,
@@ -98,13 +129,25 @@ class _TalentoHumanoDashboardScreenState
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             return Center(
-              child: Text('No fue posible verificar el acceso: ${snapshot.error}'),
+              child: Text(
+                'No fue posible verificar el acceso: ${snapshot.error}',
+              ),
             );
           }
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
           final role = snapshot.data!;
+          if (!role.puedeConsultar && _biometricoDisponible) {
+            return ListView(
+              padding: const EdgeInsets.all(24),
+              children: [
+                const Text('Talento Humano · Asistencia'),
+                for (final action in _moduleActions(context, role))
+                  _CompactActionRow(item: action),
+              ],
+            );
+          }
           if (!role.puedeConsultar) {
             return const Center(
               child: Text('No tienes acceso a Talento Humano en esta empresa.'),
@@ -400,6 +443,23 @@ class _TalentoHumanoDashboardScreenState
     TalentoHumanoLevel role,
   ) {
     final actions = <_HumanTalentAction>[
+      if (_biometricoDisponible)
+        _HumanTalentAction(
+          section: 'Asistencia',
+          title: 'Biométrico',
+          description:
+              'Lectores de huella, turnos, jornadas y control de asistencia.',
+          icon: Icons.fingerprint,
+          color: const Color(0xFF0F766E),
+          metric: 'Asistencia y turnos',
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) =>
+                  BiometricoScreen(userId: userId, empresaId: empresaId),
+            ),
+          ),
+        ),
       _HumanTalentAction(
         section: 'Selección',
         title: 'Requerimientos de personal',
@@ -604,6 +664,8 @@ class _TalentoHumanoDashboardScreenState
     ];
     return actions.where((action) {
       switch (action.title) {
+        case 'Biométrico':
+          return _biometricoDisponible;
         case 'Requerimientos de personal':
         case 'Dashboard HV':
           return role.puedeConsultar;

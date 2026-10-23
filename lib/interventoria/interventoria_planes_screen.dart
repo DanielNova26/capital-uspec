@@ -1391,10 +1391,10 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
   );
   bool _busy = false;
 
-  /// Calidad responde por el hallazgo aunque la tarea siga sin aprobar; el
-  /// responsable solo cuando su aprobador ya la aprobó (misma regla que el
-  /// servidor, `cambiarItem`).
-  bool get _puedeGestionar => widget.calidad || _item['tareaAprobada'] == true;
+  /// Calidad consulta antes de la aprobación; enviar e incorporar requiere
+  /// aprobación vigente de la tarea, igual que en el servidor.
+  bool get _puedeGestionar => _item['tareaAprobada'] == true;
+  bool get _descuentoDirecto => _plan['tipo'] == 'descuento_directo';
   String _etapa = 'respuesta';
   @override
   void didUpdateWidget(covariant PlanItemScreen oldWidget) {
@@ -1515,6 +1515,26 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
     }
   }
 
+  Future<void> _reactivarTarea() async {
+    final fields = await _form(
+      context,
+      'Reactivar tarea por respuesta insuficiente',
+      {
+        'motivo': ('Qué debe corregir el responsable', ''),
+        'fechaLimite': ('Nueva fecha límite de la tarea · AAAA-MM-DD', ''),
+      },
+      description:
+          'Conserva la misma tarea, su número, responsable y aprobador. Invalida las revisiones y presentaciones de esta tarea en todos sus planes de mejora.',
+    );
+    if (fields != null)
+      await _mutate({
+        'accion': 'reactivarTarea',
+        'respuestaVersion': _item['respuestaVersion'],
+        'soportesVersion': _item['soportesVersion'],
+        ...fields,
+      });
+  }
+
   Future<void> _reabrir(String etapa) async {
     final data = await _form(
       context,
@@ -1528,7 +1548,7 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
     }
   }
 
-  Future<void> _archivo({bool camera = false}) async {
+  Future<void> _archivo({bool camera = false, bool inicial = false}) async {
     if (camera) {
       final file = await ImagePicker().pickImage(
         source: ImageSource.camera,
@@ -1542,14 +1562,16 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
         return;
       }
       await _mutate({
-        'accion': 'adjuntar',
+        'accion': inicial ? 'adjuntarInicial' : 'adjuntar',
         'nombre': file.name,
         'base64': base64Encode(bytes),
       });
     } else {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['pdf', 'png', 'jpg', 'jpeg'],
+        allowedExtensions: inicial
+            ? ['png', 'jpg', 'jpeg']
+            : ['pdf', 'png', 'jpg', 'jpeg'],
         withData: true,
       );
       if (result == null) return;
@@ -1568,12 +1590,94 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
         nombre = reduced.nombre;
       }
       await _mutate({
-        'accion': 'adjuntar',
+        'accion': inicial ? 'adjuntarInicial' : 'adjuntar',
         'nombre': nombre,
         'base64': base64Encode(bytes),
       });
     }
   }
+
+  Future<void> _verAdjunto(PlanData file) => _run(() async {
+    final data = await widget.request({
+      'accion': 'evidencia',
+      'itemId': _item['id'],
+      'path': file['path'],
+    });
+    if (!mounted) return;
+    await planPrevisualizar(context, (
+      nombre: planText(data, 'nombre'),
+      bytes: base64Decode(planText(data, 'base64')),
+    ));
+  });
+
+  Widget _fotosIniciales() => PlanBloque(
+    title: 'Evidencia fotográfica inicial',
+    icon: Icons.photo_library_outlined,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text(
+          'Fotografías de la visita para contexto o defensa. Son opcionales y no cuentan como soportes de subsanación.',
+        ),
+        if (widget.calidad)
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed:
+                    _busy ||
+                        !_puedeGestionar ||
+                        _item['soportesPresentado'] != null
+                    ? null
+                    : () => _archivo(inicial: true),
+                icon: const Icon(Icons.add_photo_alternate_outlined),
+                label: const Text('Adjuntar fotografía inicial'),
+              ),
+              OutlinedButton.icon(
+                onPressed:
+                    _busy ||
+                        !_puedeGestionar ||
+                        _item['soportesPresentado'] != null
+                    ? null
+                    : () => _archivo(inicial: true, camera: true),
+                icon: const Icon(Icons.camera_alt_outlined),
+                label: const Text('Tomar fotografía inicial'),
+              ),
+            ],
+          ),
+        for (final file in planList(_item['evidenciasIniciales']))
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(planText(file, 'nombre')),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  tooltip: 'Ver fotografía inicial',
+                  onPressed: _busy ? null : () => _verAdjunto(file),
+                  icon: const Icon(Icons.visibility_outlined),
+                ),
+                if (widget.calidad)
+                  IconButton(
+                    tooltip: 'Retirar fotografía inicial',
+                    onPressed:
+                        _busy ||
+                            !_puedeGestionar ||
+                            _item['soportesPresentado'] != null
+                        ? null
+                        : () => _mutate({
+                            'accion': 'retirarInicial',
+                            'path': file['path'],
+                          }),
+                    icon: const Icon(Icons.remove_circle_outline),
+                  ),
+              ],
+            ),
+          ),
+      ],
+    ),
+  );
 
   Widget _estadoEtapa(String etapa) {
     final revision = planMap(_item['${etapa}Revision']);
@@ -1675,6 +1779,17 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                 'Hallazgo ${_item['numeral']} · ${_item['establecimiento']}',
           ),
           PlanContextoHallazgo(item: _item),
+          if (widget.calidad)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: _busy || !_puedeGestionar ? null : _reactivarTarea,
+                icon: const Icon(Icons.replay),
+                label: const Text('Reactivar tarea por corrección'),
+              ),
+            ),
+          const SizedBox(height: 12),
+          _fotosIniciales(),
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton.icon(
@@ -1693,28 +1808,33 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
               ),
             ),
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              ChoiceChip(
-                showCheckmark: false,
-                avatar: const Icon(Icons.edit_note),
-                label: const Text('1. Compromiso'),
-                selected: _etapa == 'respuesta',
-                onSelected: (_) => setState(() => _etapa = 'respuesta'),
-              ),
-              ChoiceChip(
-                showCheckmark: false,
-                avatar: const Icon(Icons.attach_file),
-                label: Text(
-                  '2. Soportes (${planList(_item['evidencias']).length})',
+          if (_descuentoDirecto)
+            const Text(
+              'Descuento directo · respuesta y soportes en una entrega conjunta',
+            )
+          else
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                ChoiceChip(
+                  showCheckmark: false,
+                  avatar: const Icon(Icons.edit_note),
+                  label: const Text('1. Compromiso'),
+                  selected: _etapa == 'respuesta',
+                  onSelected: (_) => setState(() => _etapa = 'respuesta'),
                 ),
-                selected: _etapa == 'soportes',
-                onSelected: (_) => setState(() => _etapa = 'soportes'),
-              ),
-            ],
-          ),
+                ChoiceChip(
+                  showCheckmark: false,
+                  avatar: const Icon(Icons.attach_file),
+                  label: Text(
+                    '2. Soportes (${planList(_item['evidencias']).length})',
+                  ),
+                  selected: _etapa == 'soportes',
+                  onSelected: (_) => setState(() => _etapa = 'soportes'),
+                ),
+              ],
+            ),
           if (widget.calidad)
             Align(
               alignment: Alignment.centerLeft,
@@ -1727,14 +1847,16 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                             'accion': 'generarPdf',
                             'planId': _item['planId'],
                             'itemId': _item['id'],
-                            'etapa': _etapa,
+                            'etapa': _descuentoDirecto ? 'todo' : _etapa,
                           }),
                           request: widget.request,
                         );
                       }),
                 icon: const Icon(Icons.picture_as_pdf_outlined),
                 label: Text(
-                  _etapa == 'respuesta'
+                  _descuentoDirecto
+                      ? 'Generar PDF de entrega conjunta'
+                      : _etapa == 'respuesta'
                       ? 'Generar PDF del compromiso'
                       : 'Generar PDF de respuesta y soportes',
                 ),
@@ -1742,7 +1864,7 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
             ),
           PlanColumnas(
             children: [
-              if (_etapa == 'respuesta')
+              if (_etapa == 'respuesta' || _descuentoDirecto)
                 PlanBloque(
                   title: 'Compromiso y fechas de ejecución',
                   icon: Icons.edit_note,
@@ -1755,7 +1877,7 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                       ),
                       Text(planVencimiento(planText(_plan, 'limiteRespuesta'))),
                       _estadoEtapa('respuesta'),
-                      if (_item['tareaAprobada'] != true && !widget.calidad)
+                      if (_item['tareaAprobada'] != true)
                         Container(
                           margin: const EdgeInsets.symmetric(vertical: 8),
                           padding: const EdgeInsets.all(10),
@@ -1814,21 +1936,22 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                         spacing: 8,
                         runSpacing: 8,
                         children: [
-                          FilledButton(
-                            onPressed:
-                                _busy ||
-                                    !_puedeGestionar ||
-                                    _item['respuestaPresentado'] != null
-                                ? null
-                                : () => _mutate({
-                                    'accion': 'responder',
-                                    'version': _item['respuestaVersion'],
-                                    'compromiso': _compromiso.text,
-                                    'fechaEjecucion': _ejecucion.text,
-                                    'fechaSeguimiento': _seguimiento.text,
-                                  }),
-                            child: const Text('Guardar y enviar a revisión'),
-                          ),
+                          if (!_descuentoDirecto)
+                            FilledButton(
+                              onPressed:
+                                  _busy ||
+                                      !_puedeGestionar ||
+                                      _item['respuestaPresentado'] != null
+                                  ? null
+                                  : () => _mutate({
+                                      'accion': 'responder',
+                                      'version': _item['respuestaVersion'],
+                                      'compromiso': _compromiso.text,
+                                      'fechaEjecucion': _ejecucion.text,
+                                      'fechaSeguimiento': _seguimiento.text,
+                                    }),
+                              child: const Text('Guardar y enviar a revisión'),
+                            ),
                           if (widget.calidad &&
                               planAprobado(_item, 'respuesta')) ...[
                             _copy('compromiso', planText(_item, 'compromiso')),
@@ -1846,7 +1969,7 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                     ],
                   ),
                 ),
-              if (_etapa == 'soportes')
+              if (_etapa == 'soportes' || _descuentoDirecto)
                 PlanBloque(
                   title: 'Respuesta y soportes de Calidad',
                   icon: Icons.verified_outlined,
@@ -1949,10 +2072,17 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               IconButton(
+                                tooltip: 'Previsualizar soporte',
+                                onPressed: _busy ? null : () => _verAdjunto(ev),
+                                icon: const Icon(Icons.visibility_outlined),
+                              ),
+                              IconButton(
                                 tooltip: 'Retirar soporte',
                                 icon: const Icon(Icons.remove_circle_outline),
                                 onPressed:
-                                    _busy || _item['soportesPresentado'] != null
+                                    _busy ||
+                                        !_puedeGestionar ||
+                                        _item['soportesPresentado'] != null
                                     ? null
                                     : () => _mutate({
                                         'accion': 'retirarSoporte',
@@ -1981,19 +2111,20 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                         spacing: 8,
                         runSpacing: 8,
                         children: [
-                          FilledButton(
-                            onPressed:
-                                _busy ||
-                                    !_puedeGestionar ||
-                                    _item['soportesPresentado'] != null
-                                ? null
-                                : () => _mutate({
-                                    'accion': 'soportes',
-                                    'version': _item['soportesVersion'],
-                                    'respuestaSoportes': _soportes.text,
-                                  }),
-                            child: const Text('Enviar soportes a revisión'),
-                          ),
+                          if (!_descuentoDirecto)
+                            FilledButton(
+                              onPressed:
+                                  _busy ||
+                                      !_puedeGestionar ||
+                                      _item['soportesPresentado'] != null
+                                  ? null
+                                  : () => _mutate({
+                                      'accion': 'soportes',
+                                      'version': _item['soportesVersion'],
+                                      'respuestaSoportes': _soportes.text,
+                                    }),
+                              child: const Text('Enviar soportes a revisión'),
+                            ),
                           if (widget.calidad &&
                               planAprobado(_item, 'soportes') &&
                               planAprobado(_item, 'respuesta'))
@@ -2060,7 +2191,7 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                     ],
                   ),
                 ),
-              if (_etapa == 'soportes')
+              if (_etapa == 'soportes' || _descuentoDirecto)
                 PlanBloque(
                   title: 'Traer archivos y respuestas de la tarea',
                   icon: Icons.move_to_inbox_outlined,
@@ -2078,6 +2209,26 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                 ),
             ],
           ),
+          if (_descuentoDirecto)
+            FilledButton.icon(
+              icon: const Icon(Icons.send_outlined),
+              label: const Text('Enviar respuesta y soportes juntos'),
+              onPressed:
+                  _busy ||
+                      !_puedeGestionar ||
+                      _item['respuestaPresentado'] != null ||
+                      _item['soportesPresentado'] != null
+                  ? null
+                  : () => _mutate({
+                      'accion': 'entregaDirecta',
+                      'respuestaVersion': _item['respuestaVersion'],
+                      'soportesVersion': _item['soportesVersion'],
+                      'compromiso': _compromiso.text,
+                      'fechaEjecucion': _ejecucion.text,
+                      'fechaSeguimiento': _seguimiento.text,
+                      'respuestaSoportes': _soportes.text,
+                    }),
+            ),
           const SizedBox(height: 24),
         ],
       ),

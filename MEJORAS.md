@@ -1,5 +1,59 @@
 # Bitácora de Mejoras — Capital USPEC
 
+
+## 2026-10-23 — Revisión de cinco documentos de Interventoría, Tareas y Visitas (Codex)
+
+- Matriz de lo existente, cambios y propuestas: `docs/revision-documentos-2026-10-23.md`.
+  Contrastados los dos PDF y tres Word entregados. No se ejecutaron como órdenes
+  los encargos de enviar capturas, contactar personas, responder encuestas o intervenir hardware.
+- **Tareas:** observaciones opcionales al pedir reasignación, hasta 2000 caracteres,
+  visibles al aprobador, guardadas con la solicitud e incluidas en aviso/evento.
+  Firestore valida tipo y longitud; Interventoría mantiene reasignación directa.
+- **Interventoría:** tipo de acta en Análisis; numeral real compartido por tablero,
+  tabla y Excel (el ordinal sin numeral confirmado no se presenta como numeral).
+  Tarjetas y tabla muestran ID de visita; tarjetas muestran número/estado vigente
+  de tarea. Excel agrega ID de visita, número y estado de tarea, manteniendo filtros.
+  Las referencias se comprueban por empresa, módulo y hallazgo; no se alteró el histórico.
+- **Planes:** Calidad consulta textos y previsualiza PDF/fotos antes de aprobar.
+  Incorporar, adjuntar/retirar y enviar exige aprobación vigente de la tarea en
+  cliente y servidor, también para Calidad: sustituye la excepción del 15 oct.
+  Muestra cargo del aprobador de la empresa activa. Descuento directo pasa de
+  dos envíos a una entrega transaccional de compromiso/respuesta/soportes, con
+  control de ambas versiones; conserva revisión/presentación explícitas.
+- **Reactivar tarea desde Calidad:** motivo y nueva fecha; conserva tarea/número,
+  responsable, aprobador y registros, sin borrar/recrear. Deja la tarea devuelta y
+  el hallazgo abierto; invalida revisiones/presentaciones de sus planes activos en
+  esa empresa, guardando antes la auditoría. No modifica filas ajenas, rechaza
+  versiones antiguas y no duplica devoluciones. Máximo 100 planes vinculados.
+- **Fotografía inicial opcional:** bloque separado por hallazgo del plan, JPG/PNG,
+  hasta 12 archivos de 5 MB; cifrado y auditoría existentes. Solo gestores autorizados
+  la cargan/retiran tras aprobación de tarea. Se consulta en visor y se incluye
+  separada en el ZIP del expediente; no cuenta como soporte para subsanar ni se
+  exige al registrar actas. No se crearon maestros, roles, apps o colecciones nuevas.
+- **Visitas:** lista mensual desde el calendario respetando filtros; panel en móvil,
+  calendario/lista simultáneos en escritorio. Consolidado filtra por profesional y
+  establecimiento/subcentro; cambia fuentes y limpia filtros al cambiar de empresa.
+  Actas completas y fotos activas por defecto, con opciones para descargar resumen.
+  Eliminado el recorte silencioso a 80 fotos por visita; se comprobó un informe con 81.
+  Informes individuales, numeración y marcas de agua ya existían y se reutilizan.
+- **Biométrico:** entrada dentro de Talento Humano con acceso independiente a
+  `biometricodashboard`; conserva acceso directo para personas sin TH. No concede
+  permisos de asistencia por tener acceso a TH ni modifica firmware.
+- **Validación:** Flutter completo **1970/1970**; Functions **311/311**; integración
+  Firestore/Storage y reglas de Tareas **60/60**, sin omisiones. Incluye consulta previa,
+  escritura denegada, revocación, reactivación, rol histórico, empresa secundaria,
+  cifrado, fotografías iniciales y entrega conjunta. Widgets a 390/768/1024/1366 con
+  texto 1,6× y temas Windows/Android/iOS; corregidos desbordes en filtro de fechas y
+  cabecera de tarjetas. Analizador sin errores (avisos preexistentes); ESLint del
+  servidor sin errores (avisos de longitud de línea). Web release compilada correctamente.
+- **Pendientes reales:** pruebas autenticadas con datos reales y dispositivos
+  Android/iPhone (cámara, teclado, descarga y permisos nativos), compilación/firma
+  de iOS fuera de Windows y publicación de las apps. Para activar se requieren
+  Web, Function `interventoriaPlanes` y reglas de Firestore; **no desplegados** en
+  esta conversación. No se ejecutaron migraciones ni cambios de producción.
+  Captura automática de correos CRF-K2 permanece como propuesta: faltan buzón
+  autorizado por empresa, ejemplos y contrato de extracción. No se conectaron cuentas.
+
 ## 2026-10-21 — Interventoría: quien aprueba no puede quedar como responsable (Claude)
 
 - Pedido del usuario: bloquear en todos los caminos que una tarea de

@@ -479,7 +479,10 @@ class PlanContextoHallazgo extends StatelessWidget {
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             Text('Responsable: ${item['responsableNombre'] ?? 'Sin asignar'}'),
-            Text('Aprueba: ${item['aprobadorNombre'] ?? 'Sin información'}'),
+            Text(
+              'Aprueba: ${item['aprobadorNombre'] ?? 'Sin información'}'
+              '${planText(item, 'aprobadorCargo').isEmpty ? '' : ' · ${item['aprobadorCargo']}'}',
+            ),
             Text('Estado de tarea: ${item['tareaEstado'] ?? 'Por consultar'}'),
             if (planText(item, 'limiteSubsanacion').isNotEmpty)
               Text(

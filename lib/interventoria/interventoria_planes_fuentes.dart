@@ -112,6 +112,14 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
       for (final key in entry.value) {
         if (!mounted) return;
         try {
+          final current = await widget.request({
+            'accion': 'fuentes',
+            'itemId': entry.key,
+          });
+          if (current['soloConsulta'] == true ||
+              current['tareaAprobada'] == false) {
+            throw StateError('La tarea sigue pendiente de aprobación.');
+          }
           await widget.request({
             'accion': 'usarFuente',
             'itemId': entry.key,
@@ -173,6 +181,22 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
               'Copia descargada de hasta 5 MB. Revisa su legibilidad y adjúntala como soporte.',
         );
       }
+    } catch (e) {
+      if (mounted) setState(() => _result = e.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _preview(String itemId, String key) async {
+    setState(() => _busy = true);
+    try {
+      final data = await descargarFuentePlan(widget.request, itemId, key);
+      if (!mounted) return;
+      await planPrevisualizar(context, (
+        nombre: planText(data, 'nombre'),
+        bytes: base64Decode(planText(data, 'base64')),
+      ));
     } catch (e) {
       if (mounted) setState(() => _result = e.toString());
     } finally {
@@ -243,12 +267,12 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
           children: [
             const Expanded(
               child: Text(
-                'Respuesta y archivos aprobados',
+                'Respuestas y archivos de la tarea',
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
             ),
             const PlanAyuda(
-              'Solo se muestran fuentes de tareas aprobadas. Incorpora la respuesta y selecciona los archivos que deben acompañar la subsanación. El acta original aporta contexto. Máximo 12 soportes de hasta 5 MB cada uno.',
+              'Calidad puede consultar respuestas y archivos antes de la aprobación. Solo una tarea aprobada permite incorporarlos al plan. Incorpora la respuesta y selecciona los archivos que deben acompañar la subsanación. El acta original aporta contexto. Máximo 12 soportes de hasta 5 MB cada uno.',
             ),
           ],
         ),
@@ -335,6 +359,13 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
     Widget download(PlanData file) => Wrap(
       children: [
         IconButton(
+          tooltip: 'Previsualizar archivo',
+          onPressed: enabled && file['disponible'] == true
+              ? () => _preview(id, planText(file, 'key'))
+              : null,
+          icon: const Icon(Icons.visibility_outlined),
+        ),
+        IconButton(
           tooltip: 'Descargar para revisar',
           onPressed: enabled && file['disponible'] == true
               ? () => _download(id, planText(file, 'key'))
@@ -360,7 +391,7 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
               0: FixedColumnWidth(48),
               1: FlexColumnWidth(3),
               2: FlexColumnWidth(2),
-              3: FixedColumnWidth(96),
+              3: FixedColumnWidth(144),
             },
             defaultVerticalAlignment: TableCellVerticalAlignment.middle,
             children: [
@@ -391,14 +422,22 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
         return Column(
           children: [
             for (final file in files)
-              CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                controlAffinity: ListTileControlAffinity.leading,
-                value: selected(file),
-                onChanged: change(file),
-                title: Text(planText(file, 'name')),
-                subtitle: Text(origin(file)),
-                secondary: download(file),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    value: selected(file),
+                    onChanged: change(file),
+                    title: Text(planText(file, 'name')),
+                    subtitle: Text(origin(file)),
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: download(file),
+                  ),
+                ],
               ),
           ],
         );
@@ -410,7 +449,11 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
     final id = planText(item, 'id');
     final source = _sources[id];
     final files = planList(source?['archivos']);
-    final editable = enabled && item['soportesPresentado'] == null;
+    final editable =
+        enabled &&
+        source?['soloConsulta'] != true &&
+        source?['tareaAprobada'] != false &&
+        item['soportesPresentado'] == null;
     final name = source == null
         ? planText(item, 'responsableNombre')
         : planText(source, 'responsableNombre');
@@ -500,9 +543,13 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
                           TextButton.icon(
                             icon: const Icon(Icons.copy, size: 16),
                             label: const Text('Copiar respuesta de la tarea'),
-                            onPressed: () => Clipboard.setData(
-                              ClipboardData(text: planText(text, 'message')),
-                            ),
+                            onPressed: !editable
+                                ? null
+                                : () => Clipboard.setData(
+                                    ClipboardData(
+                                      text: planText(text, 'message'),
+                                    ),
+                                  ),
                           ),
                           if (widget.onUseText != null &&
                               planText(text, 'message').isNotEmpty)

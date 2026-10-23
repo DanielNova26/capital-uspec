@@ -172,3 +172,31 @@ Future<PlanData> descargarFuentePlan(
   }
   return {'nombre': first['nombre'], 'base64': base64Encode(bytes.takeBytes())};
 }
+
+/// Vista de consulta: nunca incorpora ni modifica el archivo original.
+Future<void> planPrevisualizar(BuildContext context, PlanArchivo archivo) =>
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: Text(archivo.nombre)),
+          body: SafeArea(
+            child: archivo.nombre.toLowerCase().endsWith('.pdf')
+                ? PdfPreview(
+                    build: (_) async => archivo.bytes,
+                    useActions: false,
+                    canChangePageFormat: false,
+                    canChangeOrientation: false,
+                    allowPrinting: false,
+                    allowSharing: false,
+                  )
+                : InteractiveViewer(
+                    minScale: .5,
+                    maxScale: 5,
+                    child: Center(
+                      child: Image.memory(archivo.bytes, fit: BoxFit.contain),
+                    ),
+                  ),
+          ),
+        ),
+      ),
+    );

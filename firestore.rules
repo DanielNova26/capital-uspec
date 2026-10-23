@@ -2158,7 +2158,8 @@ service cloud.firestore {
           'solicitud_reasignacion_to_uid', 'solicitud_reasignacion_to_nombre',
           'solicitud_reasignacion_areaId', 'solicitud_reasignacion_areaNombre',
           'solicitud_reasignacion_cargoId',
-          'solicitud_reasignacion_cargoNombre'];
+          'solicitud_reasignacion_cargoNombre',
+          'solicitud_reasignacion_observaciones'];
       }
 
       // Lo que registra el responsable sin cambiar de responsable.
@@ -2204,6 +2205,8 @@ service cloud.firestore {
                 == request.auth.token.userDocId
               && d.get('solicitud_reasignacion_to_uid', '')
                 != antes.get('asignado_uid', '')
+              && d.get('solicitud_reasignacion_observaciones', '') is string
+              && d.get('solicitud_reasignacion_observaciones', '').size() <= 2000
               && propios.hasOnly(camposSolicitudReasignacion())
               && usuarioActivoParaTarea(antes.get('empresaId', ''),
                 d.get('solicitud_reasignacion_to_uid', '')))

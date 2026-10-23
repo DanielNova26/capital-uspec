@@ -1037,7 +1037,7 @@ Future<({List<_Anexo> anexos, List<VisitaEvidencia> sinBajar})> _anexosDe(
   }
   final anexos = <_Anexo>[];
   final sinBajar = <VisitaEvidencia>[];
-  for (final (titulo, e) in pendientes.take(80)) {
+  for (final (titulo, e) in pendientes) {
     Uint8List? bytes;
     try {
       bytes = cargar != null ? await cargar(e) : null;

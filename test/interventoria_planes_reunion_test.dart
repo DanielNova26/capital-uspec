@@ -138,7 +138,7 @@ void main() {
   }
   for (final calidad in [true, false]) {
     testWidgets(
-      'tarea pendiente: ${calidad ? 'Calidad responde pero no revisa' : 'el responsable no envía'}',
+      'tarea pendiente: ${calidad ? 'Calidad solo consulta' : 'el responsable no envía'}',
       (tester) async {
         await tester.pumpWidget(
           MaterialApp(
@@ -163,8 +163,8 @@ void main() {
         final enviar = tester.widget<FilledButton>(
           find.widgetWithText(FilledButton, 'Guardar y enviar a revisión'),
         );
-        // Calidad responde aunque la tarea siga sin aprobar; el responsable no.
-        expect(enviar.onPressed == null, !calidad);
+        // Ningún perfil envía una respuesta pendiente de aprobación.
+        expect(enviar.onPressed, isNull);
         if (!calidad) return;
         expect(
           tester

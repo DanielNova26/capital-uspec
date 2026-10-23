@@ -590,6 +590,29 @@ void main() {
       expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
     });
 
+    test('no descarta fotografías después de la número 80', () async {
+      final v = visita(
+        estado: kVisitaTerminada,
+        adicionales: [
+          for (var i = 0; i < 81; i++)
+            VisitaEvidencia(url: '', path: '$i', nombre: '$i.jpg'),
+        ],
+      );
+      final pedidas = <String>[];
+      final bytes = await generarInformeVisita(
+        v: v,
+        formato: formulario,
+        empresaNombre: 'Capital',
+        cargarImagen: (e) async {
+          pedidas.add(e.path);
+          return foto();
+        },
+      );
+      expect(pedidas, hasLength(81));
+      expect(pedidas.last, '80');
+      expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+    });
+
     test('el formato SST sigue saliendo con sus tres hojas', () async {
       final sst = formatoSstOficial('e');
       final v = VisitaProfesional.fromMap('v2', {

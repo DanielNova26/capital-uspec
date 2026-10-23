@@ -675,6 +675,42 @@ class InterventoriaService {
        _functions =
            functions ?? FirebaseFunctions.instanceFor(region: 'us-central1');
 
+  Stream<Map<String, dynamic>> streamTareaHallazgo(InterventoriaHallazgo h) =>
+      _db.collection('TBL_TAREAS').doc(h.tareaId).snapshots().map((doc) {
+        final data = doc.data() ?? <String, dynamic>{};
+        return tareaVinculadaInterventoria(h, data)
+            ? data
+            : <String, dynamic>{};
+      });
+
+  Future<Map<String, Map<String, dynamic>>> tareasParaExportar(
+    String empresaId,
+    List<InterventoriaHallazgo> hallazgos,
+  ) async {
+    final result = <String, Map<String, dynamic>>{};
+    final propios = hallazgos
+        .where((h) => h.empresaId == empresaId && h.tareaId.isNotEmpty)
+        .toList();
+    final ids = propios.map((h) => h.tareaId).toSet().toList();
+    for (var i = 0; i < ids.length; i += 20) {
+      final chunk = ids.skip(i).take(20);
+      final docs = await Future.wait(
+        chunk.map((id) => _db.collection('TBL_TAREAS').doc(id).get()),
+      );
+      for (final doc in docs) {
+        final data = doc.data();
+        if (data != null &&
+            propios.any(
+              (h) =>
+                  h.tareaId == doc.id && tareaVinculadaInterventoria(h, data),
+            )) {
+          result[doc.id] = data;
+        }
+      }
+    }
+    return result;
+  }
+
   Stream<InterventoriaEmpresaConfig> streamConfiguracionEmpresa(
     String empresaId,
   ) => _db

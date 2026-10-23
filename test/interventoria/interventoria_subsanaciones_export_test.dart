@@ -9,12 +9,16 @@ void main() {
     String estado = 'abierto',
     String tarea = '',
     DateTime? subsanacion,
+    String fuente = 'manual',
+    String numeralActa = '',
   }) => InterventoriaHallazgo(
     id: 'h1',
     empresaId: 'capital',
     centroCostoId: 'buen_pastor',
     centroCostoNombre: 'Buen Pastor',
     numeroHallazgo: numero,
+    fuente: fuente,
+    numeralActa: numeralActa,
     descripcion: 'El área de almacenamiento no tiene estibas suficientes',
     fechaHallazgo: Timestamp.fromDate(DateTime(2026, 9, 3)),
     estado: estado,
@@ -67,6 +71,34 @@ void main() {
     });
   });
 
+  test(
+    'exporta numeral real, ID de visita y tarea sin confundir el ordinal',
+    () {
+      final h = hallazgo(
+        numero: '1.1',
+        tarea: 't1',
+        fuente: 'acta',
+        numeralActa: '3.8',
+      );
+      final fila = filaSubsanacion(
+        h,
+        idVisita: '001234',
+        tarea: {'numero': 1453, 'estado': 'por_aprobar'},
+      );
+      expect(fila[kColumnasSubsanaciones.indexOf('N° Hallazgo')], '3.8');
+      expect(fila[kColumnasSubsanaciones.indexOf('ID de visita')], '001234');
+      expect(fila[kColumnasSubsanaciones.indexOf('N° de tarea')], 'N.º 1453');
+      expect(
+        fila[kColumnasSubsanaciones.indexOf('Estado de tarea')],
+        'Por aprobar',
+      );
+      expect(
+        h.copyWith(numeralActa: '').numeroVisible,
+        'Sin numeral identificado',
+      );
+    },
+  );
+
   group('archivo', () {
     test('trae la cabecera y una fila por hallazgo', () {
       final bytes = generarExcelSubsanaciones([hallazgo(), hallazgo()]);
@@ -88,8 +120,8 @@ void main() {
 
   group('columnas vacías', () {
     test('sin tarea vinculada lo dice, no deja el hueco', () {
-      expect(filaSubsanacion(hallazgo()).last, 'Sin tarea');
-      expect(filaSubsanacion(hallazgo(tarea: 't1')).last, 'Sí');
+      expect(filaSubsanacion(hallazgo())[13], 'Sin tarea');
+      expect(filaSubsanacion(hallazgo(tarea: 't1'))[13], 'Sí');
     });
 
     test('sin fecha de subsanación la casilla queda vacía', () {

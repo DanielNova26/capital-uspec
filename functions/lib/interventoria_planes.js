@@ -35,6 +35,7 @@ exports.cambiarItem = cambiarItem;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 const crypto_1 = require("crypto");
+const interventoria_aprobador_1 = require("./interventoria_aprobador");
 const tareas_avisos_1 = require("./tareas_avisos");
 const pdf_lib_1 = require("pdf-lib");
 const interventoria_planes_pdf_1 = require("./interventoria_planes_pdf");
@@ -146,6 +147,7 @@ async function resumenTarea(t, a) {
     const u = aprobadorId ? (await db().collection("TBL_USUARIOS").doc(aprobadorId).get()).data() : null;
     return { responsableNombre: s(t.asignado_nombre || t.assignedToName),
         responsableId: s(t.asignado_uid || t.assignedTo), aprobadorId,
+        aprobadorCargo: u ? (0, interventoria_aprobador_1.cargoEnEmpresa)(u, a.empresaId) : "",
         aprobadorNombre: s(u?.nombreCompleto || u?.nombre || `${u?.nombres || ""} ${u?.apellidos || ""}`) || "Sin aprobador",
         tareaEstado: s(t.estado), tareaAprobada: (0, interventoria_planes_policy_1.tareaAprobadaParaPlan)(t) };
 }
@@ -588,7 +590,7 @@ async function cambiarItem(input, a) {
     empresa(previo, a);
     const planPrevio = (await db().collection(interventoria_planes_policy_1.PLANES_COL).doc(id(previo.planId)).get()).data();
     empresa(planPrevio, a);
-    const calidadIds = accion === "responder" || accion === "soportes" ? await destinatariosPlan(a, planPrevio) : [];
+    const calidadIds = accion === "responder" || accion === "soportes" || accion === "entregaDirecta" ? await destinatariosPlan(a, planPrevio) : [];
     const fuenteTexto = accion === "usarTexto" ? (await fuentesTarea(input, a)).avances
         .find((v) => v.id === input.fuenteId && s(v.message)) : null;
     if (accion === "usarTexto" && !fuenteTexto)
@@ -602,15 +604,39 @@ async function cambiarItem(input, a) {
         if (plan.estado !== "abierto")
             err("El plan está cerrado.");
         const tarea = await tareaItem(item, a, tx);
-        // Calidad responde (compromiso y soportes) aunque la tarea siga sin
-        // aprobar; el responsable solo con la tarea aprobada por su aprobador.
-        const calidadResponde = a.calidad && (accion === "responder" || accion === "soportes");
-        if (accion !== "reabrir" && !calidadResponde)
+        // Se permite consultar antes de aprobar, pero ninguna entrega puede
+        // incorporarse o enviarse a revisión saltándose al aprobador de la tarea.
+        if (accion !== "reabrir")
             (0, interventoria_planes_policy_1.exigirTareaAprobada)(tarea.data);
         const siblings = await tx.get(db().collection(interventoria_planes_policy_1.ITEMS_COL).where("planId", "==", item.planId));
         const responsable = s(tarea.data.asignado_uid || tarea.data.assignedTo);
         const update = { updatedAt: admin.firestore.Timestamp.now() };
-        if (accion === "responder" || accion === "soportes") {
+        if (accion === "entregaDirecta") {
+            if ((0, interventoria_planes_policy_1.tipoPlan)(plan) !== "descuento_directo")
+                err("La entrega conjunta solo aplica a descuento directo.");
+            if (Number(input.respuestaVersion) !== item.respuestaVersion || Number(input.soportesVersion) !== item.soportesVersion) {
+                err("La entrega cambió. Actualiza antes de guardar.", "aborted");
+            }
+            if (item.respuestaPresentado || item.soportesPresentado)
+                err("Reabre las entregas presentadas antes de corregirlas.");
+            Object.assign(update, (0, interventoria_planes_policy_1.validarCompromiso)(input, plan));
+            const textoCalidad = s(input.respuestaSoportes);
+            const texto = textoCalidad || s(item.respuestaTarea);
+            if (texto.length < 10 || texto.length > 12000 || !item.evidencias?.length)
+                err("Escribe la subsanación y adjunta al menos un soporte.");
+            Object.assign(update, { respuestaSoportes: texto, respuestaCalidad: textoCalidad });
+            for (const e of ["respuesta", "soportes"]) {
+                update[`${e}Version`] = item[`${e}Version`] + 1;
+                update[`${e}Revision`] = { estado: "por_revisar" };
+                update[`${e}EntregadoAt`] = admin.firestore.Timestamp.now();
+            }
+            for (const uid of calidadIds) {
+                notice(tx, uid, `revision:${ref.id}:conjunta:${update.respuestaVersion}:${update.soportesVersion}`, a, `${plan.numero}: entrega conjunta por revisar`, `${item.establecimiento} · ${item.numeral}`, item);
+            }
+        }
+        else if (accion === "responder" || accion === "soportes") {
+            if ((0, interventoria_planes_policy_1.tipoPlan)(plan) === "descuento_directo")
+                err("Envía respuesta y soportes juntos desde la versión actual de la aplicación.");
             const e = accion === "responder" ? "respuesta" : "soportes";
             if (Number(input.version) !== item[`${e}Version`])
                 err("La entrega cambió. Actualiza antes de guardar.", "aborted");
@@ -686,7 +712,7 @@ async function cambiarItem(input, a) {
         }
         else
             err("Acción inválida.", "invalid-argument");
-        if (["responder", "soportes", "usarTexto"].includes(accion)) {
+        if (["responder", "soportes", "usarTexto", "entregaDirecta"].includes(accion)) {
             const estadoGestion = (0, interventoria_planes_policy_1.estadoGestionAutomatico)(plan.estadoGestion || "recibido", siblings.docs.map((d) => d.id === ref.id ? { ...item, ...update } : d.data()));
             if (estadoGestion !== plan.estadoGestion) {
                 tx.update(pr, { estadoGestion, updatedAt: admin.firestore.Timestamp.now() });
@@ -699,16 +725,85 @@ async function cambiarItem(input, a) {
     });
     return { ok: true };
 }
+// Devuelve la misma tarea, conservando su número, responsables e historial.
+async function reactivarTarea(input, a) {
+    calidad(a);
+    const motivo = s(input.motivo);
+    const fecha = (0, interventoria_planes_policy_1.diaValido)(input.fechaLimite);
+    if (motivo.length < 8 || motivo.length > 2000 || fecha < (0, interventoria_planes_policy_1.hoyColombia)())
+        err("Indica motivo y una nueva fecha límite vigente.");
+    const ref = db().collection(interventoria_planes_policy_1.ITEMS_COL).doc(id(input.itemId));
+    await db().runTransaction(async (tx) => {
+        const item = (await tx.get(ref)).data();
+        empresa(item, a);
+        if (Number(input.respuestaVersion) !== item.respuestaVersion || Number(input.soportesVersion) !== item.soportesVersion) {
+            err("La entrega cambió. Actualiza antes de reactivar.", "aborted");
+        }
+        const tarea = await tareaItem(item, a, tx);
+        (0, interventoria_planes_policy_1.exigirTareaAprobada)(tarea.data);
+        const hr = db().collection("TBL_INTERVENTORIA_HALLAZGOS").doc(id(item.hallazgoId));
+        const hallazgo = (await tx.get(hr)).data();
+        empresa(hallazgo, a);
+        if (hallazgo.tareaId !== item.tareaId || hallazgo.visitaId !== item.visitaId)
+            err("Cambió la vinculación del hallazgo.");
+        const rows = await tx.get(db().collection(interventoria_planes_policy_1.ITEMS_COL).where("tareaId", "==", item.tareaId));
+        const propios = rows.docs.filter((d) => d.data().empresaId === a.empresaId && !d.data().eliminado);
+        if (propios.length > 100)
+            err("La tarea tiene más de 100 planes vinculados. Requiere revisión administrativa.");
+        const planes = new Map();
+        for (const row of propios) {
+            if (row.data().hallazgoId !== item.hallazgoId)
+                err("Hay un plan con una vinculación de tarea incoherente.");
+            planes.set(id(row.data().planId), db().collection(interventoria_planes_policy_1.PLANES_COL).doc(id(row.data().planId)));
+        }
+        for (const pr of planes.values()) {
+            const plan = (await tx.get(pr)).data();
+            empresa(plan, a);
+            if (plan.estado !== "abierto")
+                err("Reabre el plan cerrado antes de reactivar su tarea.");
+        }
+        const now = admin.firestore.Timestamp.now();
+        const limite = admin.firestore.Timestamp.fromDate(new Date(`${fecha}T23:59:59-05:00`));
+        const del = admin.firestore.FieldValue.delete();
+        tx.update(tarea.ref, { estado: "devuelta", status: "devuelta", fecha_limite: limite, dueDate: limite,
+            approvedAt: del, solicitud_finalizacion_estado: del, solicitud_finalizacion_at: del,
+            solicitud_finalizacion_by_uid: del, solicitud_finalizacion_by_nombre: del,
+            updatedAt: now, lastEventType: "task_devuelta", lastEventAt: now,
+            lastEventText: `Calidad reactivó la tarea: ${motivo}` });
+        tx.create(tarea.ref.collection("novedades").doc(), { message: motivo, comment: motivo,
+            by: a.id, byName: a.nombre, createdAt: now, tipo: "reactivacion_calidad", attachments: [] });
+        tx.update(hr, { estado: "activo", fechaSubsanacion: null, fechaLimite: limite, updatedAt: now });
+        for (const row of propios) {
+            const previo = row.data();
+            tx.update(row.ref, { respuestaVersion: previo.respuestaVersion + 1, soportesVersion: previo.soportesVersion + 1,
+                respuestaRevision: { estado: "devuelto", motivo }, soportesRevision: { estado: "devuelto", motivo },
+                respuestaPresentado: del, soportesPresentado: del, updatedAt: now });
+            audit(tx, row.ref, a, "tarea_reactivada", { motivo, fechaLimite: fecha, anterior: previo });
+        }
+        for (const pr of planes.values()) {
+            tx.update(pr, { estadoGestion: "en_gestion", updatedAt: now });
+            audit(tx, pr, a, "tarea_reactivada", { motivo, tareaId: item.tareaId });
+        }
+        notice(tx, s(tarea.data.asignado_uid || tarea.data.assignedTo), `reactivada:${ref.id}:${item.respuestaVersion + 1}`, a, "Tarea reactivada por Calidad", `${motivo} · Nueva fecha límite: ${fecha}`, item);
+    });
+    return { ok: true };
+}
 async function adjuntar(input, a) {
+    const inicial = input._inicial === true;
+    if (inicial)
+        calidad(a);
+    const campo = inicial ? "evidenciasIniciales" : "evidencias";
     const ref = db().collection(interventoria_planes_policy_1.ITEMS_COL).doc(id(input.itemId));
     const item = (await ref.get()).data();
     empresa(item, a);
-    await tareaItem(item, a);
+    (0, interventoria_planes_policy_1.exigirTareaAprobada)((await tareaItem(item, a)).data);
     const nombre = s(input.nombre).replace(/[^\p{L}\p{N}._ -]/gu, "_").slice(0, 150);
     const ext = nombre.split(".").pop()?.toLowerCase();
     const types = { pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png" };
     if (!ext || !types[ext])
         return err("Adjunta PDF, JPG o PNG.");
+    if (inicial && ext === "pdf")
+        err("La fotografía inicial debe ser JPG o PNG.");
     const bytes = Buffer.from(s(input.base64), "base64");
     if (!bytes.length || bytes.length > 5 * 1024 * 1024)
         err("Cada soporte debe pesar hasta 5 MB.");
@@ -737,8 +832,7 @@ async function adjuntar(input, a) {
             const current = (await tx.get(ref)).data();
             empresa(current, a);
             const task = await tareaItem(current, a, tx);
-            if (!a.calidad)
-                (0, interventoria_planes_policy_1.exigirTareaAprobada)(task.data);
+            (0, interventoria_planes_policy_1.exigirTareaAprobada)(task.data);
             const pr = db().collection(interventoria_planes_policy_1.PLANES_COL).doc(id(current.planId));
             const plan = (await tx.get(pr)).data();
             empresa(plan, a);
@@ -754,19 +848,20 @@ async function adjuntar(input, a) {
                 return;
             }
             duplicado = false;
-            if ((current.evidencias?.length || 0) >= 12)
+            if ((current[campo]?.length || 0) >= 12)
                 err("Máximo 12 archivos por hallazgo.");
             const evidencia = { path, nombre, contentType: types[ext], size: bytes.length, porId: a.id, fecha: admin.firestore.Timestamp.now(),
                 ...(input._fuenteKey ? { fuenteKey: input._fuenteKey, fuenteOrigen: input._fuenteOrigen } : {}),
                 _cryptoKey: key.toString("base64"), _cryptoIv: iv.toString("base64"), _cryptoTag: cipher.getAuthTag().toString("base64") };
-            tx.update(ref, { evidencias: [...(current.evidencias || []), evidencia],
-                soportesVersion: current.soportesVersion + 1, soportesRevision: { estado: "pendiente" } });
-            const estadoGestion = (0, interventoria_planes_policy_1.estadoGestionAutomatico)(plan.estadoGestion || "recibido", siblings.docs.map((d) => d.id === ref.id ? { ...current, soportesVersion: current.soportesVersion + 1 } : d.data()));
+            tx.update(ref, inicial ? { evidenciasIniciales: [...(current[campo] || []), evidencia] } :
+                { evidencias: [...(current.evidencias || []), evidencia],
+                    soportesVersion: current.soportesVersion + 1, soportesRevision: { estado: "pendiente" } });
+            const estadoGestion = (0, interventoria_planes_policy_1.estadoGestionAutomatico)(plan.estadoGestion || "recibido", siblings.docs.map((d) => d.id === ref.id ? { ...current, soportesVersion: current.soportesVersion + (inicial ? 0 : 1) } : d.data()));
             if (estadoGestion !== plan.estadoGestion) {
                 tx.update(pr, { estadoGestion, updatedAt: admin.firestore.Timestamp.now() });
                 audit(tx, pr, a, "estado_automatico", { estadoGestion });
             }
-            audit(tx, ref, a, "soporte_adjunto", evidencia);
+            audit(tx, ref, a, inicial ? "fotografia_inicial_adjunta" : "soporte_adjunto", evidencia);
         });
     }
     catch (e) {
@@ -796,7 +891,7 @@ async function fuentesTarea(input, a, internas = false) {
     empresa(item, a);
     const tarea = await tareaItem(item, a);
     const resumen = await resumenTarea(tarea.data, a);
-    if (!resumen.tareaAprobada) {
+    if (!resumen.tareaAprobada && !a.calidad) {
         return { ...resumen, archivos: [], avances: [], adjuntos: [],
             motivo: "La tarea aún no está aprobada. Sus textos y archivos estarán disponibles al aprobarla." };
     }
@@ -860,7 +955,9 @@ async function fuentesTarea(input, a, internas = false) {
     if (s(visita.actaOriginalUrl))
         agregar([{ url: visita.actaOriginalUrl }], "Acta original · contexto", "acta");
     registros.sort((x, y) => s(y.createdAt).localeCompare(s(x.createdAt)));
-    return { ...resumen, archivos: [...archivos.values()], avances: registros, adjuntos: [...archivos.values()],
+    return { ...resumen, soloConsulta: !resumen.tareaAprobada,
+        motivo: resumen.tareaAprobada ? "" : "Vista previa: pendiente de aprobación. No se pueden incorporar respuestas ni archivos hasta que se apruebe la tarea.",
+        archivos: [...archivos.values()], avances: registros, adjuntos: [...archivos.values()],
         responsableNombre: s(tarea.data.asignado_nombre || tarea.data.assignedToName),
         responsableId: s(tarea.data.asignado_uid || tarea.data.assignedTo) };
 }
@@ -892,6 +989,9 @@ async function leerFuente(input, a, limite = 5 * 1024 * 1024) {
     return { ev, bytes };
 }
 async function usarFuente(input, a) {
+    const item = (await db().collection(interventoria_planes_policy_1.ITEMS_COL).doc(id(input.itemId)).get()).data();
+    empresa(item, a);
+    (0, interventoria_planes_policy_1.exigirTareaAprobada)((await tareaItem(item, a)).data);
     const { ev, bytes } = await leerFuente(input, a);
     return adjuntar({ itemId: input.itemId, nombre: ev.name, base64: bytes.toString("base64"),
         _fuenteKey: ev.key, _fuenteOrigen: ev.origen }, a);
@@ -907,18 +1007,23 @@ async function verFuente(input, a) {
         base64: bytes.subarray(parte * chunk, (parte + 1) * chunk).toString("base64") };
 }
 async function retirarSoporte(input, a) {
+    const inicial = input._inicial === true;
+    if (inicial)
+        calidad(a);
+    const campo = inicial ? "evidenciasIniciales" : "evidencias";
     const ref = db().collection(interventoria_planes_policy_1.ITEMS_COL).doc(id(input.itemId));
     await db().runTransaction(async (tx) => {
         const item = (await tx.get(ref)).data();
         empresa(item, a);
-        await tareaItem(item, a, tx);
+        (0, interventoria_planes_policy_1.exigirTareaAprobada)((await tareaItem(item, a, tx)).data);
         if (item.soportesPresentado)
             err("Reabre la entrega antes de corregir los soportes.");
-        const evs = (item.evidencias || []).filter((v) => v.path !== input.path);
-        if (evs.length === item.evidencias.length)
+        const evs = (item[campo] || []).filter((v) => v.path !== input.path);
+        if (evs.length === (item[campo] || []).length)
             err("El archivo ya no forma parte de la entrega.");
-        tx.update(ref, { evidencias: evs, soportesVersion: item.soportesVersion + 1, soportesRevision: { estado: "pendiente" } });
-        audit(tx, ref, a, "soporte_retirado", { anterior: item, path: input.path });
+        tx.update(ref, inicial ? { evidenciasIniciales: evs } :
+            { evidencias: evs, soportesVersion: item.soportesVersion + 1, soportesRevision: { estado: "pendiente" } });
+        audit(tx, ref, a, inicial ? "fotografia_inicial_retirada" : "soporte_retirado", { anterior: item, path: input.path });
     });
     return { ok: true };
 }
@@ -962,7 +1067,7 @@ async function evidencia(input, a) {
     const item = (await db().collection(interventoria_planes_policy_1.ITEMS_COL).doc(id(input.itemId)).get()).data();
     empresa(item, a);
     await tareaItem(item, a);
-    const ev = item.evidencias?.find((v) => v.path === input.path);
+    const ev = [...(item.evidencias || []), ...(item.evidenciasIniciales || [])].find((v) => v.path === input.path);
     if (!ev || !s(ev.path).startsWith(`interventoria_planes/${a.empresaId}/${id(input.itemId)}/`))
         err("Soporte inválido.");
     const bytes = await leerEvidencia(ev);
@@ -1048,6 +1153,19 @@ async function exportar(input, a) {
             for (const page of await consolidado.copyPages(pdf, pdf.getPageIndices()))
                 consolidado.addPage(page);
         zip.file(`${name}.pdf`, output);
+        // Initial photos are context/defense, never proof that a finding was fixed.
+        if (expediente) {
+            for (const [index, ev] of (original.evidenciasIniciales || []).entries()) {
+                if (!s(ev.path).startsWith(`interventoria_planes/${a.empresaId}/${item.id}/`))
+                    err("Ruta de fotografía inválida.");
+                const initial = await leerEvidencia(ev);
+                total += initial.length;
+                if (total > 100 * 1024 * 1024)
+                    err("El expediente supera 100 MB.");
+                const label = s(ev.nombre).replace(/[^\p{L}\p{N}._-]/gu, "_");
+                zip.file(`fotografias_iniciales/${name}_${index}_${label}`, initial);
+            }
+        }
         individual = { nombre: `${name}.pdf`, bytes: output };
     }
     if (expediente)
@@ -1124,19 +1242,23 @@ exports.interventoriaPlanes = functions.region("us-central1").runWith({ timeoutS
                 }
                 return await (0, interventoria_subsanacion_acta_1.registrarSubsanacionPorActa)(a.empresaId, id(input.visitaId), a);
             }
+            case "reactivarTarea": return await reactivarTarea(input, a);
             case "recordar": return await recordarItem(input, a);
             case "colaborar": return await colaborarPlan(input, a);
+            case "entregaDirecta":
             case "responder":
             case "soportes":
             case "usarTexto":
             case "revisar":
             case "presentar":
             case "reabrir": return await cambiarItem(input, a);
+            case "adjuntarInicial": return await adjuntar({ itemId: input.itemId, nombre: input.nombre, base64: input.base64, _inicial: true }, a);
             case "adjuntar": return await adjuntar({ itemId: input.itemId, nombre: input.nombre, base64: input.base64 }, a);
             case "fuentes": return await fuentesTarea(input, a);
             case "usarFuente": return await usarFuente(input, a);
             case "verFuente": return await verFuente(input, a);
-            case "retirarSoporte": return await retirarSoporte(input, a);
+            case "retirarInicial": return await retirarSoporte({ itemId: input.itemId, path: input.path, _inicial: true }, a);
+            case "retirarSoporte": return await retirarSoporte({ itemId: input.itemId, path: input.path }, a);
             case "fechas": return await editarFechas(input, a);
             case "identificarVisita": return await identificarVisita(input, a);
             case "evidencia": return await evidencia(input, a);
