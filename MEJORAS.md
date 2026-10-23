@@ -1,5 +1,35 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-23 — Fechas compactas e informe individual de Visitas (Codex)
+
+- Consolidado: controles «Desde» y «Hasta» con calendario mensual compacto,
+  selección de año y entrada por teclado. Conserva los atajos de periodos;
+  cancelar no modifica fechas y cambiar un extremo mantiene un rango válido.
+- Nueva sección «Informes por visita», paginada de 20 en 20 y ordenada por
+  fecha reciente. Respeta el mismo periodo, departamento, establecimiento,
+  profesional y alcance autorizado que el consolidado. Filas horizontales con
+  espacio amplio y tarjetas con la acción debajo en espacios estrechos.
+- Cada visita terminada permite descargar su PDF con firmas y evidencias,
+  usando el generador existente y primero el formato guardado con la visita.
+  El catálogo de la empresa sirve de respaldo para actas históricas sin copia
+  del formato. Programadas, canceladas y actas sin formato no ofrecen descarga.
+- Ambos informes fijan los datos solicitados al iniciar y detienen la entrega
+  si cambia empresa, persona o alcance de acceso durante la generación.
+  No se agregaron permisos, colecciones, maestros ni migraciones.
+- Validación: análisis estático de los tres archivos Dart sin incidencias;
+  **206/206 pruebas de Visitas**. Incluyen descarga real del PDF con fotografía
+  de una pregunta histórica, bloqueo de actas sin formato/canceladas, cambio
+  de empresa durante la generación y fechas por teclado/aplicar/cancelar.
+  Selector, filtros y tarjetas comprobados a 390, 768, 1024 y 1366 píxeles con
+  texto 1.6 en configuraciones Windows/Web, Android e iOS de widgets.
+- Web **2.8.10+63** compilada y publicada en `https://to-do-gestion.web.app`.
+  Verificación remota: HTTP 200 y SHA-256 idénticos al build en los seis archivos
+  de versión, entrada, arranque, aplicación y service workers. Backend conservado;
+  la comprobación sin autenticación continúa devolviendo HTTP 401.
+  No se verificaron dispositivos físicos
+  Android/iPhone, teclado nativo, permisos ni distribución en tiendas en este
+  cambio; la cobertura móvil descrita es de widgets, no de dispositivos.
+
 
 ## 2026-10-23 — Publicación de los cambios documentales 2.8.9+62 (Codex)
 

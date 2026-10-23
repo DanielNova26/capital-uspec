@@ -99,6 +99,27 @@ void main() {
 
           await tester.pumpWidget(app('A'));
           await tester.pumpAndSettle();
+          for (final campo in ['desde', 'hasta']) {
+            final boton = find.byKey(ValueKey('fecha-$campo'));
+            await tester.ensureVisible(boton);
+            await tester.tap(boton);
+            await tester.pumpAndSettle();
+            expect(find.byType(DateRangePickerDialog), findsNothing);
+            expect(find.byType(DatePickerDialog), findsOneWidget);
+            expect(
+              tester
+                  .getSize(
+                    find.byWidget(
+                      tester.widget<Dialog>(find.byType(Dialog)).child!,
+                    ),
+                  )
+                  .width,
+              lessThan(width),
+            );
+            await tester.tap(find.text('Cancelar'));
+            await tester.pumpAndSettle();
+            expect(tester.takeException(), isNull);
+          }
           await elegir('Establecimiento', 'Centro A Sede 1');
           await elegir('Profesional', 'A Profesional 1');
           expect(tester.takeException(), isNull);
@@ -107,6 +128,24 @@ void main() {
             filtro('Establecimiento'),
           );
           expect(est.initialValue, isNotEmpty);
+          final informe = find.byKey(const ValueKey('informe-visita-A-1'));
+          await tester.scrollUntilVisible(
+            informe,
+            200,
+            scrollable: find.byType(Scrollable).first,
+          );
+          expect(
+            find.byKey(const ValueKey('informe-visita-A-2')),
+            findsNothing,
+          );
+          expect(
+            tester
+                .widget<OutlinedButton>(
+                  find.byKey(const ValueKey('pdf-visita-A-1')),
+                )
+                .onPressed,
+            isNull,
+          );
           await tester.pumpWidget(app('B'));
           await tester.pumpAndSettle();
           expect(
