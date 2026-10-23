@@ -1,6 +1,38 @@
 # Bitácora de Mejoras — Capital USPEC
 
 
+## 2026-10-23 — Publicación de los cambios documentales 2.8.9+62 (Codex)
+
+- Autorización del usuario: «despliega todo». Publicados todos los componentes
+  necesarios de la revisión anterior en `integra360-94704`:
+  Hosting `to-do-gestion`, Function `interventoriaPlanes`, reglas e índices de Firestore.
+- **Web 2.8.9 (62):** release compilada y publicada en
+  `https://to-do-gestion.web.app`. HTTP 200 y SHA-256 idénticos al build para
+  `version.json`, `index.html`, `flutter_bootstrap.js`, `main.dart.js`,
+  `firebase-messaging-sw.js` y `flutter_service_worker.js`.
+- **Servidor:** `interventoriaPlanes` ACTIVE, Node.js 22, versión 13,
+  actualizada el 23 oct a las 14:56:45 de Bogotá. La consulta sin autenticación
+  devuelve HTTP 401. No se ejecutaron acciones autenticadas sobre registros reales.
+- **Reglas:** dry-run correcto y publicación verificada por API; ruleset
+  `ba62d19d-14fa-4203-b412-c6dda66abf35`, idéntico por SHA-256 a la copia compactada
+  de `firestore.rules`. Compactador 3/3 pruebas. Los 27 índices remotos están READY.
+  Se conserva el aviso anterior del compilador sobre un tipo null en una regla;
+  la compilación remota y las suites de permisos de la revisión fueron correctas.
+- **Android:** AAB release **2.8.9, código 62** compilado con el keystore de
+  publicación existente (certificado no debug), firma comprobada con jarsigner.
+  Copia para entregar/subir: `C:/Users/LENOVO/Downloads/ToDo-2.8.9-62.aab`
+  (152715434 bytes). SHA-256:
+  `48bf8ed339050e9582818da9a7e3bf2a26c55209bd1f4832c8cafa32a15d0ec3`.
+- **Límites de publicación móvil:** el AAB no se subió a Google Play; no hay un
+  canal de publicación autenticado configurado en este repositorio. iOS no se
+  puede compilar/firmar desde este host Windows: requiere macOS/Xcode y la firma
+  de App Store Connect. No se afirma que las tiendas o dispositivos estén actualizados.
+- La resolución DNS del equipo falló para servidores de Google. Se usó un
+  fallback DNS únicamente en los procesos de despliegue/verificación, conservando
+  TLS y sin cambiar la configuración de Windows. No cambió la lógica validada
+  anteriormente (1970 Flutter, 311 Functions y 60 integración/reglas).
+
+
 ## 2026-10-23 — Revisión de cinco documentos de Interventoría, Tareas y Visitas (Codex)
 
 - Matriz de lo existente, cambios y propuestas: `docs/revision-documentos-2026-10-23.md`.

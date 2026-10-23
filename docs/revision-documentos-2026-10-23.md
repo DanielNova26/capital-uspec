@@ -53,6 +53,6 @@ Los documentos 2 y 5 repiten gran parte del mismo pedido. Se consolidaron los re
 
 No hay nuevas apps, roles, maestros ni colecciones: se amplían flujos existentes con sus permisos y empresa activa. Las fotografías iniciales son documentos del expediente operativo, no maestros copiables entre empresas.
 
-Para activar estos cambios se requiere publicar Web, la función `interventoriaPlanes` y las reglas de Firestore, además de compilar/publicar las apps móviles. No se publican automáticamente ni se modifican datos de producción en esta revisión. Las apps antiguas no pueden realizar la entrega conjunta de descuento directo una vez actualizado el servidor.
+Publicación autorizada y realizada el 23 de octubre: Web **2.8.9 (62)**, función `interventoriaPlanes`, reglas e índices de Firestore. Se verificaron archivos públicos, función ACTIVE, reglas idénticas a la fuente e índices READY. Android: AAB release firmado en `C:/Users/LENOVO/Downloads/ToDo-2.8.9-62.aab`, pendiente de subir a Google Play. iOS requiere compilación/firma en macOS y publicación en App Store Connect. No se migraron datos productivos. Las apps antiguas deben actualizarse para realizar la entrega conjunta de descuento directo.
 
 Validación y plataformas verificadas: consultar la entrada del 23 de octubre de 2026 en MEJORAS.md. Las pruebas de widgets con temas Android/iOS no sustituyen ensayos en dispositivos físicos, cámara, teclado, descarga de archivos o firma/publicación de iOS.
