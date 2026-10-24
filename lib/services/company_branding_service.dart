@@ -1,11 +1,14 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 
 class CompanyBrandingService {
-  CompanyBrandingService({FirebaseFirestore? db})
-    : _db = db ?? FirebaseFirestore.instance;
+  CompanyBrandingService({FirebaseFirestore? db, http.Client? client})
+    : _db = db ?? FirebaseFirestore.instance,
+      _client = client;
 
   final FirebaseFirestore _db;
+  final http.Client? _client;
 
   static final Map<String, Uint8List?> _logoCache = {};
 
@@ -28,9 +31,15 @@ class CompanyBrandingService {
         final data = doc.data();
         final logoUrl = (data?['logoUrl'] ?? '').toString().trim();
         if (logoUrl.isNotEmpty) {
-          final bundle = NetworkAssetBundle(Uri.parse(logoUrl));
-          final loaded = await bundle.load(logoUrl);
-          bytes = loaded.buffer.asUint8List();
+          // NetworkAssetBundle usa dart:io HttpClient y falla en Web.
+          // package:http selecciona el cliente de navegador o el nativo.
+          final uri = Uri.parse(logoUrl);
+          final response = await (_client?.get(uri) ?? http.get(uri)).timeout(
+            const Duration(seconds: 15),
+          );
+          if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
+            bytes = response.bodyBytes;
+          }
         }
       } catch (_) {}
       // Un fallo de red no se recuerda: solo se guarda el logo que sí llegó.

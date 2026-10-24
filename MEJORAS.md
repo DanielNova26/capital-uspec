@@ -1,5 +1,34 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-23 — Logo de empresa en PDF de Visitas y descarga Web (Codex)
+
+- Confirmado en el PDF entregado: el encabezado tenía el nombre en lugar del
+  logo. La empresa del informe sí conserva `logoUrl` y `logoPath`; descarga
+  real HTTP 200, PNG de 263893 bytes y CORS permitido para el dominio publicado.
+- Causa: `CompanyBrandingService` usaba `NetworkAssetBundle`, cuyo `HttpClient`
+  de `dart:io` falla en Web; la excepción se ocultaba y devolvía null.
+  Sustituido por `package:http`, que selecciona el transporte Web o nativo,
+  con comprobación de HTTP 200/cuerpo, timeout y caché independiente por empresa.
+  No se memoriza una descarga fallida ni se sustituye por el logo de la app.
+- En la ejecución de Visitas, un fallo temporal ya no marca el logo como
+  cargado durante toda la sesión: la siguiente foto o informe puede reintentar.
+- Validación: **1998/1998 pruebas generales Flutter** y **10/10 pruebas
+  específicas de branding/integración PDF**; análisis del servicio y pruebas
+  sin incidencias. Se probaron descarga, cuerpo vacío, 401/403/404/500, pérdida
+  de conexión, reintento, caché, cambio de logo y separación de empresas.
+  Web release **2.8.12+65** compilada. La prueba adicional en Chrome headless
+  no completó la carga inicial en este host y se detuvo; no se afirma validación
+  interactiva en navegador ni en dispositivos físicos Android/iOS.
+- Copia del informe recibido con el logo oficial en sus diez encabezados:
+  `C:/Users/LENOVO/Downloads/output/pdf/Visita_Calidad_Buen_Pastor_23-10-2026_con_logo.pdf`.
+  Original conservado. Se verificaron número de páginas, texto normalizado,
+  imágenes originales de firmas/fotografías y comparación de píxeles de todas
+  las páginas: idénticas fuera de la celda del logo. Inspección de los diez
+  encabezados renderizados. El PDF y el logo permanecen fuera de Git.
+- Publicada y verificada la Web **2.8.12+65** en `https://to-do-gestion.web.app`:
+  seis archivos remotos HTTP 200 y SHA-256 idénticos al build. No se modificaron
+  datos ni logos de las empresas, permisos, backend o reglas.
+
 ## 2026-10-23 — Informes solo de terminadas y eliminación por Desarrollo (Codex)
 
 - Consolidado e informes individuales muestran únicamente visitas reales

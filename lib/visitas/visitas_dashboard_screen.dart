@@ -2361,10 +2361,11 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
   Future<Uint8List?> _logoEmpresa() async {
     if (widget.svc case final VisitasLocalService local) return local.logo;
     if (_logoCargado) return _logo;
-    _logoCargado = true;
     try {
       _logo = await CompanyBrandingService().loadLogoBytes(widget.empresaId);
     } catch (_) {}
+    // Si faltó la red, una siguiente foto o informe vuelve a intentarlo.
+    _logoCargado = _logo != null && _logo!.isNotEmpty;
     return _logo;
   }
 
