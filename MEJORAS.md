@@ -1,5 +1,24 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-26 — Publicación de selección múltiple en Visitas (Codex)
+
+- Web release **2.8.13+66** publicada en `https://to-do-gestion.web.app`.
+  Verificados HTTP 200 y SHA-256 idénticos al build en `version.json`,
+  `index.html`, `flutter_bootstrap.js`, `flutter_service_worker.js`,
+  `main.dart.js` y `firebase-messaging-sw.js`.
+- Actualizada únicamente `visitasSincronizarOffline` en `us-central1`,
+  Node.js 22; despliegue confirmado y estado remoto `ACTIVE`. Permite
+  sincronizar las selecciones múltiples con su validación de opciones.
+- Compilación Web release correcta y 15/15 pruebas del servidor sin conexión
+  después del build de Functions. Se conservan las 239/239 pruebas de Visitas
+  verificadas para el cambio. Predeploy sin errores; avisos históricos de
+  lint y compatibilidad Wasm no bloquearon la compilación JavaScript.
+- No se desplegaron reglas, otras funciones ni aplicaciones de las tiendas.
+  Continúa pendiente la validación en dispositivos físicos Android/iPhone.
+- La sesión CLI se renovó con Google para completar la publicación. La
+  versión y esta bitácora se confirman mediante el conector GitHub porque
+  los metadatos `.git` locales siguen restringidos por el entorno.
+
 ## 2026-10-26 — Selección múltiple en formatos de Visitas (Codex)
 
 - Nuevo tipo «Selección múltiple» al crear y editar preguntas, tanto en
