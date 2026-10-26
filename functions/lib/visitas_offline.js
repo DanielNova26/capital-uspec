@@ -39,7 +39,18 @@ const fail = (message) => {
     throw new functions.https.HttpsError("failed-precondition", message);
 };
 const text = (x) => typeof x === "string" ? x.trim() : "";
-const tipoItem = (raw) => ["calificacion", "si_no", "elemento", "texto", "parrafo", "numero", "fecha", "opcion"].includes(raw) ? raw : "calificacion";
+const tipoItem = (raw) => ["calificacion", "si_no", "elemento", "texto", "parrafo", "numero", "fecha", "opcion", "seleccion_multiple"].includes(raw) ? raw : "calificacion";
+function seleccionMultipleValida(valor, opciones) {
+    try {
+        const seleccion = JSON.parse(valor);
+        return Array.isArray(opciones) && Array.isArray(seleccion) && seleccion.length > 0 &&
+            new Set(seleccion).size === seleccion.length &&
+            seleccion.every((o) => typeof o === "string" && opciones.includes(o));
+    }
+    catch {
+        return false;
+    }
+}
 const id = (x) => {
     const s = text(x);
     if (!s || s.length > 160 || s.includes("/")) {
@@ -173,7 +184,8 @@ function validarEntregaOffline(p, input, now) {
             const valor = text(r.valor);
             if ((!valor && it.obligatoria !== false) ||
                 (valor && tipo === "numero" && !Number.isFinite(Number(valor.replace(",", ".")))) ||
-                (valor && tipo === "opcion" && it.opciones?.length && !it.opciones.includes(valor))) {
+                (valor && tipo === "opcion" && it.opciones?.length && !it.opciones.includes(valor)) ||
+                (valor && tipo === "seleccion_multiple" && !seleccionMultipleValida(valor, it.opciones))) {
                 fail(`Revisa la respuesta: ${it.texto}`);
             }
         }

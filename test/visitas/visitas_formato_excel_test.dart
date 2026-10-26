@@ -67,42 +67,48 @@ void main() {
       }
     });
 
-    test('el ejemplo se importa y usa todos los tipos en palabras', () {
-      final f = importarFormatoVisitasExcel(
-        plantilla,
-        empresaId: 'e',
-        areaId: 'calidad',
-        areaNombre: 'Calidad',
-        nombre: 'Ejemplo',
-        hojaPreguntas: 'Ejemplo preguntas',
-        hojaTablas: 'Ejemplo tablas',
-      );
-      expect(validarFormato(f), isEmpty);
-      expect(f.items.map((i) => i.tipo).toSet(), kItemTiposLabel.keys.toSet());
-      final lista = f.items.firstWhere((i) => i.tipo == kItemTipoOpcion);
-      expect(lista.opciones, ['Excelente', 'Bueno', 'Regular', 'Malo']);
-      final gasas = f.items.firstWhere((i) => i.texto == 'Gasas estériles');
-      expect(gasas.unidad, '1 paquete x 20');
-      expect(
-        f.items.firstWhere((i) => i.tipo == kItemTipoFecha).obligatoria,
-        isFalse,
-      );
-      expect(f.tablas, hasLength(2));
-      expect(f.tablas.first.escala, kEscalaBmrnc);
-      expect(f.tablas.first.camposTexto.map((c) => c.label), [
-        'Ubicación',
-        'Tipo',
-        'Capacidad',
-        'Fecha próxima carga',
-      ]);
-      expect(f.tablas.last.escala, kEscalaCumple);
-      expect(f.tablas.last.filasFijas, [
-        'Cocina',
-        'Bodega',
-        'Comedor',
-        'Baños',
-      ]);
-    });
+    test(
+      'el ejemplo se importa y conserva los tipos originales en palabras',
+      () {
+        final f = importarFormatoVisitasExcel(
+          plantilla,
+          empresaId: 'e',
+          areaId: 'calidad',
+          areaNombre: 'Calidad',
+          nombre: 'Ejemplo',
+          hojaPreguntas: 'Ejemplo preguntas',
+          hojaTablas: 'Ejemplo tablas',
+        );
+        expect(validarFormato(f), isEmpty);
+        expect(
+          f.items.map((i) => i.tipo).toSet(),
+          kItemTiposLabel.keys.toSet()..remove(kItemTipoSeleccionMultiple),
+        );
+        final lista = f.items.firstWhere((i) => i.tipo == kItemTipoOpcion);
+        expect(lista.opciones, ['Excelente', 'Bueno', 'Regular', 'Malo']);
+        final gasas = f.items.firstWhere((i) => i.texto == 'Gasas estériles');
+        expect(gasas.unidad, '1 paquete x 20');
+        expect(
+          f.items.firstWhere((i) => i.tipo == kItemTipoFecha).obligatoria,
+          isFalse,
+        );
+        expect(f.tablas, hasLength(2));
+        expect(f.tablas.first.escala, kEscalaBmrnc);
+        expect(f.tablas.first.camposTexto.map((c) => c.label), [
+          'Ubicación',
+          'Tipo',
+          'Capacidad',
+          'Fecha próxima carga',
+        ]);
+        expect(f.tablas.last.escala, kEscalaCumple);
+        expect(f.tablas.last.filasFijas, [
+          'Cocina',
+          'Bodega',
+          'Comedor',
+          'Baños',
+        ]);
+      },
+    );
 
     test('leer la plantilla la reconoce como plantilla', () {
       final r = leerFormatoVisitasExcel(
@@ -122,6 +128,27 @@ void main() {
   });
 
   group('plantilla de antes', () {
+    test('importa selección múltiple con todas sus opciones', () {
+      final formato = importarFormatoVisitasExcel(
+        libroCon([
+          ['Sección', 'Pregunta', 'Tipo', 'Opciones'],
+          [
+            'Cocina',
+            'Equipos usados',
+            'Selección múltiple',
+            'Horno; Estufa; Nevera',
+          ],
+        ]),
+        empresaId: 'e',
+        areaId: 'calidad',
+        areaNombre: 'Calidad',
+        nombre: 'Inspección',
+      );
+      expect(formato.items.single.tipo, kItemTipoSeleccionMultiple);
+      expect(formato.items.single.opciones, ['Horno', 'Estufa', 'Nevera']);
+      expect(validarFormato(formato), isEmpty);
+    });
+
     test('importa preguntas, códigos viejos y evidencia como borrador', () {
       final bytes = libroCon([
         ['Sección', 'Pregunta', 'Tipo', 'Evidencia obligatoria', 'Unidad'],

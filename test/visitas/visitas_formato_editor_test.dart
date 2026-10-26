@@ -7,6 +7,17 @@ import 'package:todo/visitas/visitas_service.dart';
 
 /// El editor solo le pide al servicio los cargos del departamento.
 class _SvcFalso implements VisitasService {
+  VisitaFormato? guardado;
+
+  @override
+  Future<String> guardarFormato(
+    VisitaFormato f, {
+    required String actorId,
+  }) async {
+    guardado = f;
+    return f.id.isEmpty ? 'nuevo' : f.id;
+  }
+
   @override
   Future<List<String>> cargosDeArea(
     String empresaId, {
@@ -46,6 +57,7 @@ void main() {
     WidgetTester tester,
     VisitaFormato f, {
     Size tamano = const Size(390, 844),
+    _SvcFalso? svc,
   }) async {
     tester.view.physicalSize = tamano;
     tester.view.devicePixelRatio = 1;
@@ -53,7 +65,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: VisitaFormatoEditorScreen(
-          svc: _SvcFalso(),
+          svc: svc ?? _SvcFalso(),
           formato: f,
           userId: 'u',
           areas: const {'calidad': 'Calidad'},
@@ -70,6 +82,52 @@ void main() {
 
   Future<void> verHasta(WidgetTester tester, Finder f) =>
       tester.scrollUntilVisible(f, 250, scrollable: principal());
+
+  for (final ancho in [390.0, 768.0, 1024.0, 1366.0]) {
+    for (final existente in [false, true]) {
+      testWidgets('selección múltiple crea/edita=$existente a $ancho', (
+        tester,
+      ) async {
+        final svc = _SvcFalso();
+        final f = nuevo.copyWith(
+          id: existente ? 'existente' : '',
+          items: [
+            nuevo.items.last.copyWith(
+              tipo: existente ? kItemTipoSeleccionMultiple : kItemTipoOpcion,
+            ),
+          ],
+        );
+        await abrir(tester, f, tamano: Size(ancho, 1000), svc: svc);
+        await verHasta(tester, find.text('Preguntas (1)'));
+        if (!existente) {
+          await tester.ensureVisible(find.text('Lista de opciones').first);
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Lista de opciones').first);
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Selección múltiple').last);
+          await tester.pumpAndSettle();
+        }
+        final opciones = find.widgetWithText(
+          TextField,
+          'Opciones, separadas por punto y coma',
+        );
+        await verHasta(tester, opciones);
+        await tester.enterText(opciones, 'Horno; Estufa; Nevera');
+        await tester.pump();
+        expect(find.byIcon(Icons.check_box_outline_blank), findsNWidgets(3));
+        await tester.tap(find.text('Guardar').first);
+        await tester.pumpAndSettle();
+        expect(svc.guardado?.items.single.tipo, kItemTipoSeleccionMultiple);
+        expect(svc.guardado?.items.single.opciones, [
+          'Horno',
+          'Estufa',
+          'Nevera',
+        ]);
+        expect(svc.guardado?.id, f.id);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
 
   testWidgets('en el teléfono: tarjetas, agregar pregunta y vista tabla', (
     tester,

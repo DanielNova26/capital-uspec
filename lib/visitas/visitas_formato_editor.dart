@@ -46,6 +46,7 @@ IconData iconoTipoPregunta(String tipo) => switch (tipo) {
   kItemTipoSiNo => Icons.toggle_on_outlined,
   kItemTipoElemento => Icons.inventory_2_outlined,
   kItemTipoOpcion => Icons.radio_button_checked,
+  kItemTipoSeleccionMultiple => Icons.check_box_outlined,
   kItemTipoTexto => Icons.short_text_rounded,
   kItemTipoParrafo => Icons.notes_rounded,
   kItemTipoNumero => Icons.pin_outlined,
@@ -1155,7 +1156,7 @@ class _VisitaFormatoEditorScreenState extends State<VisitaFormatoEditorScreen> {
                     style: const TextStyle(fontSize: 11, color: Colors.black54),
                   ),
                 ),
-                if (it.tipo == kItemTipoOpcion) ...[
+                if (itemTieneOpciones(it.tipo)) ...[
                   const SizedBox(height: 8),
                   TextField(
                     controller: it.opciones,
@@ -1387,20 +1388,22 @@ class _VisitaFormatoEditorScreenState extends State<VisitaFormatoEditorScreen> {
           caja('Vence', icono: Icons.event, ancho: 110),
         ],
       ),
-      kItemTipoOpcion => Column(
+      kItemTipoOpcion || kItemTipoSeleccionMultiple => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           for (final o
               in (opciones.isEmpty ? ['Opción 1', 'Opción 2'] : opciones))
             Row(
               children: [
-                const Icon(
-                  Icons.radio_button_unchecked,
+                Icon(
+                  it.tipo == kItemTipoSeleccionMultiple
+                      ? Icons.check_box_outline_blank
+                      : Icons.radio_button_unchecked,
                   size: 16,
                   color: Colors.black38,
                 ),
                 const SizedBox(width: 6),
-                Text(o, style: const TextStyle(fontSize: 12)),
+                Flexible(child: Text(o, style: const TextStyle(fontSize: 12))),
               ],
             ),
         ],
@@ -1492,7 +1495,7 @@ class _VisitaFormatoEditorScreenState extends State<VisitaFormatoEditorScreen> {
                   ),
                   DataCell(
                     celda(
-                      _items[i].tipo == kItemTipoOpcion
+                      itemTieneOpciones(_items[i].tipo)
                           ? TextField(
                               controller: _items[i].opciones,
                               decoration: deco('Opción 1; Opción 2'),
@@ -1767,7 +1770,7 @@ class _ItemEdit {
     tipo: tipo,
     parte: parte,
     unidad: tipo == kItemTipoElemento ? unidad.text.trim() : '',
-    opciones: tipo == kItemTipoOpcion
+    opciones: itemTieneOpciones(tipo)
         ? [
             for (final o in opciones.text.split(';'))
               if (o.trim().isNotEmpty) o.trim(),

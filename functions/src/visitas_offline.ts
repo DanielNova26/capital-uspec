@@ -12,7 +12,17 @@ const fail = (message: string): never => {
 };
 const text = (x: unknown): string => typeof x === "string" ? x.trim() : "";
 const tipoItem = (raw: string): string =>
-  ["calificacion", "si_no", "elemento", "texto", "parrafo", "numero", "fecha", "opcion"].includes(raw) ? raw : "calificacion";
+  ["calificacion", "si_no", "elemento", "texto", "parrafo", "numero", "fecha", "opcion", "seleccion_multiple"].includes(raw) ? raw : "calificacion";
+function seleccionMultipleValida(valor: string, opciones: unknown): boolean {
+  try {
+    const seleccion = JSON.parse(valor);
+    return Array.isArray(opciones) && Array.isArray(seleccion) && seleccion.length > 0 &&
+      new Set(seleccion).size === seleccion.length &&
+      seleccion.every((o: unknown) => typeof o === "string" && opciones.includes(o));
+  } catch {
+    return false;
+  }
+}
 const id = (x: unknown): string => {
   const s = text(x);
   if (!s || s.length > 160 || s.includes("/")) {
@@ -139,7 +149,8 @@ export function validarEntregaOffline(p: D, input: D, now: number): D {
       const valor = text(r.valor);
       if ((!valor && it.obligatoria !== false) ||
           (valor && tipo === "numero" && !Number.isFinite(Number(valor.replace(",", ".")))) ||
-          (valor && tipo === "opcion" && it.opciones?.length && !it.opciones.includes(valor))) {
+          (valor && tipo === "opcion" && it.opciones?.length && !it.opciones.includes(valor)) ||
+          (valor && tipo === "seleccion_multiple" && !seleccionMultipleValida(valor, it.opciones))) {
         fail(`Revisa la respuesta: ${it.texto}`);
       }
     }

@@ -4768,6 +4768,40 @@ class _ItemCardState extends State<_ItemCard> {
       ),
     );
     switch (it.tipo) {
+      case kItemTipoSeleccionMultiple:
+        final elegidas = seleccionMultipleDesde(r.valor).toSet();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Puedes seleccionar varias opciones.'),
+            for (final o in it.opciones)
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                title: Text(o),
+                value: elegidas.contains(o),
+                onChanged: (marcada) {
+                  final seleccion = seleccionMultipleDesde(_valor.text).toSet();
+                  if (marcada == true) {
+                    seleccion.add(o);
+                  } else {
+                    seleccion.remove(o);
+                  }
+                  final valor = codificarSeleccionMultiple([
+                    for (final opcion in it.opciones)
+                      if (seleccion.contains(opcion)) opcion,
+                  ]);
+                  _valor.text = valor;
+                  widget.onCambio(_actual.copyWith(valor: valor));
+                },
+              ),
+            if (invalido)
+              const Text(
+                'Revisa las opciones seleccionadas.',
+                style: TextStyle(color: Color(0xFFDC2626)),
+              ),
+          ],
+        );
       case kItemTipoOpcion:
         return Wrap(
           spacing: 6,
@@ -5024,7 +5058,10 @@ class _ItemCardState extends State<_ItemCard> {
             if (!it.califica) ...[
               _respuestaFormulario(it, r),
               const SizedBox(height: 6),
-              Row(
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   OutlinedButton.icon(
                     onPressed: widget.onFoto,
@@ -5035,7 +5072,6 @@ class _ItemCardState extends State<_ItemCard> {
                           : 'Foto (${r.evidencias.length})',
                     ),
                   ),
-                  const SizedBox(width: 8),
                   for (final ev in r.evidencias.take(4))
                     Padding(
                       padding: const EdgeInsets.only(right: 4),
@@ -6302,7 +6338,7 @@ class _ItemLectura extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!item.califica) {
-      final valor = respuesta.valor.trim();
+      final valor = textoRespuestaFormulario(item, respuesta.valor);
       return Padding(
         padding: const EdgeInsets.only(bottom: 8),
         child: Row(

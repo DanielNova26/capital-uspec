@@ -70,6 +70,9 @@ Map<String, dynamic> package() {
 
 class PanelStore extends VisitasLocalStore {
   @override
+  Future<void> guardar(Map<String, dynamic> paquete) async {}
+
+  @override
   Future<List<Map<String, dynamic>>> listar(
     String userId,
     String empresaId,
@@ -323,7 +326,7 @@ void main() {
         debugDefaultTargetPlatformOverride = null;
       });
     }
-    for (final width in [390.0, 1024.0]) {
+    for (final width in [390.0, 768.0, 1024.0, 1366.0]) {
       testWidgets(
         'downloaded form resumes without Firebase at $width on $platform',
         (tester) async {
@@ -331,11 +334,26 @@ void main() {
           await tester.binding.setSurfaceSize(Size(width, 900));
           addTearDown(() => tester.binding.setSurfaceSize(null));
           final p = package();
+          final formato = VisitaFormato.fromMap('f', p['formato']).copyWith(
+            items: const [
+              VisitaFormatoItem(
+                id: 'q',
+                orden: 1,
+                texto: 'Equipos usados',
+                tipo: kItemTipoSeleccionMultiple,
+                opciones: ['Horno', 'Estufa', 'Nevera'],
+              ),
+            ],
+          );
+          p['formato'] = formato.toMap();
+          p['visita']['formatoAsignado'] = formato.toMap();
           p['visita']['estado'] = kVisitaEnCurso;
           p['visita']['inicio'] = VisitaMarca(at: Timestamp.now()).toMap();
+          final panelStore = PanelStore();
+          await panelStore.autorizar(p);
           final svc = VisitasLocalService(
             p,
-            store: PanelStore(),
+            store: panelStore,
             currentUid: () => null,
           );
           await tester.pumpWidget(
@@ -353,6 +371,36 @@ void main() {
           expect(
             find.textContaining('Visita descargada · guardado local'),
             findsOneWidget,
+          );
+          Future<void> marcar(String opcion) async {
+            final casilla = find.widgetWithText(CheckboxListTile, opcion);
+            await Scrollable.ensureVisible(
+              tester.element(casilla),
+              alignment: .3,
+            );
+            await tester.pumpAndSettle();
+            await tester.tap(find.text(opcion));
+            await tester.pumpAndSettle();
+          }
+
+          await marcar('Horno');
+          await marcar('Nevera');
+          expect(seleccionMultipleDesde(svc.visita.respuestas['q']!.valor), [
+            'Horno',
+            'Nevera',
+          ]);
+          await marcar('Horno');
+          expect(seleccionMultipleDesde(svc.visita.respuestas['q']!.valor), [
+            'Nevera',
+          ]);
+          final reabierta = VisitaProfesional.fromMap('v', svc.visita.toMap());
+          expect(seleccionMultipleDesde(reabierta.respuestas['q']!.valor), [
+            'Nevera',
+          ]);
+          await marcar('Nevera');
+          expect(
+            itemPendiente(formato.items.single, svc.visita.respuestas['q']),
+            isTrue,
           );
           expect(tester.takeException(), isNull);
           await tester.pumpWidget(const SizedBox());

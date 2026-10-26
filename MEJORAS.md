@@ -1,5 +1,29 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-26 — Selección múltiple en formatos de Visitas (Codex)
+
+- Nuevo tipo «Selección múltiple» al crear y editar preguntas, tanto en
+  tarjetas como en tabla. Permite definir opciones, previsualizar casillas
+  y conservarlas al guardar, duplicar o importar desde Excel.
+- Al diligenciar, se pueden marcar y desmarcar varias opciones. Las preguntas
+  obligatorias exigen al menos una; las opcionales permiten quitar todas.
+  Las opciones ajenas, repetidas o dañadas se rechazan en cliente y en la
+  entrega sin conexión. Estas respuestas no califican ni generan hallazgos.
+- Las selecciones se guardan como lista JSON dentro del campo `valor` ya
+  existente, preservando opciones con separadores. La lectura y el PDF las
+  presentan como texto; se conserva el formato asignado de cada visita.
+- Corregido el ajuste de la fila de fotos opcionales con texto ampliado.
+- Validación: 239/239 pruebas de Visitas, incluida selección múltiple/PDF; 15/15
+  pruebas del servidor sin conexión. TypeScript y ESLint correctos. Análisis
+  Dart sin errores, con nueve avisos de estilo preexistentes. Widgets de
+  creación/edición a 390/768/1024/1366; diligenciamiento Android/iOS simulado
+  a esos anchos y texto 1.5. No se verificaron dispositivos físicos ni una
+  sesión Web interactiva. No se publicaron Hosting, Functions ni tiendas.
+- Git local no pudo escribir `.git/FETCH_HEAD` y la política automática
+  rechazó elevar permisos. El conector GitHub permite confirmar sobre el mismo
+  HEAD remoto verificado sin forzar `main`; los metadatos Git locales quedan
+  pendientes de sincronizar cuando haya acceso normal a `.git`.
+
 ## 2026-10-23 — Logo de empresa en PDF de Visitas y descarga Web (Codex)
 
 - Confirmado en el PDF entregado: el encabezado tenía el nombre en lugar del

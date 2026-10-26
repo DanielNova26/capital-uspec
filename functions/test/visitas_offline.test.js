@@ -20,6 +20,24 @@ function input() {
     responsableEstablecimiento: {nombre: 'Responsable'}, firmaProfesional: signature,
     firmaEstablecimiento: signature, respuestas: {q: {resultado: 'cumple'}}, tablas: {}};
 }
+
+test('multiple selection survives sync and does not affect compliance', () => {
+  const p = receipt();
+  p.formato.items.push({id: 'multiple', texto: 'Equipos', tipo: 'seleccion_multiple',
+    opciones: ['Horno', 'Estufa; industrial', 'Nevera, grande']});
+  const v = input();
+  v.respuestas.multiple = {valor: JSON.stringify(['Estufa; industrial', 'Nevera, grande'])};
+  const result = validarEntregaOffline(p, v, time + day);
+  assert.equal(result.respuestas.multiple.valor, v.respuestas.multiple.valor);
+  assert.equal(result.cumplimiento, 100);
+  for (const valor of ['', '[]', '["Ajena"]', '["Horno","Horno"]', '[1]', 'null', 'Horno']) {
+    v.respuestas.multiple.valor = valor;
+    assert.throws(() => validarEntregaOffline(p, v, time + day), /Revisa la respuesta/);
+  }
+  p.formato.items[1].obligatoria = false;
+  v.respuestas.multiple.valor = '';
+  assert.doesNotThrow(() => validarEntregaOffline(p, v, time + day));
+});
 test('wire round-trip and stable fingerprint preserve signatures and dates', () => {
   const data = input();
   assert.deepEqual(offlineDecode(offlineWire(data)), data);

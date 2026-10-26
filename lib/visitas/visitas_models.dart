@@ -25,6 +25,7 @@
 // Todo lo demás —programar, ejecutar con ubicación, responder, evidenciar,
 // cerrar, convertir hallazgos en tareas y consolidar— es definitivo.
 
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -275,6 +276,10 @@ const String kItemTipoParrafo = 'parrafo';
 const String kItemTipoNumero = 'numero';
 const String kItemTipoFecha = 'fecha';
 const String kItemTipoOpcion = 'opcion';
+const String kItemTipoSeleccionMultiple = 'seleccion_multiple';
+
+bool itemTieneOpciones(String tipo) =>
+    tipo == kItemTipoOpcion || tipo == kItemTipoSeleccionMultiple;
 
 /// Cómo se le dice a cada tipo en pantalla y en la plantilla Excel. "Elemento"
 /// no le decía nada a nadie (26 sep 2026): el nombre dice qué se responde.
@@ -283,6 +288,7 @@ const Map<String, String> kItemTiposLabel = {
   kItemTipoSiNo: 'Sí / No',
   kItemTipoElemento: 'Sí / No con cantidad y vencimiento',
   kItemTipoOpcion: 'Lista de opciones',
+  kItemTipoSeleccionMultiple: 'Selección múltiple',
   kItemTipoTexto: 'Respuesta corta',
   kItemTipoParrafo: 'Párrafo',
   kItemTipoNumero: 'Número',
@@ -303,6 +309,8 @@ const Map<String, String> kItemTiposAyuda = {
       'esperada".',
   kItemTipoOpcion:
       'El profesional elige una de las opciones que escribas. No califica.',
+  kItemTipoSeleccionMultiple:
+      'El profesional puede marcar varias opciones. No califica.',
   kItemTipoTexto: 'Un dato corto: un nombre, una placa. No califica.',
   kItemTipoParrafo: 'Texto largo o descripción. No califica.',
   kItemTipoNumero:
@@ -434,7 +442,7 @@ class VisitaFormatoItem {
   /// Solo para `elemento`: la cantidad esperada ("1 Unidad", "Paquete x 20").
   final String unidad;
 
-  /// Solo para `opcion`: las opciones entre las que se elige.
+  /// Opciones para selección única o múltiple.
   final List<String> opciones;
 
   /// Si la pregunta se debe contestar para cerrar. Las que califican siempre
@@ -530,11 +538,41 @@ class VisitaFormatoItem {
 String tipoItemDesde(String raw) =>
     kItemTiposLabel.containsKey(raw) ? raw : kItemTipoCalificacion;
 
+/// Se conserva el campo de texto `valor` para el guardado local y remoto.
+/// JSON evita confundir opciones que contienen comas, saltos o punto y coma.
+String codificarSeleccionMultiple(Iterable<String> opciones) {
+  final lista = opciones.toSet().toList();
+  return lista.isEmpty ? '' : jsonEncode(lista);
+}
+
+List<String> seleccionMultipleDesde(String valor) {
+  try {
+    final lista = jsonDecode(valor);
+    if (lista is List && lista.every((o) => o is String)) {
+      return lista.cast<String>();
+    }
+  } on FormatException {
+    // Una respuesta dañada debe poder mostrarse y corregirse.
+  }
+  return const [];
+}
+
+String textoRespuestaFormulario(VisitaFormatoItem it, String valor) =>
+    it.tipo == kItemTipoSeleccionMultiple
+    ? seleccionMultipleDesde(valor).join('; ')
+    : valor.trim();
+
 /// ¿La respuesta de formulario es válida para su tipo? Vacía siempre lo es
 /// (si falta, lo dice `obligatoria`).
 bool valorValidoParaItem(VisitaFormatoItem it, String valor) {
   final v = valor.trim();
   if (v.isEmpty) return true;
+  if (it.tipo == kItemTipoSeleccionMultiple) {
+    final seleccion = seleccionMultipleDesde(v);
+    return seleccion.isNotEmpty &&
+        seleccion.toSet().length == seleccion.length &&
+        seleccion.every(it.opciones.contains);
+  }
   return switch (it.tipo) {
     kItemTipoNumero => double.tryParse(v.replaceAll(',', '.')) != null,
     kItemTipoOpcion => it.opciones.isEmpty || it.opciones.contains(v),
@@ -904,8 +942,13 @@ List<String> validarFormato(VisitaFormato f) {
     } else if (!ids.add(it.id)) {
       errores.add('El id "${it.id}" está repetido.');
     }
-    if (it.tipo == kItemTipoOpcion && it.opciones.length < 2) {
+    if (itemTieneOpciones(it.tipo) && it.opciones.length < 2) {
       errores.add('El ítem ${it.orden} es de lista y necesita dos opciones.');
+    }
+    if (it.tipo == kItemTipoSeleccionMultiple &&
+        (it.opciones.any((o) => o.trim().isEmpty) ||
+            it.opciones.toSet().length != it.opciones.length)) {
+      errores.add('El ítem ${it.orden} tiene opciones vacías o repetidas.');
     }
   }
   final tablaIds = <String>{};

@@ -574,7 +574,7 @@ List<pw.Widget> _informacionRegistrada(
               _celda(
                 (v.respuestas[it.id]?.valor ?? '').trim().isEmpty
                     ? '-'
-                    : v.respuestas[it.id]!.valor,
+                    : textoRespuestaFormulario(it, v.respuestas[it.id]!.valor),
                 fs: 7.5,
                 negrita: true,
               ),

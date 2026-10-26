@@ -324,7 +324,7 @@ List<VisitaFormatoItem> _preguntasPlantilla(
         tipo: tipo,
         requiereEvidencia: itemCalifica(tipo) && foto,
         unidad: tipo == kItemTipoElemento ? celda(fila, cUnidad) : '',
-        opciones: tipo == kItemTipoOpcion ? opciones : const [],
+        opciones: itemTieneOpciones(tipo) ? opciones : const [],
         // Las que califican siempre se contestan.
         obligatoria: itemCalifica(tipo) || obligatoria,
         ayuda: celda(fila, cAyuda),
@@ -429,6 +429,9 @@ String? tipoDesdeTexto(String texto) {
     'opciones': kItemTipoOpcion,
     'seleccion': kItemTipoOpcion,
     'seleccionunica': kItemTipoOpcion,
+    'multiple': kItemTipoSeleccionMultiple,
+    'casillas': kItemTipoSeleccionMultiple,
+    'casillasdeverificacion': kItemTipoSeleccionMultiple,
     'texto': kItemTipoTexto,
     'textocorto': kItemTipoTexto,
     'respuestacorta': kItemTipoTexto,
