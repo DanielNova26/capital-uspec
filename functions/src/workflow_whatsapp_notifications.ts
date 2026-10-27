@@ -120,12 +120,12 @@ export const ppWhatsAppCambioFirma = functions
       });
     }
     if (current === "firmada") {
-      // Gerencia firmó: Tesorería ya puede subir los pagos.
+      // Gerencia completó el último filtro: Tesorería descarga los documentos.
       await once(`pp_gerencia_${context.params.planillaId}_${context.eventId}`, async () => {
         await sendWhatsAppRoute({
           empresaId,
           routeId: "planillas_gerencia_tesoreria",
-          mensaje: `✅ *Planilla firmada por Gerencia*\n📄 ${nombre}\n💳 Tesorería ya puede subir los pagos.`,
+          mensaje: `✅ *Planilla firmada por Gerencia*\n📄 ${nombre}\n💳 Tesorería ya puede descargar la planilla firmada y el archivo plano.`,
           metadata: {
             type: "planillas_gerencia_tesoreria",
             templateKey: "planilla_pago_actualizacion",
@@ -133,7 +133,7 @@ export const ppWhatsAppCambioFirma = functions
             templateVariables: {
               planilla: nombre,
               estado: "Firmada por Gerencia",
-              accion: "Subir los pagos",
+              accion: "Descargar la planilla firmada y el archivo plano",
             },
           },
         });

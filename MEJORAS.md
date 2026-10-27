@@ -1,5 +1,44 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-27 — Visitas: Excel desde el editor; WhatsApp de Gerencia a Tesorería (Codex)
+
+- Visitas incorpora «Descargar formulario Excel» al inicio del editor de
+  formatos, para la persona que ya tiene acceso a editar. Exporta el borrador
+  actual, incluidos cambios sin guardar, sin guardar ni publicar el maestro.
+  Libro de consulta con Formato, Preguntas, Tablas y Partes: encabezado
+  documental, cargos, tipos, opciones (incluida selección múltiple), ayuda,
+  obligatoriedad, evidencia, columnas, escalas y filas fijas. No es una nueva
+  función de importación ni exporta respuestas de visitas realizadas.
+- Se reutiliza la descarga Web/móvil existente. No añade maestros, permisos,
+  empresas ni navegación; toma únicamente el formato que se está editando.
+- Aclaración del usuario: el aviso necesario de Planillas es Gerencia firma →
+  Tesorería recibe para descargar. El evento ya existía; se conserva su ruta
+  canónica `planillas_gerencia_tesoreria`, transición e idempotencia. Texto y
+  acción de la plantilla ahora dicen descargar la planilla firmada y el archivo
+  plano. No cambia el circuito de firmas ni los demás eventos existentes.
+- Admin → Maestros por módulo → WhatsApp explica cómo guardar celulares con
+  código de país (Colombia: `573001234567`), muestra el número normalizado
+  antes de guardar y valida cada contacto, no solo la existencia de uno válido.
+  Aplica a las listas compartidas por todos los módulos y a la ayuda del envío
+  de prueba. Conserva el normalizador y formato del servidor.
+- Cada selector de evento muestra destinatarios de la lista elegida y avisa
+  si falta lista o están deshabilitados el servicio/módulo. Para Tesorería se
+  explica crear su lista, habilitar Planillas de Pago, seleccionarla en
+  «Planillas · Gerencia a Tesorería» y pulsar «Guardar asignación».
+- Corregido además un fallo reproducido al cerrar el editor de listas: no se
+  liberan sus controladores hasta completar la salida del diálogo.
+- Validación: 44 pruebas Flutter de editor/exportación y WhatsApp aprobadas;
+  incluyen descarga real en memoria con cambios sin guardar, SST completo,
+  borrador vacío, opciones, y guardado bloqueado/corregido de contactos.
+  Editor probado a 390/768/1024/1366, texto 1,8× y temas Windows/Android/iOS;
+  WhatsApp a los mismos anchos y texto 1,5×. TypeScript compilado, 8 pruebas
+  pertinentes de servidor aprobadas y análisis Dart de ocho archivos limpio.
+- Pendiente publicar clientes y la función de avisos para cambiar el texto
+  productivo; verificar descarga en Web autenticada y Android/iOS reales
+  (archivos, teclado, áreas seguras y permisos) y apariencia en Excel real.
+  No se configuró ningún contacto productivo ni se enviaron WhatsApp: falta
+  registrar/asignar la persona de Tesorería en la empresa correspondiente.
+
 ## 2026-10-27 — Interventoría: recuperar subcentro al enviar una tarea (Codex)
 
 - Reporte: tarea de Picota, observación 6.1, con centro pero sin subcentro.

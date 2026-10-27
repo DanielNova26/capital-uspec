@@ -16,11 +16,15 @@
 // Nada se guarda hasta tocar Guardar: un formato recién importado de Excel
 // llega aquí para revisarlo.
 
+import 'dart:typed_data';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../utils/excel_download.dart';
 import '../widgets/paged_list.dart';
 import 'visitas_formato_excel.dart';
+import 'visitas_formato_export.dart';
 import 'visitas_models.dart';
 import 'visitas_service.dart';
 
@@ -60,6 +64,11 @@ class VisitaFormatoEditorScreen extends StatefulWidget {
   final String userId;
   final Map<String, String> areas;
   final String areaFija;
+  final Future<void> Function({
+    required String nombreArchivo,
+    required Uint8List bytes,
+  })
+  descargarExcel;
 
   /// Lo que se supuso al adaptar un Excel. Sale arriba para revisarlo.
   final List<String> avisosImportacion;
@@ -71,6 +80,7 @@ class VisitaFormatoEditorScreen extends StatefulWidget {
     required this.userId,
     required this.areas,
     required this.areaFija,
+    this.descargarExcel = descargarExcelCompras,
     this.avisosImportacion = const [],
   });
 
@@ -97,6 +107,7 @@ class _VisitaFormatoEditorScreenState extends State<VisitaFormatoEditorScreen> {
   late Set<String> _cargos;
   List<String> _cargosEmpresa = const [];
   bool _guardando = false;
+  bool _exportando = false;
   bool _sucio = false;
   bool _mostrarAvisos = true;
   _Vista _vista = _Vista.tarjetas;
@@ -260,6 +271,30 @@ class _VisitaFormatoEditorScreenState extends State<VisitaFormatoEditorScreen> {
         setState(() => _guardando = false);
         _snack(context, 'No se pudo guardar: $e', error: true);
       }
+    }
+  }
+
+  Future<void> _descargarExcel() async {
+    setState(() => _exportando = true);
+    try {
+      final formato = _armar();
+      await widget.descargarExcel(
+        nombreArchivo:
+            'formato_visitas_${formato.nombre.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_')}',
+        bytes: exportarFormatoVisitasExcel(formato),
+      );
+      if (mounted) {
+        _snack(
+          context,
+          'Excel generado con los cambios actuales. El formato sigue en edición.',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        _snack(context, 'No se pudo descargar el Excel: $e', error: true);
+      }
+    } finally {
+      if (mounted) setState(() => _exportando = false);
     }
   }
 
@@ -586,6 +621,11 @@ class _VisitaFormatoEditorScreenState extends State<VisitaFormatoEditorScreen> {
                 40,
               ),
               children: [
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: _botonDescarga(),
+                ),
+                const SizedBox(height: 8),
                 if (widget.avisosImportacion.isNotEmpty && _mostrarAvisos)
                   _avisos(),
                 _tarjetaEncabezado(),
@@ -1035,6 +1075,14 @@ class _VisitaFormatoEditorScreenState extends State<VisitaFormatoEditorScreen> {
   );
 
   // ── Vista tarjetas ─────────────────────────────────────────────────────
+
+  Widget _botonDescarga() => OutlinedButton.icon(
+    onPressed: _exportando || _guardando ? null : _descargarExcel,
+    icon: const Icon(Icons.download_outlined),
+    label: Text(
+      _exportando ? 'Generando Excel…' : 'Descargar formulario Excel',
+    ),
+  );
 
   Widget _tarjetaPregunta(int i) {
     final it = _items[i];

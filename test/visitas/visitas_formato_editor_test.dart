@@ -1,9 +1,13 @@
+import 'dart:typed_data';
+
+import 'package:excel/excel.dart' as xl;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:todo/visitas/visitas_formato_editor.dart';
 import 'package:todo/visitas/visitas_formato_sst.dart';
 import 'package:todo/visitas/visitas_models.dart';
 import 'package:todo/visitas/visitas_service.dart';
+import 'package:todo/utils/excel_download.dart';
 
 /// El editor solo le pide al servicio los cargos del departamento.
 class _SvcFalso implements VisitasService {
@@ -58,12 +62,26 @@ void main() {
     VisitaFormato f, {
     Size tamano = const Size(390, 844),
     _SvcFalso? svc,
+    Future<void> Function({
+      required String nombreArchivo,
+      required Uint8List bytes,
+    })?
+    descargarExcel,
+    double escala = 1,
+    TargetPlatform? plataforma,
   }) async {
     tester.view.physicalSize = tamano;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
       MaterialApp(
+        theme: plataforma == null ? null : ThemeData(platform: plataforma),
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(escala)),
+          child: child!,
+        ),
         home: VisitaFormatoEditorScreen(
           svc: svc ?? _SvcFalso(),
           formato: f,
@@ -71,17 +89,75 @@ void main() {
           areas: const {'calidad': 'Calidad'},
           areaFija: 'calidad',
           avisosImportacion: const ['Hoja "Hoja1": 2 pregunta(s).'],
+          descargarExcel: descargarExcel ?? descargarExcelCompras,
         ),
       ),
     );
     await tester.pumpAndSettle();
   }
 
+  for (final plataforma in [
+    TargetPlatform.windows,
+    TargetPlatform.android,
+    TargetPlatform.iOS,
+  ]) {
+    for (final ancho in [390.0, 768.0, 1024.0, 1366.0]) {
+      testWidgets(
+        'descarga borrador sin guardarlo $plataforma $ancho texto 1.8',
+        (tester) async {
+          final svc = _SvcFalso();
+          Uint8List? archivo;
+          await abrir(
+            tester,
+            nuevo,
+            svc: svc,
+            tamano: Size(ancho, 1000),
+            escala: 1.8,
+            plataforma: plataforma,
+            descargarExcel: ({required nombreArchivo, required bytes}) async {
+              archivo = bytes;
+            },
+          );
+          final campo = find.byWidgetPredicate(
+            (w) =>
+                w is TextField &&
+                w.decoration?.labelText == 'Nombre del formato',
+          );
+          await tester.ensureVisible(campo);
+          await tester.enterText(campo, 'Formulario actualizado sin guardar');
+          final boton = find.text('Descargar formulario Excel');
+          await tester.scrollUntilVisible(
+            boton,
+            -250,
+            scrollable: find.byType(Scrollable).first,
+          );
+          await tester.ensureVisible(boton);
+          await tester.pumpAndSettle();
+          await tester.tap(boton);
+          await tester.pumpAndSettle();
+          expect(archivo, isNotNull);
+          final libro = xl.Excel.decodeBytes(archivo!);
+          expect(
+            libro['Formato'].rows[1][1]!.value.toString(),
+            'Formulario actualizado sin guardar',
+          );
+          expect(libro['Preguntas'].maxRows, 3);
+          expect(svc.guardado, isNull);
+          expect(find.byType(VisitaFormatoEditorScreen), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
+
   // El listado principal: el primer Scrollable (los TextField tienen el suyo).
   Finder principal() => find.byType(Scrollable).first;
 
-  Future<void> verHasta(WidgetTester tester, Finder f) =>
-      tester.scrollUntilVisible(f, 250, scrollable: principal());
+  Future<void> verHasta(WidgetTester tester, Finder f) async {
+    await tester.scrollUntilVisible(f, 250, scrollable: principal());
+    await tester.ensureVisible(f);
+    await tester.pumpAndSettle();
+  }
 
   for (final ancho in [390.0, 768.0, 1024.0, 1366.0]) {
     for (final existente in [false, true]) {

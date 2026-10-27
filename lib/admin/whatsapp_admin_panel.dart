@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../whatsapp/whatsapp_recipient_models.dart';
+import '../whatsapp/whatsapp_phone.dart';
 import 'whatsapp_admin_service.dart';
 
 const Color _primary = Color(0xFF0F172A);
@@ -97,17 +98,19 @@ class AdminWhatsAppPanel extends StatefulWidget {
     super.key,
     required this.userId,
     required this.empresaId,
+    this.service,
   });
 
   final String userId;
   final String empresaId;
+  final WhatsAppAdminService? service;
 
   @override
   State<AdminWhatsAppPanel> createState() => _AdminWhatsAppPanelState();
 }
 
 class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
-  final _service = WhatsAppAdminService();
+  late final _service = widget.service ?? WhatsAppAdminService();
   final _baseUrl = TextEditingController();
   final _apiKey = TextEditingController();
   final _sessionId = TextEditingController();
@@ -1332,7 +1335,7 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
                 _routeListSelector(
                   title: 'Planillas · Gerencia a Tesorería',
                   description:
-                      'Se envía cuando Gerencia firma la planilla y Tesorería ya puede subir los pagos.',
+                      'Al firmar Gerencia, Tesorería recibe el aviso para descargar la planilla firmada y el archivo plano. Crea una lista con la persona de Tesorería, habilita Planillas de Pago y asigna esa lista aquí.',
                   moduleId: 'planillas_pago',
                   routeId: 'planillas_gerencia_tesoreria',
                   icon: Icons.payments_outlined,
@@ -1775,6 +1778,17 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
             fontSize: 12,
           ),
         ),
+        const SizedBox(height: 6),
+        if (!_enabled || !_moduleGloballyEnabled(moduleId))
+          Text(
+            'Los avisos de ${whatsappModuleLabel(moduleId)} están deshabilitados. Habilita el servicio y el módulo en Configuración central.',
+          ),
+        Text(
+          selectedExists
+              ? 'Destinatarios de la lista seleccionada: ${lists.firstWhere((l) => l.id == selectedId).destinatarios.where((p) => p.activo).map((p) => '${p.nombre.isEmpty ? 'Sin nombre' : p.nombre} · ${p.telefono}').join('; ')}'
+              : 'Sin lista asignada no se envía este aviso. Guardar un contacto no lo asigna al evento.',
+          style: const TextStyle(fontFamily: _font, fontSize: 12),
+        ),
         const SizedBox(height: 10),
         DropdownButtonFormField<String>(
           isExpanded: true,
@@ -1832,237 +1846,265 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
     ).toSet();
     var modulesRequired = false;
     var recipientsRequired = false;
+    var validarTelefonos = false;
+    ModalRoute<dynamic>? rutaDialogo;
     final recipients =
         (existing?.destinatarios ?? const <WhatsAppDestinatario>[])
             .map(_RecipientDraft.fromRecipient)
             .toList();
     final save = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text(existing == null ? 'Nueva lista' : 'Editar lista'),
-          content: SizedBox(
-            width: 620,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextField(
-                    controller: name,
-                    textCapitalization: TextCapitalization.words,
-                    decoration: const InputDecoration(
-                      labelText: 'Nombre de la lista',
-                      hintText: 'Ej. Compras - Nuevos proveedores',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  SwitchListTile(
-                    value: active,
-                    onChanged: (value) => setDialogState(() => active = value),
-                    title: const Text('Lista activa'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Módulos que pueden usar esta lista',
-                    style: TextStyle(
-                      fontFamily: _font,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  for (final module in _whatsAppListModuleOptions)
-                    CheckboxListTile(
-                      value: selectedModules.contains(module.id),
-                      onChanged: (value) => setDialogState(() {
-                        if (value == true) {
-                          selectedModules.add(module.id);
-                        } else {
-                          selectedModules.remove(module.id);
-                        }
-                        modulesRequired = false;
-                      }),
-                      title: Text(whatsappModuleLabel(module.id)),
-                      subtitle: Text(
-                        _moduleGloballyEnabled(module.id)
-                            ? module.description
-                            : '${module.description} Módulo deshabilitado en la configuración general.',
+      builder: (dialogContext) {
+        rutaDialogo = ModalRoute.of(dialogContext);
+        return StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: Text(existing == null ? 'Nueva lista' : 'Editar lista'),
+            content: SizedBox(
+              width: 620,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: name,
+                      textCapitalization: TextCapitalization.words,
+                      decoration: const InputDecoration(
+                        labelText: 'Nombre de la lista',
+                        hintText: 'Ej. Compras - Nuevos proveedores',
+                        border: OutlineInputBorder(),
                       ),
-                      secondary: Icon(module.icon, color: module.color),
-                      controlAffinity: ListTileControlAffinity.leading,
+                    ),
+                    const SizedBox(height: 8),
+                    SwitchListTile(
+                      value: active,
+                      onChanged: (value) =>
+                          setDialogState(() => active = value),
+                      title: const Text('Lista activa'),
                       contentPadding: EdgeInsets.zero,
                     ),
-                  if (modulesRequired)
+                    const SizedBox(height: 8),
                     const Text(
-                      'Selecciona al menos un módulo.',
+                      'Módulos que pueden usar esta lista',
                       style: TextStyle(
                         fontFamily: _font,
-                        color: Colors.red,
-                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Personas que recibirán el WhatsApp',
-                    style: TextStyle(
-                      fontFamily: _font,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  for (var index = 0; index < recipients.length; index++) ...[
-                    if (recipients[index].vinculadoAlDirectorio)
-                      const Align(
-                        alignment: Alignment.centerLeft,
-                        child: Chip(
-                          avatar: Icon(Icons.badge_outlined, size: 17),
-                          label: Text('Vinculado al directorio empresarial'),
+                    for (final module in _whatsAppListModuleOptions)
+                      CheckboxListTile(
+                        value: selectedModules.contains(module.id),
+                        onChanged: (value) => setDialogState(() {
+                          if (value == true) {
+                            selectedModules.add(module.id);
+                          } else {
+                            selectedModules.remove(module.id);
+                          }
+                          modulesRequired = false;
+                        }),
+                        title: Text(whatsappModuleLabel(module.id)),
+                        subtitle: Text(
+                          _moduleGloballyEnabled(module.id)
+                              ? module.description
+                              : '${module.description} Módulo deshabilitado en la configuración general.',
                         ),
+                        secondary: Icon(module.icon, color: module.color),
+                        controlAffinity: ListTileControlAffinity.leading,
+                        contentPadding: EdgeInsets.zero,
                       ),
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final compact = constraints.maxWidth < 520;
-                        final nameField = TextField(
-                          controller: recipients[index].nombre,
-                          textCapitalization: TextCapitalization.words,
-                          decoration: const InputDecoration(
-                            labelText: 'Nombre',
-                            border: OutlineInputBorder(),
-                          ),
-                        );
-                        final phoneField = TextField(
-                          controller: recipients[index].telefono,
-                          keyboardType: TextInputType.phone,
-                          decoration: const InputDecoration(
-                            labelText: 'Celular',
-                            hintText: '3001234567',
-                            border: OutlineInputBorder(),
-                          ),
-                        );
-                        final remove = IconButton(
-                          tooltip: 'Retirar destinatario',
-                          onPressed: () => setDialogState(() {
-                            final removed = recipients.removeAt(index);
-                            removed.dispose();
-                          }),
-                          icon: const Icon(Icons.person_remove_outlined),
-                        );
-                        if (compact) {
-                          return Column(
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(child: nameField),
-                                  remove,
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              phoneField,
-                            ],
-                          );
-                        }
-                        return Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(child: nameField),
-                            const SizedBox(width: 8),
-                            Expanded(child: phoneField),
-                            remove,
-                          ],
-                        );
-                      },
-                    ),
-                    CheckboxListTile(
-                      value: recipients[index].activo,
-                      onChanged: (value) => setDialogState(
-                        () => recipients[index].activo = value != false,
-                      ),
-                      title: const Text('Recibe mensajes'),
-                      dense: true,
-                      controlAffinity: ListTileControlAffinity.leading,
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                    const SizedBox(height: 10),
-                  ],
-                  if (recipientsRequired)
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 8),
-                      child: Text(
-                        'Agrega al menos una persona con un celular válido.',
+                    if (modulesRequired)
+                      const Text(
+                        'Selecciona al menos un módulo.',
                         style: TextStyle(
                           fontFamily: _font,
                           color: Colors.red,
                           fontSize: 12,
                         ),
                       ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Personas que recibirán el WhatsApp',
+                      style: TextStyle(
+                        fontFamily: _font,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      FilledButton.icon(
-                        onPressed: () async {
-                          final person = await _pickFromDirectory(context);
-                          if (person == null || !context.mounted) return;
-                          setDialogState(() {
-                            recipientsRequired = false;
-                            recipients.add(
-                              _RecipientDraft(
-                                nombre: person.nombre,
-                                telefono: person.telefono,
-                                personaId: person.id,
-                                origen: person.id.isEmpty
-                                    ? 'manual'
-                                    : 'directorio',
-                              ),
+                    const SizedBox(height: 6),
+                    Text(ayudaTelefonoWhatsApp(_countryCode.text)),
+                    const SizedBox(height: 10),
+                    for (var index = 0; index < recipients.length; index++) ...[
+                      if (recipients[index].vinculadoAlDirectorio)
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: Chip(
+                            avatar: Icon(Icons.badge_outlined, size: 17),
+                            label: Text('Vinculado al directorio empresarial'),
+                          ),
+                        ),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final compact = constraints.maxWidth < 520;
+                          final nameField = TextField(
+                            controller: recipients[index].nombre,
+                            textCapitalization: TextCapitalization.words,
+                            decoration: const InputDecoration(
+                              labelText: 'Nombre',
+                              border: OutlineInputBorder(),
+                            ),
+                          );
+                          final phoneField = TextField(
+                            controller: recipients[index].telefono,
+                            keyboardType: TextInputType.phone,
+                            onChanged: (_) => setDialogState(() {}),
+                            decoration: InputDecoration(
+                              labelText: 'Celular con código de país',
+                              hintText: '573001234567',
+                              helperText:
+                                  'Se guardará: ${normalizarTelefonoWhatsApp(recipients[index].telefono.text, _countryCode.text)}',
+                              helperMaxLines: 3,
+                              errorMaxLines: 3,
+                              errorText: validarTelefonos
+                                  ? errorTelefonoWhatsApp(
+                                      recipients[index].telefono.text,
+                                      _countryCode.text,
+                                    )
+                                  : null,
+                              border: OutlineInputBorder(),
+                            ),
+                          );
+                          final remove = IconButton(
+                            tooltip: 'Retirar destinatario',
+                            onPressed: () => setDialogState(() {
+                              final removed = recipients.removeAt(index);
+                              removed.dispose();
+                            }),
+                            icon: const Icon(Icons.person_remove_outlined),
+                          );
+                          if (compact) {
+                            return Column(
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(child: nameField),
+                                    remove,
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                phoneField,
+                              ],
                             );
-                          });
+                          }
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(child: nameField),
+                              const SizedBox(width: 8),
+                              Expanded(child: phoneField),
+                              remove,
+                            ],
+                          );
                         },
-                        icon: const Icon(Icons.manage_search),
-                        label: const Text('Buscar en directorio'),
                       ),
-                      OutlinedButton.icon(
-                        onPressed: () => setDialogState(() {
-                          recipientsRequired = false;
-                          recipients.add(_RecipientDraft());
-                        }),
-                        icon: const Icon(Icons.dialpad_outlined),
-                        label: const Text('Ingresar manualmente'),
+                      CheckboxListTile(
+                        value: recipients[index].activo,
+                        onChanged: (value) => setDialogState(
+                          () => recipients[index].activo = value != false,
+                        ),
+                        title: const Text('Recibe mensajes'),
+                        dense: true,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        contentPadding: EdgeInsets.zero,
                       ),
+                      const SizedBox(height: 10),
                     ],
-                  ),
-                ],
+                    if (recipientsRequired)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          'Agrega al menos una persona con un celular válido.',
+                          style: TextStyle(
+                            fontFamily: _font,
+                            color: Colors.red,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        FilledButton.icon(
+                          onPressed: () async {
+                            final person = await _pickFromDirectory(context);
+                            if (person == null || !context.mounted) return;
+                            setDialogState(() {
+                              recipientsRequired = false;
+                              recipients.add(
+                                _RecipientDraft(
+                                  nombre: person.nombre,
+                                  telefono: person.telefono,
+                                  personaId: person.id,
+                                  origen: person.id.isEmpty
+                                      ? 'manual'
+                                      : 'directorio',
+                                ),
+                              );
+                            });
+                          },
+                          icon: const Icon(Icons.manage_search),
+                          label: const Text('Buscar en directorio'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: () => setDialogState(() {
+                            recipientsRequired = false;
+                            recipients.add(_RecipientDraft());
+                          }),
+                          icon: const Icon(Icons.dialpad_outlined),
+                          label: const Text('Ingresar manualmente'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  if (selectedModules.isEmpty) {
+                    setDialogState(() => modulesRequired = true);
+                    return;
+                  }
+                  setDialogState(() => validarTelefonos = true);
+                  if (recipients.any(
+                    (item) =>
+                        errorTelefonoWhatsApp(
+                          item.telefono.text,
+                          _countryCode.text,
+                        ) !=
+                        null,
+                  )) {
+                    return;
+                  }
+                  final hasRecipient =
+                      recipients.isNotEmpty &&
+                      (!active || recipients.any((item) => item.activo));
+                  if (!hasRecipient) {
+                    setDialogState(() => recipientsRequired = true);
+                    return;
+                  }
+                  Navigator.pop(dialogContext, true);
+                },
+                child: const Text('Guardar lista'),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (selectedModules.isEmpty) {
-                  setDialogState(() => modulesRequired = true);
-                  return;
-                }
-                final hasRecipient = recipients.any(
-                  (item) =>
-                      item.telefono.text.replaceAll(RegExp(r'\D'), '').length >=
-                      8,
-                );
-                if (!hasRecipient) {
-                  setDialogState(() => recipientsRequired = true);
-                  return;
-                }
-                Navigator.pop(dialogContext, true);
-              },
-              child: const Text('Guardar lista'),
-            ),
-          ],
-        ),
-      ),
+        );
+      },
     );
     if (save == true) {
       try {
@@ -2077,7 +2119,10 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
               .map(
                 (item) => WhatsAppDestinatario(
                   nombre: item.nombre.text.trim(),
-                  telefono: item.telefono.text.trim(),
+                  telefono: normalizarTelefonoWhatsApp(
+                    item.telefono.text,
+                    _countryCode.text,
+                  ),
                   activo: item.activo,
                   personaId: item.personaId,
                   origen: item.origen,
@@ -2086,12 +2131,17 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
               .where((item) => item.telefono.isNotEmpty)
               .toList(),
         );
-        _message('Lista de destinatarios guardada.');
+        _message(
+          'Lista guardada. Para recibir avisos, asígnala al evento y pulsa Guardar asignación.',
+        );
         await _load();
       } catch (error) {
         _message('No fue posible guardar la lista: $error', error: true);
       }
     }
+    // El resultado de showDialog llega antes de terminar su animación de salida.
+    // Sus campos siguen leyendo los controladores hasta retirar la ruta.
+    await rutaDialogo?.completed;
     name.dispose();
     for (final recipient in recipients) {
       recipient.dispose();
@@ -2168,9 +2218,11 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
           controller: _testPhone,
           enabled: !_testing,
           keyboardType: TextInputType.phone,
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             labelText: 'Número de WhatsApp',
-            hintText: '3001234567',
+            hintText: '573001234567',
+            helperText: ayudaTelefonoWhatsApp(_countryCode.text),
+            helperMaxLines: 8,
             border: OutlineInputBorder(),
           ),
         ),
