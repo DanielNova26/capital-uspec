@@ -1,5 +1,25 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-27 — Publicación Web 2.8.14+67 (Codex)
+
+- Publicada Web release **2.8.14+67** en `https://to-do-gestion.web.app`,
+  incluyendo recuperación del subcentro de Interventoría, descarga Excel del
+  formulario en edición de Visitas y ayudas/validación de contactos WhatsApp.
+- Actualizada `ppWhatsAppCambioFirma` en `integra360-94704/us-central1`,
+  Node.js 22. Despliegue confirmado y estado remoto `ACTIVE`. El aviso de
+  Gerencia a Tesorería indica descargar la planilla firmada y el archivo plano.
+- Verificados HTTP 200 y SHA-256 idénticos a la compilación local en los seis
+  archivos: `version.json`, `index.html`, `flutter_bootstrap.js`,
+  `flutter_service_worker.js`, `main.dart.js` y `firebase-messaging-sw.js`.
+  Versión y número de compilación remotos confirmados. Predeploy y compilación
+  correctos; 8 pruebas pertinentes del servidor aprobadas tras reconstruirlo.
+- Sin cambios de reglas ni migraciones de datos. No se enviaron mensajes ni se
+  configuró un número real de Tesorería; debe asignarse su lista al evento en
+  la empresa correspondiente. Los subcentros de tareas históricas se revisan
+  mediante la sincronización controlada existente, no al publicar.
+- No se publicaron aplicaciones móviles. Siguen pendientes las pruebas del
+  flujo autenticado con usuarios reales y en dispositivos Android/iOS.
+
 ## 2026-10-27 — Visitas: Excel desde el editor; WhatsApp de Gerencia a Tesorería (Codex)
 
 - Visitas incorpora «Descargar formulario Excel» al inicio del editor de
