@@ -1,5 +1,33 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-27 — Interventoría: recuperar subcentro al enviar una tarea (Codex)
+
+- Reporte: tarea de Picota, observación 6.1, con centro pero sin subcentro.
+  La imagen no permite confirmar si el acta original tiene ese dato. Sin
+  consulta ni modificación de registros productivos en esta revisión.
+- Vacío reproducido en código: crear/reasignar usaba solo el hallazgo; si un
+  hallazgo histórico no copió el subcentro del acta, la tarea volvía a salir
+  sin él aunque el acta sí lo tuviera. Ahora recupera los datos faltantes
+  del acta vinculada antes de enviar, con comprobación de empresa, centro y
+  vínculo. Título, descripción y campos usan la misma ubicación recuperada.
+- Datos contradictorios, id sin nombre o acta vinculada ausente detienen el
+  envío con mensaje de revisión. Un acta del centro completo sigue siendo
+  válida sin subcentro; no se deduce ni inventa uno desde el nombre del centro.
+- Las tareas ya enviadas conservan su texto. Para revisarlas está disponible
+  Admin → Apps, roles y permisos → Módulos → Interventoría → Sincronizar mejoras
+  de Interventoría, exclusivo de Desarrollo. Revisar el plan antes de aplicar:
+  esa herramienta también puede proponer cambios de aprobador. No se ejecutó
+  ninguna sincronización ni migración automática.
+- Validación: 445 pruebas Flutter de Interventoría aprobadas, incluidas 9 de
+  contexto de tarea (6 nuevas); 23 pruebas del plan de sincronización del
+  servidor aprobadas. Análisis Dart de los dos archivos sin incidencias.
+  La suite incluye widgets a 390/768/1024/1366 y texto aumentado con temas de
+  escritorio/Android/iOS; no sustituye prueba real de los clientes.
+- Lógica compartida por Web, Android e iOS, sin cambios visuales, de navegación
+  ni de permisos. Pendiente publicar clientes y verificar el flujo autenticado
+  Web, Android e iOS, incluidas áreas seguras, teclado y permisos; revisar los
+  registros históricos reportados y su acta para confirmar la causa concreta.
+
 ## 2026-10-26 — Publicación de selección múltiple en Visitas (Codex)
 
 - Web release **2.8.13+66** publicada en `https://to-do-gestion.web.app`.

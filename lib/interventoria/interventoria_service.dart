@@ -11,6 +11,7 @@ import 'package:intl/intl.dart';
 
 import '../core/area_directory.dart';
 import '../core/festivos_colombia.dart';
+import '../core/subcentros_costo.dart';
 import '../core/task_origen.dart';
 import '../services/org_service.dart';
 import '../services/task_service.dart';
@@ -601,7 +602,54 @@ String cargoDelAprobador(AprobadorPropuesto propuesto) =>
 
 /// Contexto de ubicación compartido por las tareas enviadas desde Web y móvil.
 ({String titulo, String ubicacion, Map<String, String> campos})
-contextoTareaInterventoria(InterventoriaHallazgo hallazgo) {
+contextoTareaInterventoria(
+  InterventoriaHallazgo hallazgo, {
+  InterventoriaVisita? visita,
+}) {
+  var subId = hallazgo.subcentroId.trim();
+  var subNombre = hallazgo.subcentroNombre.trim();
+  if (visita != null) {
+    if (visita.id != hallazgo.visitaId ||
+        visita.empresaId != hallazgo.empresaId ||
+        visita.centroCostoId != hallazgo.centroCostoId) {
+      throw StateError('El acta no corresponde al hallazgo y su empresa.');
+    }
+    final actaId = visita.subcentroId.trim();
+    final actaNombre = visita.subcentroNombre.trim();
+    if ((subId.isNotEmpty && actaId.isNotEmpty && subId != actaId) ||
+        (subId.isEmpty &&
+            subNombre.isNotEmpty &&
+            actaNombre.isNotEmpty &&
+            subcentroSinCentro(
+                  hallazgo.centroCostoNombre,
+                  subNombre,
+                ).toLowerCase() !=
+                subcentroSinCentro(
+                  hallazgo.centroCostoNombre,
+                  actaNombre,
+                ).toLowerCase())) {
+      throw StateError(
+        'El subcentro del hallazgo difiere del acta. Revisa la ubicación antes de asignar.',
+      );
+    }
+    // No unir el id de un documento con un nombre que no se puede vincular.
+    if (subId.isNotEmpty && subNombre.isEmpty && actaId.isEmpty ||
+        subId.isEmpty &&
+            subNombre.isNotEmpty &&
+            actaNombre.isEmpty &&
+            actaId.isNotEmpty) {
+      throw StateError(
+        'Los datos del subcentro están incompletos. Revisa el acta antes de asignar.',
+      );
+    }
+    subId = subId.isEmpty ? actaId : subId;
+    subNombre = subNombre.isEmpty ? actaNombre : subNombre;
+  }
+  if (subId.isNotEmpty && subNombre.isEmpty) {
+    throw StateError(
+      'El subcentro no tiene nombre. Revisa el acta antes de asignar.',
+    );
+  }
   final numero = hallazgo.numeroHallazgo.isEmpty
       ? ''
       : ' Obs.${hallazgo.numeroHallazgo}:';
@@ -609,15 +657,16 @@ contextoTareaInterventoria(InterventoriaHallazgo hallazgo) {
       ? '${hallazgo.descripcion.substring(0, 77)}…'
       : hallazgo.descripcion;
   return (
-    titulo: '${hallazgo.establecimiento}$numero $descripcion',
+    titulo:
+        '${nombreEstablecimiento(hallazgo.centroCostoNombre, subNombre)}$numero $descripcion',
     ubicacion:
         'Centro de costo: ${hallazgo.centroCostoNombre}\n'
-        '${hallazgo.subcentroNombre.trim().isEmpty ? '' : 'Subcentro: ${hallazgo.subcentroNombre.trim()}\n'}',
+        '${subNombre.isEmpty ? '' : 'Subcentro: $subNombre\n'}',
     campos: {
       'centroCostoId': hallazgo.centroCostoId,
       'centroCostoNombre': hallazgo.centroCostoNombre,
-      'subcentroId': hallazgo.subcentroId,
-      'subcentroNombre': hallazgo.subcentroNombre,
+      'subcentroId': subId,
+      'subcentroNombre': subNombre,
     },
   );
 }
@@ -4416,6 +4465,28 @@ class InterventoriaService {
     required bool notificarCreacion,
     required void Function(InterventoriaTareaCreada creada)? alCrear,
   }) async {
+    // Los hallazgos históricos pueden no haber copiado la ubicación del acta.
+    // Recuperarla antes de crear/reasignar, sin modificar el histórico.
+    InterventoriaVisita? actaUbicacion;
+    if ((hallazgo.subcentroId.trim().isEmpty ||
+            hallazgo.subcentroNombre.trim().isEmpty) &&
+        hallazgo.visitaId.trim().isNotEmpty) {
+      final snap = await _leerEnLote(
+        'actaUbicacion|${hallazgo.empresaId}|${hallazgo.visitaId}',
+        () => _db
+            .collection('TBL_INTERVENTORIA_VISITAS')
+            .doc(hallazgo.visitaId)
+            .get(),
+      );
+      if (!snap.exists) {
+        throw StateError('No se encontró el acta para verificar el subcentro.');
+      }
+      actaUbicacion = InterventoriaVisita.fromMap(snap.id, snap.data()!);
+    }
+    final contexto = contextoTareaInterventoria(
+      hallazgo,
+      visita: actaUbicacion,
+    );
     // ── 1. Resolver nombre real del creador ──────────────────────────────────
     String creadorNombreReal = creadorNombre;
     if (creadorId.isNotEmpty) {
@@ -4537,7 +4608,6 @@ class InterventoriaService {
         );
 
     // ── 3. Título: "CentroCosto · Obs.N: descripción corta" ─────────────────
-    final contexto = contextoTareaInterventoria(hallazgo);
     final titulo = contexto.titulo;
 
     // ── 4. Descripción completa ──────────────────────────────────────────────
