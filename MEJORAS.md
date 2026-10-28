@@ -12351,3 +12351,8 @@ Acta: «La reunión se inició a las 2026_10_15 18_27». Código: `functions/src
 - Seleccionar o cambiar el filtro Profesional muestra todas sus visitas del mes enfocado, quitando la selección del día anterior. Se conservan los filtros de estado, departamento y establecimiento; tocar un día permite volver al detalle diario.
 - Las tarjetas muestran el ID de la visita, incluso en registros históricos sin número consecutivo; el número existente se conserva en el título.
 - Validación: 9 pruebas de cronograma aprobadas, incluida regresión con dos fechas del mismo profesional e IDs visibles. Layouts Android/iOS simulados a 390, 768, 1024 y 1366 con texto aumentado. Pendiente validación en navegador y dispositivos reales; no se desplegó la app.
+
+## Codex · 28 oct 2026 · Publicación de cambios de Visitas
+- Publicados en integra360-94704: reglas Firestore, función visitasSincronizarOffline y Hosting to-do-gestion con compilación Web release 2.8.14+67 recién generada. Incluye cierre/carga posterior al viaje y cronograma mensual por profesional con ID visible.
+- Firebase confirmó los tres despliegues. Reglas compiladas en servidor; superadas 3 pruebas del compactador y 17 pruebas de entrega offline. La primera compilación remota de reglas devolvió 503 temporal y el reintento terminó correctamente.
+- Esta publicación corresponde a Web y backend; no distribuye versiones nuevas en Play Store/App Store. Continúa pendiente la validación funcional con sesión real y dispositivos Android/iOS.
