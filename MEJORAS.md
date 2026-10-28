@@ -12346,3 +12346,8 @@ Acta: «La reunión se inició a las 2026_10_15 18_27». Código: `functions/src
 - Validación: compilación TypeScript, 17 pruebas de backend y 33 pruebas Flutter de fechas/almacenamiento/formulario local; incluyen layouts Android/iOS simulados a 390/768/1024/1366 con texto aumentado.
 - Pendiente: desplegar firestore.rules y la función visitasSincronizarOffline; validar en Web y dispositivos Android/iOS reales, teclado, áreas seguras y permisos. No se modificó producción.
 - Análisis estático: sin errores ni advertencias; 9 sugerencias de estilo preexistentes. Reglas pendientes de prueba con emulador Firestore.
+
+## Codex · 28 oct 2026 · Cronograma por profesional e ID visible
+- Seleccionar o cambiar el filtro Profesional muestra todas sus visitas del mes enfocado, quitando la selección del día anterior. Se conservan los filtros de estado, departamento y establecimiento; tocar un día permite volver al detalle diario.
+- Las tarjetas muestran el ID de la visita, incluso en registros históricos sin número consecutivo; el número existente se conserva en el título.
+- Validación: 9 pruebas de cronograma aprobadas, incluida regresión con dos fechas del mismo profesional e IDs visibles. Layouts Android/iOS simulados a 390, 768, 1024 y 1366 con texto aumentado. Pendiente validación en navegador y dispositivos reales; no se desplegó la app.

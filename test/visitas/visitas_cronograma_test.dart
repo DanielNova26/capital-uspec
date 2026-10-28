@@ -6,6 +6,8 @@ import 'package:todo/visitas/visitas_models.dart';
 import 'package:todo/visitas/visitas_service.dart';
 
 class _Agenda extends Fake implements VisitasService {
+  final List<int> dias;
+  _Agenda({this.dias = const [15]});
   @override
   Future<Map<String, String>> areasDeEmpresa(String empresaId) async => {};
 
@@ -16,27 +18,59 @@ class _Agenda extends Fake implements VisitasService {
     String? areaId,
     String? coordinadorId,
   }) => Stream.value([
-    VisitaProfesional(
-      id: 'visita',
-      empresaId: empresaId,
-      numero: 12,
-      formatoId: 'formato',
-      formatoNombre: 'Inspección de instalaciones',
-      areaId: 'calidad',
-      areaNombre: 'Calidad',
-      centroId: 'centro',
-      centroNombre: 'Establecimiento de prueba',
-      profesionalId: 'prof',
-      profesionalNombre: 'Profesional de Calidad',
-      asignadoPorId: 'gerente',
-      asignadoPorNombre: 'Gerencia',
-      fechaProgramada: DateTime(DateTime.now().year, DateTime.now().month, 15),
-    ),
+    for (final dia in dias)
+      VisitaProfesional(
+        id: 'visita-$dia',
+        empresaId: empresaId,
+        numero: 12,
+        formatoId: 'formato',
+        formatoNombre: 'Inspección de instalaciones',
+        areaId: 'calidad',
+        areaNombre: 'Calidad',
+        centroId: 'centro',
+        centroNombre: 'Establecimiento de prueba',
+        profesionalId: 'prof',
+        profesionalNombre: 'Profesional de Calidad',
+        asignadoPorId: 'gerente',
+        asignadoPorNombre: 'Gerencia',
+        fechaProgramada: DateTime(
+          DateTime.now().year,
+          DateTime.now().month,
+          dia,
+        ),
+      ),
   ]);
 }
 
 void main() {
   setUpAll(() => initializeDateFormatting('es_CO'));
+  testWidgets('filtrar profesional muestra todo el mes con ID', (tester) async {
+    tester.view.physicalSize = const Size(1366, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VisitasCronograma(
+          svc: _Agenda(dias: [14, 15]),
+          userId: 'gerente',
+          empresaId: 'A',
+          rol: kVisitasRolGerencia,
+          nombreUsuario: 'Gerencia',
+          esDesarrollador: true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('Profesional-')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Profesional de Calidad').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Visitas del mes (2)'), findsOneWidget);
+    expect(find.text('ID: visita-14'), findsOneWidget);
+    expect(find.text('ID: visita-15'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     for (final width in [390.0, 768.0, 1024.0, 1366.0]) {
       testWidgets(

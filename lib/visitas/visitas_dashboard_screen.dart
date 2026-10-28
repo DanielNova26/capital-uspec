@@ -727,7 +727,10 @@ class VisitasCronogramaState extends State<VisitasCronograma> {
                             'Profesional',
                             _profFiltro,
                             profesionales,
-                            (v) => _profFiltro = v,
+                            (v) {
+                              _profFiltro = v;
+                              _diaElegido = null;
+                            },
                           ),
                           filtroLista(
                             'Establecimiento',
@@ -1532,6 +1535,10 @@ class _VisitaCard extends StatelessWidget {
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Text(
+              'ID: ${v.id}',
+              style: const TextStyle(fontFamily: _kFont, fontSize: 12),
+            ),
             UserNameText(
               v.profesionalId,
               fallbackName: v.profesionalNombre,
