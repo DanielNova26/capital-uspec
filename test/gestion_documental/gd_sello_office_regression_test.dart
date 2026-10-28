@@ -186,6 +186,25 @@ void main() {
     },
   );
 
+  test('Excel importado reemplaza el nombre histórico por el cargo', () {
+    final r = gdSellarPlantillaValidada(
+      zip({
+        'xl/worksheets/sheet1.xml': utf8.encode(
+          '<worksheet><sheetData><row r="2">'
+          '<c r="I2" t="inlineStr"><is><t>Aprobado</t></is></c>'
+          '<c r="K2" t="inlineStr"><is><t>Romer</t></is></c>'
+          '</row></sheetData><mergeCells><mergeCell ref="I2:J2"/></mergeCells></worksheet>',
+        ),
+      }),
+      aprobadoPor: 'Director de Calidad',
+      aprobadoEn: DateTime(2026),
+      aprobacionesAnteriores: ['Romer'],
+    );
+    expect(r.bytes, isNotNull, reason: r.detalle);
+    final hoja = utf8.decode(partes(r.bytes!)['xl/worksheets/sheet1.xml']!);
+    expect(hoja, contains('Director de Calidad'));
+    expect(hoja, isNot(contains('Romer')));
+  });
   test('Excel sin plantilla: no pisa fórmulas ni columnas de una tabla', () {
     for (final destino in [
       '<c r="B2" t="inlineStr"><is><t>Observaciones</t></is></c>',

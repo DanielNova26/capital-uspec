@@ -633,6 +633,7 @@ double _min(double a, double b) => a < b ? a : b;
   Uint8List xlsx, {
   required String aprobadoPor,
   required DateTime aprobadoEn,
+  List<String> aprobacionesAnteriores = const [],
 }) {
   Archive archive;
   try {
@@ -815,6 +816,9 @@ double _min(double a, double b) => a < b ? a : b;
         }
         final valor = _textoCeldaExcel(destino, compartidos).trim();
         if (valor.toLowerCase() != 'pendiente' &&
+            !aprobacionesAnteriores.any(
+              (v) => v.trim().isNotEmpty && v.trim() == valor,
+            ) &&
             (aprobadoPor.trim().isEmpty || valor != aprobadoPor.trim())) {
           continue;
         }

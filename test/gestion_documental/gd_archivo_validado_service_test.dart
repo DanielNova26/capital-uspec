@@ -80,6 +80,13 @@ void main() {
         return http.Response.bytes(archivo, httpStatus);
       }),
     );
+    db.documents['TBL_USUARIOS/calidad'] = {
+      'empresaId': 'B',
+      'cargo': 'Cargo de otra empresa',
+      'empresasDetalle': {
+        'A': {'cargo': 'Director de Calidad'},
+      },
+    };
     db.documents['TBL_USUARIOS/lector'] = {
       'empresaId': 'A',
       'empresas': ['A', 'B'],
@@ -89,6 +96,7 @@ void main() {
           'activo': true,
           'apps': ['bibliotecadocumentaldashboard'],
           'rolDocumental': 'consulta',
+          'cargo': 'Supervisor de Calidad',
         },
         'B': <String, dynamic>{
           'activo': true,
@@ -136,7 +144,7 @@ void main() {
       final encabezado = utf8.decode(
         zip.findFile('word/header1.xml')!.content as List<int>,
       );
-      expect(encabezado, contains('Calidad Original'));
+      expect(encabezado, contains('Director de Calidad'));
       expect(encabezado, isNot(contains('Pendiente')));
       expect(encabezado, isNot(contains('otro-aprobador')));
       expect(nombre, 'programa.docx');
@@ -144,6 +152,32 @@ void main() {
     },
   );
 
+  test('la descarga conserva el cargo guardado al validar', () async {
+    db.documents['TBL_DOCUMENTOS_VERSIONES/ver']!['validadoCargo'] =
+        'Jefe de Calidad';
+    final (bytes, _) = await descargar();
+    final xml = utf8.decode(
+      ZipDecoder().decodeBytes(bytes).findFile('word/header1.xml')!.content
+          as List<int>,
+    );
+    expect(xml, contains('Jefe de Calidad'));
+    expect(xml, isNot(contains('Director de Calidad')));
+    expect(db.writes, 0);
+  });
+  test(
+    'no toma el cargo de otra empresa ni vuelve a poner el nombre',
+    () async {
+      db.documents['TBL_USUARIOS/calidad']!['empresasDetalle'] = {};
+      final (bytes, _) = await descargar();
+      final xml = utf8.decode(
+        ZipDecoder().decodeBytes(bytes).findFile('word/header1.xml')!.content
+            as List<int>,
+      );
+      expect(xml, contains('Cargo no registrado'));
+      expect(xml, isNot(contains('Cargo de otra empresa')));
+      expect(xml, isNot(contains('Calidad Original')));
+    },
+  );
   test('Excel ya validado se actualiza también en la descarga', () async {
     archivo = gdGenerarPlantillaFormato(datos);
     db.documents['TBL_DOCUMENTOS_VERSIONES/ver']!['nombreArchivo'] =
@@ -153,7 +187,7 @@ void main() {
     final hoja = utf8.decode(
       zip.findFile('xl/worksheets/sheet1.xml')!.content as List<int>,
     );
-    expect(hoja, contains('Calidad Original'));
+    expect(hoja, contains('Director de Calidad'));
     expect(hoja, isNot(contains('Pendiente')));
     expect(nombre, 'programa.xlsx');
     expect(db.writes, 0);
@@ -266,7 +300,8 @@ void main() {
       final texto = utf8.decode(
         guardado.findFile('word/header1.xml')!.content as List<int>,
       );
-      expect(texto, contains('Ana Calidad'));
+      expect(texto, contains('Supervisor de Calidad'));
+      expect(version['validadoCargo'], 'Supervisor de Calidad');
       expect(texto, isNot(contains('Pendiente')));
       expect(db.documents['TBL_DOCUMENTOS/doc']!['versionVigenteId'], 'ver');
     },

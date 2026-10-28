@@ -667,9 +667,7 @@ class GdService {
     DateTime? aprobadoEn;
     final aprobadorId = (data['aprobadoPor'] ?? '').toString().trim();
     if (data['estado'] == GdEstado.vigente.valor && aprobadorId.isNotEmpty) {
-      final info = await UserDirectory.instance.resolve(aprobadorId);
-      // Nunca la cédula en el papel: si no hay nombre, queda el área.
-      aprobadoPor = info.nombre.trim().isEmpty ? 'Calidad' : info.nombre.trim();
+      aprobadoPor = await _cargoAprobador(aprobadorId, empresaId);
       aprobadoEn = (data['aprobadoEn'] as Timestamp?)?.toDate();
     }
     return _armarPlantillaFormato(
@@ -815,10 +813,12 @@ class GdService {
 
     // Un Office no puede publicarse con un sello fallido: el archivo y el
     // check deben expresar la misma validación. PDF conserva su flujo.
+    final cargoAprobador = await _cargoAprobador(actorId, empresaId);
     final sello = await _sellarArchivoValidado(
       empresaId: empresaId,
       docId: docId,
       verData: verData,
+      cargoAprobador: cargoAprobador,
       actorId: actorId,
       nombreActor: nombreActor,
     );
@@ -840,6 +840,7 @@ class GdService {
       'aprobadoEn': now,
       'validadoPor': actorId,
       'validadoNombre': sello.nombre,
+      'validadoCargo': cargoAprobador,
       'selloEnArchivo': sello.url != null,
       'selloDetalle': sello.detalle,
       'validadoEn': now,
@@ -884,6 +885,17 @@ class GdService {
     );
   }
 
+  Future<String> _cargoAprobador(String userId, String empresaId) async {
+    final user = (await _usersCol.doc(userId).get()).data();
+    final cargo = resolveScopedStringWithFallbacks(
+      user ?? const <String, dynamic>{},
+      empresaId,
+      const ['cargoNombre', 'cargo'],
+      const ['cargoNombre', 'cargo'],
+    ).trim();
+    return cargo.isEmpty ? 'Cargo no registrado' : cargo;
+  }
+
   /// Descarga el archivo de la versión, le escribe el sello en el
   /// encabezado (.xlsx o .docx de la plantilla) y sube el resultado.
   Future<({String? url, String? path, String detalle, String? nombre})>
@@ -891,6 +903,7 @@ class GdService {
     required String empresaId,
     required String docId,
     required Map<String, dynamic> verData,
+    required String cargoAprobador,
     required String actorId,
     String? nombreActor,
   }) async {
@@ -922,12 +935,16 @@ class GdService {
       final sello = esWord
           ? gdSellarPlantillaWordValidada(
               response.bodyBytes,
-              aprobadoPor: quien,
+              aprobadoPor: cargoAprobador,
               aprobadoEn: DateTime.now(),
             )
           : gdSellarPlantillaValidada(
               response.bodyBytes,
-              aprobadoPor: quien,
+              aprobacionesAnteriores: [
+                quien,
+                (verData['validadoNombre'] ?? '').toString(),
+              ],
+              aprobadoPor: cargoAprobador,
               aprobadoEn: DateTime.now(),
             );
       if (sello.bytes == null) {
@@ -1030,11 +1047,10 @@ class GdService {
         'Solicita a Calidad revisar el registro antes de descargar.',
       );
     }
-    var quien = (verData['validadoNombre'] ?? '').toString().trim();
-    if (quien.isEmpty) {
-      final info = await UserDirectory.instance.resolve(aprobadorId);
-      quien = info.nombre.trim().isEmpty ? 'Calidad' : info.nombre.trim();
-    }
+    final guardado = (verData['validadoCargo'] ?? '').toString().trim();
+    final quien = guardado.isNotEmpty
+        ? guardado
+        : await _cargoAprobador(aprobadorId, empresaId);
     final sello = esWord
         ? gdSellarPlantillaWordValidada(
             response.bodyBytes,
@@ -1043,6 +1059,9 @@ class GdService {
           )
         : gdSellarPlantillaValidada(
             response.bodyBytes,
+            aprobacionesAnteriores: [
+              (verData['validadoNombre'] ?? '').toString(),
+            ],
             aprobadoPor: quien,
             aprobadoEn: fecha.toDate(),
           );
