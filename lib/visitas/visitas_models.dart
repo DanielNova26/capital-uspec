@@ -2570,22 +2570,9 @@ String? motivoNoIniciaHoy(VisitaProfesional v, DateTime ahora) {
             'reasignación a tu jefe inmediato: queda registrada con tu motivo.';
 }
 
-/// Por qué no se puede cerrar hoy (28 sep 2026). Se cierra el mismo día en
-/// que se inició, que es el día programado. Null = se puede. Las pruebas no
-/// tienen esta restricción.
-String? motivoNoCierraHoy(VisitaProfesional v, DateTime ahora) {
-  if (v.esPrueba || v.estado != kVisitaEnCurso) return null;
-  final hoy = _soloDia(ahora);
-  final inicio = v.inicio?.at.toDate().toLocal();
-  final diaInicio = inicio == null
-      ? _soloDia(v.fechaProgramada)
-      : _soloDia(inicio);
-  if (hoy == diaInicio && hoy == _soloDia(v.fechaProgramada)) return null;
-  return 'La visita se inició el ${_ddmmaaaa(diaInicio)} y debía cerrarse '
-      'ese mismo día. Pídele a tu jefe inmediato el cambio de fecha: si lo '
-      'aprueba, la vuelves a iniciar en el establecimiento y conservas lo '
-      'que ya respondiste (las firmas se hacen de nuevo).';
-}
+/// El cierre puede completarse cualquier día después del viaje.
+/// Se conserva la fecha programada y la marca de inicio.
+String? motivoNoCierraHoy(VisitaProfesional v, DateTime ahora) => null;
 
 String _ddmmaaaa(DateTime d) =>
     '${d.day.toString().padLeft(2, '0')}/'

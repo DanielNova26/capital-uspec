@@ -1928,7 +1928,7 @@ class _MisVisitasTabState extends State<_MisVisitasTab> {
 // seleccionar la visita" y "no puede estar en una ubicación diferente". Ya no
 // se "jala" la visita por el GPS: el profesional la elige de las suyas de hoy
 // y, al iniciarla, la app comprueba que esté dentro del radio de ESE
-// establecimiento. Se hace y se cierra el mismo día; las que pasaron sin
+// establecimiento. Se puede cerrar después; las que pasaron sin
 // hacerse solo se pueden pedir para otra fecha al jefe inmediato.
 
 class _RegistroVisitaTab extends StatefulWidget {
@@ -2071,9 +2071,9 @@ class _RegistroVisitaTabState extends State<_RegistroVisitaTab> {
                     Text(
                       'Elige la visita que vas a hacer. Al iniciarla escoges '
                       'el formato y la app comprueba con el GPS que estés en '
-                      'ese establecimiento. La visita se hace y se cierra el '
-                      'mismo día; tus respuestas se guardan solas, así que '
-                      'puedes salir y seguir más tarde ese día.',
+                      'ese establecimiento. Tus respuestas se guardan solas. '
+                      'Puedes finalizar y cargar la visita cuando recuperes '
+                      'conexión, incluso otro día y desde casa.',
                       style: TextStyle(
                         fontFamily: _kFont,
                         fontSize: 13,
@@ -3710,34 +3710,12 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
           ),
       ],
       const SizedBox(height: 16),
-      // Se cierra el mismo día (28 sep 2026); si pasó, se pide otra fecha.
-      if (motivoNoCierraHoy(v, DateTime.now()) case final noHoy?) ...[
-        Container(
-          margin: const EdgeInsets.only(bottom: 8),
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: const Color(0xFFFEE2E2),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Text(
-            noHoy,
-            style: const TextStyle(
-              fontFamily: _kFont,
-              fontSize: 12,
-              color: Color(0xFF991B1B),
-            ),
-          ),
-        ),
-        ..._cambioDeFecha(v),
-      ],
       FilledButton.icon(
         style: FilledButton.styleFrom(
           backgroundColor: kVisitasColor,
           padding: const EdgeInsets.symmetric(vertical: 16),
         ),
-        onPressed: _ocupado || motivoNoCierraHoy(v, DateTime.now()) != null
-            ? null
-            : () => _cerrar(v),
+        onPressed: _ocupado ? null : () => _cerrar(v),
         icon: const Icon(Icons.check_circle_outline),
         label: Text(
           _ocupado

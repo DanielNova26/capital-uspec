@@ -2025,29 +2025,9 @@ class VisitasService {
         'cerrar.',
       );
     }
-    // 28 sep 2026: se cierra el mismo día y en el establecimiento ("no puede
-    // estar en una ubicación diferente").
-    final noHoy = motivoNoCierraHoy(visita, DateTime.now());
-    if (noHoy != null) throw VisitasException(noHoy);
-
-    final ref = visita.esPrueba
-        ? null
-        : await ubicacionPara(
-            empresaId: visita.empresaId,
-            centroId: visita.centroId,
-            subcentroId: visita.subcentroId,
-          );
-    final pos = visita.esPrueba ? null : await posicionActual();
-    if (!visita.esPrueba) {
-      final check = verificarUbicacionInicio(
-        referencia: ref,
-        lat: pos?.latitude,
-        lng: pos?.longitude,
-        precisionMetros: pos?.accuracy,
-        accion: 'cerrar',
-      );
-      if (!check.permitido) throw VisitasException(check.motivo);
-    }
+    // El cierre puede hacerse desde casa al recuperar conexión.
+    const Position? pos = null;
+    const VisitaUbicacion? ref = null;
     final ahora = DateTime.now();
     final resumen = resumenDeVisita(formato, visita.respuestas);
     final hallazgos = hallazgosDeVisita(

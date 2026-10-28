@@ -92,13 +92,15 @@ function distancia(a: D, b: D): number {
     Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dlng / 2) ** 2;
   return 6371000 * 2 * Math.asin(Math.sqrt(Math.min(1, h)));
 }
-function marca(m: D, p: D, now: number): D {
+function marca(m: D, p: D, now: number, cierre = false): D {
   const at = ms(m?.at);
   const dia = ms(p.base.fechaProgramada);
   if (!Number.isFinite(at) || at < p.preparadaMs - 60000 || at > now + 60000 ||
-      at >= p.venceMs || at < dia || at >= dia + DAY) {
+      (!cierre && (at >= p.venceMs || at < dia || at >= dia + DAY))) {
     fail("La hora capturada no corresponde al día autorizado de la visita.");
   }
+  // El cierre administrativo puede hacerse otro día y sin GPS.
+  if (cierre) return {at: m.at};
   if (!p.base.esPrueba) {
     if (!p.ubicacion || !Number.isFinite(m.lat) || !Number.isFinite(m.lng) ||
         Math.abs(m.lat) > 90 || Math.abs(m.lng) > 180 ||
@@ -118,7 +120,7 @@ function marca(m: D, p: D, now: number): D {
 export function validarEntregaOffline(p: D, input: D, now: number): D {
   if (!input || input.estado !== "terminada") fail("Finaliza la visita en el equipo antes de enviarla.");
   const inicio = marca(input.inicio, p, now);
-  const fin = marca(input.fin, p, now);
+  const fin = marca(input.fin, p, now, true);
   if (ms(fin.at) < ms(inicio.at)) fail("El cierre es anterior al inicio.");
   if (!text(input.responsableEstablecimiento?.nombre)) fail("Falta el responsable del establecimiento.");
   for (const key of ["firmaProfesional", "firmaEstablecimiento"]) {

@@ -46,7 +46,7 @@ test('wire round-trip and stable fingerprint preserve signatures and dates', () 
 test('capture date is preserved when syncing days later, with server-calculated distance', () => {
   const result = validarEntregaOffline(receipt(), input(), time + 4 * day);
   assert.equal(result.fin.at.toMillis(), time + 10800000);
-  assert.equal(result.fin.dentroDelRadio, true);
+  assert.equal(result.inicio.dentroDelRadio, true);
   assert.equal(result.cumplimiento, 100);
 });
 test('client cannot replace assignment, format, company or task IDs', () => {
@@ -58,9 +58,9 @@ test('client cannot replace assignment, format, company or task IDs', () => {
   assert.equal(result.formatoAsignado.nombre, 'Formato');
 });
 for (const [name, change] of [
-  ['outside establishment', (v) => {v.fin.lat = 40;}],
+  ['start outside establishment', (v) => {v.inicio.lat = 40;}],
   ['missing GPS', (v) => {delete v.inicio.lat;}],
-  ['wrong visit day', (v) => {v.fin.at = ts(time + day + 1000);}],
+  ['wrong start day', (v) => {v.inicio.at = ts(time + day + 1000);}],
   ['close before start', (v) => {v.fin.at = ts(time + 1000);}],
   ['unsigned', (v) => {delete v.firmaEstablecimiento;}],
   ['foreign signature', (v) => {v.firmaProfesional = {...signature, firmadoPorId: 'otro'};}],
@@ -106,4 +106,15 @@ test('effective per-company access, revocation, reactivation and historical role
   u.empresasDetalle.b.estadoLaboral = 'inactivo';
   assert.equal(accesoOffline(u, {rol: 'profesional'}, 'b'), false);
   assert.equal(accesoOffline({...u, activo: false}, {rol: 'profesional'}, 'a'), false);
+});
+
+test('close from home days later without GPS and sync after receipt expiry', () => {
+  const v = input(); v.fin = {at: ts(time + 10 * day)};
+  const result = validarEntregaOffline(receipt(), v, time + 11 * day);
+  assert.equal(result.fin.at.toMillis(), time + 10 * day);
+  assert.equal(result.inicio.at.toMillis(), time + 3600000);
+});
+test('close outside establishment preserves start location', () => {
+  const v = input(); v.fin.lat = 40;
+  assert.equal(validarEntregaOffline(receipt(), v, time + day).inicio.dentroDelRadio, true);
 });

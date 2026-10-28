@@ -380,7 +380,7 @@ class VisitasLocalService extends VisitasService {
     _id(visita.id);
     final motivo = motivoNoCierraHoy(this.visita, DateTime.now());
     if (motivo != null) throw VisitasException(motivo);
-    final marca = await _marca();
+    final marca = VisitaMarca(at: Timestamp.now());
     await _mutar((v) {
       final errors = validarCierreVisita(this.formato, v);
       if (errors.isNotEmpty) throw VisitasException(errors.join('\n'));

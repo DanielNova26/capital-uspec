@@ -1187,7 +1187,7 @@ service cloud.firestore {
       // una firma nunca se estampa "al cerrar" sin que el profesional la
       // haya visto antes.
       // 28 sep 2026: la visita se programa sin formato y el profesional lo
-      // fija al iniciarla; se inicia y se cierra el día programado; el
+      // fija al iniciarla; el cierre puede hacerse días después; el
       // profesional ya no reprograma: pide el cambio de fecha y el jefe lo
       // aprueba o lo rechaza.
       allow update: if empresaSeConserva()
@@ -1232,7 +1232,7 @@ service cloud.firestore {
                 && firmaVisitaSinCambiosDeContenido())
               || (resource.data.estado == 'en_curso'
                 && request.resource.data.estado == 'terminada'
-                && enElDiaDeLaVisita()
+                // Puede cerrar al recuperar conexión, incluso días después.
                 && request.resource.data.cerradaPor == request.auth.token.userDocId
                 && request.resource.data.diff(resource.data).affectedKeys()
                   .hasOnly(['estado', 'fin', 'cumplimiento', 'tareasCreadas',

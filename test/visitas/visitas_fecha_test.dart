@@ -4,7 +4,7 @@ import 'package:todo/visitas/visitas_models.dart';
 
 /// Cambios del 28 sep 2026 (documento "Cambios módulo visitas"): la visita
 /// se programa sin formato y el profesional lo elige al iniciar; se hace y
-/// se cierra el mismo día; el profesional pide el cambio de fecha a su jefe.
+/// puede cerrarse después; el profesional pide el cambio de fecha a su jefe.
 void main() {
   VisitaProfesional visita({
     String id = 'v',
@@ -110,17 +110,14 @@ void main() {
       expect(visitaSePuedeIniciar(v, DateTime(2026, 10, 5)), isFalse);
     });
 
-    test('se cierra el mismo día en que se inició', () {
+    test('se puede cerrar al día siguiente del viaje', () {
       final v = visita(
         estado: kVisitaEnCurso,
         fecha: dia,
         inicio: DateTime(2026, 10, 6, 9),
       );
       expect(motivoNoCierraHoy(v, DateTime(2026, 10, 6, 17)), isNull);
-      expect(
-        motivoNoCierraHoy(v, DateTime(2026, 10, 7, 8)),
-        contains('debía cerrarse ese mismo día'),
-      );
+      expect(motivoNoCierraHoy(v, DateTime(2026, 10, 7, 8)), isNull);
       // Una prueba no tiene la restricción.
       expect(
         motivoNoCierraHoy(
@@ -343,31 +340,5 @@ void main() {
       expect(visitasPuedeResponderSolicitud(kVisitasRolProfesional), isFalse);
       expect(visitasPuedeVerConsolidado(kVisitasRolProfesional), isTrue);
     });
-  });
-
-  test('cerrar exige estar en el sitio, con el mensaje de cerrar', () {
-    const ref = VisitaUbicacion(
-      empresaId: 'capital',
-      centroId: 'tunja',
-      centroNombre: 'Tunja',
-      lat: 5.5353,
-      lng: -73.3678,
-      radioMetros: 150,
-    );
-    final lejos = verificarUbicacionInicio(
-      referencia: ref,
-      lat: 5.5453,
-      lng: -73.3678,
-      accion: 'cerrar',
-    );
-    expect(lejos.permitido, isFalse);
-    expect(lejos.motivo, contains('vuelve a él para cerrarla'));
-    final sinGps = verificarUbicacionInicio(
-      referencia: ref,
-      lat: null,
-      lng: null,
-      accion: 'cerrar',
-    );
-    expect(sinGps.motivo, contains('no se cierra'));
   });
 }

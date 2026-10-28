@@ -12339,3 +12339,10 @@ Acta: «La reunión se inició a las 2026_10_15 18_27». Código: `functions/src
 ## Grupos de administradores: se conservan como orden 2.8.5+58 (19 oct 2026)
 - Aclaración del usuario: los grupos de los administradores sirven para llevar un orden y **no deben borrarse**. El estado "Grupos que su cargo no usa" pasa a "Grupo solo de orden (no suma sedes)": informativo, sin alerta. El filtro inicial de Cobertura ahora es "Solo centro de costos". El botón "Quitar grupos" se conserva con aviso de que no es necesario. Instructivo y hoja de instrucciones del modelo corregidos (antes pedían vaciar GRUPOS en administradores). La regla de cobertura no cambia: el grupo no suma sedes si el cargo no lo usa.
 - Pendiente de confirmar: `cargoUsaCoberturaPorGrupo` solo afecta a Interventoría; Visitas usa sus propios grupos y no se tocó.
+
+## Codex · 28 oct 2026 · Cierre y carga de visitas después del viaje
+- Se permite finalizar y cargar visitas iniciadas cualquier día posterior, desde casa o fuera del establecimiento, sin pedir GPS al cierre. Se conservan fecha programada, inicio, firmas, respuestas y controles de acceso por persona/empresa. El inicio mantiene su validación de fecha y ubicación.
+- Ajustados flujo compartido Web/móvil, cierre local, reglas Firestore y validación de entrega offline; no se requieren catálogos ni roles nuevos.
+- Validación: compilación TypeScript, 17 pruebas de backend y 33 pruebas Flutter de fechas/almacenamiento/formulario local; incluyen layouts Android/iOS simulados a 390/768/1024/1366 con texto aumentado.
+- Pendiente: desplegar firestore.rules y la función visitasSincronizarOffline; validar en Web y dispositivos Android/iOS reales, teclado, áreas seguras y permisos. No se modificó producción.
+- Análisis estático: sin errores ni advertencias; 9 sugerencias de estilo preexistentes. Reglas pendientes de prueba con emulador Firestore.
