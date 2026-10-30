@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:crypto/crypto.dart';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -96,7 +97,13 @@ class VisitasLocalStore extends ChangeNotifier {
   final Future<Directory> Function() directory;
   final _cipher = AesGcm.with256bits();
   Future<void> _tail = Future.value();
+  Future<void> _secureTail = Future.value();
   Future<SecretKey>? _keyFuture;
+  SecretKey? _cachedKey;
+  static const _recovery = MethodChannel('com.todogestion.app/visitas_secure');
+  Future<bool>? _storageFuture;
+  Future<void>? _recoveryFuture;
+  bool _recovered = false;
   int _revisionAcceso = 0;
   int get revisionAcceso => _revisionAcceso;
   VisitasLocalStore({
@@ -112,16 +119,118 @@ class VisitasLocalStore extends ChangeNotifier {
     return next;
   }
 
-  Future<SecretKey> _secret() => _keyFuture ??= _loadSecret();
+  bool _cryptoRestaurado(PlatformException e) {
+    final text = '${e.code} ${e.message} ${e.details}';
+    return !kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.android &&
+        (text.contains('BadPaddingException') ||
+            text.contains('BAD_DECRYPT') ||
+            text.contains('AEADBadTagException') ||
+            text.contains('UnrecoverableKeyException'));
+  }
+
+  Future<File> _recoveryMarker() async =>
+      File('${(await directory()).path}/visitas_offline/secure_v2.active');
+
+  Future<bool> _storage() => _storageFuture ??= () async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return false;
+    return _recovered = await (await _recoveryMarker()).exists();
+  }();
+
+  Future<void> _activateRecovery() => _recoveryFuture ??=
+      () async {
+        // A separate Android Keystore namespace avoids resetting shared login data.
+        // Write and verify before persisting the selection; never delete old keys/files.
+        await _recovery.invokeMethod<void>('write', {
+          'key': 'ready',
+          'value': '1',
+        });
+        if (await _recovery.invokeMethod<String>('read', {'key': 'ready'}) !=
+            '1') {
+          throw StateError(
+            'No se pudo preparar el almacenamiento seguro de visitas.',
+          );
+        }
+        // If only the authorization was damaged, retain a readable/cached AES key.
+        String? previousKey;
+        if (_cachedKey != null) {
+          previousKey = base64Encode(await _cachedKey!.extractBytes());
+        } else {
+          try {
+            previousKey = await secure.read(key: _keyName);
+          } on PlatformException catch (e) {
+            if (!_cryptoRestaurado(e)) rethrow;
+          }
+        }
+        if (previousKey != null) {
+          await _recovery.invokeMethod<void>('write', {
+            'key': _keyName,
+            'value': previousKey,
+          });
+        }
+        final marker = await _recoveryMarker();
+        await marker.parent.create(recursive: true);
+        final tmp = File('${marker.path}.tmp');
+        await tmp.writeAsString('2', flush: true);
+        await tmp.rename(marker.path);
+        _recovered = true;
+      }().onError((Object e, StackTrace s) {
+        _recoveryFuture = null;
+        Error.throwWithStackTrace(e, s);
+      });
+
+  Future<T> _secureOperation<T>(Future<T> Function() action) {
+    final next = _secureTail.then((_) => action());
+    _secureTail = next.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return next;
+  }
+
+  Future<String?> _readSecure(String key) => _secureOperation(() async {
+    await _storage();
+    if (!_recovered) {
+      try {
+        return await secure.read(key: key);
+      } on PlatformException catch (e) {
+        if (!_cryptoRestaurado(e)) rethrow;
+        await _activateRecovery();
+      }
+    }
+    return _recovery.invokeMethod<String>('read', {'key': key});
+  });
+
+  Future<void> _writeSecure(String key, String? value) =>
+      _secureOperation(() async {
+        await _storage();
+        if (!_recovered) {
+          try {
+            if (value == null) {
+              await secure.delete(key: key);
+            } else {
+              await secure.write(key: key, value: value);
+            }
+            return;
+          } on PlatformException catch (e) {
+            if (!_cryptoRestaurado(e)) rethrow;
+            await _activateRecovery();
+          }
+        }
+        await _recovery.invokeMethod<void>(value == null ? 'delete' : 'write', {
+          'key': key,
+          'value': ?value,
+        });
+      });
+
+  Future<SecretKey> _secret() =>
+      _keyFuture ??= _loadSecret().onError((Object e, StackTrace s) {
+        _keyFuture = null;
+        Error.throwWithStackTrace(e, s);
+      });
   Future<SecretKey> _loadSecret() async {
-    final stored = await secure.read(key: _keyName);
-    if (stored != null) return SecretKey(base64Decode(stored));
+    final stored = await _readSecure(_keyName);
+    if (stored != null) return _cachedKey = SecretKey(base64Decode(stored));
     final key = await _cipher.newSecretKey();
-    await secure.write(
-      key: _keyName,
-      value: base64Encode(await key.extractBytes()),
-    );
-    return key;
+    await _writeSecure(_keyName, base64Encode(await key.extractBytes()));
+    return _cachedKey = key;
   }
 
   String _scope(String userId, String empresaId) =>
@@ -174,7 +283,7 @@ class VisitasLocalStore extends ChangeNotifier {
 
   Future<VisitasAccesoLocal?> acceso() async {
     if (!disponible) return null;
-    final raw = await secure.read(key: grantKey);
+    final raw = await _readSecure(grantKey);
     if (raw == null) return null;
     return VisitasAccesoLocal.fromMap(
       Map<String, dynamic>.from(jsonDecode(raw) as Map),
@@ -198,7 +307,7 @@ class VisitasLocalStore extends ChangeNotifier {
       venceMs: paquete['venceMs'],
       ultimaMs: DateTime.now().millisecondsSinceEpoch,
     );
-    await secure.write(key: grantKey, value: jsonEncode(grant.toMap()));
+    await _writeSecure(grantKey, jsonEncode(grant.toMap()));
   });
 
   Future<void> registrarDesbloqueo(VisitasAccesoLocal grant) =>
@@ -214,9 +323,9 @@ class VisitasLocalStore extends ChangeNotifier {
             'El acceso local cambió o se cerró. Vuelve a desbloquearlo.',
           );
         }
-        await secure.write(
-          key: grantKey,
-          value: jsonEncode({
+        await _writeSecure(
+          grantKey,
+          jsonEncode({
             ...grant.toMap(),
             'ultimaMs': DateTime.now().millisecondsSinceEpoch,
           }),
@@ -225,7 +334,7 @@ class VisitasLocalStore extends ChangeNotifier {
 
   Future<void> revocarAcceso() {
     _revisionAcceso++;
-    return serialized(() => secure.delete(key: grantKey));
+    return serialized(() => _writeSecure(grantKey, null));
   }
 
   Future<List<Map<String, dynamic>>> listar(

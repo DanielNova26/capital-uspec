@@ -59,10 +59,10 @@
     <!-- Micrófono (dictado de observaciones) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
 
-    <!-- Almacenamiento (solo para Android 28 o menos) -->
+    <!-- Guardar originales en galería: permiso de escritura hasta Android 10. -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="28"/>
+        android:maxSdkVersion="29"/>
 
     <!-- Notificaciones (Android 13+) -->
     <uses-permission

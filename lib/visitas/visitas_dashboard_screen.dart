@@ -32,6 +32,7 @@ import '../widgets/paged_list.dart';
 import '../widgets/user_avatar.dart';
 import 'visitas_consolidado.dart';
 import 'visitas_firma.dart';
+import 'visitas_galeria.dart';
 import 'visitas_formato_editor.dart';
 import 'visitas_formato_excel.dart';
 import 'visitas_informe_pdf.dart';
@@ -3994,22 +3995,38 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
 
   /// Bytes de la imagen según la fuente; null si se cancela.
   Future<Uint8List?> _leerFoto(_FuenteFoto fuente) async {
+    Uint8List? bytes;
     if (fuente == _FuenteFoto.archivos) {
       final r = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
         withData: true,
       );
-      return r?.files.single.bytes;
+      bytes = r?.files.single.bytes;
+    } else {
+      final img = await ImagePicker().pickImage(
+        source: fuente == _FuenteFoto.camara
+            ? ImageSource.camera
+            : ImageSource.gallery,
+        imageQuality: fuente == _FuenteFoto.camara ? null : 80,
+        maxWidth: fuente == _FuenteFoto.camara ? null : 1600,
+      );
+      bytes = await img?.readAsBytes();
     }
-    final img = await ImagePicker().pickImage(
-      source: fuente == _FuenteFoto.camara
-          ? ImageSource.camera
-          : ImageSource.gallery,
-      imageQuality: 80,
-      maxWidth: 1600,
-    );
-    return img?.readAsBytes();
+    if (bytes != null && fuente != _FuenteFoto.galeria && !kIsWeb) {
+      try {
+        await guardarOriginalFotoVisita(bytes);
+      } catch (_) {
+        if (mounted) {
+          _snack(
+            context,
+            'No se pudo guardar la copia sin marca en la galería. Revisa el permiso para añadir fotos y el espacio del equipo. Puedes continuar adjuntando la evidencia.',
+            error: true,
+          );
+        }
+      }
+    }
+    return bytes;
   }
 
   /// «No se pudo cargar foto»: el profesional escribe por qué (por ejemplo,

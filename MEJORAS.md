@@ -1,5 +1,50 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-30 — Android 2.8.16+70: BAD_DECRYPT y originales en galería (Codex)
+
+- La nueva captura evidencia BadPaddingException/BAD_DECRYPT al leer la clave
+  desde flutter_secure_storage, antes de descifrar la visita. El manejo anterior
+  de MAC inválido no cubría ese fallo del almacenamiento seguro de Android.
+- Ante errores criptográficos reconocidos, Visitas activa un almacén Android
+  separado (AndroidKeyStore AES-256-GCM y VisitasOfflineSecureV2). No borra ni
+  reinicia el almacén compartido de sesión ni archivos de visitas/fotos. Copia
+  la clave de visitas si sigue legible o en memoria; no hereda el permiso local
+  ilegible. La nueva autorización sigue requiriendo validación en línea.
+- Selección persistente y atómica del almacén recuperado, operaciones seguras
+  serializadas, reintento de inicialización fallida y exclusión del almacén nuevo
+  en Auto Backup/transferencia. Errores ajenos al cifrado se propagan, sin reset.
+  La interfaz muestra un mensaje legible si el almacén sigue inaccesible.
+- Visitas guarda en la galería los originales sin marca de cámara y archivos,
+  antes de generar la evidencia marcada; cubre preguntas, filas y anexos, en
+  ejecución en línea y descargada. Las imágenes elegidas desde galería no se
+  duplican. Cámara sin reducción previa de tamaño/calidad. Si se deniega guardar
+  en galería o falla, avisa y permite continuar la evidencia. No se altera el
+  cifrado local ni la marca de las evidencias de visita.
+- Integrado gal 2.3.3 para Android/iOS, con permisos al guardar. Android limita
+  WRITE_EXTERNAL_STORAGE a API 29 y no añade READ_MEDIA_IMAGES/VIDEO. iOS ya
+  declara NSPhotoLibraryAddUsageDescription. Registrantes de escritorio
+  regenerados por Flutter; la función está limitada a Android/iOS.
+- Validación: 30 pruebas aprobadas (BAD_DECRYPT, preservación, renovación,
+  revocación/reinicio, clave sana con permiso dañado, reintento, originales y
+  permiso denegado; panel/formulario 390/768/1024/1366, texto 1.8, Android/iOS
+  simulados). Análisis del código nuevo sin incidencias; dashboard conserva
+  ocho avisos informativos anteriores sobre llaves en condicionales.
+- AAB release final: outputs/android/to-do-gestion-2.8.16-70.aab, 152382136 bytes.
+  bundletool 1.18.1 valida estructura; manifiesto confirma versión 2.8.16, código
+  70 y paquete com.todogestion.app. jarsigner verifica firma con el certificado
+  anterior. SHA-256:
+  9c9811fb9110f2c480f7cb9a6aba4184aed43a2b0da4d0e1428e2d6a1a370b9b.
+- Pendientes reales: instalar y probar en el Android afectado, restauración y
+  galería/permisos reales. No hay validación de Keystore en dispositivo ni de
+  iOS en equipo Apple; regenerar Pods/compilar iOS en Mac antes de distribuir.
+  Web: guardas explícitas evitan acceder al almacén nativo desde navegador
+  Android. La prueba Chrome de cierre de sesión no llegó a arrancar: el runner
+  Flutter/Windows escapó la ruta del test como \v y respondió 404 para CanvasKit.
+  Se conserva el test para ejecutarlo en un entorno compatible; sin validación
+  funcional Web en navegador. La galería no se invoca en Web. No se publicó
+  en Play ni Firebase. Los datos cifrados cuya clave se perdió no se recuperan.
+
+
 ## 2026-10-30 — AAB 2.8.15+69 por código 68 usado en Play (Codex)
 
 - La captura de Play Console confirma que el código 68 ya fue usado. Se aumenta

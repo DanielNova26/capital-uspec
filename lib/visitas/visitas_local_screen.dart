@@ -1,9 +1,9 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../login/auth_gate.dart';
 import '../services/auth_prefs.dart';
@@ -191,6 +191,9 @@ class _VisitasDescargadasTabState extends State<VisitasDescargadasTab> {
 
   /// Muestra solo el motivo, sin el rastro técnico de la excepción.
   String _mensajeLegible(Object e) {
+    if (e is PlatformException) {
+      return 'No se pudo abrir el almacenamiento seguro de visitas. Reinicia la app e inténtalo de nuevo. Conserva los datos del equipo.';
+    }
     if (e is FirebaseFunctionsException) {
       final m = (e.message ?? '').trim();
       if (m.isNotEmpty) return m;
@@ -365,7 +368,8 @@ class _VisitasDescargadasTabState extends State<VisitasDescargadasTab> {
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 12),
             child: Text(
-              _error ?? 'No se pudo leer la descarga: ${snap.error}',
+              _error ??
+                  'No se pudo leer la descarga: ${_mensajeLegible(snap.error!)}',
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           ),
