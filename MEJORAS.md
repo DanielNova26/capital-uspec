@@ -1,5 +1,19 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-30 — AAB 2.8.15+69 por código 68 usado en Play (Codex)
+
+- La captura de Play Console confirma que el código 68 ya fue usado. Se aumenta
+  pubspec.yaml a 2.8.15+69, conservando la funcionalidad y la clave de firma.
+- Generado outputs/android/to-do-gestion-2.8.15-69.aab (152289186 bytes).
+  Compilación release correcta, estructura validada con bundletool 1.18.1,
+  firma verificada con jarsigner y certificado igual al AAB anterior.
+- Manifiesto del bundle confirma versión 2.8.15, código 69 y paquete
+  com.todogestion.app. SHA-256 del archivo:
+  20bf61f0b816c00d26a133ae4db80b4cabbe4c846702af503b483cd5397c2890.
+- Pendiente cargar este archivo en Play Console y validar en dispositivo real.
+  No se publicó automáticamente ni se actualizó Firebase Hosting.
+
+
 ## 2026-10-30 — AAB para Play Console 2.8.15+68 (Codex)
 
 - Generado Android App Bundle release firmado, solicitado para Google Play:
