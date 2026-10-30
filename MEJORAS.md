@@ -1,5 +1,21 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-30 — Android 2.8.15+68 generado (Codex)
+
+- Generado APK universal release con la corrección de descargas ilegibles:
+  outputs/android/to-do-gestion-2.8.15-68.apk (175931109 bytes).
+- Verificados paquete com.todogestion.app, versión 2.8.15, código 68,
+  Android mínimo API 24 y arquitecturas arm64-v8a/armeabi-v7a/x86_64.
+- Firma APK v2 válida; certificado idéntico al APK release anterior disponible
+  localmente (2.8.6+59). Permite actualizar instalaciones con ese certificado.
+  No se ha comprobado la firma de la app instalada en el equipo del usuario.
+- SHA-256: 150cb82b211150becc1bc559a5ca8a9204f54153e00a2f807b45b4f9961309a0.
+- Reglas de backup incluidas en el manifiesto empaquetado. Compilación release
+  correcta; continúan aplicando las 23 pruebas del arreglo previo.
+- Pendiente instalación/prueba en dispositivo real, incluida reinstalación y
+  restauración Android. Sin publicación en Play Store, Web ni iOS.
+
+
 ## 2026-10-30 — Visitas: descargas ilegibles tras reinstalar (Codex)
 
 - Descargadas identifica archivos con autenticación cifrada inválida o formato
