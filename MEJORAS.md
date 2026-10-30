@@ -1,5 +1,19 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-30 — AAB para Play Console 2.8.15+68 (Codex)
+
+- Generado Android App Bundle release firmado, solicitado para Google Play:
+  outputs/android/to-do-gestion-2.8.15-68.aab (152289192 bytes).
+- bundletool 1.18.1 valida la estructura correctamente; manifiesto del bundle
+  confirma com.todogestion.app, versión 2.8.15, código 68, minSdk 24 y target 36.
+- Firma comprobada con jarsigner y certificado SHA-256 idéntico al APK generado.
+  El verificador JDK avisa de certificado autofirmado y sin sello de tiempo;
+  no se ha validado en Play Console la clave de carga registrada ni el uso del 68.
+- SHA-256: 41647a1faede1a6145b20f41e9c28991c4563d9de445e8ace227beea075444c2.
+- Entrega local, sin publicación automática en Google Play ni Firebase Hosting.
+  Pendiente carga del AAB en Play Console y prueba en dispositivo real.
+
+
 ## 2026-10-30 — Android 2.8.15+68 generado (Codex)
 
 - Generado APK universal release con la corrección de descargas ilegibles:
