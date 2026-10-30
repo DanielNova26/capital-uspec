@@ -138,14 +138,32 @@ class VisitasLocalStore extends ChangeNotifier {
 
   Future<void> _write(File file, Uint8List bytes) async {
     final box = await _cipher.encrypt(bytes, secretKey: await _secret());
+    // Keep the original encrypted bytes if a restored download is unreadable.
+    if (await file.exists()) {
+      try {
+        await _read(file);
+      } on SecretBoxAuthenticationError {
+        await file.copy(
+          '${file.path}.${DateTime.now().microsecondsSinceEpoch}.preservada',
+        );
+      } on FormatException {
+        await file.copy(
+          '${file.path}.${DateTime.now().microsecondsSinceEpoch}.preservada',
+        );
+      }
+    }
     final tmp = File('${file.path}.tmp');
     await tmp.writeAsBytes(box.concatenation(), flush: true);
     await tmp.rename(file.path);
   }
 
   Future<Uint8List> _read(File file) async {
+    final bytes = await file.readAsBytes();
+    if (bytes.length < 28) {
+      throw const FormatException('La descarga cifrada está incompleta.');
+    }
     final box = SecretBox.fromConcatenation(
-      await file.readAsBytes(),
+      bytes,
       nonceLength: 12,
       macLength: 16,
     );
@@ -212,22 +230,37 @@ class VisitasLocalStore extends ChangeNotifier {
 
   Future<List<Map<String, dynamic>>> listar(
     String userId,
-    String empresaId,
-  ) async {
+    String empresaId, {
+    bool tolerarIlegibles = false,
+    void Function(int cantidad)? onIlegibles,
+  }) async {
     await _tail;
     final dir = await _folder(userId, empresaId);
     final result = <Map<String, dynamic>>[];
+    var ilegibles = 0;
     await for (final file in dir.list()) {
       if (file is! File || !file.path.endsWith('.visita')) continue;
-      // A damaged file is reported, never silently replaced by an empty draft.
-      final data =
-          visitasDecode(jsonDecode(utf8.decode(await _read(file))))
-              as Map<String, dynamic>;
+      // Storage errors and account/company mismatches still stop the operation.
+      Map<String, dynamic> data;
+      try {
+        data =
+            visitasDecode(jsonDecode(utf8.decode(await _read(file))))
+                as Map<String, dynamic>;
+      } on SecretBoxAuthenticationError {
+        if (!tolerarIlegibles) rethrow;
+        ilegibles++;
+        continue;
+      } on FormatException {
+        if (!tolerarIlegibles) rethrow;
+        ilegibles++;
+        continue;
+      }
       if (data['userId'] != userId || data['empresaId'] != empresaId) {
         throw StateError('La descarga no corresponde a esta cuenta y empresa.');
       }
       result.add(data);
     }
+    onIlegibles?.call(ilegibles);
     return result;
   }
 

@@ -75,8 +75,13 @@ class PanelStore extends VisitasLocalStore {
   @override
   Future<List<Map<String, dynamic>>> listar(
     String userId,
-    String empresaId,
-  ) async => [package()];
+    String empresaId, {
+    bool tolerarIlegibles = false,
+    void Function(int cantidad)? onIlegibles,
+  }) async {
+    onIlegibles?.call(1);
+    return [package()];
+  }
 }
 
 void main() {
@@ -151,6 +156,81 @@ void main() {
       await f.writeAsBytes(bytes);
       await expectLater(store.listar('u', 'e'), throwsA(anything));
       expect(await f.exists(), isTrue);
+    },
+  );
+
+  test(
+    'unreadable download does not block valid downloads or other scopes',
+    () async {
+      await store.guardar(package());
+      final file =
+          (await dir
+                      .list(recursive: true)
+                      .where((f) => f.path.endsWith('.visita'))
+                      .toList())
+                  .single
+              as File;
+      final bytes = await file.readAsBytes();
+      bytes[20] ^= 1;
+      await file.writeAsBytes(bytes);
+      await store.guardar({...package(), 'visitaId': 'otra'});
+      var count = -1;
+      final valid = await store.listar(
+        'u',
+        'e',
+        tolerarIlegibles: true,
+        onIlegibles: (n) => count = n,
+      );
+      expect(valid.single['visitaId'], 'otra');
+      expect(count, 1);
+      expect(await file.readAsBytes(), bytes);
+      expect(await store.listar('otro', 'e', tolerarIlegibles: true), isEmpty);
+      await expectLater(store.listar('u', 'e'), throwsA(anything));
+      await file.writeAsBytes([1, 2]);
+      expect(
+        await store.listar('u', 'e', tolerarIlegibles: true),
+        hasLength(1),
+      );
+      await store.guardar(package());
+      expect(await store.listar('u', 'e'), hasLength(2));
+    },
+  );
+
+  test(
+    'lost key allows new download while preserving original encrypted bytes',
+    () async {
+      await store.guardar(package());
+      final file =
+          (await dir
+                      .list(recursive: true)
+                      .where((f) => f.path.endsWith('.visita'))
+                      .toList())
+                  .single
+              as File;
+      final original = await file.readAsBytes();
+      FlutterSecureStorage.setMockInitialValues({});
+      final restored = VisitasLocalStore(directory: () async => dir);
+      var count = 0;
+      expect(
+        await restored.listar(
+          'u',
+          'e',
+          tolerarIlegibles: true,
+          onIlegibles: (n) => count = n,
+        ),
+        isEmpty,
+      );
+      expect(count, 1);
+      await restored.guardar({...package(), 'revision': 'nueva'});
+      expect((await restored.listar('u', 'e')).single['revision'], 'nueva');
+      final preserved =
+          (await dir
+                      .list(recursive: true)
+                      .where((f) => f.path.endsWith('.preservada'))
+                      .toList())
+                  .single
+              as File;
+      expect(await preserved.readAsBytes(), original);
     },
   );
 
@@ -321,6 +401,8 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(find.text('Preparar visita sin conexión'), findsOneWidget);
+        expect(find.textContaining('Hay 1 descarga(s)'), findsOneWidget);
+        await tester.scrollUntilVisible(find.text('Abrir visita'), 200);
         expect(find.text('Abrir visita'), findsOneWidget);
         expect(tester.takeException(), isNull);
         debugDefaultTargetPlatformOverride = null;

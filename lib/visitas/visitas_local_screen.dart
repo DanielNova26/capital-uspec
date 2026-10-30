@@ -155,6 +155,7 @@ class _VisitasDescargadasTabState extends State<VisitasDescargadasTab> {
   late Future<List<Map<String, dynamic>>> _packages;
   bool _busy = false;
   String? _error;
+  int _ilegibles = 0;
   @override
   void initState() {
     super.initState();
@@ -162,7 +163,12 @@ class _VisitasDescargadasTabState extends State<VisitasDescargadasTab> {
   }
 
   void _reload() {
-    _packages = _store.listar(widget.userId, widget.empresaId);
+    _packages = _store.listar(
+      widget.userId,
+      widget.empresaId,
+      tolerarIlegibles: true,
+      onIlegibles: (cantidad) => _ilegibles = cantidad,
+    );
   }
 
   Future<void> _run(Future<void> Function() fn) async {
@@ -216,9 +222,7 @@ class _VisitasDescargadasTabState extends State<VisitasDescargadasTab> {
         content: SizedBox(
           width: 480,
           child: choices.isEmpty
-              ? const Text(
-                  'No hay visitas programadas nuevas para descargar.',
-                )
+              ? const Text('No hay visitas programadas nuevas para descargar.')
               : ListView(
                   shrinkWrap: true,
                   children: [
@@ -347,6 +351,16 @@ class _VisitasDescargadasTabState extends State<VisitasDescargadasTab> {
             ),
           ),
         if (_busy) const LinearProgressIndicator(),
+        if (snap.hasData && _ilegibles > 0)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Text(
+              'Hay $_ilegibles descarga(s) que no se pueden abrir. Puede ocurrir tras reinstalar o restaurar el equipo, o si el archivo se dañó. '
+              'Conservamos los archivos. Con internet puedes volver a preparar las visitas disponibles; los cambios locales anteriores no se recuperan al descargarlas de nuevo. '
+              'No desinstales ni borres los datos si tienes trabajo pendiente de enviar.',
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
         if (_error != null || snap.hasError)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 12),
@@ -357,7 +371,7 @@ class _VisitasDescargadasTabState extends State<VisitasDescargadasTab> {
           ),
         if (!snap.hasData && !snap.hasError)
           const Center(child: CircularProgressIndicator()),
-        if (snap.hasData && snap.data!.isEmpty)
+        if (snap.hasData && snap.data!.isEmpty && _ilegibles == 0)
           const Padding(
             padding: EdgeInsets.all(16),
             child: Text('Todavía no hay visitas descargadas en este equipo.'),
@@ -455,6 +469,7 @@ class _VisitaEntradaScreenState extends State<VisitaEntradaScreen> {
       final packages = await VisitasLocalStore.instance.listar(
         widget.userId,
         widget.empresaId,
+        tolerarIlegibles: true,
       );
       final p = packages
           .where((p) => p['visitaId'] == widget.visitaId)

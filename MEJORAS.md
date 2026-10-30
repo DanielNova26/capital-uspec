@@ -1,5 +1,28 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-10-30 — Visitas: descargas ilegibles tras reinstalar (Codex)
+
+- Descargadas identifica archivos con autenticación cifrada inválida o formato
+  incompleto, informa la cantidad y permite usar las visitas válidas y preparar
+  nuevas descargas. No elimina archivos ni recupera respuestas cifradas sin clave.
+- Antes de reemplazar una descarga/foto con cifrado ilegible, conserva sus bytes
+  en una copia .preservada dentro del mismo ámbito de persona y empresa.
+  Se mantienen las validaciones de pertenencia y los errores de almacenamiento;
+  la lectura estricta sigue disponible y es la predeterminada.
+- Android excluye visitas_offline y preferencias del almacenamiento seguro de
+  Auto Backup y transferencia entre equipos, con reglas anteriores y posteriores
+  a Android 12. Evita futuras restauraciones de archivos ligados a claves del
+  equipo anterior; no modifica copias remotas históricas automáticamente.
+- Validación: 23 pruebas locales, incluida pérdida de clave, corrupción, archivo
+  truncado, conservación del original y formularios/panel con texto 1.8 en
+  390/768/1024/1366 para plataformas Android/iOS simuladas. Análisis de los cuatro
+  archivos Dart sin incidencias; processDebugMainManifest de Android correcto.
+- Pendientes: publicar/instalar actualización móvil y verificar reinstalación y
+  restauración reales en Android, además de dispositivo iOS. No se verificó Web
+  en navegador (la descarga offline solo está habilitada en Android/iOS).
+  No se publicó ni generó un APK/AAB de distribución en esta intervención.
+
+
 ## 2026-10-27 — Publicación Web 2.8.14+67 (Codex)
 
 - Publicada Web release **2.8.14+67** en `https://to-do-gestion.web.app`,

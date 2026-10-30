@@ -407,6 +407,7 @@ Future<Map<String, dynamic>> prepararVisitaLocal(
   final existing = await VisitasLocalStore.instance.listar(
     v.profesionalId,
     v.empresaId,
+    tolerarIlegibles: true,
   );
   if (existing.any((p) => p['visitaId'] == v.id)) {
     throw const VisitasException(
