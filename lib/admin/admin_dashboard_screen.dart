@@ -14,6 +14,7 @@ import 'package:todo/services/compras_req_excel_parser.dart';
 import 'package:todo/services/company_branding_service.dart';
 import 'package:todo/state/empresa_scope.dart';
 import '../core/subcentros_costo.dart';
+import '../core/personal_empresa_estado.dart';
 import '../core/guarded_module_page.dart';
 import '../core/task_permissions.dart';
 import '../home/widgets/home_shared_widgets.dart';
@@ -264,6 +265,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   // Apps / Usuarios
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _users = [];
+  PersonalEmpresaEstado? _estadoPersonal;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _appsAdmin = [];
   Map<String, Set<String>> _userApps = {};
   List<AccessRoleItem> _accessRoles = [];
@@ -473,6 +475,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 .firstOrNull ??
             '',
       ),
+      PersonalEmpresaEstado.cargar(FirebaseFirestore.instance, selected),
     ]);
     final users =
         results[0] as List<QueryDocumentSnapshot<Map<String, dynamic>>>;
@@ -520,6 +523,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       _moduleCloseoutPreview = null;
 
       _users = users;
+      _estadoPersonal = results[18] as PersonalEmpresaEstado;
       _appsAdmin = appsAdmin;
       _moduleSources = results[12] as AdminModuleSources;
       _taskModuleRoles = _taskRolesFromSources(_moduleSources, selected!);
@@ -596,6 +600,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         _loadModuleRoleMap('TBL_DIAN_TOKEN_ROLES', empresaId),
         _loadModuleRoleMap('TBL_TALENTO_HUMANO_ROLES', empresaId),
         _loadModuleRoleMap('TBL_NUTRICION_ROLES', empresaId),
+        PersonalEmpresaEstado.cargar(FirebaseFirestore.instance, empresaId),
       ]);
       if (!mounted ||
           _empresaId != empresaId ||
@@ -606,6 +611,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           results[0] as List<QueryDocumentSnapshot<Map<String, dynamic>>>;
       setState(() {
         _users = users;
+        _estadoPersonal = results[10] as PersonalEmpresaEstado;
         _moduleSources = results[6] as AdminModuleSources;
         _taskModuleRoles = _taskRolesFromSources(_moduleSources, empresaId);
         _libraryModuleRoles = _libraryRolesFromSources(
@@ -4143,7 +4149,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     for (final user in _users)
       if (_matrixUserHasApp(user, managementRolesAppId, empresaId) &&
           managementRoleIdOf(user.data(), empresaId).isEmpty &&
-          personaHabilitadaEn(user.data(), empresaId))
+          _habilitado(user.data(), userId: user.id))
         user.id,
   ];
 
@@ -4629,7 +4635,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       user.data(),
                       _empresaId ?? widget.empresaId,
                     ),
-                    enabled: _habilitado(user.data()),
+                    enabled: _habilitado(user.data(), userId: user.id),
                   ),
               ],
               selectedId: _selectedUserId,
@@ -4721,7 +4727,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           fontSize: 16,
                         ),
                       ),
-                      if (!_habilitado(d)) ...[
+                      if (!_habilitado(d, userId: uDoc.id)) ...[
                         const SizedBox(height: 4),
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -4795,12 +4801,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       value: 'datos',
                       child: Text('Editar ficha'),
                     ),
-                    if (_habilitado(d))
+                    if (_habilitado(d, userId: uDoc.id))
                       const PopupMenuItem(
                         value: 'perfil',
                         child: Text('Perfil general'),
                       ),
-                    if (_habilitado(d))
+                    if (_habilitado(d, userId: uDoc.id))
                       const PopupMenuItem(
                         value: 'accesos',
                         child: Text('Roles y permisos'),
@@ -5186,14 +5192,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   /// Humano, con la cuenta apagada o trasladado a otra empresa— no entra a
   /// la app (`motivoAccesoBloqueado`), así que no hay a quién darle accesos
   /// ni roles.
-  bool _habilitado(Map<String, dynamic> d) =>
-      personaHabilitadaEn(d, _empresaId);
+  bool _habilitado(Map<String, dynamic> d, {String userId = ''}) =>
+      _estadoPersonal?.empresaId == _empresaId
+      ? _estadoPersonal!.habilitada(userId, d)
+      : personaHabilitadaEn(d, _empresaId);
 
   /// Personal habilitado: lo que ven las listas de accesos, módulos, roles y
   /// sesiones. Las herramientas de mantenimiento (migraciones, limpiezas,
   /// cierres) siguen trabajando sobre todos (`_users`).
   List<QueryDocumentSnapshot<Map<String, dynamic>>> get _usuariosHabilitados =>
-      _users.where((u) => _habilitado(u.data())).toList();
+      _users.where((u) => _habilitado(u.data(), userId: u.id)).toList();
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _applyPersonnelFilter(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> users, {
@@ -5213,7 +5221,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       final d = u.data();
       // El retiro vive en el bloque de la empresa: el `estado` raíz solo
       // gobierna el login y no dice nada del vínculo laboral.
-      if (soloActivos && !_habilitado(d)) return false;
+      if (soloActivos && !_habilitado(d, userId: u.id)) return false;
       // La persona en la empresa activa: la raíz es de su empresa principal.
       final enEmpresa = mergeCompanyScopedData(d, _empresaId);
       final uAreaId = _safe(enEmpresa['areaId']);

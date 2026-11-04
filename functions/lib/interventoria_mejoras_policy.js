@@ -6,6 +6,7 @@ exports.establecimiento = establecimiento;
 exports.planMejorasInterventoria = planMejorasInterventoria;
 const interventoria_aprobador_1 = require("./interventoria_aprobador");
 const interventoria_aprobador_maestro_1 = require("./interventoria_aprobador_maestro");
+const interventoria_task_sync_1 = require("./interventoria_task_sync");
 const texto = (v) => String(v ?? '').trim();
 exports.texto = texto;
 const normal = (v) => (0, exports.texto)(v).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -169,10 +170,17 @@ function planMejorasInterventoria(input) {
             tp.cargoAprobador = persona.cargo;
     }
     if (t) {
+        const numeral = (0, interventoria_aprobador_maestro_1.numeralParaMatriz)(h);
+        const canonica = numeral ? (0, interventoria_task_sync_1.textoCanonicoTareaInterventoria)({ ...t, numeralActa: numeral }) : t;
+        if (numeral)
+            tp.numeralActa = numeral;
         for (const clave of ['titulo', 'title']) {
-            if (typeof t[clave] !== 'string' || !subNombre)
+            if (typeof t[clave] !== 'string')
                 continue;
-            const titulo = (0, exports.texto)(t[clave]);
+            const titulo = (0, exports.texto)(canonica[clave]);
+            tp[clave] = titulo;
+            if (!subNombre)
+                continue;
             const centro = (0, exports.texto)(h.centroCostoNombre);
             const sitio = establecimiento(centro, subNombre);
             if (titulo.startsWith(sitio))
@@ -184,7 +192,7 @@ function planMejorasInterventoria(input) {
         for (const clave of ['descripcion', 'description']) {
             if (typeof t[clave] !== 'string')
                 continue;
-            let descripcion = t[clave];
+            let descripcion = canonica[clave];
             if (subNombre)
                 descripcion = lineaCabecera(descripcion, 'Subcentro', subNombre);
             if (persona?.cargo) {

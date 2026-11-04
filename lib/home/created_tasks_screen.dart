@@ -1,3 +1,4 @@
+import '../core/interventoria_task_text.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
@@ -1689,7 +1690,9 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
   }
 
   void _showActions(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data() ?? const <String, dynamic>{};
+    final data = textoCanonicoTareaInterventoria(
+      doc.data() ?? const <String, dynamic>{},
+    );
     // Una tarea de Gestión de Correspondencia abre el mismo panel de
     // cualquier tarea, con la vista previa de la respuesta y un botón al
     // expediente (3 oct 2026). Antes saltaba directo al módulo y quien debía

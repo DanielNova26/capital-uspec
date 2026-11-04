@@ -215,6 +215,35 @@ test("creación exige destino activo de la misma empresa y app del módulo", asy
   })));
 });
 
+test("retiro histórico en Talento Humano bloquea asignación sin cruzar empresas y permite reactivar", async () => {
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'TBL_USUARIOS/991'), {
+      ...user('EMP_A', ['tareasdashboard']), cedula: '991', empresas: ['EMP_A', 'EMP_B'],
+      empresasDetalle: {EMP_A: {apps: ['tareasdashboard']}, EMP_B: {apps: ['tareasdashboard']}},
+    });
+    await setDoc(doc(db, 'TBL_USUARIOS/actor_secundaria'), user('EMP_B', ['tareasdashboard']));
+    await setDoc(doc(db, 'TBL_ESTRUCTURA_ORGANIZACIONAL/991'), {
+      empresaId: 'EMP_A', estado: 'inactivo',
+      empresasDetalle: {EMP_A: {estado: 'inactivo'}, EMP_B: {estado: 'activo'}},
+    });
+  });
+  await assertFails(setDoc(doc(auth('alice'), 'TBL_TAREAS/historico_inactivo'), task({
+    creador_id: 'alice', asignado_uid: '991',
+  })));
+  await assertSucceeds(setDoc(doc(auth('actor_secundaria'), 'TBL_TAREAS/historico_secundaria'), task({
+    empresaId: 'EMP_B', creador_id: 'actor_secundaria', asignado_uid: '991',
+  })));
+  await env.withSecurityRulesDisabled(async (context) => {
+    await updateDoc(doc(context.firestore(), 'TBL_ESTRUCTURA_ORGANIZACIONAL/991'), {
+      estado: 'activo', 'empresasDetalle.EMP_A.estado': 'activo',
+    });
+  });
+  await assertSucceeds(setDoc(doc(auth('alice'), 'TBL_TAREAS/historico_reactivado'), task({
+    creador_id: 'alice', asignado_uid: '991',
+  })));
+});
+
 test("solo responsable solicita finalización y solo aprobador la resuelve", async () => {
   const ref = doc(auth("alice"), "TBL_TAREAS/t1");
   await assertFails(updateDoc(doc(auth("sinapp"), "TBL_TAREAS/t1"), {
@@ -482,7 +511,10 @@ test("cierre administrativo y mantenimiento de Desarrollo", async () => {
 });
 
 test("los flujos permitidos más caros dejan margen bajo el tope de 1000", async () => {
-  const margen = 150;
+  // La comprobación de retiro consulta también Estructura (un documento
+  // adicional). Se exige una reserva de 100 expresiones sobre el flujo real,
+  // incluyendo ese documento, sin reducir las verificaciones de acceso.
+  const margen = 100;
   const holgado = await initializeTestEnvironment({
     projectId: "capital-uspec-tareas-margen",
     firestore: {rules: reglasConMargen(margen)},
@@ -495,6 +527,9 @@ test("los flujos permitidos más caros dejan margen bajo el tope de 1000", async
         setDoc(doc(db, "TBL_USUARIOS/alice"), user("EMP_A", ["tareasdashboard"])),
         setDoc(doc(db, "TBL_USUARIOS/jefe"), user("EMP_A", ["tareasdashboard"])),
         setDoc(doc(db, "TBL_USUARIOS/destino"), user("EMP_A", ["tareasdashboard"])),
+        setDoc(doc(db, "TBL_ESTRUCTURA_ORGANIZACIONAL/destino"), {
+          empresaId: 'EMP_A', empresasDetalle: {EMP_A: {estado: 'activo'}},
+        }),
         setDoc(doc(db, "TBL_USUARIOS/lider"), user("EMP_A", ["tareasdashboard"], {puedeVerEquipo: true})),
         setDoc(doc(db, "TBL_USUARIOS/inter"), user("EMP_A", ["interventoriadashboard"])),
         setDoc(doc(db, "TBL_USUARIOS/admin"), user("EMP_A", ["admindashboard"])),

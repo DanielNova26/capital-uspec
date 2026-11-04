@@ -269,8 +269,17 @@ class _PlanSeleccionHallazgosState extends State<PlanSeleccionHallazgos> {
                             'Elige un establecimiento y su acta para consultar los hallazgos.',
                           ),
                         ),
-                      if (!_busy && _visita != null && _rows.isEmpty)
-                        const Text('Esta acta no tiene hallazgos disponibles.'),
+                      if (!_busy &&
+                          _error == null &&
+                          _visita != null &&
+                          _rows.isEmpty)
+                        Text(
+                          _cursor != null
+                              ? 'No hay resultados en esta página. Consulta más hallazgos de esta acta.'
+                              : _selected.isNotEmpty
+                              ? 'No hay resultados en el acta seleccionada. Conservas ${_selected.length} ${_selected.length == 1 ? 'hallazgo seleccionado' : 'hallazgos seleccionados'} de otras actas.'
+                              : 'No se encontraron hallazgos para vincular en esta consulta.',
+                        ),
                       if (_rows.isNotEmpty)
                         SingleChildScrollView(
                           scrollDirection: Axis.horizontal,

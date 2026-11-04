@@ -19949,37 +19949,39 @@ class _CalidadScreenState extends State<_CalidadScreen> {
             ),
           ),
         ),
-        body: Column(
-          children: [
-            _buildFiltros(),
-            _buildFechaFiltradaBanner(),
-            if (_depurandoRechazados)
-              const LinearProgressIndicator(minHeight: 2),
-            Expanded(
-              child: TabBarView(
-                children: [
-                  _ResumenCalidadTab(
-                    svc: widget.svc,
-                    empresaId: widget.empresaId,
-                    esAdmin: esAdmin,
-                    reqEngine: _reqEngine,
-                    cargandoReq: _cargandoReq,
-                  ),
-                  _buildPendientesTab(),
-                  _buildRecepcionesConsultaTab(),
-                  _buildRechazadosTab(),
-                  if (esAdmin)
-                    _AprobadosAdminTab(
+        body: SelectionArea(
+          child: Column(
+            children: [
+              _buildFiltros(),
+              _buildFechaFiltradaBanner(),
+              if (_depurandoRechazados)
+                const LinearProgressIndicator(minHeight: 2),
+              Expanded(
+                child: TabBarView(
+                  children: [
+                    _ResumenCalidadTab(
                       svc: widget.svc,
                       empresaId: widget.empresaId,
-                      userId: widget.userId,
-                      filtro: _filtroProducto,
-                      filtroFecha: _filtroFecha,
+                      esAdmin: esAdmin,
+                      reqEngine: _reqEngine,
+                      cargandoReq: _cargandoReq,
                     ),
-                ],
+                    _buildPendientesTab(),
+                    _buildRecepcionesConsultaTab(),
+                    _buildRechazadosTab(),
+                    if (esAdmin)
+                      _AprobadosAdminTab(
+                        svc: widget.svc,
+                        empresaId: widget.empresaId,
+                        userId: widget.userId,
+                        filtro: _filtroProducto,
+                        filtroFecha: _filtroFecha,
+                      ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

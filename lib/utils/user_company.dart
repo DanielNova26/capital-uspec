@@ -734,6 +734,8 @@ const String kEstadoPersonaInactivo = 'inactivo';
 /// AuthGate). `activo: false` —el interruptor de Admin— siempre inhabilita.
 bool isPersonaActivaEnEmpresa(Map<String, dynamic> data, String? empresaId) {
   if (data['activo'] == false) return false;
+  final empresa = normalizeEmpresaId(empresaId);
+  if (empresa != null && personaInhabilitadaEn(data, empresa)) return false;
 
   final detail = getUserCompanyDetail(data, empresaId);
   if (detail != null) {
@@ -766,12 +768,16 @@ bool cuentaInhabilitada(Map<String, dynamic> usuario) {
 /// Para TBL_USUARIOS: exige cuenta habilitada y vínculo vigente en la empresa.
 /// La pertenencia se valida por separado. La estructura organizacional sigue
 /// usando [isPersonaActivaEnEmpresa], pues su estado raíz es de la principal.
-bool personaHabilitadaEn(Map<String, dynamic> data, String? empresaId) {
+bool personaHabilitadaEn(
+  Map<String, dynamic> data,
+  String? empresaId, {
+  Map<String, dynamic>? estructura,
+}) {
   if (cuentaInhabilitada(data)) return false;
   final empresa = normalizeEmpresaId(empresaId);
   if (empresa == null) return true;
   return getUserCompanyDetail(data, empresa)?['activo'] != false &&
-      !personaInhabilitadaEn(data, empresa);
+      !personaInhabilitadaEn(data, empresa, estructura: estructura);
 }
 
 bool _estadoInactivo(Map<String, dynamic>? bloque) {
@@ -800,19 +806,46 @@ bool personaInhabilitadaEn(
   String empresaId, {
   Map<String, dynamic>? estructura,
 }) {
-  if (_estadoInactivo(getUserCompanyDetail(usuario, empresaId))) return true;
+  final bloqueUsuario = getUserCompanyDetail(usuario, empresaId);
+  final estadoCanonico = const [
+    'estadoLaboral',
+    'estado',
+  ].any((campo) => (bloqueUsuario?[campo] ?? '').toString().trim().isNotEmpty);
+  if (estadoCanonico) {
+    if (_estadoInactivo(bloqueUsuario)) return true;
+  } else {
+    // Compatibilidad sin pisar un estado canónico, incluida la reactivación.
+    final historico = {
+      for (final campo in const ['estadoLaboral', 'estado'])
+        campo: usuario['empresasDetalle.$empresaId.$campo'],
+    };
+    if (_estadoInactivo(historico)) return true;
+    final hayHistorico = historico.values.any(
+      (v) => (v ?? '').toString().trim().isNotEmpty,
+    );
+    if (!hayHistorico &&
+        raizEsDeEmpresa(usuario, empresaId) &&
+        _estadoInactivo({'estadoLaboral': usuario['estadoLaboral']})) {
+      return true;
+    }
+  }
   if (estructura == null) return false;
   final literal = (estructura['empresasDetalle.$empresaId.estado'] ?? '')
       .toString()
       .trim()
       .toLowerCase();
   if (literal.isNotEmpty) return literal == kEstadoPersonaInactivo;
-  final bloque =
-      getUserCompanyDetail(estructura, empresaId) ??
-      (raizEsDeEmpresa(estructura, empresaId) &&
-              extractUserEmpresaIds(estructura).isNotEmpty
-          ? estructura
-          : null);
+  final propio = getUserCompanyDetail(estructura, empresaId);
+  final tieneEstadoPropio = const [
+    'estadoLaboral',
+    'estado',
+  ].any((campo) => (propio?[campo] ?? '').toString().trim().isNotEmpty);
+  final bloque = tieneEstadoPropio
+      ? propio
+      : (raizEsDeEmpresa(estructura, empresaId) &&
+                extractUserEmpresaIds(estructura).isNotEmpty
+            ? estructura
+            : null);
   return _estadoInactivo(bloque);
 }
 

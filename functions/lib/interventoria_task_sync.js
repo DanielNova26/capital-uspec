@@ -1,6 +1,27 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.textoCanonicoTareaInterventoria = textoCanonicoTareaInterventoria;
 exports.syncHallazgoDesdeTarea = syncHallazgoDesdeTarea;
+/** Mismo criterio de presentación que core/interventoria_task_text.dart. */
+function textoCanonicoTareaInterventoria(data) {
+    if ((texto(data.sourceModule) || texto(data.origen)) !== "interventoria" ||
+        (!data.hallazgoId && data.sourceEntityCollection !== "TBL_INTERVENTORIA_HALLAZGOS"))
+        return data;
+    const match = /^(\d{1,2})\s*\.\s*(\d{1,2})$/.exec(texto(data.numeralActa));
+    const numeral = match ? `${match[1]}.${match[2]}` : "Sin numeral identificado";
+    const out = { ...data };
+    for (const key of ["titulo", "title"]) {
+        if (typeof out[key] === "string") {
+            out[key] = out[key].replace(/\bObs\.\s*\d{1,2}\.\d{1,2}\s*:/, `Obs.${numeral}:`);
+        }
+    }
+    for (const key of ["descripcion", "description"]) {
+        if (typeof out[key] === "string") {
+            out[key] = out[key].replace(/^Hallazgo N°: [^\r\n]*/m, `Hallazgo N°: ${numeral}`);
+        }
+    }
+    return out;
+}
 function texto(valor) {
     return (valor ?? "").toString().trim();
 }

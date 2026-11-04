@@ -15,6 +15,14 @@ const persona = (detalle, extra = {}) => ({
   ...extra,
 });
 
+test('retiro histórico en raíz o ruta literal, aislado y sin anular reactivación canónica', () => {
+  for (const extra of [{estadoLaboral: 'inactivo'}, {'empresasDetalle.A.estadoLaboral': 'inactivo'}]) {
+    const u = persona({}, extra);
+    assert.deepEqual(empresasSeleccionables(u), ['B']);
+    assert.deepEqual(empresasSeleccionables({...u, empresasDetalle: {A: {estadoLaboral: 'activo'}}}), ['A', 'B']);
+  }
+});
+
 test('activo en sus empresas: entra', () => {
   assert.equal(motivoAccesoBloqueado(persona({A: {}, B: {}})), null);
 });

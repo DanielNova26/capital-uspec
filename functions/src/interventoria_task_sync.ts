@@ -9,6 +9,28 @@
  */
 import type * as admin from "firebase-admin";
 
+/** Mismo criterio de presentación que core/interventoria_task_text.dart. */
+export function textoCanonicoTareaInterventoria(
+  data: admin.firestore.DocumentData
+): admin.firestore.DocumentData {
+  if ((texto(data.sourceModule) || texto(data.origen)) !== "interventoria" ||
+      (!data.hallazgoId && data.sourceEntityCollection !== "TBL_INTERVENTORIA_HALLAZGOS")) return data;
+  const match = /^(\d{1,2})\s*\.\s*(\d{1,2})$/.exec(texto(data.numeralActa));
+  const numeral = match ? `${match[1]}.${match[2]}` : "Sin numeral identificado";
+  const out = {...data};
+  for (const key of ["titulo", "title"]) {
+    if (typeof out[key] === "string") {
+      out[key] = out[key].replace(/\bObs\.\s*\d{1,2}\.\d{1,2}\s*:/, `Obs.${numeral}:`);
+    }
+  }
+  for (const key of ["descripcion", "description"]) {
+    if (typeof out[key] === "string") {
+      out[key] = out[key].replace(/^Hallazgo N°: [^\r\n]*/m, `Hallazgo N°: ${numeral}`);
+    }
+  }
+  return out;
+}
+
 function texto(valor: unknown): string {
   return (valor ?? "").toString().trim();
 }

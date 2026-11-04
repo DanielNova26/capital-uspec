@@ -1,3 +1,4 @@
+import '../core/interventoria_task_text.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -64,7 +65,7 @@ class _TaskModernCardState extends State<TaskModernCard> {
 
   @override
   Widget build(BuildContext context) {
-    final data = widget.data;
+    final data = textoCanonicoTareaInterventoria(widget.data);
     final compact = widget.compact;
     final title = _str(data, ['titulo', 'title'], def: '(Sin título)');
     final desc = _str(data, ['descripcion', 'description']);

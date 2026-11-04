@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/user_company.dart';
 
 /// Administra el estado laboral de una persona dentro de una empresa.
 ///
@@ -53,6 +54,12 @@ class PersonnelStatusService {
     final results = await Future.wait([orgRef.get(), userRef.get()]);
     final orgSnap = results[0];
     final userSnap = results[1];
+    // Cuentas antiguas usan username como docId. El retiro es por cédula,
+    // así que se actualizan también esos documentos dentro de la empresa.
+    final cuentas = await _db
+        .collection('TBL_USUARIOS')
+        .where('cedula', isEqualTo: cedula)
+        .get();
     final now = FieldValue.serverTimestamp();
     final trimmedReason = reason.trim();
     final event = nextStatus == active ? 'reactivacion' : 'inactivacion';
@@ -95,14 +102,26 @@ class PersonnelStatusService {
       });
     }
 
-    if (userSnap.exists) {
+    final usuarios = <String, DocumentSnapshot<Map<String, dynamic>>>{
+      if (userSnap.exists) userSnap.id: userSnap,
+      for (final cuenta in cuentas.docs) cuenta.id: cuenta,
+    };
+    for (final usuario in usuarios.values) {
+      final data = usuario.data() ?? const <String, dynamic>{};
+      if (!userBelongsToEmpresa(data, empresaId)) continue;
       // No se altera `estado` global: ese campo controla la autenticación.
-      batch.update(userRef, {
+      batch.update(usuario.reference, <Object, Object?>{
         'empresasDetalle.$empresaId.estadoLaboral': nextStatus,
+        'empresasDetalle.$empresaId.estado': nextStatus,
         'empresasDetalle.$empresaId.estadoLaboralActualizadoAt': now,
         'empresasDetalle.$empresaId.estadoLaboralActualizadoPor': changedBy,
         'empresasDetalle.$empresaId.motivoEstadoLaboral': trimmedReason,
         'updatedAt': now,
+        FieldPath(['empresasDetalle.$empresaId.estadoLaboral']):
+            FieldValue.delete(),
+        FieldPath(['empresasDetalle.$empresaId.estado']): FieldValue.delete(),
+        if ((data['empresaId'] ?? '').toString().trim() == empresaId)
+          'estadoLaboral': nextStatus,
       });
     }
 

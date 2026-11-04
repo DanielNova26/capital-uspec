@@ -1,3 +1,5 @@
+import '../core/interventoria_task_text.dart';
+import '../core/personal_empresa_estado.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
@@ -438,12 +440,18 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       return;
     }
 
+    final estadoPersonal = await PersonalEmpresaEstado.cargar(
+      FirebaseFirestore.instance,
+      empresaId,
+    );
+    if (!mounted) return;
     final directorio = TaskReassignmentDirectory.desdeDatos(
       empresaId: empresaId,
       usuarios: {for (final d in userDocs.values) d.id: d.data()},
       cargos: {for (final d in cargosSnap.docs) d.id: d.data()},
       areas: {for (final d in areasSnap.docs) d.id: d.data()},
       centroAliases: centroAliases,
+      estructuras: estadoPersonal.estructuras,
     );
     final areaCatalogo = directorio.areas;
     final areas = [
@@ -1061,7 +1069,9 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   }
 
   void _showActionsSheet(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data() ?? const <String, dynamic>{};
+    final data = textoCanonicoTareaInterventoria(
+      doc.data() ?? const <String, dynamic>{},
+    );
     final taskId = doc.id;
     final esInterventoria =
         (data['origen'] ?? '').toString() == 'interventoria' ||

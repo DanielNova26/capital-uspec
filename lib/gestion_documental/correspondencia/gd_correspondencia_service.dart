@@ -1,3 +1,4 @@
+import '../../core/personal_empresa_estado.dart';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -284,6 +285,7 @@ class GdCorrespondenciaService {
     ]);
     final snap = results[0];
     final areaSnap = results[1];
+    final estadoPersonal = await PersonalEmpresaEstado.cargar(_db, empresaId);
     final areaNames = <String, String>{};
     for (final doc in areaSnap.docs) {
       final data = doc.data();
@@ -310,7 +312,7 @@ class GdCorrespondenciaService {
       }
       // Retirado en Talento Humano para esta empresa: no puede quedar como
       // responsable, revisor ni clasificador de correspondencia.
-      if (!personaHabilitadaEn(data, empresaId)) continue;
+      if (!estadoPersonal.habilitada(doc.id, data)) continue;
       // "No opera en To-Do": no recibe correspondencia para responder.
       if (soloTalentoHumanoEn(data, empresaId)) continue;
       final nombre = _userName(data, doc.id);

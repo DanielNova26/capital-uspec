@@ -1,3 +1,4 @@
+import '../core/personal_empresa_estado.dart';
 // lib/rutas/rutas_dashboard_screen.dart
 //
 // Punto de entrada del módulo Rutas. Enruta por ROL (y plataforma):
@@ -3364,6 +3365,7 @@ Future<List<_UsuarioOpcion>> _cargarUsuariosEmpresa(
   }
 
   final snap = await q.get();
+  final estadoPersonal = await PersonalEmpresaEstado.cargar(db, empresaId);
   final list = snap.docs.map((d) {
     final m = d.data();
     final cedula = (m['cedula'] ?? d.id).toString().trim();
@@ -3373,7 +3375,8 @@ Future<List<_UsuarioOpcion>> _cargarUsuariosEmpresa(
       nombre: _nombreUsuario(m, d.id),
       cargo: _cargoUsuario(m, empresaId),
       rolRutas: roles[d.id] ?? roles[cedula] ?? '',
-      activo: _usuarioActivo(m, empresaId),
+      activo:
+          _usuarioActivo(m, empresaId) && estadoPersonal.habilitada(d.id, m),
     );
   }).toList();
   list.sort((a, b) => a.nombre.compareTo(b.nombre));

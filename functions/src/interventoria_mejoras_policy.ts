@@ -1,5 +1,6 @@
 import {camposAprobadorTarea} from './interventoria_aprobador';
-import {afinidadCargo, cargosAprobadoresDe, cumpleCargo, normalizarCargo} from './interventoria_aprobador_maestro';
+import {afinidadCargo, cargosAprobadoresDe, cumpleCargo, normalizarCargo, numeralParaMatriz} from './interventoria_aprobador_maestro';
+import {textoCanonicoTareaInterventoria} from './interventoria_task_sync';
 
 type Datos = Record<string, any>;
 export type PersonaSync = {id: string; nombre: string; cargo: string; habilitado: boolean};
@@ -155,9 +156,14 @@ export function planMejorasInterventoria(input: {
     if (t) tp.cargoAprobador = persona.cargo;
   }
   if (t) {
+    const numeral = numeralParaMatriz(h);
+    const canonica = numeral ? textoCanonicoTareaInterventoria({...t, numeralActa: numeral}) : t;
+    if (numeral) tp.numeralActa = numeral;
     for (const clave of ['titulo', 'title']) {
-      if (typeof t[clave] !== 'string' || !subNombre) continue;
-      const titulo = texto(t[clave]);
+      if (typeof t[clave] !== 'string') continue;
+      const titulo = texto(canonica[clave]);
+      tp[clave] = titulo;
+      if (!subNombre) continue;
       const centro = texto(h.centroCostoNombre);
       const sitio = establecimiento(centro, subNombre);
       if (titulo.startsWith(sitio)) continue;
@@ -167,7 +173,7 @@ export function planMejorasInterventoria(input: {
     }
     for (const clave of ['descripcion', 'description']) {
       if (typeof t[clave] !== 'string') continue;
-      let descripcion = t[clave];
+      let descripcion = canonica[clave];
       if (subNombre) descripcion = lineaCabecera(descripcion, 'Subcentro', subNombre);
       if (persona?.cargo) {
         descripcion = lineaCabecera(descripcion, 'Aprueba la subsanación', `${persona.nombre} · ${persona.cargo}`);

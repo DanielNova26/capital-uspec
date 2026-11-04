@@ -45,6 +45,18 @@ test('corrige persona, cargo, aliases y texto sin tocar avances, adjuntos, estad
   assert.match(p.razon, /no cumple el cargo Director de calidad/);
 });
 
+test('sincronización controlada corrige el ordinal histórico también sin subcentro', () => {
+  const c = caso();
+  c.visita.subcentroId = ''; c.visita.subcentroNombre = '';
+  c.tarea.titulo = 'Picota Obs.9.2: Control de plagas';
+  c.tarea.descripcion = 'Hallazgo N°: 9.2\n\n── Observaciones del acta ──\nFumigar cada semana.';
+  const p = plan(c);
+  assert.equal(p.tarea.titulo, 'Picota Obs.8.18: Control de plagas');
+  assert.equal(p.tarea.numeralActa, '8.18');
+  assert.match(p.tarea.descripcion, /^Hallazgo N°: 8.18\n/m);
+  assert.match(p.tarea.descripcion, /Fumigar cada semana\.$/);
+});
+
 for (const area of AREAS) {
   test(`${area.requerido}: ${area.actual} no aprueba; queda ${area.nuevo}`, () => {
     const c = caso();

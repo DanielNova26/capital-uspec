@@ -173,7 +173,7 @@ export {
 import * as admin from "firebase-admin";
 
 import {avisoAlJefeEsSilencioso, construirMensajePush, esSilenciosa} from "./notification_sound_policy";
-import {syncHallazgoDesdeTarea} from "./interventoria_task_sync";
+import {syncHallazgoDesdeTarea, textoCanonicoTareaInterventoria} from "./interventoria_task_sync";
 import {
   conNumeroTarea,
   cuerpoPushConNumero,
@@ -211,11 +211,13 @@ function getBossId(d: admin.firestore.DocumentData | undefined | null): string |
 
 function getTaskTitle(d: admin.firestore.DocumentData | undefined | null): string {
   if (!d) return "Nueva tarea";
+  d = textoCanonicoTareaInterventoria(d);
   return ((d as any).title || (d as any).titulo || "Nueva tarea").toString();
 }
 
 function getTaskDescription(d: admin.firestore.DocumentData | undefined | null): string {
   if (!d) return "";
+  d = textoCanonicoTareaInterventoria(d);
   return ((d as any).description || (d as any).descripcion || "").toString();
 }
 

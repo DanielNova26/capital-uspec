@@ -1,3 +1,4 @@
+import '../core/interventoria_task_text.dart';
 // lib/home/home_screen.dart
 
 import 'dart:async';
@@ -448,8 +449,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool _isRead(Map<String, dynamic> data) =>
       (data['read'] == true || data['leido'] == true || data['visto'] == true);
-  String _titleOf(Map<String, dynamic> m) =>
-      (m['titulo'] ?? m['title'] ?? '(Sin título)').toString();
+  String _titleOf(Map<String, dynamic> m) {
+    final data = textoCanonicoTareaInterventoria(m);
+    return (data['titulo'] ?? data['title'] ?? '(Sin título)').toString();
+  }
+
   String _estadoOf(Map<String, dynamic> m) => resolveTaskStatus(m);
   bool _isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;

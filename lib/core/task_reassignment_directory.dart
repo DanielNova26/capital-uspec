@@ -15,6 +15,7 @@ class TaskReassignmentDirectory {
     required Map<String, Map<String, dynamic>> usuarios,
     required Map<String, Map<String, dynamic>> cargos,
     required Map<String, Map<String, dynamic>> areas,
+    Map<String, Map<String, dynamic>> estructuras = const {},
     Map<String, String> centroAliases = const {},
   }) {
     final catalogo = AreaCatalogo.desde([
@@ -61,7 +62,13 @@ class TaskReassignmentDirectory {
             empresaId,
             allowLegacyWithoutEmpresa: false,
           ) ||
-          !personaHabilitadaEn(m, empresaId)) {
+          !personaHabilitadaEn(
+            m,
+            empresaId,
+            estructura:
+                estructuras[(m['cedula'] ?? e.key).toString()] ??
+                estructuras[e.key],
+          )) {
         continue;
       }
       String dato(List<String> keys) =>

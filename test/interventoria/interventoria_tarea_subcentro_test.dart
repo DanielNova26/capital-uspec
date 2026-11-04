@@ -4,6 +4,20 @@ import 'package:todo/interventoria/interventoria_models.dart';
 import 'package:todo/interventoria/interventoria_service.dart';
 
 void main() {
+  test('el mensaje usa el numeral del acta y no el ordinal de captura', () {
+    final h = InterventoriaHallazgo.fromMap('h', {
+      'empresaId': 'empresa',
+      'centroCostoNombre': 'Tumaco',
+      'fuente': 'acta',
+      'numeroHallazgo': '9.2',
+      'numeralActa': '8.18',
+      'descripcion': '18. El control de plagas',
+    });
+    expect(
+      contextoTareaInterventoria(h).titulo,
+      'Tumaco Obs.8.18: 18. El control de plagas',
+    );
+  });
   InterventoriaHallazgo hallazgo(String sub, {String? subId}) =>
       InterventoriaHallazgo(
         id: 'h',

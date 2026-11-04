@@ -81,9 +81,7 @@ service cloud.firestore {
         || !(global in ['', 'activo', 'active']);
     }
 
-    // Apagada en [empresaId]: por un traslado (`activo: false` en el bloque
-    // de la empresa) o por Talento Humano (`estadoLaboral`, o si no hay,
-    // `estado`, igual a inactivo).
+    // Apagada en [empresaId]: traslado o estado laboral canónico.
     function apagadaEnEmpresa(u, empresaId) {
       let detalle = u.get('empresasDetalle', {});
       let bloque = detalle is map ? detalle.get(empresaId, {}) : {};
@@ -1993,19 +1991,37 @@ service cloud.firestore {
     }
 
     // Quien Talento Humano marcó "No opera en To-Do" no recibe tareas.
+    function destinoHistoricoActivo(u, empresaId, uid) {
+      let cedula = u.get('cedula', uid);
+      let path = /databases/$(database)/documents/TBL_ESTRUCTURA_ORGANIZACIONAL/$(cedula);
+      let org = exists(path) ? get(path).data : {};
+      let detalleOrg = org.get('empresasDetalle', {}).get(empresaId, {});
+      let estadoOrg = org.get('empresasDetalle.' + empresaId + '.estado',
+        detalleOrg.get('estadoLaboral', detalleOrg.get('estado',
+          org.get('empresaId', '') == empresaId ? org.get('estado', '') : '')));
+      return estadoTexto(estadoOrg) != 'inactivo';
+    }
+
     function usuarioActivoParaTarea(empresaId, uid) {
       let path = /databases/$(database)/documents/TBL_USUARIOS/$(uid);
       let u = exists(path) ? get(path).data : {};
       let empresas = u.get('empresas', []);
       let detalle = u.get('empresasDetalle', {});
       let bloque = detalle is map ? detalle.get(empresaId, {}) : {};
+      let laboral = bloque is map ? estadoTexto(bloque.get('estadoLaboral', '')) : '';
       return uid is string && uid.size() > 0 && exists(path)
         && ((empresas is list && empresaId in empresas)
           || (detalle is map && empresaId in detalle)
           || u.get('empresaId', '') == empresaId
           || u.get('empresa', '') == empresaId)
         && !(bloque is map && bloque.get('soloTalentoHumano', false) == true)
-        && habilitadaEn(u, empresaId);
+        // El bloque ya se leyó arriba: evita resolverlo otra vez al validar
+        // cuenta y vínculo, dejando margen para consultar Talento Humano.
+        && !cuentaInhabilitada(u)
+        && !(bloque is map && bloque.get('activo', true) == false)
+        && (laboral != '' ? laboral
+          : bloque is map ? estadoTexto(bloque.get('estado', '')) : '') != 'inactivo'
+        && destinoHistoricoActivo(u, empresaId, uid);
     }
 
     match /TBL_TAREAS/{taskId} {
@@ -2351,9 +2367,10 @@ service cloud.firestore {
         let propios = cambios.difference(['updatedAt', 'lastEventType',
           'lastEventAt', 'lastEventText'].toSet());
         return (tareaBaseConservada(antes, d, cambios)
-            && (tareaCambioOperativo(antes, d, evento, propios)
-              || tareaReasignacionDirecta(antes, d, evento, propios)
-              || tareaCambioAprobador(antes, d, evento, propios)
+            && ((evento == 'reasignacion_directa'
+                ? tareaReasignacionDirecta(antes, d, evento, propios)
+                : tareaCambioOperativo(antes, d, evento, propios)
+                  || tareaCambioAprobador(antes, d, evento, propios))
               || tareaCambioModulo(antes, d, cambios)
               || tareaVisto(antes, cambios))
             && puedeOperarTarea(antes))

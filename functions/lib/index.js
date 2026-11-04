@@ -229,11 +229,13 @@ function getBossId(d) {
 function getTaskTitle(d) {
     if (!d)
         return "Nueva tarea";
+    d = (0, interventoria_task_sync_1.textoCanonicoTareaInterventoria)(d);
     return (d.title || d.titulo || "Nueva tarea").toString();
 }
 function getTaskDescription(d) {
     if (!d)
         return "";
+    d = (0, interventoria_task_sync_1.textoCanonicoTareaInterventoria)(d);
     return (d.description || d.descripcion || "").toString();
 }
 async function resolveBossIdFor(assignedId, fromTask) {

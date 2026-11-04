@@ -20,6 +20,7 @@ import 'interventoria_actas_catalogo.dart';
 import 'interventoria_avisos_asignacion.dart';
 import 'interventoria_models.dart';
 import 'interventoria_numerales_catalogo.dart';
+import '../core/personal_empresa_estado.dart';
 import 'interventoria_programas.dart';
 import 'interventoria_revision_maestro.dart';
 
@@ -650,9 +651,9 @@ contextoTareaInterventoria(
       'El subcentro no tiene nombre. Revisa el acta antes de asignar.',
     );
   }
-  final numero = hallazgo.numeroHallazgo.isEmpty
+  final numero = hallazgo.numeroVisible.isEmpty
       ? ''
-      : ' Obs.${hallazgo.numeroHallazgo}:';
+      : ' Obs.${hallazgo.numeroVisible}:';
   final descripcion = hallazgo.descripcion.length > 80
       ? '${hallazgo.descripcion.substring(0, 77)}…'
       : hallazgo.descripcion;
@@ -2307,7 +2308,7 @@ class InterventoriaService {
                 'title':
                     '📝 Nota del registrador — ${hallazgo.centroCostoNombre}',
                 'description':
-                    'Obs.${hallazgo.numeroHallazgo}: $msgCorto\n'
+                    'Obs.${hallazgo.numeroVisible}: $msgCorto\n'
                     '"${hallazgo.notaRegistrador.trim().length > 80 ? '${hallazgo.notaRegistrador.trim().substring(0, 77)}…' : hallazgo.notaRegistrador.trim()}"',
                 'type': 'nota_registrador',
                 'hallazgoId': ref.id,
@@ -3144,6 +3145,7 @@ class InterventoriaService {
     bool soloAsignables = true,
   }) async {
     final snap = await _db.collection('TBL_USUARIOS').get();
+    final estadoPersonal = await PersonalEmpresaEstado.cargar(_db, empresaId);
     final centrosPorGrupo = await _leerCentrosPorGrupo(empresaId);
 
     Set<String> stringSet(Object? raw) {
@@ -3171,7 +3173,7 @@ class InterventoriaService {
       // El retiro de Talento Humano se guarda por empresa
       // (`empresasDetalle.{empresaId}.estadoLaboral`); el `estado` global solo
       // bloquea el login, así que por sí solo dejaba pasar a los retirados.
-      if (!personaHabilitadaEn(data, empresaId)) continue;
+      if (!estadoPersonal.habilitada(doc.id, data)) continue;
       Map<String, dynamic>? scoped;
       final detalle = data['empresasDetalle'];
       if (detalle is Map && detalle[empresaId] is Map) {
@@ -4613,7 +4615,7 @@ class InterventoriaService {
     // ── 4. Descripción completa ──────────────────────────────────────────────
     final sb = StringBuffer();
     sb.writeln('📌 OBSERVACIÓN DE INTERVENTORÍA');
-    sb.writeln('Hallazgo N°: ${hallazgo.numeroHallazgo}');
+    sb.writeln('Hallazgo N°: ${hallazgo.numeroVisible}');
     sb.write(contexto.ubicacion);
     if (hallazgo.dptoEncargado.isNotEmpty) {
       sb.writeln('Departamento: ${hallazgo.dptoEncargado}');

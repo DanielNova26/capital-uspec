@@ -1,3 +1,4 @@
+import '../core/personal_empresa_estado.dart';
 // lib/facturacion/facturacion_service.dart
 
 import 'dart:typed_data';
@@ -107,13 +108,14 @@ class FacturacionService {
   Future<List<String>> _getFacturacionUserIds(String empresaId) async {
     try {
       final snap = await _db.collection(_colUsers).get();
+      final estadoPersonal = await PersonalEmpresaEstado.cargar(_db, empresaId);
       final ids = <String>[];
       for (final doc in snap.docs) {
         final data = doc.data();
         // El rol sobrevive al retiro: sin este filtro se notifica a personal
         // que Talento Humano ya inhabilitó en la empresa. Y retirar la app en
         // Admin cierra el acceso: tampoco se le avisa a quien ya no la tiene.
-        if (!personaHabilitadaEn(data, empresaId)) continue;
+        if (!estadoPersonal.habilitada(doc.id, data)) continue;
         if (!userHasApp(data, kFacAppId, empresaId: empresaId)) continue;
         final detalle = data['empresasDetalle'];
         if (detalle is Map) {
@@ -1248,11 +1250,12 @@ class FacturacionService {
     String estId,
   ) async {
     final snap = await _db.collection(_colUsers).get();
+    final estadoPersonal = await PersonalEmpresaEstado.cargar(_db, empresaId);
     for (final doc in snap.docs) {
       final data = doc.data();
       // Un responsable retirado no puede recibir la devolución: se prefiere
       // fallar con "no hay responsable" antes que asignarle la tarea.
-      if (!personaHabilitadaEn(data, empresaId)) continue;
+      if (!estadoPersonal.habilitada(doc.id, data)) continue;
       final info = resolveFacUserInfoFromData(data, empresaId);
       if (info.rol != kRolEstablecimiento || info.establecimientoId != estId) {
         continue;

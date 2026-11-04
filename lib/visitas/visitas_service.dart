@@ -17,6 +17,7 @@ import 'package:geolocator/geolocator.dart';
 
 import '../core/area_directory.dart' show areaClave, areasUnicas;
 import '../core/subcentros_costo.dart';
+import '../core/personal_empresa_estado.dart';
 import '../core/user_directory.dart';
 import '../gestion_documental/gd_service.dart';
 import '../services/task_service.dart';
@@ -622,12 +623,13 @@ class VisitasService {
   /// profesionales ni el director", 25 sep 2026).
   Future<List<VisitaPersona>> personalDeEmpresa(String empresaId) async {
     final snap = await _db.collection('TBL_USUARIOS').get();
+    final estadoPersonal = await PersonalEmpresaEstado.cargar(_db, empresaId);
     final areaPorCargo = await _areaPorCargo(empresaId);
     final out = <VisitaPersona>[];
     for (final d in snap.docs) {
       final data = d.data();
       if (!userBelongsToEmpresa(data, empresaId)) continue;
-      if (!personaHabilitadaEn(data, empresaId)) continue;
+      if (!estadoPersonal.habilitada(d.id, data)) continue;
       // "No opera en To-Do" (Talento Humano): no se le asignan visitas ni
       // hallazgos.
       if (soloTalentoHumanoEn(data, empresaId)) continue;

@@ -50,12 +50,19 @@ export function cuentaInhabilitada(usuario: Datos): boolean {
 // Talento Humano la inhabilitó en [empresaId].
 export function inhabilitadaEn(usuario: Datos, empresaId: string): boolean {
   const b = bloque(usuario, empresaId);
-  if (!b) return false;
   for (const clave of ["estadoLaboral", "estado"]) {
-    const v = texto(b[clave]);
+    const v = texto(b?.[clave]);
     if (v) return v === "inactivo";
   }
-  return false;
+  for (const clave of ["estadoLaboral", "estado"]) {
+    const v = texto(usuario[`empresasDetalle.${empresaId}.${clave}`]);
+    if (v) return v === "inactivo";
+  }
+  const principal = String(usuario.empresaId ?? "").trim();
+  const empresas = empresasDe(usuario);
+  const raizPropia = principal ? principal === empresaId :
+    empresas.length === 0 || (empresas.length === 1 && empresas[0] === empresaId);
+  return raizPropia && texto(usuario.estadoLaboral) === "inactivo";
 }
 
 // Empresas de la persona, sin repetir: `empresas` y `empresasDetalle`.

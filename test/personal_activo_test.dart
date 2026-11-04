@@ -10,6 +10,27 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:todo/utils/user_company.dart';
 
 void main() {
+  test('retirada histórica en raíz o ruta literal se excluye por empresa', () {
+    for (final historico in [
+      {'estadoLaboral': 'inactivo'},
+      {'empresasDetalle.EMP1.estadoLaboral': 'inactivo'},
+    ]) {
+      final data = {'empresaId': 'EMP1', ...historico};
+      expect(personaHabilitadaEn(data, 'EMP1'), isFalse);
+      expect(isPersonaActivaEnEmpresa(data, 'EMP1'), isFalse);
+      expect(personaHabilitadaEn(data, 'EMP2'), isTrue);
+      // La reactivación canónica prevalece sobre datos anteriores.
+      expect(
+        personaHabilitadaEn({
+          ...data,
+          'empresasDetalle': {
+            'EMP1': {'estadoLaboral': 'activo'},
+          },
+        }, 'EMP1'),
+        isTrue,
+      );
+    }
+  });
   group('cuentas de TBL_USUARIOS habilitadas', () {
     Map<String, dynamic> usuario() => {
       'empresaId': 'EMP1',
