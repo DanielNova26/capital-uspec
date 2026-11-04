@@ -1,5 +1,35 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-04 — AAB 2.8.17+71 y entrega para publicar iPhone (Codex)
+
+- Aumentada la versión común a 2.8.17+71 para incluir las correcciones de
+  reasignación y recuperación selectiva de Visitas, sin reutilizar el AAB 70.
+- Compilado release con Flutter 3.44.9 / Dart 3.12.2. Archivo local:
+  `outputs/android/to-do-gestion-2.8.17-71.aab`, 152438778 bytes.
+  Bundletool 1.18.1 valida la estructura; manifiesto confirma versión 2.8.17,
+  código 71, `com.todogestion.app`, minSdk 24 y targetSdk 36.
+- Jarsigner verifica la firma; certificado SHA-256 idéntico al AAB anterior:
+  `85:57:11:E8:4A:EA:07:17:BA:99:73:78:CC:A4:5A:7A:DD:9A:77:EB:58:6A:75:BD:C7:E5:BE:DE:69:FB:00:BC`.
+  El JDK emite avisos de certificado autofirmado, falta de sello de tiempo y
+  diferencias de lectura entre JarFile/JarInputStream; la validación estructural
+  de bundletool y la verificación de firma terminan correctamente. Los avisos de
+  lectura también aparecen al verificar el AAB 70 anterior con este mismo JDK.
+- SHA-256 del AAB (también en el archivo contiguo `.aab.sha256`):
+  `d50768fdbd49e10a671a4f01867cfe731cc08893c35a560a62017391c8acff20`.
+- Preparada `docs/PUBLICAR_2.8.17.md` con comandos para el Mac del usuario
+  (confirmó Xcode y Apple Developer), actualización de Pods, generación del IPA,
+  firma existente y subida mediante Transporter/Organizer; incluye notas para
+  ambas tiendas. Mantiene Bundle ID `com.capitaluspec.gestionapp`, equipo
+  `29TDC266FJ` y APNs de producción. No se alteró la firma de iOS.
+- El lock nativo de iOS aún fija FlutterFire antiguo y no contiene `gal`;
+  la guía incluye `pod update --repo-update` en el Mac antes de compilar, sin
+  eliminar el lock. Pendiente validar y sincronizar ese lock desde macOS.
+- Pendientes reales: no se ha generado ni firmado un IPA en Windows, no hay
+  acceso al Mac desde este chat ni pruebas en dispositivos reales. No se ha
+  cargado ni publicado en Play/App Store, ni consultado si el código 71 está
+  disponible en las consolas. Gradle/AGP conservan avisos de soporte futuro;
+  no impiden este build. No se desplegó Web ni backend.
+
 ## 2026-11-04 — Reasignación de Interventoría y recuperación selectiva de descargas (Codex)
 
 - Corregido el filtro de destino de Mis tareas: muchas fichas guardan solo el
