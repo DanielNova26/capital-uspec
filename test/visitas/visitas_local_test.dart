@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -96,6 +98,25 @@ class FailingSecure extends FlutterSecureStorage {
 class PanelStore extends VisitasLocalStore {
   PanelStore({super.directory});
   VisitasAccesoLocal? grant;
+  List<String> danadas = ['a' * 64];
+  final apartadas = <String>[];
+
+  @override
+  Future<List<String>> descargasDanadas(
+    String userId,
+    String empresaId,
+  ) async => List.of(danadas);
+
+  @override
+  Future<int> apartarDescargasDanadas(
+    String userId,
+    String empresaId,
+    Iterable<String> ids,
+  ) async {
+    apartadas.addAll(ids);
+    danadas.removeWhere(ids.contains);
+    return ids.length;
+  }
 
   @override
   Future<VisitasAccesoLocal?> acceso() async => grant;
@@ -126,7 +147,7 @@ class PanelStore extends VisitasLocalStore {
     bool tolerarIlegibles = false,
     void Function(int cantidad)? onIlegibles,
   }) async {
-    onIlegibles?.call(1);
+    onIlegibles?.call(danadas.length);
     return [package()];
   }
 }
@@ -596,7 +617,171 @@ void main() {
     },
   );
 
+  test(
+    'restablecer seleccionadas conserva originales, visitas pendientes, fotos y acceso',
+    () async {
+      final p = package();
+      p['visita']['estado'] = kVisitaTerminada;
+      await store.guardar(p);
+      await store.autorizar(p);
+      final photo = Uint8List.fromList([1, 2, 3]);
+      final hash = await store.guardarFoto('u', 'e', photo);
+      await store.guardar({...package(), 'visitaId': 'danada-1'});
+      await store.guardar({...package(), 'visitaId': 'danada-2'});
+      await store.guardar({...package(), 'empresaId': 'otra'});
+      final pendientes = await store.listar('u', 'e');
+      expect(pendientes, hasLength(3));
+      // Obtener el directorio propio por la foto conocida.
+      final foto =
+          (await dir
+                  .list(recursive: true)
+                  .where((f) => f.path.endsWith('$hash.foto'))
+                  .toList())
+              .single;
+      final carpeta = File(foto.path).parent.path;
+      final sanas = <String>[];
+      for (final visitaId in ['danada-1', 'danada-2']) {
+        final id = sha256.convert(utf8.encode(visitaId)).toString();
+        final f = File('$carpeta/$id.visita');
+        final bytes = await f.readAsBytes();
+        bytes[20] ^= 1;
+        await f.writeAsBytes(bytes);
+      }
+      final danadas = await store.descargasDanadas('u', 'e');
+      expect(danadas, hasLength(2));
+      final elegida = danadas.first;
+      final archivo = File('$carpeta/$elegida.visita');
+      final copia = await archivo.readAsBytes();
+      final legibles = await store.listar('u', 'e', tolerarIlegibles: true);
+      sanas.addAll(legibles.map((p) => p['visitaId'] as String));
+      expect(await store.apartarDescargasDanadas('u', 'e', [elegida]), 1);
+      expect(await archivo.exists(), isFalse);
+      final preservada =
+          (await dir
+                  .list(recursive: true)
+                  .where(
+                    (f) =>
+                        f.path.contains('$elegida.visita.') &&
+                        f.path.endsWith('.preservada'),
+                  )
+                  .cast<File>()
+                  .toList())
+              .single;
+      expect(await preservada.readAsBytes(), copia);
+      expect(await store.descargasDanadas('u', 'e'), [danadas.last]);
+      expect(
+        (await store.listar(
+          'u',
+          'e',
+          tolerarIlegibles: true,
+        )).map((p) => p['visitaId']),
+        sanas,
+      );
+      expect(await store.foto('u', 'e', hash), photo);
+      expect((await store.acceso())!.empresaId, 'e');
+      expect(await store.listar('u', 'otra'), hasLength(1));
+      expect(await store.descargasDanadas('otro', 'e'), isEmpty);
+      final otraFoto = sha256.convert(utf8.encode('v')).toString();
+      final otraCarpeta =
+          (await dir
+                  .list(recursive: true)
+                  .where(
+                    (f) =>
+                        f.path.endsWith('$otraFoto.visita') &&
+                        File(f.path).parent.path != carpeta,
+                  )
+                  .cast<File>()
+                  .toList())
+              .single;
+      await otraCarpeta.writeAsBytes([1, 2]);
+      final ajenas = await store.descargasDanadas('u', 'otra');
+      expect(ajenas, hasLength(1));
+      // Mantener el guardado legible si se selecciona por accidente o ya se reparó.
+      expect(await store.apartarDescargasDanadas('u', 'e', ajenas), 0);
+      expect(sanas, ['v']);
+      expect(legibles.single['visita']['estado'], kVisitaTerminada);
+      expect(await otraCarpeta.exists(), isTrue);
+    },
+  );
+
+  test(
+    'una descarga reparada después de seleccionarla no se aparta y rechaza rutas',
+    () async {
+      await store.guardar(package());
+      final f =
+          (await dir
+                  .list(recursive: true)
+                  .where((f) => f.path.endsWith('.visita'))
+                  .cast<File>()
+                  .toList())
+              .single;
+      await f.writeAsBytes([1, 2]);
+      final ids = await store.descargasDanadas('u', 'e');
+      await store.guardar(package());
+      expect(await store.apartarDescargasDanadas('u', 'e', ids), 0);
+      expect(await store.listar('u', 'e'), hasLength(1));
+      await expectLater(
+        store.apartarDescargasDanadas('u', 'e', ['../otra']),
+        throwsArgumentError,
+      );
+    },
+  );
+
+  test(
+    'errores de red actuales y guardados muestran instrucciones sin traza',
+    () {
+      final error = FirebaseFunctionsException(
+        code: 'unavailable',
+        message: 'UNAVAILABLE',
+      );
+      for (final e in [
+        error,
+        '[firebase_functions/unavailable] UNAVAILABLE\n#0 traza',
+      ]) {
+        expect(mensajeErrorVisitaLocal(e), contains('sigue guardada'));
+        expect(mensajeErrorVisitaLocal(e), isNot(contains('#0')));
+      }
+    },
+  );
+
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets(
+      'selección de dañadas conserva las no seleccionadas en $platform',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = platform;
+        final panel = PanelStore()..danadas = ['a' * 64, 'b' * 64];
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: VisitasDescargadasTab(
+                userId: 'u',
+                empresaId: 'e',
+                store: panel,
+                local: true,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.scrollUntilVisible(
+          find.text('Restablecer descargas dañadas'),
+          180,
+        );
+        await tester.tap(find.text('Restablecer descargas dañadas'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.ensureVisible(find.text('Descarga dañada 1'));
+        await tester.tap(find.text('Descarga dañada 1'));
+        await tester.pump(const Duration(milliseconds: 200));
+        await tester.tap(find.text('Apartar seleccionadas'));
+        await tester.pumpAndSettle();
+        expect(panel.apartadas, ['b' * 64]);
+        expect(panel.danadas, ['a' * 64]);
+        expect(find.textContaining('Se apartaron 1'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        debugDefaultTargetPlatformOverride = null;
+      },
+    );
     for (final width in [390.0, 768.0, 1024.0, 1366.0]) {
       testWidgets('download panel $platform at $width with large text', (
         tester,
@@ -606,6 +791,12 @@ void main() {
         addTearDown(() => tester.binding.setSurfaceSize(null));
         await tester.pumpWidget(
           MaterialApp(
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: const TextScaler.linear(1.8)),
+              child: child!,
+            ),
             home: MediaQuery(
               data: MediaQueryData(
                 size: Size(width, 900),
@@ -624,6 +815,16 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('Preparar visita sin conexión'), findsOneWidget);
         expect(find.textContaining('Hay 1 descarga(s)'), findsOneWidget);
+        await tester.scrollUntilVisible(
+          find.text('Restablecer descargas dañadas'),
+          180,
+        );
+        await tester.tap(find.text('Restablecer descargas dañadas'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(find.text('Descarga dañada 1'), findsOneWidget);
+        await tester.tap(find.text('Cancelar'));
+        await tester.pumpAndSettle();
         await tester.scrollUntilVisible(find.text('Abrir visita'), 200);
         expect(find.text('Abrir visita'), findsOneWidget);
         expect(tester.takeException(), isNull);

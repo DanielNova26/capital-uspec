@@ -352,9 +352,13 @@ class VisitasLocalStore extends ChangeNotifier {
       // Storage errors and account/company mismatches still stop the operation.
       Map<String, dynamic> data;
       try {
-        data =
-            visitasDecode(jsonDecode(utf8.decode(await _read(file))))
-                as Map<String, dynamic>;
+        final decoded = visitasDecode(
+          jsonDecode(utf8.decode(await _read(file))),
+        );
+        if (decoded is! Map<String, dynamic>) {
+          throw const FormatException('La descarga no contiene una visita.');
+        }
+        data = decoded;
       } on SecretBoxAuthenticationError {
         if (!tolerarIlegibles) rethrow;
         ilegibles++;
@@ -383,6 +387,69 @@ class VisitasLocalStore extends ChangeNotifier {
       Uint8List.fromList(utf8.encode(jsonEncode(visitasWire(data)))),
     );
     notifyListeners();
+  });
+
+  /// Identificadores opacos, siempre dentro de la cuenta y empresa elegidas.
+  /// Los originales apartados y las fotos no forman parte de esta lista.
+  Future<List<String>> descargasDanadas(String userId, String empresaId) =>
+      serialized(() async {
+        final dir = await _folder(userId, empresaId);
+        final result = <String>[];
+        await for (final file in dir.list()) {
+          if (file is! File || !file.path.endsWith('.visita')) continue;
+          final id = file.uri.pathSegments.last.replaceFirst('.visita', '');
+          if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(id)) continue;
+          if (await _descargaDanada(file, userId, empresaId)) result.add(id);
+        }
+        return result..sort();
+      });
+
+  Future<bool> _descargaDanada(
+    File file,
+    String userId,
+    String empresaId,
+  ) async {
+    dynamic data;
+    try {
+      data = visitasDecode(jsonDecode(utf8.decode(await _read(file))));
+    } on SecretBoxAuthenticationError {
+      return true;
+    } on FormatException {
+      return true;
+    }
+    if (data is! Map) return true;
+    if (data['userId'] != userId || data['empresaId'] != empresaId) {
+      throw StateError('La descarga no corresponde a esta cuenta y empresa.');
+    }
+    return false;
+  }
+
+  /// Restablece solo las seleccionadas que SIGUEN ilegibles. Renombra el
+  /// archivo cifrado; nunca elimina trabajo, fotos, claves ni permisos locales.
+  Future<int> apartarDescargasDanadas(
+    String userId,
+    String empresaId,
+    Iterable<String> seleccionadas,
+  ) => serialized(() async {
+    final ids = seleccionadas.toSet();
+    if (ids.any((id) => !RegExp(r'^[a-f0-9]{64}$').hasMatch(id))) {
+      throw ArgumentError('Selección de descargas inválida.');
+    }
+    final dir = await _folder(userId, empresaId);
+    var count = 0;
+    for (final id in ids) {
+      final file = File('${dir.path}/$id.visita');
+      if (!await file.exists() ||
+          !await _descargaDanada(file, userId, empresaId)) {
+        continue;
+      }
+      await file.rename(
+        '${file.path}.${DateTime.now().microsecondsSinceEpoch}.preservada',
+      );
+      count++;
+    }
+    notifyListeners();
+    return count;
   });
 
   Future<String> guardarFoto(

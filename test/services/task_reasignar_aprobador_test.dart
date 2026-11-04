@@ -1,6 +1,7 @@
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:todo/interventoria/interventoria_service.dart';
+import 'package:todo/core/task_reassignment_directory.dart';
 import 'package:todo/services/task_service.dart';
 
 import '../support/memory_firestore.dart';
@@ -63,6 +64,86 @@ void main() {
     expect(tarea['asignado_uid'], 'auxiliar');
     expect(tarea['aprobador_uid'], 'director');
   });
+
+  test(
+    'segunda reasignación usa el cargo histórico resuelto y conserva sede y aprobador',
+    () async {
+      db.documents['TBL_TAREAS/t1']!['centroId'] = 'sede-hallazgo';
+      db.documents['TBL_USUARIOS/destino'] = {
+        'empresaId': 'otra',
+        'empresas': ['otra', 'e'],
+        'estado': 'activo',
+        'cargo': 'Puesto de otra empresa',
+        'empresasDetalle': {
+          'e': {'cargo': 'INSPECTOR DE CALIDAD'},
+        },
+      };
+      final directorio = TaskReassignmentDirectory.desdeDatos(
+        empresaId: 'e',
+        usuarios: {'destino': db.documents['TBL_USUARIOS/destino']!},
+        cargos: {
+          'inspector': {
+            'nombre': 'Inspector de Calidad',
+            'areaId': 'e_calidad',
+          },
+        },
+        areas: {
+          'e_calidad': {'nombre': 'Calidad'},
+        },
+      );
+      final persona = directorio
+          .filtrar(cargoId: 'inspector', areaId: 'e_calidad')
+          .single;
+      await service.reassignTask(
+        taskId: 't1',
+        newAssignedTo: 'auxiliar',
+        byUserId: 'admin',
+      );
+      await service.reassignTask(
+        taskId: 't1',
+        newAssignedTo: persona['id']!,
+        newAreaId: persona['areaId'],
+        newCargoNombre: persona['cargo'],
+        byUserId: 'auxiliar',
+      );
+      final tarea = db.documents['TBL_TAREAS/t1']!;
+      expect(tarea['asignado_uid'], 'destino');
+      expect(tarea['areaId'], 'e_calidad');
+      expect(tarea['asignado_cargo_nombre'], 'Inspector de Calidad');
+      expect(tarea['aprobador_uid'], 'director');
+      expect(tarea['centroId'], 'sede-hallazgo');
+      expect(tarea['empresaId'], 'e');
+      expect(tarea['reasignada_desde_uid'], 'auxiliar');
+    },
+  );
+
+  test(
+    'destino inhabilitado o de otra empresa no se reasigna aunque se fuerce el id',
+    () async {
+      for (final datos in [
+        {'empresaId': 'otra', 'estado': 'activo'},
+        {'empresaId': 'e', 'estado': 'inactivo'},
+        {
+          'empresaId': 'e',
+          'estado': 'activo',
+          'empresasDetalle': {
+            'e': {'activo': false},
+          },
+        },
+      ]) {
+        db.documents['TBL_USUARIOS/auxiliar'] = datos;
+        await expectLater(
+          service.reassignTask(
+            taskId: 't1',
+            newAssignedTo: 'auxiliar',
+            byUserId: 'admin',
+          ),
+          throwsStateError,
+        );
+        expect(db.documents['TBL_TAREAS/t1']!['asignado_uid'], 'admin');
+      }
+    },
+  );
 
   test('el mensaje común nombra a quien aprueba', () {
     expect(

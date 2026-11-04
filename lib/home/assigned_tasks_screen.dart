@@ -32,6 +32,7 @@ import '../core/area_directory.dart';
 import '../core/task_estado_visible.dart';
 import '../core/task_flujo.dart';
 import '../core/task_personas_empresa.dart';
+import '../core/task_reassignment_directory.dart';
 import '../core/user_directory.dart';
 import '../widgets/task_card_grid.dart';
 
@@ -309,23 +310,6 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     return await launchUrlString(url, mode: LaunchMode.externalApplication);
   }
 
-  /// Clave de un nombre de cargo para emparejar TBL_USUARIOS con TBL_CARGOS:
-  /// el mismo cargo viene con tildes, mayúsculas y espacios distintos.
-  static String _claveCargo(String cargo) {
-    var s = cargo.toLowerCase().trim();
-    const acentos = {
-      'á': 'a',
-      'é': 'e',
-      'í': 'i',
-      'ó': 'o',
-      'ú': 'u',
-      'ü': 'u',
-      'ñ': 'n',
-    };
-    acentos.forEach((k, v) => s = s.replaceAll(k, v));
-    return s.replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
-  }
-
   bool _finishPending(Map<String, dynamic> data) {
     final state = (data['solicitud_finalizacion_estado'] ?? '')
         .toString()
@@ -355,12 +339,14 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   ) async {
     final taskData = doc.data() ?? const <String, dynamic>{};
     final esInterventoria =
-        (taskData['origen'] ?? '').toString() == 'interventoria' ||
+        (taskData['sourceModule'] ?? taskData['origen'] ?? '').toString() ==
+            'interventoria' ||
         taskData['permite_reasignacion_director'] == true;
     final empresaId = _selectedEmpresaId?.trim().isNotEmpty == true
         ? _selectedEmpresaId!.trim()
         : (_empresaIds.length == 1 ? _empresaIds.first : '');
     if (empresaId.isEmpty) return;
+    if (_str(taskData, ['empresaId', 'empresa_id']).trim() != empresaId) return;
     // Las tareas de Interventoría nacían sin área (el hallazgo del acta no
     // la trae) y aquí se bloqueaban con "La tarea no tiene área definida
     // para reasignar" (26 sep 2026: SST quería pasarle a un administrador la
@@ -368,14 +354,29 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     // la persona por nombre o cargo.
     final taskAreaId = _str(taskData, ['areaId']).trim();
 
-    final areasSnap = await FirebaseFirestore.instance
-        .collection('TBL_AREAS')
-        .where('empresaId', isEqualTo: empresaId)
-        .get();
-    final cargosSnap = await FirebaseFirestore.instance
-        .collection('TBL_CARGOS')
-        .where('empresaId', isEqualTo: empresaId)
-        .get();
+    late QuerySnapshot<Map<String, dynamic>> areasSnap, cargosSnap;
+    try {
+      final catalogos = await Future.wait([
+        for (final tabla in ['TBL_AREAS', 'TBL_CARGOS'])
+          FirebaseFirestore.instance
+              .collection(tabla)
+              .where('empresaId', isEqualTo: empresaId)
+              .get(const GetOptions(source: Source.server)),
+      ]);
+      areasSnap = catalogos[0];
+      cargosSnap = catalogos[1];
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No se pudieron actualizar las áreas y los cargos. Revisa la conexión y vuelve a intentar.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
     final centros = <String, String>{};
     final centroAliases = <String, String>{};
     try {
@@ -400,212 +401,60 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       final snap = await FirebaseFirestore.instance
           .collection('TBL_USUARIOS')
           .where('empresaId', isEqualTo: empresaId)
-          .get();
+          .get(const GetOptions(source: Source.server));
       for (final d in snap.docs) {
         userDocs[d.id] = d;
       }
-    } catch (_) {}
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No se pudo cargar todo el personal. Revisa la conexión y vuelve a abrir la reasignación.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
     try {
       final snap = await FirebaseFirestore.instance
           .collection('TBL_USUARIOS')
           .where('empresas', arrayContains: empresaId)
-          .get();
+          .get(const GetOptions(source: Source.server));
       for (final d in snap.docs) {
         userDocs[d.id] = d;
       }
-    } catch (_) {}
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No se pudo cargar todo el personal. Revisa la conexión y vuelve a abrir la reasignación.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
 
-    // Áreas sin repetir y con todas sus variantes de id: la persona, el
-    // cargo y la tarea pueden guardar la misma área con ids distintos.
-    final areaCatalogo = AreaCatalogo.desde([
-      for (final d in areasSnap.docs)
-        (
-          id: (d.data()['areaId'] ?? d.id).toString(),
-          nombre: d.data()['nombre']?.toString(),
-        ),
-    ], empresaId: empresaId);
+    final directorio = TaskReassignmentDirectory.desdeDatos(
+      empresaId: empresaId,
+      usuarios: {for (final d in userDocs.values) d.id: d.data()},
+      cargos: {for (final d in cargosSnap.docs) d.id: d.data()},
+      areas: {for (final d in areasSnap.docs) d.id: d.data()},
+      centroAliases: centroAliases,
+    );
+    final areaCatalogo = directorio.areas;
     final areas = [
       for (final o in areaCatalogo.opciones) {'id': o.id, 'nombre': o.nombre},
     ];
+    final cargos = directorio.cargos;
     String areaNameById(String id) =>
-        areaCatalogo.opciones.any((o) => o.contiene(id))
-        ? areaCatalogo.nombreDe(id, empresaId: empresaId)
-        : _nombreArea(id);
-
-    /// Opción del catálogo a la que corresponde un id o nombre de área.
-    String opcionDeArea(String valor) {
-      final v = valor.trim();
-      if (v.isEmpty) return '';
-      for (final o in areaCatalogo.opciones) {
-        if (o.contiene(v)) return o.id;
-      }
-      return '';
-    }
-
-    final cargos = cargosSnap.docs.map((d) {
-      final areaCargo = (d.data()['areaId'] ?? '').toString();
-      final areaNombreCargo = (d.data()['areaNombre'] ?? d.data()['area'] ?? '')
-          .toString();
-      final opcion = opcionDeArea(areaCargo);
-      return {
-        'id': (d.data()['cargoId'] ?? d.id).toString(),
-        'nombre': (d.data()['nombre'] ?? d.data()['descripcion'] ?? d.id)
-            .toString(),
-        'areaId': opcion.isNotEmpty
-            ? opcion
-            : (opcionDeArea(areaNombreCargo).isNotEmpty
-                  ? opcionDeArea(areaNombreCargo)
-                  : areaCargo),
-      };
-    }).toList();
-    // Marca de cada cargo del maestro ("recibe asignaciones"), por id y por
-    // nombre: la ficha de la persona suele traer solo el nombre.
-    final marcaPorCargo = <String, bool>{};
-    for (final d in cargosSnap.docs) {
-      final marca = cargoRecibeAsignaciones(d.data());
-      final id = (d.data()['cargoId'] ?? d.id).toString().trim();
-      if (id.isNotEmpty) marcaPorCargo['id:$id'] = marca;
-      final clave = _claveCargo(
-        (d.data()['nombre'] ?? d.data()['descripcion'] ?? '').toString(),
-      );
-      if (clave.isNotEmpty) marcaPorCargo['nombre:$clave'] = marca;
-    }
-    bool? marcaCargoDe(Map<String, dynamic> m, String empresaId) {
-      final cargoId = resolveScopedStringWithFallbacks(
-        m,
-        empresaId,
-        const ['cargoId', 'cargo_id'],
-        const ['cargoId', 'cargo_id'],
-      ).trim();
-      final cargo = resolveScopedStringWithFallbacks(
-        m,
-        empresaId,
-        const ['cargo', 'cargoNombre', 'cargo_nombre', 'puesto'],
-        const ['cargo', 'cargoNombre', 'cargo_nombre', 'puesto'],
-      ).trim();
-      return marcaPorCargo['id:$cargoId'] ??
-          marcaPorCargo['nombre:${_claveCargo(cargo)}'];
-    }
-
-    // La mayoría del personal no guarda `areaId`: el área vive en su cargo
-    // (TBL_CARGOS.areaId). Sin este puente, al elegir otra área para
-    // reasignar casi nadie aparecía.
-    final areaPorCargo = <String, String>{};
-    for (final c in cargos) {
-      final area = (c['areaId'] ?? '').trim();
-      if (area.isEmpty) continue;
-      final id = (c['id'] ?? '').trim();
-      if (id.isNotEmpty) areaPorCargo.putIfAbsent('id:$id', () => area);
-      final clave = _claveCargo(c['nombre'] ?? '');
-      if (clave.isNotEmpty)
-        areaPorCargo.putIfAbsent('nombre:$clave', () => area);
-    }
-    final usuarios = userDocs.values
-        .map((d) {
-          final m = d.data();
-          if (!matchesEmpresaScope(
-            m,
-            empresaId,
-            allowLegacyWithoutEmpresa: false,
-          )) {
-            return null;
-          }
-          // No se puede pedir reasignación hacia alguien ya retirado en
-          // Talento Humano: el estado laboral vive por empresa.
-          if (!personaHabilitadaEn(m, empresaId)) return null;
-          // Ni hacia quien Talento Humano marcó fuera de la asignación
-          // operativa ("No opera en To-Do", cargos no operativos).
-          if (!recibeAsignacionesEnEmpresa(
-            m,
-            empresaId,
-            marcaDelCargo: marcaCargoDe(m, empresaId),
-          )) {
-            return null;
-          }
-          final nombre = [
-            (m['nombres'] ?? m['primerNombre'] ?? '').toString(),
-            (m['apellidos'] ?? m['primerApellido'] ?? '').toString(),
-          ].where((e) => e.trim().isNotEmpty).join(' ').trim();
-          var areaId = resolveScopedStringWithFallbacks(
-            m,
-            empresaId,
-            const ['areaId', 'area_id', 'departamentoId', 'departamento_id'],
-            const ['areaId', 'area_id', 'departamentoId', 'departamento_id'],
-          ).trim();
-          final areaName = resolveScopedStringWithFallbacks(
-            m,
-            empresaId,
-            const ['area', 'areaNombre', 'area_nombre', 'departamento'],
-            const ['area', 'areaNombre', 'area_nombre', 'departamento'],
-          ).trim();
-          final opcion = opcionDeArea(areaId).isNotEmpty
-              ? opcionDeArea(areaId)
-              : opcionDeArea(areaName);
-          if (opcion.isNotEmpty) areaId = opcion;
-          final cargoId = resolveScopedStringWithFallbacks(
-            m,
-            empresaId,
-            const ['cargoId', 'cargo_id'],
-            const ['cargoId', 'cargo_id'],
-          ).trim();
-          final cargo = resolveScopedStringWithFallbacks(
-            m,
-            empresaId,
-            const ['cargo', 'cargoNombre', 'cargo_nombre', 'puesto'],
-            const ['cargo', 'cargoNombre', 'cargo_nombre', 'puesto'],
-          ).trim();
-          if (areaId.isEmpty) {
-            areaId =
-                areaPorCargo['id:$cargoId'] ??
-                areaPorCargo['nombre:${_claveCargo(cargo)}'] ??
-                '';
-          }
-          final detalle = getUserCompanyDetail(m, empresaId);
-          Object? datoCentro(String key) => detalle?.containsKey(key) == true
-              ? detalle![key]
-              : (raizEsDeEmpresa(m, empresaId) ? m[key] : null);
-          final centrosUsuario = <String>{};
-          for (final key in const [
-            'centrosTrabajoIds',
-            'centrosOperacionIds',
-          ]) {
-            final raw = datoCentro(key);
-            if (raw is Iterable && raw is! String) {
-              centrosUsuario.addAll(
-                raw.map((e) => e.toString().trim()).where((e) => e.isNotEmpty),
-              );
-            }
-          }
-          for (final key in const ['centroTrabajoId', 'centroOperacionId']) {
-            final value = (datoCentro(key) ?? '').toString().trim();
-            if (value.isNotEmpty) centrosUsuario.add(value);
-          }
-          if (centrosUsuario.isEmpty) {
-            final administrativo = resolveScopedStringWithFallbacks(
-              m,
-              empresaId,
-              const ['centroId'],
-              const ['centroId'],
-            ).trim();
-            if (administrativo.isNotEmpty && administrativo != 'global') {
-              centrosUsuario.add(administrativo);
-            }
-          }
-          final cobertura = centrosUsuario
-              .map((id) => centroAliases[id] ?? id)
-              .toSet();
-          return {
-            'id': d.id,
-            'nombre': nombre.isEmpty ? d.id : nombre,
-            'areaId': areaId,
-            'areaNombre': areaName.isEmpty ? areaNameById(areaId) : areaName,
-            'cargoId': cargoId,
-            'cargo': cargo,
-            'centrosCobertura': cobertura.join('|'),
-          };
-        })
-        .whereType<Map<String, String>>()
-        .toList();
+        areaCatalogo.nombreDe(id, empresaId: empresaId);
+    String opcionDeArea(String valor) =>
+        areaCatalogo.opciones.where((o) => o.contiene(valor)).firstOrNull?.id ??
+        '';
 
     final areaTarea = opcionDeArea(taskAreaId);
     if (taskAreaId.isNotEmpty && areaTarea.isEmpty) {
@@ -636,7 +485,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         _str(taskData, [k]).trim(),
     }..remove('');
 
-    if (!mounted) return;
+    if (!mounted || (_selectedEmpresaId ?? empresaId) != empresaId) return;
     final bool? ok = await showDialog<bool>(
       context: context,
       builder: (_) => StatefulBuilder(
@@ -649,49 +498,13 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
             );
           }).toList()..sort((a, b) => a['nombre']!.compareTo(b['nombre']!));
 
-          final filteredUsers = usuarios.where((u) {
-            if (u['id'] == widget.userId) return false;
-            // Interventoría: quien aprueba no puede quedar respondiendo su
-            // propia subsanación (también lo validan servicio y reglas).
-            if (esInterventoria && aprobadoresTarea.contains(u['id'])) {
-              return false;
-            }
-            if (selectedCentroId.isNotEmpty &&
-                !(u['centrosCobertura'] ?? '')
-                    .split('|')
-                    .contains(selectedCentroId)) {
-              return false;
-            }
-            if (!areaCatalogo.coincide(
-                  filtro: selectedAreaId,
-                  valor: u['areaId'],
-                  todas: '',
-                ) &&
-                !areaCatalogo.coincide(
-                  filtro: selectedAreaId,
-                  valor: u['areaNombre'],
-                  todas: '',
-                )) {
-              return false;
-            }
-            if (selectedCargoId != null &&
-                selectedCargoId!.isNotEmpty &&
-                u['cargoId'] != selectedCargoId) {
-              return false;
-            }
-            final query = search.trim().toLowerCase();
-            if (query.isNotEmpty) {
-              final haystack = [
-                u['nombre'],
-                u['id'],
-                u['cargo'],
-                u['cargoId'],
-                u['areaNombre'],
-              ].whereType<String>().join(' ').toLowerCase();
-              if (!haystack.contains(query)) return false;
-            }
-            return true;
-          }).toList()..sort((a, b) => a['nombre']!.compareTo(b['nombre']!));
+          final filteredUsers = directorio.filtrar(
+            areaId: selectedAreaId,
+            cargoId: selectedCargoId ?? '',
+            centroId: selectedCentroId,
+            busqueda: search,
+            excluir: {widget.userId, if (esInterventoria) ...aprobadoresTarea},
+          );
 
           return AlertDialog(
             title: Text(
@@ -786,6 +599,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                       const SizedBox(height: 12),
                     ],
                     DropdownButtonFormField<String>(
+                      key: ValueKey('cargo:$selectedAreaId'),
                       isExpanded: true,
                       initialValue: selectedCargoId,
                       decoration: const InputDecoration(
@@ -804,7 +618,11 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                         ...filteredCargos.map(
                           (c) => DropdownMenuItem<String>(
                             value: c['id'],
-                            child: Text(c['nombre']!),
+                            child: Text(
+                              c['nombre']!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                         ),
                       ],
@@ -922,7 +740,10 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       ),
     );
 
-    if (ok != true || pickedUser == null) {
+    if (!mounted ||
+        (_selectedEmpresaId ?? empresaId) != empresaId ||
+        ok != true ||
+        pickedUser == null) {
       return;
     }
 

@@ -1,5 +1,54 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-04 — Reasignación de Interventoría y recuperación selectiva de descargas (Codex)
+
+- Corregido el filtro de destino de Mis tareas: muchas fichas guardan solo el
+  nombre del cargo y no `cargoId`. El directorio de reasignación resuelve nombres
+  normalizados, identificadores del documento y canónicos de cargos/áreas,
+  incluyendo el puesto de la empresa secundaria. No toma arbitrariamente el
+  área de un cargo cuyo nombre coincide con varios puestos. Los cargos de fichas
+  aún ausentes del catálogo también quedan disponibles para filtrar.
+- Personal, áreas y cargos se actualizan desde servidor al abrir la reasignación;
+  un error de consulta avisa y evita presentar un directorio parcial como completo.
+  Cambiar el área limpia de verdad el cargo anterior. Se conserva el filtro de
+  centro y la exclusión del responsable actual, aprobadores de Interventoría,
+  personas inhabilitadas y personas/cargos fuera de la asignación operativa.
+  Se comprueba la empresa de la tarea y se cancela si cambia la empresa activa.
+- Visitas > Descargadas incorpora «Restablecer descargas dañadas»: selección de
+  archivos ilegibles, confirmación y apartado mediante renombrado del original
+  cifrado a `.preservada`. Revalida que cada seleccionado siga ilegible antes de
+  apartarlo. No borra ni reinicia datos de sesión, claves, permisos, fotos o visitas
+  legibles, incluidas las finalizadas pendientes de enviar. Opera solo en la
+  carpeta de esa cuenta y empresa; rechaza identificadores/rutas arbitrarios.
+- En la entrada en línea, después de apartar las seleccionadas se abre el selector
+  existente de visitas programadas con su fecha para descargarlas otra vez. La
+  entrada local indica volver con internet. Se conserva la validación de acceso,
+  pertenencia, cargo y estado en `visitasPrepararOffline`; no permite descargar
+  una visita ya iniciada/finalizada en servidor. Un archivo ilegible no permite
+  mostrar su nombre/fecha ni recuperar los cambios anteriores con una descarga
+  nueva; la copia preservada conserva los bytes para eventual soporte.
+- `unavailable` y `deadline-exceeded` muestran un mensaje de conexión y conservación
+  de la visita, también para errores guardados por versiones anteriores. Ya no se
+  guarda ni pinta la traza técnica completa en la tarjeta. Restablecer descargas
+  no resuelve una indisponibilidad del servidor: las legibles se sincronizan.
+- Validación: 50 pruebas Flutter aprobadas: directorio/filtros, aliases, cargos
+  históricos/ambiguos, empresa secundaria y exclusiones; segunda reasignación
+  mediante el servicio con Firestore simulado (conserva sede/empresa/aprobador),
+  rechazo de destino inhabilitado/ajeno; preservación cifrada y selección de
+  dañadas, reparación concurrente, aislamiento y mensajes. Panel, diálogo de
+  recuperación y formulario local en 390/768/1024/1366, texto 1.8 en panel/diálogo,
+  Android e iOS simulados. Análisis sin errores ni advertencias; conserva dos
+  avisos informativos previos de RadioListTile deprecado en la reasignación.
+  Compilación Web release correcta (`flutter build web --no-pub`); el sondeo de
+  WebAssembly avisa de incompatibilidades en dependencias existentes, sin impedir
+  la salida Web JavaScript. No equivale a validación funcional en navegador.
+- Pendientes reales: validar la reasignación con personal real y el diálogo de
+  reasignación en navegador (ancho estrecho/amplio, texto y teclado); instalar la
+  actualización y probar en el dispositivo afectado. No se ha validado Android
+  ni iOS en dispositivos reales ni compilado iOS en Mac. No se modificaron reglas,
+  roles, catálogos de módulos/maestros o datos de producción; no requiere nuevos
+  maestros ni niveles. No se publica automáticamente en Hosting ni tiendas.
+
 ## 2026-10-30 — Android 2.8.16+70: BAD_DECRYPT y originales en galería (Codex)
 
 - La nueva captura evidencia BadPaddingException/BAD_DECRYPT al leer la clave

@@ -135,6 +135,24 @@ class VisitasLocalScreen extends StatelessWidget {
   );
 }
 
+String mensajeErrorVisitaLocal(Object error) {
+  final raw = error.toString();
+  final code = error is FirebaseFunctionsException ? error.code : '';
+  if (['unavailable', 'deadline-exceeded'].contains(code) ||
+      raw.contains('[firebase_functions/unavailable]') ||
+      raw.contains('[firebase_functions/deadline-exceeded]')) {
+    return 'No se pudo contactar al servidor. La visita sigue guardada en este equipo. Revisa internet y vuelve a sincronizar en unos minutos.';
+  }
+  if (error is PlatformException) {
+    return 'No se pudo abrir el almacenamiento seguro de visitas. Reinicia la app e inténtalo de nuevo. Conserva los datos del equipo.';
+  }
+  if (error is FirebaseFunctionsException) {
+    final message = (error.message ?? '').trim();
+    if (message.isNotEmpty) return message.split('\n').first;
+  }
+  return raw.split('\n').first.trim();
+}
+
 class VisitasDescargadasTab extends StatefulWidget {
   final String userId, empresaId;
   final bool local;
@@ -191,15 +209,78 @@ class _VisitasDescargadasTabState extends State<VisitasDescargadasTab> {
 
   /// Muestra solo el motivo, sin el rastro técnico de la excepción.
   String _mensajeLegible(Object e) {
-    if (e is PlatformException) {
-      return 'No se pudo abrir el almacenamiento seguro de visitas. Reinicia la app e inténtalo de nuevo. Conserva los datos del equipo.';
-    }
-    if (e is FirebaseFunctionsException) {
-      final m = (e.message ?? '').trim();
-      if (m.isNotEmpty) return m;
-    }
-    if (e is VisitasException) return e.toString();
-    return e.toString().split('\n').first.trim();
+    return mensajeErrorVisitaLocal(e);
+  }
+
+  Future<void> _restablecerDanadas() async {
+    final ids = await _store.descargasDanadas(widget.userId, widget.empresaId);
+    if (!mounted || ids.isEmpty) return;
+    final seleccionadas = ids.toSet();
+    final aceptar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, cambiar) => AlertDialog(
+          title: const Text('Restablecer descargas dañadas'),
+          scrollable: true,
+          content: SizedBox(
+            width: 480,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Selecciona las descargas que quieres apartar. Conservaremos una copia de sus archivos cifrados. Las visitas que se pueden abrir y sus fotos no se modifican.\n\n'
+                  'No se puede leer el nombre ni la fecha de estos archivos. Al descargar de nuevo, elige la visita y su fecha. Los cambios del archivo dañado no se recuperan con una nueva descarga.',
+                ),
+                for (var i = 0; i < ids.length; i++)
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text('Descarga dañada ${i + 1}'),
+                    subtitle: Text('Referencia: ${ids[i].substring(0, 8)}'),
+                    value: seleccionadas.contains(ids[i]),
+                    onChanged: (value) => cambiar(() {
+                      if (value == true) {
+                        seleccionadas.add(ids[i]);
+                      } else {
+                        seleccionadas.remove(ids[i]);
+                      }
+                    }),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: seleccionadas.isEmpty
+                  ? null
+                  : () => Navigator.pop(ctx, true),
+              child: const Text('Apartar seleccionadas'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (aceptar != true || !mounted) return;
+    final count = await _store.apartarDescargasDanadas(
+      widget.userId,
+      widget.empresaId,
+      seleccionadas,
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Se apartaron $count descarga(s) dañadas conservando sus archivos. ${widget.local ? 'Con internet, entra a Descargadas para preparar de nuevo la visita.' : 'Elige la visita y la fecha para descargarla de nuevo.'}',
+        ),
+      ),
+    );
+    // Actualizar antes de descargar; nunca reutilizar el listado anterior.
+    setState(_reload);
+    if (!widget.local && count > 0) await _download();
   }
 
   Future<void> _download() async {
@@ -320,7 +401,7 @@ class _VisitasDescargadasTabState extends State<VisitasDescargadasTab> {
           ['permission-denied', 'unauthenticated'].contains(e.code)) {
         await _store.revocarAcceso();
       }
-      await _store.guardar({...p, 'error': e.toString()});
+      await _store.guardar({...p, 'error': _mensajeLegible(e)});
       rethrow;
     }
   }
@@ -362,6 +443,15 @@ class _VisitasDescargadasTabState extends State<VisitasDescargadasTab> {
               'Conservamos los archivos. Con internet puedes volver a preparar las visitas disponibles; los cambios locales anteriores no se recuperan al descargarlas de nuevo. '
               'No desinstales ni borres los datos si tienes trabajo pendiente de enviar.',
               style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
+        if (snap.hasData && _ilegibles > 0)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: _busy ? null : () => _run(_restablecerDanadas),
+              icon: const Icon(Icons.restore_page_outlined),
+              label: const Text('Restablecer descargas dañadas'),
             ),
           ),
         if (_error != null || snap.hasError)
@@ -416,7 +506,7 @@ class _VisitasDescargadasTabState extends State<VisitasDescargadasTab> {
             ),
             if (p['error'] != null)
               Text(
-                p['error'].toString(),
+                _mensajeLegible(p['error']),
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             const SizedBox(height: 8),
