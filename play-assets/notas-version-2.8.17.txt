@@ -1,0 +1,3 @@
+• Interventoría: corregimos la búsqueda de personal por área y cargo al reasignar tareas.
+• Visitas: ahora puedes seleccionar y restablecer descargas dañadas, conservando sus archivos originales y las visitas pendientes de envío.
+• Mejoramos los mensajes cuando no es posible conectar con el servidor.

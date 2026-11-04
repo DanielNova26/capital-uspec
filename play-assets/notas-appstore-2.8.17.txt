@@ -1,0 +1,5 @@
+Novedades de la versión 2.8.17
+
+• Reasignación de tareas de Interventoría: mejoramos la búsqueda de personal por área y cargo, incluidas las personas vinculadas a una empresa secundaria.
+• Visitas sin conexión: agregamos la opción de seleccionar y restablecer descargas dañadas para volver a preparar las visitas disponibles. Conservamos los archivos originales y las visitas legibles pendientes de envío.
+• Sincronización: mostramos mensajes más claros cuando no es posible conectar con el servidor, indicando que la visita sigue guardada en el equipo y puede volver a enviarse.

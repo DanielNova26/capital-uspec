@@ -17,6 +17,12 @@ No se ha consultado el último código usado en Play Console. El 71 es el siguie
 al último AAB local (70); si la consola ya lo utilizó, hay que aumentar el número
 y generar un nuevo AAB, sin reutilizar el anterior.
 
+## Web
+
+Versión `2.8.17` (71) publicada el 4 de noviembre de 2026 en
+[To-Do Gestión](https://to-do-gestion.web.app). Verificados la versión y los
+archivos principales servidos contra la compilación local después del despliegue.
+
 ## iPhone / App Store Connect
 
 El IPA se genera en el Mac del usuario, con Xcode y Apple Developer ya
@@ -84,12 +90,13 @@ en TestFlight y seleccionar la compilación en la versión correspondiente de
 App Store Connect para enviar a revisión. Comprobar que el build no esté ya
 usado en esa versión. Subir el binario no publica por sí solo la actualización.
 
-## Notas para ambas tiendas
+## Notas de versión para las tiendas
 
-> Corregimos la búsqueda de personal por área y cargo al reasignar tareas de
-> Interventoría. Agregamos la recuperación selectiva de descargas dañadas de
-> Visitas, conservando sus archivos originales y las visitas pendientes de envío.
-> Mejoramos los mensajes cuando no es posible conectar con el servidor.
+- Google Play, campo «Novedades de esta versión»:
+  [notas-version-2.8.17.txt](../play-assets/notas-version-2.8.17.txt).
+- App Store Connect, campo «Novedades de esta versión»:
+  [notas-appstore-2.8.17.txt](../play-assets/notas-appstore-2.8.17.txt).
+- Versión visible: `2.8.17`; código/build: `71` en ambas plataformas.
 
 Antes de distribuir, validar en dispositivos reales la segunda reasignación,
 descarga/recuperación, biometría, fotos, firmas, teclado y envío de visitas. Una

@@ -1,5 +1,21 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-04 — Web 2.8.17+71 publicada y notas de tiendas (Codex)
+
+- Preparadas notas independientes para Google Play (301 caracteres) y App Store
+  (579 caracteres) en `play-assets/notas-version-2.8.17.txt` y
+  `play-assets/notas-appstore-2.8.17.txt`. La guía de publicación enlaza los dos
+  textos y confirma versión 2.8.17/build 71 para ambas plataformas.
+- Compilación Web release correcta y control `verificar_build_web.js` aprobado.
+  Publicado solo Hosting de `to-do-gestion`, proyecto `integra360-94704`, por
+  solicitud expresa del usuario: https://to-do-gestion.web.app.
+- El sitio público pasó de 2.8.14 (67) a 2.8.17 (71). Verificados HTTP 200,
+  versión/build y coincidencia SHA-256 con la compilación local de `/`,
+  `version.json`, `main.dart.js` y `flutter_bootstrap.js` después del despliegue.
+- Sin cambios funcionales adicionales ni despliegue de Functions/reglas. No se
+  ha publicado en las tiendas. Continúan pendientes la compilación/firma del IPA
+  en el Mac y las pruebas autenticadas con personal real y dispositivos físicos.
+
 ## 2026-11-04 — AAB 2.8.17+71 y entrega para publicar iPhone (Codex)
 
 - Aumentada la versión común a 2.8.17+71 para incluir las correcciones de
