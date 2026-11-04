@@ -9,7 +9,11 @@
  */
 import type * as admin from "firebase-admin";
 
-/** Mismo criterio de presentación que core/interventoria_task_text.dart. */
+/**
+ * Mismo criterio de presentación que core/interventoria_task_text.dart.
+ * @param {admin.firestore.DocumentData} data Metadatos de la propia tarea.
+ * @return {admin.firestore.DocumentData} Texto con el numeral canónico.
+ */
 export function textoCanonicoTareaInterventoria(
   data: admin.firestore.DocumentData
 ): admin.firestore.DocumentData {
