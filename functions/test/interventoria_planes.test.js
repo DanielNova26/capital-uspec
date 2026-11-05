@@ -49,12 +49,30 @@ test('copiar, aprobar o descargar no equivale a presentar en K2', () => {
 });
 
 
-test('finalizada sin aprobación expresa no habilita plan y estados manuales finales se conservan', () => {
+test('la aprobación se informa y los estados manuales finales se conservan', () => {
   assert.equal(p.tareaAprobadaParaPlan({estado: 'finalizado'}), false);
   assert.equal(p.tareaAprobadaParaPlan({estado: 'finalizado', solicitud_finalizacion_estado: 'aprobado'}), true);
   assert.equal(p.tareaAprobadaParaPlan({estado: 'finalizado', solicitud_finalizacion_estado: 'aprobado', reasignacion_estado: 'pendiente'}), false);
   assert.equal(p.estadoGestionAutomatico('recibido', []), 'recibido');
-  assert.equal(p.estadoGestionAutomatico('en_gestion', [{respuestaVersion: 1}, {}]), 'recibido');
+  assert.equal(p.estadoGestionAutomatico('en_gestion', [{respuestaVersion: 1}, {}]), 'en_gestion');
   assert.equal(p.estadoGestionAutomatico('mesa_descuentos', [{respuestaVersion: 1}]), 'mesa_descuentos');
   assert.equal(p.estadoGestionAutomatico('enviado', [{respuestaVersion: 1}]), 'enviado');
+});
+
+test('fecha ajustada no retrocede respecto a hoy ni al valor vigente; históricos intactos se conservan', () => {
+  const anterior = {fechaNotificacion: '2026-10-01', limiteRespuesta: '2026-11-10', limiteSoportes: '2026-11-25'};
+  assert.doesNotThrow(() => p.validarCambioFechas(anterior, anterior, '2026-11-05'));
+  for (const cambio of [{limiteRespuesta: '2026-11-09'}, {fechaNotificacion: '2026-10-31'}, {limiteSoportes: '2026-11-04'}]) {
+    assert.throws(() => p.validarCambioFechas({...anterior, ...cambio}, anterior, '2026-11-05'), /No puedes seleccionar una fecha atrás/);
+  }
+  assert.doesNotThrow(() => p.validarCambioFechas({...anterior, limiteSoportes: '2026-11-26'}, anterior, '2026-11-05'));
+});
+test('política de retirada reserva borrado definitivo a Desarrollo y director a Recibido', () => {
+  for (const estado of ['recibido', 'en_gestion', 'enviado', 'mesa_descuentos']) {
+    assert.doesNotThrow(() => p.validarRetiradaPlan(true, false, estado, true));
+    assert.throws(() => p.validarRetiradaPlan(false, false, estado));
+    assert.throws(() => p.validarRetiradaPlan(false, true, estado, true));
+    if (estado !== 'recibido') assert.throws(() => p.validarRetiradaPlan(false, true, estado));
+  }
+  assert.doesNotThrow(() => p.validarRetiradaPlan(false, true, 'recibido'));
 });

@@ -112,14 +112,6 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
       for (final key in entry.value) {
         if (!mounted) return;
         try {
-          final current = await widget.request({
-            'accion': 'fuentes',
-            'itemId': entry.key,
-          });
-          if (current['soloConsulta'] == true ||
-              current['tareaAprobada'] == false) {
-            throw StateError('La tarea sigue pendiente de aprobación.');
-          }
           await widget.request({
             'accion': 'usarFuente',
             'itemId': entry.key,
@@ -272,7 +264,7 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
               ),
             ),
             const PlanAyuda(
-              'Calidad puede consultar respuestas y archivos antes de la aprobación. Solo una tarea aprobada permite incorporarlos al plan. Incorpora la respuesta y selecciona los archivos que deben acompañar la subsanación. El acta original aporta contexto. Máximo 12 soportes de hasta 5 MB cada uno.',
+              'Puedes consultar e incorporar respuestas y archivos aunque la tarea esté pendiente de aprobación. Incorpora la respuesta y selecciona los archivos que deben acompañar la subsanación. El acta original aporta contexto. Máximo 12 soportes de hasta 5 MB cada uno.',
             ),
           ],
         ),
@@ -452,7 +444,6 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
     final editable =
         enabled &&
         source?['soloConsulta'] != true &&
-        source?['tareaAprobada'] != false &&
         item['soportesPresentado'] == null;
     final name = source == null
         ? planText(item, 'responsableNombre')
@@ -496,7 +487,7 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
                   children: [
                     if (planList(item['evidencias']).isEmpty)
                       const Text(
-                        'Aún no hay soportes en este hallazgo. Abre la respuesta para adjuntarlos o incluye una fuente aprobada abajo.',
+                        'Aún no hay soportes en este hallazgo. Abre la respuesta para adjuntarlos o incluye una fuente abajo.',
                       ),
                     for (final file in planList(item['evidencias']))
                       ListTile(

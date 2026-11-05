@@ -138,7 +138,7 @@ void main() {
   }
   for (final calidad in [true, false]) {
     testWidgets(
-      'tarea pendiente: ${calidad ? 'Calidad solo consulta' : 'el responsable no envía'}',
+      'tarea pendiente: ${calidad ? 'Calidad guarda' : 'el responsable guarda'}',
       (tester) async {
         await tester.pumpWidget(
           MaterialApp(
@@ -163,8 +163,8 @@ void main() {
         final enviar = tester.widget<FilledButton>(
           find.widgetWithText(FilledButton, 'Guardar y enviar a revisión'),
         );
-        // Ningún perfil envía una respuesta pendiente de aprobación.
-        expect(enviar.onPressed, isNull);
+        // El compromiso puede guardarse aunque la tarea esté pendiente.
+        expect(enviar.onPressed, isNotNull);
         if (!calidad) return;
         expect(
           tester
@@ -172,7 +172,7 @@ void main() {
                 find.widgetWithText(TextButton, 'Satisfactorio'),
               )
               .onPressed,
-          isNull,
+          isNotNull,
         );
       },
     );

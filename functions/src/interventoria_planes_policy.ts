@@ -1,4 +1,4 @@
-/** Reglas puras del expediente K2. Las fechas son días civiles de Colombia. */
+/** Reglas puras del expediente Interventoría. Las fechas son días civiles de Colombia. */
 export type DatosPlan = Record<string, any>;
 export const PLANES_COL = "TBL_INTERVENTORIA_PLANES";
 export const ITEMS_COL = "TBL_INTERVENTORIA_PLAN_ITEMS";
@@ -26,13 +26,34 @@ export function tareaAprobadaParaPlan(t: DatosPlan): boolean {
     t.reasignacion_estado !== "pendiente";
 }
 
-export function exigirTareaAprobada(t: DatosPlan): void {
-  if (!tareaAprobadaParaPlan(t)) throw Error("La tarea debe estar aprobada por su aprobador antes de enviar o presentar la respuesta del plan.");
-}
-
 export function estadoGestionAutomatico(estado: string, items: DatosPlan[]): string {
   if (!["recibido", "en_gestion"].includes(estado)) return estado;
-  return items.length > 0 && items.every((i) => Number(i.respuestaVersion) > 0 || Number(i.soportesVersion) > 0) ? "en_gestion" : "recibido";
+  return items.some((i) => i.eliminado !== true) ? "en_gestion" : "recibido";
+}
+
+export function validarRetiradaPlan(desarrollo: boolean, director: boolean, estado: string, definitiva = false): void {
+  if (definitiva && !desarrollo) throw Error("Solo Desarrollo puede eliminar definitivamente un plan de mejora.");
+  if (!desarrollo && (!director || estado !== "recibido")) {
+    throw Error("Solo el director puede inactivar un plan en estado Recibido.");
+  }
+}
+
+export function validarCambioFechas(fechas: DatosPlan, anteriores: DatosPlan, hoy = hoyColombia()): void {
+  for (const key of ["fechaNotificacion", "limiteRespuesta", "limiteSoportes"]) {
+    // Una fecha histórica sin cambios se conserva; cualquier cambio avanza.
+    if (fechas[key] !== anteriores[key] && (fechas[key] < hoy || fechas[key] < anteriores[key])) {
+      throw Error("No puedes seleccionar una fecha atrás.");
+    }
+  }
+}
+
+export function validarPdfPlan(plan: DatosPlan, item?: DatosPlan, etapa = "todo"): void {
+  if (!item) {
+    if (plan.estadoGestion !== "enviado") throw Error("El PDF del plan solo se genera cuando está Enviado.");
+  } else if ((etapa !== "soportes" && (!item.compromiso || !Number(item.respuestaVersion))) ||
+      (etapa !== "respuesta" && !Number(item.soportesVersion))) {
+    throw Error("Guarda la entrega antes de generar su PDF.");
+  }
 }
 
 export function diaValido(value: unknown): string {
@@ -114,7 +135,7 @@ export function validarRevision(item: DatosPlan, etapa: string, version: number,
   if (!["respuesta", "soportes"].includes(etapa) ||
       !["satisfactorio", "devuelto"].includes(estado)) throw Error("Revisión inválida.");
   if (version !== item[`${etapa}Version`]) throw Error("El responsable cambió la entrega. Actualiza antes de revisar.");
-  if (item[`${etapa}Presentado`]) throw Error("La entrega ya fue presentada en K2.");
+  if (item[`${etapa}Presentado`]) throw Error("La entrega ya fue presentada en Interventoría.");
   if (estado === "devuelto" && motivo.trim().length < 8) throw Error("Explica la devolución (mínimo 8 caracteres).");
   if (estado === "satisfactorio" && (etapa === "respuesta" ?
     !item.compromiso : !(item.evidencias?.length > 0 && item.respuestaSoportes?.trim()))) {

@@ -164,7 +164,7 @@ void main() {
         ...item,
         'respuestaRevision': {'estado': 'satisfactorio', 'version': 0},
       }, 'respuesta'),
-      'Listo para K2',
+      'Listo para Interventoría',
     );
     expect(
       planEstado({

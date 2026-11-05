@@ -1,5 +1,56 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-05 — Flujo, permisos y panel de planes de Interventoría (Codex)
+
+- Ajustar fechas impide retroceder respecto de hoy y del valor vigente, con el
+  mensaje «No puedes seleccionar una fecha atrás». Una fecha histórica que no
+  se modifica se conserva. La validación está en calendario, formulario y
+  callable; las correcciones mantienen motivo e historial.
+- Recibido pasa a En gestión al vincular el primer numeral, sin esperar a que
+  todos tengan respuesta. La lectura aplica el mismo criterio a los planes
+  anteriores, sin migrar ni sobrescribir producción.
+- Inactivar exige ser director/directora según el cargo de la empresa activa,
+  acceso canónico vigente de gestión (Calidad/Gerencia) y estado Recibido.
+  Desarrollo conserva la retirada en cualquier estado. Inactivo se consulta
+  desde el filtro de historial, sin habilitar operaciones sobre el plan.
+- El borrado definitivo queda reservado a Desarrollo y exige motivo. Elimina
+  los vínculos, subcolecciones y archivos del plan de prueba, conservando tareas
+  y hallazgos originales. Guarda actor, empresa, motivo, fecha, estado y
+  instantáneas sin claves de cifrado en `TBL_INTERVENTORIA_PLAN_AUDITORIA`,
+  protegida contra lectura/escritura directa desde clientes. No se borró ningún
+  registro real para validar este flujo.
+- Compromisos, revisión, presentación, fuentes, adjuntos y fotografías iniciales
+  funcionan independientemente de la aprobación de la tarea. Se conservan la
+  empresa, el responsable actual, las revisiones del expediente y el control de
+  versiones. El compromiso incorpora dictado con el permiso de micrófono ya
+  declarado en Android/iOS. Su PDF está junto a Compromiso y fechas y exige un
+  compromiso guardado; el PDF completo del plan exige estado Enviado.
+- Panel superior fijo con acciones y color por estado; acciones horizontales
+  en espacio reducido y composición amplia en escritorio. Retirada la cabecera
+  duplicada del hallazgo integrado. Fechas y colaboradores comparten fila cuando
+  caben. Filtros de hallazgos desplegados y filtro de estado del listado visible;
+  tarjetas laterales reducidas a número, estado y fecha. Etiquetas visibles de
+  K2 sustituidas por Interventoría, conservando identificadores de datos/API.
+- Vincular muestra actas y numerales con observación real, conserva paginación
+  y selección entre actas, permite marcar desde el chip superior y mantiene una
+  acción de vinculación en la cabecera. Añadido índice empresa/visita.
+- Validación: 336 pruebas de Functions, 43 pruebas de integración/reglas con
+  Firestore y Storage emulados y 100 pruebas Flutter aprobadas; análisis de los
+  cinco archivos de interfaz sin incidencias. Matriz de widgets Windows,
+  Android e iOS a 390/768/1024/1366, texto 1.6, teclado y áreas seguras simulados;
+  verificados panel fijo, cambio de color, guardado sin aprobación y calendario.
+  El canal de voz simulado comprueba dos hallazgos sucesivos, conservación de
+  ambos borradores y recuperación del botón Detener dictado con el singleton.
+  Capturas locales revisadas en `tmp/interventoria-qa`. Compilaciones Web release
+  y Android APK debug correctas. ESLint de los tres archivos TypeScript sin
+  errores; conserva avisos de longitud de línea. Persisten avisos existentes de
+  Gradle/AGP y compatibilidad del sondeo WASM en dependencias.
+- Pendientes reales: prueba autenticada en navegador y dispositivos Android/iOS,
+  dictado con micrófono/permisos reales y compilación/firma iOS desde macOS.
+  Sin despliegue a producción: publicar coordinadamente Web, callable de planes,
+  avisos, reglas e índice; distribuir las nuevas versiones móviles. El módulo
+  mantiene su app canónica y sus maestros/configuraciones existentes.
+
 ## 2026-11-04 — Web 2.8.17+71 publicada y notas de tiendas (Codex)
 
 - Preparadas notas independientes para Google Play (301 caracteres) y App Store

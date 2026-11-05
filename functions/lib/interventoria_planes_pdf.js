@@ -81,7 +81,7 @@ async function fichaPlanPdf(empresa, plan, item, expediente, corte, revisiones, 
     text(`${item.establecimiento} | Acta ${item.idVisitaK2} | Fecha ${String(item.fechaActa || "").split("T")[0]}`);
     text(`Notificación ${plan.csc} | ${plan.fechaNotificacion}\nRespuesta máxima: ${plan.limiteRespuesta} | Soportes máximos: ${plan.limiteSoportes}`);
     if (expediente)
-        text(`Corte: ${corte}. Incluye pendientes; no acredita por sí mismo aceptación en K2.`, red);
+        text(`Corte: ${corte}. Incluye pendientes; no acredita por sí mismo aceptación en Interventoría.`, red);
     section("01  DATOS DE LA TAREA Y SUBSANACIÓN", `Tarea ${item.numeroTarea || ""} | Estado: ${item.tareaEstado || ""}\nResponsable: ${item.responsableNombre || ""}\nAprueba: ${item.aprobadorNombre || ""}\nPlazo de subsanación: ${String(item.limiteSubsanacion || "Sin fecha").split("T")[0]}`);
     section(`02  NUMERAL ${item.numeral}`, item.descripcion);
     section("OBSERVACIÓN DE INTERVENTORÍA", item.observacionInterventoria || "Sin observación registrada.", red);
@@ -92,7 +92,7 @@ async function fichaPlanPdf(empresa, plan, item, expediente, corte, revisiones, 
             section("04  RESPUESTA INCORPORADA DE LA TAREA", item.respuestaTarea);
         if (item.respuestaCalidad)
             section("RESPUESTA DE CALIDAD", item.respuestaCalidad);
-        section("RESPUESTA PARA K2", item.respuestaSoportes || "Pendiente de entrega");
+        section("RESPUESTA PARA Interventoría", item.respuestaSoportes || "Pendiente de entrega");
     }
     section("05  REVISIÓN Y PRESENTACIÓN", revisiones);
     if (etapa !== "respuesta") {

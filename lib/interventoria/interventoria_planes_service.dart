@@ -24,8 +24,8 @@ bool planAprobado(PlanData item, String etapa) {
 }
 
 String planEstado(PlanData item, String etapa) {
-  if (item['${etapa}Presentado'] != null) return 'Presentado en K2';
-  if (planAprobado(item, etapa)) return 'Listo para K2';
+  if (item['${etapa}Presentado'] != null) return 'Presentado en Interventoría';
+  if (planAprobado(item, etapa)) return 'Listo para Interventoría';
   return switch (planMap(item['${etapa}Revision'])['estado']) {
     'devuelto' => 'Requiere corrección',
     'por_revisar' => 'Por revisar',

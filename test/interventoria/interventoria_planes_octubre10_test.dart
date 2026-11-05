@@ -87,8 +87,7 @@ void main() {
           'Numeral 7.10',
           'Numeral 11.1',
         ]);
-        await tester.ensureVisible(find.text('Numeral 7.2'));
-        await tester.tap(find.text('Numeral 7.2'));
+        await tester.tap(find.widgetWithText(FilterChip, '7.2'));
         await tester.pumpAndSettle();
         if (width >= 1024) {
           expect(find.text('Vista previa · 1 seleccionados'), findsOneWidget);
@@ -167,7 +166,12 @@ void main() {
           await tester.scrollUntilVisible(
             find.widgetWithText(TextField, 'Compromiso de mejora'),
             500,
-            scrollable: find.byType(Scrollable).first,
+            scrollable: find
+                .byWidgetPredicate(
+                  (w) =>
+                      w is Scrollable && w.axisDirection == AxisDirection.down,
+                )
+                .first,
           );
           tester.view.viewInsets = const FakeViewPadding(bottom: 300);
           await tester.enterText(
@@ -178,7 +182,12 @@ void main() {
           await tester.scrollUntilVisible(
             find.text('Guardar y enviar a revisión'),
             250,
-            scrollable: find.byType(Scrollable).first,
+            scrollable: find
+                .byWidgetPredicate(
+                  (w) =>
+                      w is Scrollable && w.axisDirection == AxisDirection.down,
+                )
+                .first,
           );
           await tester.ensureVisible(find.text('Guardar y enviar a revisión'));
           await tester.pumpAndSettle();
@@ -200,7 +209,12 @@ void main() {
           await tester.scrollUntilVisible(
             find.text('Eliminar este hallazgo del PM'),
             -350,
-            scrollable: find.byType(Scrollable).first,
+            scrollable: find
+                .byWidgetPredicate(
+                  (w) =>
+                      w is Scrollable && w.axisDirection == AxisDirection.down,
+                )
+                .first,
           );
           await tester.ensureVisible(
             find.text('Eliminar este hallazgo del PM'),
@@ -209,7 +223,13 @@ void main() {
           await tester.tap(find.text('Eliminar este hallazgo del PM'));
           await tester.pumpAndSettle();
           removed = true;
-          await tester.tap(find.widgetWithText(FilledButton, 'Eliminar'));
+          await tester.enterText(
+            find.widgetWithText(TextField, 'Motivo de la retirada'),
+            'Hallazgo vinculado por error.',
+          );
+          await tester.tap(
+            find.widgetWithText(FilledButton, 'Confirmar retirada'),
+          );
           await tester.pumpAndSettle();
           expect(
             actions.any(

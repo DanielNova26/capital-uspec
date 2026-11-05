@@ -93,7 +93,92 @@ const planEstadosGestion = {
   'en_gestion': 'En gestión',
   'enviado': 'Enviado',
   'mesa_descuentos': 'Mesa de descuentos',
+  'inactivo': 'Inactivo',
 };
+
+Color planColorEstado(String estado) => switch (estado) {
+  'en_gestion' => const Color(0xff285da1),
+  'enviado' => const Color(0xff146c55),
+  'mesa_descuentos' => const Color(0xff92374c),
+  'inactivo' => const Color(0xff56616c),
+  _ => const Color(0xff975311),
+};
+
+/// El encabezado permanece fuera del scroll del expediente. En poco espacio,
+/// las acciones tienen su propio recorrido horizontal y no tapan el formulario.
+class PlanPanelFijo extends StatelessWidget {
+  const PlanPanelFijo({
+    super.key,
+    required this.numero,
+    required this.estado,
+    required this.resumen,
+    required this.acciones,
+  });
+  final String numero, estado, resumen;
+  final List<Widget> acciones;
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, c) {
+      final compacto =
+          c.maxWidth < 700 || MediaQuery.textScalerOf(context).scale(1) > 1.3;
+      final color = planColorEstado(estado);
+      return AnimatedContainer(
+        key: const ValueKey('plan-panel-fijo'),
+        duration: const Duration(milliseconds: 250),
+        margin: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: .10),
+          border: Border.all(color: color.withValues(alpha: .4)),
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: color.withValues(alpha: .08),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              '$numero · ${planEstadosGestion[estado] ?? 'Recibido'}',
+              maxLines: compacto ? 2 : 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: color,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            if (!compacto) Text(resumen),
+            const SizedBox(height: 8),
+            if (compacto)
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (final accion in acciones)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: accion,
+                      ),
+                  ],
+                ),
+              )
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: acciones,
+              ),
+          ],
+        ),
+      );
+    },
+  );
+}
 
 class PlanColumnas extends StatelessWidget {
   const PlanColumnas({super.key, required this.children});
@@ -141,8 +226,8 @@ class PlanEstadoChip extends StatelessWidget {
     final color = switch (text) {
       'Terminado' ||
       'Enviado' ||
-      'Listo para K2' ||
-      'Presentado en K2' => Colors.teal.shade800,
+      'Listo para Interventoría' ||
+      'Presentado en Interventoría' => Colors.teal.shade800,
       'Sin iniciar' ||
       'Requiere corrección' ||
       'Mesa de descuentos' => Colors.red.shade800,
@@ -167,11 +252,13 @@ class PlanFechaCampo extends StatelessWidget {
     required this.label,
     this.enabled = true,
     this.onChanged,
+    this.minDate,
   });
   final TextEditingController controller;
   final String label;
   final bool enabled;
   final ValueChanged<String>? onChanged;
+  final DateTime? minDate;
   @override
   Widget build(BuildContext context) => TextField(
     controller: controller,
@@ -183,14 +270,17 @@ class PlanFechaCampo extends StatelessWidget {
       border: const OutlineInputBorder(),
     ),
     onTap: () async {
+      final first = minDate ?? DateTime(2000);
+      final actual = DateTime.tryParse(controller.text) ?? planHoy();
       final chosen = await showDatePicker(
         context: context,
-        initialDate: DateTime.tryParse(controller.text) ?? planHoy(),
-        firstDate: DateTime(2000),
+        initialDate: actual.isBefore(first) ? first : actual,
+        firstDate: first,
         lastDate: DateTime(2100),
         helpText: label.replaceAll(' · AAAA-MM-DD', ''),
         cancelText: 'Cancelar',
         confirmText: 'Seleccionar',
+        errorInvalidText: 'No puedes seleccionar una fecha atrás.',
       );
       if (chosen != null && context.mounted) {
         controller.text = planDia(chosen);
@@ -302,7 +392,7 @@ class PlanFiltrosBar extends StatelessWidget {
       }
 
       return ExpansionTile(
-        initiallyExpanded: false,
+        initiallyExpanded: true,
         tilePadding: EdgeInsets.zero,
         leading: const Icon(Icons.tune),
         title: const Text('Filtrar y ordenar hallazgos'),
@@ -419,11 +509,7 @@ class PlanResumen extends StatelessWidget {
             ? Colors.red.shade800
             : Colors.orange.shade900;
         return Container(
-          width:
-              c.maxWidth < 480 ||
-                  MediaQuery.textScalerOf(context).scale(1) > 1.3
-              ? c.maxWidth
-              : (c.maxWidth - 24) / 3,
+          width: c.maxWidth < 600 ? c.maxWidth : (c.maxWidth - 24) / 3,
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: color.withValues(alpha: .08),
@@ -548,7 +634,7 @@ class PlanContextoHallazgo extends StatelessWidget {
               const Padding(
                 padding: EdgeInsets.only(top: 10),
                 child: Text(
-                  'Pendiente de aprobación de la tarea. El aprobador debe resolverla en Tareas o Subsanaciones antes de enviar entregas a Calidad.',
+                  'La tarea está pendiente de aprobación. Puedes guardar el compromiso, adjuntar soportes y enviar las entregas a Calidad.',
                   style: TextStyle(color: Color(0xffa13d3d)),
                 ),
               ),

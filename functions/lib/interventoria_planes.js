@@ -89,7 +89,8 @@ async function actorPlanes(input, context) {
     const opera = tieneModulo || apps.includes("tareasdashboard") || apps.includes("tareas");
     if (!opera)
         err("Tu acceso al módulo fue retirado.", "permission-denied");
-    return { id: uid, empresaId, calidad, opera, nombre: s(u.nombreCompleto || u.nombre || `${u.nombres || ""} ${u.apellidos || ""}`) || "Responsable" };
+    const director = calidad && /^director(?:a)?(?:\s|$)/i.test((0, interventoria_aprobador_1.cargoEnEmpresa)(u, empresaId).trim());
+    return { id: uid, empresaId, calidad, opera, desarrollo, director, nombre: s(u.nombreCompleto || u.nombre || `${u.nombres || ""} ${u.apellidos || ""}`) || "Responsable" };
 }
 function calidad(a) {
     if (!a.calidad)
@@ -187,7 +188,7 @@ async function seguimientoPlan(input, a) {
         !((0, interventoria_deletion_1.isInterventoriaDeveloper)(u, a.empresaId) ||
             ((0, apps_por_empresa_1.appsDeEmpresa)(u, a.empresaId).some((x) => [interventoria_planes_policy_1.APP_PLANES, "interventoria"].includes(x.toLowerCase())) &&
                 role.data()?.empresaId === a.empresaId && interventoria_planes_policy_1.ROLES_GESTORES_PLANES.includes(role.data()?.rol)))) {
-        err("El responsable de K2 debe tener acceso vigente de gestión en esta empresa.", "permission-denied");
+        err("El responsable de Interventoría debe tener acceso vigente de gestión en esta empresa.", "permission-denied");
     }
     const responsible = { nombre: s(u?.nombreCompleto || u?.nombre || `${u?.nombres || ""} ${u?.apellidos || ""}`) || "Responsable" };
     const motivo = s(input.motivo);
@@ -199,7 +200,7 @@ async function seguimientoPlan(input, a) {
         if (estado === "enviado") {
             const items = await tx.get(db().collection(interventoria_planes_policy_1.ITEMS_COL).where("planId", "==", ref.id));
             if (items.empty || items.docs.some((d) => !d.data().respuestaPresentado || !d.data().soportesPresentado)) {
-                err("Registra primero la presentación real de respuestas y soportes de todos los hallazgos en K2.");
+                err("Registra primero la presentación real de respuestas y soportes de todos los hallazgos en Interventoría.");
             }
         }
         const currentItems = await tx.get(db().collection(interventoria_planes_policy_1.ITEMS_COL).where("planId", "==", ref.id));
@@ -280,14 +281,19 @@ async function gruposDeEstablecimientos(a) {
 async function consultarPlanes(input, a) {
     if (input.accion === "actasCandidatas") {
         calidad(a);
-        // Only visit metadata is loaded here; findings are queried after selecting a visit.
+        // Solo se ofrecen actas que conservan numerales con observación real.
         let q = db().collection("TBL_INTERVENTORIA_VISITAS").where("empresaId", "==", a.empresaId)
             .orderBy(admin.firestore.FieldPath.documentId()).limit(501);
         if (input.cursor)
             q = q.startAfter(id(input.cursor));
         const snap = await q.get();
         const docs = snap.docs.slice(0, 500);
-        const actas = docs.map((d) => ({ id: d.id, idVisitaK2: s(d.data().idVisitaK2),
+        const paginas = [];
+        for (let offset = 0; offset < docs.length; offset += 30)
+            paginas.push(db().collection("TBL_INTERVENTORIA_HALLAZGOS").where("empresaId", "==", a.empresaId).where("visitaId", "in", docs.slice(offset, offset + 30).map((d) => d.id)).get());
+        const hallazgos = (await Promise.all(paginas)).flatMap((p) => p.docs);
+        const visitasConHallazgos = new Set(hallazgos.filter((h) => h.data().eliminado !== true && s(h.data().numeralActa || h.data().numeroHallazgo) && s(h.data().descripcion) && s(h.data().observaciones)).map((h) => s(h.data().visitaId)));
+        const actas = docs.filter((d) => d.data().eliminado !== true && visitasConHallazgos.has(d.id)).map((d) => ({ id: d.id, idVisitaK2: s(d.data().idVisitaK2),
             establecimiento: s(d.data().subcentroNombre || d.data().centroCostoNombre),
             establecimientoId: s(d.data().subcentroId || d.data().centroCostoId) || s(d.data().subcentroNombre || d.data().centroCostoNombre),
             fechaActa: plain(d.data().fechaVisita) || "" })).filter((d) => d.idVisitaK2);
@@ -301,11 +307,11 @@ async function consultarPlanes(input, a) {
             q = q.startAfter(id(input.cursor));
         const snap = await q.get();
         const docs = snap.docs.slice(0, 50);
-        const planes = await Promise.all(docs.filter((d) => d.data().eliminado !== true).map(async (d) => {
+        const planes = await Promise.all(docs.map(async (d) => {
             const p = d.data();
             const items = await db().collection(interventoria_planes_policy_1.ITEMS_COL).where("planId", "==", d.id).get();
             const own = items.docs.map((i) => i.data()).filter((i) => i.empresaId === a.empresaId);
-            return { id: d.id, ...plain(p), estadoGestion: (0, interventoria_planes_policy_1.estadoGestionAutomatico)(p.estadoGestion || "recibido", own), establecimientos: [...new Set(own.map((i) => s(i.establecimiento)))],
+            return { id: d.id, ...plain(p), estadoGestion: p.eliminado === true ? "inactivo" : (0, interventoria_planes_policy_1.estadoGestionAutomatico)(p.estadoGestion || "recibido", own), establecimientos: [...new Set(own.map((i) => s(i.establecimiento)))],
                 fechasActa: [...new Set(own.map((i) => s(plain(i.fechaActa)).slice(0, 10)).filter((f) => f))].sort(),
                 grupos: [...new Set(await Promise.all(own.map(grupo)))] };
         }));
@@ -326,7 +332,7 @@ async function consultarPlanes(input, a) {
             q = q.startAfter(id(input.cursor));
         const snap = await q.get();
         const docs = snap.docs.slice(0, 100);
-        const candidatos = await Promise.all(docs.map(async (h) => {
+        const candidatos = await Promise.all(docs.filter((h) => h.data().eliminado !== true && s(h.data().numeralActa || h.data().numeroHallazgo) && s(h.data().descripcion) && s(h.data().observaciones)).map(async (h) => {
             const d = h.data();
             const [visitaDoc, tareaDoc] = await Promise.all([
                 d.visitaId ? db().collection("TBL_INTERVENTORIA_VISITAS").doc(id(d.visitaId)).get() : null,
@@ -356,6 +362,8 @@ async function consultarPlanes(input, a) {
                 continue;
             const task = await tareaItem(d, a);
             const p = (await db().collection(interventoria_planes_policy_1.PLANES_COL).doc(d.planId).get()).data();
+            if (p?.eliminado === true || p?.estado === "inactivo")
+                continue;
             empresa(p, a);
             items.push({ id: doc.id, ...plain(d), ...await contextoHallazgo(d, a), ...await resumenTarea(task.data, a), plan: plain(p) });
         }
@@ -364,7 +372,10 @@ async function consultarPlanes(input, a) {
     calidad(a);
     const planId = id(input.planId);
     const p = (await db().collection(interventoria_planes_policy_1.PLANES_COL).doc(planId).get()).data();
-    empresa(p, a);
+    if (!(a.calidad && p?.empresaId === a.empresaId && p.eliminado === true))
+        empresa(p, a);
+    if (!p)
+        return err("El plan no existe.");
     const snap = await db().collection(interventoria_planes_policy_1.ITEMS_COL).where("planId", "==", planId).get();
     const items = await Promise.all(snap.docs.map(async (d) => {
         const item = d.data();
@@ -373,7 +384,7 @@ async function consultarPlanes(input, a) {
         return { id: d.id, ...plain(item), ...await contextoHallazgo(item, a), grupo: await grupo(item), ...await resumenTarea(t || {}, a) };
     }));
     const historial = await db().collection(interventoria_planes_policy_1.PLANES_COL).doc(planId).collection("historial").orderBy("fecha", "desc").limit(100).get();
-    return { plan: { id: planId, ...plain(p), estadoGestion: (0, interventoria_planes_policy_1.estadoGestionAutomatico)(p.estadoGestion || "recibido", items) }, items, historial: historial.docs.map((d) => plain(d.data())) };
+    return { plan: { id: planId, ...plain(p), estadoGestion: p.eliminado === true ? "inactivo" : (0, interventoria_planes_policy_1.estadoGestionAutomatico)(p.estadoGestion || "recibido", items), puedeInactivar: !p.eliminado && (a.desarrollo || (a.director && (0, interventoria_planes_policy_1.estadoGestionAutomatico)(p.estadoGestion || "recibido", items) === "recibido")), puedeEliminarDefinitivamente: a.desarrollo }, items, historial: historial.docs.map((d) => plain(d.data())) };
 }
 async function crearPlan(input, a) {
     calidad(a);
@@ -418,6 +429,8 @@ async function vincularHallazgos(input, a) {
                 continue;
             const h = (await tx.get(db().collection("TBL_INTERVENTORIA_HALLAZGOS").doc(hid))).data();
             empresa(h, a);
+            if (!s(h.observaciones) || !s(h.descripcion) || !s(h.numeralActa || h.numeroHallazgo))
+                err("Este numeral no tiene un hallazgo registrado.");
             if (!h.tareaId || !h.visitaId)
                 err("Cada hallazgo debe tener visita y tarea asignada.");
             const v = (await tx.get(db().collection("TBL_INTERVENTORIA_VISITAS").doc(id(h.visitaId)))).data();
@@ -448,7 +461,7 @@ async function vincularHallazgos(input, a) {
         }
         tx.update(ref, { cantidad: (p.cantidad || 0) + nuevos.length,
             ...(nuevos.length && p.estadoGestion === "enviado" ? { estadoGestion: "en_gestion" } : {}),
-            ...(nuevos.length && ["recibido", "en_gestion"].includes(p.estadoGestion) ? { estadoGestion: "recibido" } : {}),
+            ...(nuevos.length && ["recibido", "en_gestion"].includes(p.estadoGestion || "recibido") ? { estadoGestion: "en_gestion" } : {}),
             ...(nuevos.length ? { establecimientos: admin.firestore.FieldValue.arrayUnion(...nuevos.map((n) => n.data.establecimiento)),
                 grupos: admin.firestore.FieldValue.arrayUnion(...nuevos.map((n) => n.data.grupo)) } : {}),
             updatedAt: admin.firestore.Timestamp.now() });
@@ -459,38 +472,80 @@ async function vincularHallazgos(input, a) {
 // Retirada lógica: conserva evidencia e historial, sin tocar el hallazgo ni la
 // tarea originales. Quitar los vínculos activos evita avisos y entregas huérfanas.
 async function eliminarDelPlan(input, a) {
-    calidad(a);
+    const definitiva = input.definitiva === true;
+    const retirarPlan = input.accion === "eliminarPlan";
+    if (!retirarPlan)
+        calidad(a);
+    if (definitiva && !retirarPlan)
+        err("La eliminación definitiva solo aplica al plan.");
     const ref = db().collection(interventoria_planes_policy_1.PLANES_COL).doc(id(input.planId));
-    const completo = (i) => !!i.respuestaPresentado && !!i.soportesPresentado;
+    const motivo = s(input.motivo);
+    if (retirarPlan && motivo.length < 8)
+        err("Indica el motivo de la retirada (mínimo 8 caracteres).");
+    const registro = db().collection("TBL_INTERVENTORIA_PLAN_AUDITORIA").doc();
+    let purgar = [];
+    let archivos = [];
     await db().runTransaction(async (tx) => {
         const p = (await tx.get(ref)).data();
-        empresa(p, a);
+        if (!p || p.empresaId !== a.empresaId)
+            return err("El plan no existe en la empresa activa.", "permission-denied");
         const snap = await tx.get(db().collection(interventoria_planes_policy_1.ITEMS_COL).where("planId", "==", ref.id));
-        for (const d of snap.docs)
-            empresa(d.data(), a);
-        const retirarPlan = input.accion === "eliminarPlan";
-        const seleccion = retirarPlan ? snap.docs : snap.docs.filter((d) => d.id === id(input.itemId));
+        const archivados = definitiva ? await tx.get(db().collection(interventoria_planes_policy_1.ITEMS_COL).where("planIdArchivado", "==", ref.id)) : null;
+        const todos = [...new Map([...snap.docs, ...(archivados?.docs || [])].map((d) => [d.id, d])).values()];
+        for (const d of todos)
+            if (d.data().empresaId !== a.empresaId)
+                err("El vínculo pertenece a otra empresa.", "permission-denied");
+        if (retirarPlan && !a.desarrollo && !a.director)
+            err("Solo el director o Desarrollo puede retirar planes.", "permission-denied");
+        if (retirarPlan) {
+            (0, interventoria_planes_policy_1.validarRetiradaPlan)(a.desarrollo, a.director, (0, interventoria_planes_policy_1.estadoGestionAutomatico)(p.estadoGestion || "recibido", snap.docs.map((d) => d.data())), definitiva);
+        }
+        if (!definitiva)
+            empresa(p, a);
+        const seleccion = retirarPlan ? todos : snap.docs.filter((d) => d.id === id(input.itemId));
         if (!retirarPlan && !seleccion.length)
             err("El hallazgo ya no pertenece a este plan.");
-        if (seleccion.some((d) => completo(d.data()))) {
-            err("No se puede eliminar un plan ni retirar un hallazgo con actividades en estado Terminado.");
+        if (!retirarPlan && !a.desarrollo && seleccion.some((d) => d.data().respuestaPresentado && d.data().soportesPresentado)) {
+            err("No se puede retirar un hallazgo con actividades terminadas.");
         }
         const now = admin.firestore.Timestamp.now();
+        purgar = definitiva ? seleccion.map((d) => d.ref) : [];
+        archivos = definitiva ? seleccion.flatMap((d) => [...(d.data().evidencias || []), ...(d.data().evidenciasIniciales || [])]
+            .map((ev) => s(ev.path)).filter((path) => path.startsWith(`interventoria_planes/${a.empresaId}/${d.id}/`))) : [];
+        if (definitiva) {
+            tx.create(registro, { empresaId: a.empresaId, planId: ref.id, accion: "eliminacion_definitiva", porId: a.id,
+                porNombre: a.nombre, motivo, fecha: now, anterior: plain(p), itemIds: seleccion.map((d) => d.id), estado: "en_proceso" });
+            for (const d of seleccion)
+                tx.create(registro.collection("hallazgos").doc(d.id), { anterior: plain(d.data()) });
+        }
         for (const doc of seleccion) {
             const item = doc.data();
-            audit(tx, doc.ref, a, "retirado_del_plan", { anterior: item });
+            if (!definitiva)
+                audit(tx, doc.ref, a, "retirado_del_plan", { anterior: item, motivo });
             tx.update(doc.ref, { eliminado: true, eliminadoAt: now, eliminadoPor: a.id,
-                planIdArchivado: item.planId, tareaIdArchivada: item.tareaId,
+                planIdArchivado: item.planId || item.planIdArchivado, tareaIdArchivada: item.tareaId || item.tareaIdArchivada || "",
                 planId: admin.firestore.FieldValue.delete(), tareaId: admin.firestore.FieldValue.delete() });
         }
         const restantes = snap.docs.filter((d) => !seleccion.includes(d)).map((d) => d.data());
-        tx.update(ref, retirarPlan ? { eliminado: true, estado: "eliminado", eliminadoAt: now, eliminadoPor: a.id } : {
+        tx.update(ref, retirarPlan ? { eliminado: true, activo: false, estado: "inactivo", eliminadoAt: now, eliminadoPor: a.id } : {
             cantidad: restantes.length, establecimientos: [...new Set(restantes.map((i) => s(i.establecimiento)))],
             grupos: [...new Set(restantes.map((i) => s(i.grupo)))],
             estadoGestion: (0, interventoria_planes_policy_1.estadoGestionAutomatico)(p.estadoGestion || "recibido", restantes), updatedAt: now
         });
-        audit(tx, ref, a, retirarPlan ? "plan_eliminado" : "hallazgo_retirado", { itemIds: seleccion.map((d) => d.id) });
+        audit(tx, ref, a, retirarPlan ? "plan_inactivado" : "hallazgo_retirado", { motivo, itemIds: seleccion.map((d) => d.id) });
     });
+    if (definitiva) {
+        // La auditoría externa permanece aunque se borren el plan y sus subcolecciones.
+        const exports = await ref.collection("exportaciones").get();
+        archivos.push(...exports.docs.flatMap((d) => (d.data().partes || []).map((p) => s(p.path))
+            .filter((path) => path.startsWith(`interventoria_planes/${a.empresaId}/exportaciones/${d.id}/`))));
+        for (const path of new Set(archivos))
+            await admin.storage().bucket().file(path).delete({ ignoreNotFound: true });
+        for (const item of purgar)
+            await db().recursiveDelete(item);
+        await db().recursiveDelete(ref);
+        await registro.update({ estado: "completado", completadoAt: admin.firestore.Timestamp.now() });
+    }
     return { ok: true };
 }
 // Campana (reunión 15 oct 2026): Calidad le recuerda al responsable de la
@@ -506,7 +561,7 @@ async function recordarItem(input, a) {
     if (plan.estado !== "abierto")
         err("El plan está cerrado.");
     if (item.respuestaPresentado && item.soportesPresentado)
-        err("Este hallazgo ya está presentado en K2.");
+        err("Este hallazgo ya está presentado en Interventoría.");
     const tarea = await tareaItem(item, a);
     const responsable = s(tarea.data.asignado_uid || tarea.data.assignedTo);
     if (!responsable)
@@ -594,7 +649,7 @@ async function cambiarItem(input, a) {
     const fuenteTexto = accion === "usarTexto" ? (await fuentesTarea(input, a)).avances
         .find((v) => v.id === input.fuenteId && s(v.message)) : null;
     if (accion === "usarTexto" && !fuenteTexto)
-        err("Selecciona una respuesta de la tarea aprobada.");
+        err("Selecciona una respuesta registrada en la tarea.");
     await db().runTransaction(async (tx) => {
         const item = (await tx.get(ref)).data();
         empresa(item, a);
@@ -604,10 +659,6 @@ async function cambiarItem(input, a) {
         if (plan.estado !== "abierto")
             err("El plan está cerrado.");
         const tarea = await tareaItem(item, a, tx);
-        // Se permite consultar antes de aprobar, pero ninguna entrega puede
-        // incorporarse o enviarse a revisión saltándose al aprobador de la tarea.
-        if (accion !== "reabrir")
-            (0, interventoria_planes_policy_1.exigirTareaAprobada)(tarea.data);
         const siblings = await tx.get(db().collection(interventoria_planes_policy_1.ITEMS_COL).where("planId", "==", item.planId));
         const responsable = s(tarea.data.asignado_uid || tarea.data.assignedTo);
         const update = { updatedAt: admin.firestore.Timestamp.now() };
@@ -641,7 +692,7 @@ async function cambiarItem(input, a) {
             if (Number(input.version) !== item[`${e}Version`])
                 err("La entrega cambió. Actualiza antes de guardar.", "aborted");
             if (item[`${e}Presentado`])
-                err("La entrega está presentada en K2. Una persona gestora del plan debe reabrirla con motivo.");
+                err("La entrega está presentada en Interventoría. Una persona gestora del plan debe reabrirla con motivo.");
             if (e === "respuesta") {
                 Object.assign(update, (0, interventoria_planes_policy_1.validarCompromiso)(input, plan));
                 update.soportesRevision = { estado: "pendiente", motivo: "Compromiso actualizado" };
@@ -663,7 +714,7 @@ async function cambiarItem(input, a) {
         }
         else if (accion === "usarTexto") {
             if (!fuenteTexto)
-                return err("La respuesta aprobada ya no está disponible.");
+                return err("La respuesta de la tarea ya no está disponible.");
             if (s(fuenteTexto.message).length > 12000)
                 err("La respuesta supera 12000 caracteres. Prepara una redacción resumida en Calidad.");
             if (Number(input.version) !== item.soportesVersion || item.soportesPresentado)
@@ -687,7 +738,7 @@ async function cambiarItem(input, a) {
             const comprobante = s(input.comprobante);
             const fecha = (0, interventoria_planes_policy_1.diaValido)(input.fecha);
             if (comprobante.length < 5 || comprobante.length > 1000)
-                err("Indica la referencia o comprobante de K2.");
+                err("Indica la referencia o comprobante de Interventoría.");
             if (fecha < plan.fechaNotificacion || fecha > (0, interventoria_planes_policy_1.hoyColombia)())
                 err("La fecha de presentación no es válida.");
             update[`${etapa}Presentado`] = { fecha, comprobante, version: item[`${etapa}Version`],
@@ -740,7 +791,6 @@ async function reactivarTarea(input, a) {
             err("La entrega cambió. Actualiza antes de reactivar.", "aborted");
         }
         const tarea = await tareaItem(item, a, tx);
-        (0, interventoria_planes_policy_1.exigirTareaAprobada)(tarea.data);
         const hr = db().collection("TBL_INTERVENTORIA_HALLAZGOS").doc(id(item.hallazgoId));
         const hallazgo = (await tx.get(hr)).data();
         empresa(hallazgo, a);
@@ -796,7 +846,7 @@ async function adjuntar(input, a) {
     const ref = db().collection(interventoria_planes_policy_1.ITEMS_COL).doc(id(input.itemId));
     const item = (await ref.get()).data();
     empresa(item, a);
-    (0, interventoria_planes_policy_1.exigirTareaAprobada)((await tareaItem(item, a)).data);
+    await tareaItem(item, a);
     const nombre = s(input.nombre).replace(/[^\p{L}\p{N}._ -]/gu, "_").slice(0, 150);
     const ext = nombre.split(".").pop()?.toLowerCase();
     const types = { pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png" };
@@ -831,8 +881,7 @@ async function adjuntar(input, a) {
         await db().runTransaction(async (tx) => {
             const current = (await tx.get(ref)).data();
             empresa(current, a);
-            const task = await tareaItem(current, a, tx);
-            (0, interventoria_planes_policy_1.exigirTareaAprobada)(task.data);
+            await tareaItem(current, a, tx);
             const pr = db().collection(interventoria_planes_policy_1.PLANES_COL).doc(id(current.planId));
             const plan = (await tx.get(pr)).data();
             empresa(plan, a);
@@ -891,10 +940,6 @@ async function fuentesTarea(input, a, internas = false) {
     empresa(item, a);
     const tarea = await tareaItem(item, a);
     const resumen = await resumenTarea(tarea.data, a);
-    if (!resumen.tareaAprobada && !a.calidad) {
-        return { ...resumen, archivos: [], avances: [], adjuntos: [],
-            motivo: "La tarea aún no está aprobada. Sus textos y archivos estarán disponibles al aprobarla." };
-    }
     const [avances, finalizacion, hallazgoDoc, visitaDoc] = await Promise.all([
         tarea.ref.collection("avances").get(), tarea.ref.collection("finalizacion").get(),
         db().collection("TBL_INTERVENTORIA_HALLAZGOS").doc(id(item.hallazgoId)).get(),
@@ -921,7 +966,7 @@ async function fuentesTarea(input, a, internas = false) {
                 (tipo === "tarea" ? path.startsWith(`tareas/${item.tareaId}/`) || /^tareas\/\d{4}\/\d{1,2}\/\d{1,2}\/[^/]+$/.test(path) :
                     path.startsWith(`interventoria/${a.empresaId}/visitas/${item.visitaId}/`));
             const motivo = !segura ? "Archivo sin ruta válida para este hallazgo; vuelve a adjuntarlo." :
-                !["pdf", "jpg", "jpeg", "png"].includes(extension || "") ? "Formato no admitido en K2: usa PDF, JPG o PNG." : "";
+                !["pdf", "jpg", "jpeg", "png"].includes(extension || "") ? "Formato no admitido en Interventoría: usa PDF, JPG o PNG." : "";
             const nuevo = { key, path, name, origen, tipo, disponible: !motivo, motivo,
                 incluido: incluidos.has(key), ...(internas ? { url: s(raw.url) } : {}) };
             if (!archivos.has(key) || (!archivos.get(key).disponible && nuevo.disponible))
@@ -955,8 +1000,7 @@ async function fuentesTarea(input, a, internas = false) {
     if (s(visita.actaOriginalUrl))
         agregar([{ url: visita.actaOriginalUrl }], "Acta original · contexto", "acta");
     registros.sort((x, y) => s(y.createdAt).localeCompare(s(x.createdAt)));
-    return { ...resumen, soloConsulta: !resumen.tareaAprobada,
-        motivo: resumen.tareaAprobada ? "" : "Vista previa: pendiente de aprobación. No se pueden incorporar respuestas ni archivos hasta que se apruebe la tarea.",
+    return { ...resumen, soloConsulta: false, motivo: "",
         archivos: [...archivos.values()], avances: registros, adjuntos: [...archivos.values()],
         responsableNombre: s(tarea.data.asignado_nombre || tarea.data.assignedToName),
         responsableId: s(tarea.data.asignado_uid || tarea.data.assignedTo) };
@@ -991,7 +1035,7 @@ async function leerFuente(input, a, limite = 5 * 1024 * 1024) {
 async function usarFuente(input, a) {
     const item = (await db().collection(interventoria_planes_policy_1.ITEMS_COL).doc(id(input.itemId)).get()).data();
     empresa(item, a);
-    (0, interventoria_planes_policy_1.exigirTareaAprobada)((await tareaItem(item, a)).data);
+    await tareaItem(item, a);
     const { ev, bytes } = await leerFuente(input, a);
     return adjuntar({ itemId: input.itemId, nombre: ev.name, base64: bytes.toString("base64"),
         _fuenteKey: ev.key, _fuenteOrigen: ev.origen }, a);
@@ -1015,7 +1059,7 @@ async function retirarSoporte(input, a) {
     await db().runTransaction(async (tx) => {
         const item = (await tx.get(ref)).data();
         empresa(item, a);
-        (0, interventoria_planes_policy_1.exigirTareaAprobada)((await tareaItem(item, a, tx)).data);
+        await tareaItem(item, a, tx);
         if (item.soportesPresentado)
             err("Reabre la entrega antes de corregir los soportes.");
         const evs = (item[campo] || []).filter((v) => v.path !== input.path);
@@ -1035,7 +1079,9 @@ async function editarFechas(input, a) {
     await db().runTransaction(async (tx) => {
         const p = (await tx.get(ref)).data();
         empresa(p, a);
+        (0, interventoria_planes_policy_1.validarCambioFechas)({ ...p, ...input }, p);
         const fechas = (0, interventoria_planes_policy_1.fechasPlan)({ ...input, tipo: p.tipo });
+        (0, interventoria_planes_policy_1.validarCambioFechas)(fechas, p);
         const items = await tx.get(db().collection(interventoria_planes_policy_1.ITEMS_COL).where("planId", "==", ref.id));
         for (const item of items.docs) {
             const d = item.data();
@@ -1088,14 +1134,16 @@ async function exportar(input, a) {
         err("Etapa de PDF inválida.");
     const consolidado = generarPdf ? await pdf_lib_1.PDFDocument.create() : null;
     const detail = await consultarPlanes({ ...input, accion: "detalle" }, a);
+    if (generarPdf)
+        (0, interventoria_planes_policy_1.validarPdfPlan)(detail.plan, input.itemId ? detail.items.find((i) => i.id === input.itemId) : undefined, etapaPdf);
     const company = (await db().collection("TBL_EMPRESAS").doc(a.empresaId).get()).data();
     const companyName = s(company?.nombre || company?.razonSocial) || a.empresaId;
     const items = detail.items.filter((i) => !input.itemId || i.id === input.itemId)
         .sort((x, y) => s(x.establecimiento).localeCompare(s(y.establecimiento), "es") ||
         s(x.idVisitaK2).localeCompare(s(y.idVisitaK2), "es", { numeric: true }) ||
         s(x.numeral).localeCompare(s(y.numeral), "es", { numeric: true }));
-    if (!items.length || (!expediente && items.some((i) => !i.tareaAprobada || !(0, interventoria_planes_policy_1.etapaAprobada)(i, "respuesta") || !(0, interventoria_planes_policy_1.etapaAprobada)(i, "soportes"))))
-        err("Todos los hallazgos seleccionados deben tener tarea aprobada, compromiso y soportes satisfactorios.");
+    if (!items.length || (!expediente && items.some((i) => !(0, interventoria_planes_policy_1.etapaAprobada)(i, "respuesta") || !(0, interventoria_planes_policy_1.etapaAprobada)(i, "soportes"))))
+        err("Todos los hallazgos seleccionados deben tener compromiso y soportes satisfactorios.");
     const zip = new jszip_1.default();
     let total = 0;
     const corte = new Date().toISOString();
@@ -1118,15 +1166,14 @@ async function exportar(input, a) {
         const etapa = (e) => {
             const presented = original[`${e}Presentado`];
             const review = original[`${e}Revision`] || {};
-            return `${e === "respuesta" ? "Compromiso" : "Soportes"}: ${presented ? "Presentado en K2" : (0, interventoria_planes_policy_1.etapaAprobada)(original, e) ? "Aprobado, pendiente de presentación" : s(review.estado) || "Pendiente"}\n` +
+            return `${e === "respuesta" ? "Compromiso" : "Soportes"}: ${presented ? "Presentado en Interventoría" : (0, interventoria_planes_policy_1.etapaAprobada)(original, e) ? "Aprobado, pendiente de presentación" : s(review.estado) || "Pendiente"}\n` +
                 `Revisión: ${s(review.porNombre)} · ${s(plain(review.fecha))} · ${s(review.motivo)}\n` +
                 (presented ? `Presentación: ${s(presented.fecha)} · ${s(presented.porNombre)} · Constancia: ${s(presented.comprobante)}\n` : "");
         };
         const historialTexto = expediente ?
             `HISTORIAL DEL HALLAZGO\n${historial.map((h) => `${h.fecha} - ${h.accion} - ${h.porNombre} - ${h.motivo || ""}`).join("\n")}\n` +
                 `HISTORIAL DEL PLAN\n${detail.historial.map((h) => `${h.fecha} - ${h.accion} - ${h.porNombre} - ${h.motivo || ""}`).join("\n")}` : "";
-        if (!expediente)
-            (0, interventoria_planes_policy_1.exigirTareaAprobada)((await tareaItem(original, a)).data);
+        await tareaItem(original, a);
         const pdf = await (0, interventoria_planes_pdf_1.fichaPlanPdf)(companyName, detail.plan, item, expediente, corte, (etapaPdf === "soportes" ? "" : etapa("respuesta")) + (etapaPdf === "respuesta" ? "" : etapa("soportes")), generarPdf ? "" : historialTexto, etapaPdf);
         for (const ev of etapaPdf === "respuesta" ? [] : original.evidencias || []) {
             if (!s(ev.path).startsWith(`interventoria_planes/${a.empresaId}/${item.id}/`))
@@ -1285,7 +1332,7 @@ exports.interventoriaPlanesAvisos = functions.region("us-central1").pubsub
     const planes = await db().collection(interventoria_planes_policy_1.PLANES_COL).where("estado", "==", "abierto").get();
     for (const p of planes.docs) {
         const plan = p.data();
-        const a = { id: "sistema", nombre: "Interventoría", empresaId: plan.empresaId, calidad: true, opera: true };
+        const a = { id: "sistema", nombre: "Interventoría", empresaId: plan.empresaId, calidad: true, opera: true, desarrollo: false, director: false };
         const calidadIds = await destinatariosPlan(a, plan);
         const expiradas = await p.ref.collection("exportaciones").where("expiraAt", "<", admin.firestore.Timestamp.now()).limit(100).get();
         for (const e of expiradas.docs) {
@@ -1338,7 +1385,7 @@ exports.interventoriaPlanesAvisos = functions.region("us-central1").pubsub
                     await db().runTransaction(async (tx) => {
                         if ((await tx.get(ref)).exists)
                             return;
-                        notice(tx, uid, `plazo:${doc.id}:${etapa}:${hoy}:${uid}`, a, `${plan.numero}: ${etapa} ${dias < 0 ? "vencidos" : dias === 0 ? "vencen hoy" : `en ${dias} días`}`, `${item.establecimiento} · ${item.numeral}. Fecha máxima ${limite}. ${(0, interventoria_planes_policy_1.etapaAprobada)(item, etapa) ? "Pendiente registrar presentación en K2." : "Pendiente entrega o revisión."}`, item);
+                        notice(tx, uid, `plazo:${doc.id}:${etapa}:${hoy}:${uid}`, a, `${plan.numero}: ${etapa} ${dias < 0 ? "vencidos" : dias === 0 ? "vencen hoy" : `en ${dias} días`}`, `${item.establecimiento} · ${item.numeral}. Fecha máxima ${limite}. ${(0, interventoria_planes_policy_1.etapaAprobada)(item, etapa) ? "Pendiente registrar presentación en Interventoría." : "Pendiente entrega o revisión."}`, item);
                     });
                 }
             }

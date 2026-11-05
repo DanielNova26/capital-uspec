@@ -21,7 +21,6 @@ class _PlanSeleccionHallazgosState extends State<PlanSeleccionHallazgos> {
   final List<PlanData> _actas = [], _rows = [];
   final Map<String, PlanData> _selected = {};
   late final Set<String> _linked = {...widget.vinculados};
-  final Map<String, GlobalKey> _rowKeys = {};
   String? _result;
   String? _establecimiento, _visita, _cursor, _error;
   bool _busy = true;
@@ -140,6 +139,19 @@ class _PlanSeleccionHallazgosState extends State<PlanSeleccionHallazgos> {
     }
   }
 
+  void _toggle(PlanData row, bool selected) {
+    setState(() {
+      final id = planText(row, 'id');
+      if (!selected) {
+        _selected.remove(id);
+      } else if (_selected.length < 40) {
+        _selected[id] = row;
+      } else {
+        _error = 'Vincula los 40 seleccionados antes de agregar más.';
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final centros = <String, String>{
@@ -153,11 +165,21 @@ class _PlanSeleccionHallazgosState extends State<PlanSeleccionHallazgos> {
     );
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Vincular hallazgos'),
+        title: const Text(
+          'Vincular hallazgos',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         actions: [
-          TextButton(
+          IconButton(
+            tooltip: 'Vincular ${_selected.length} seleccionados',
+            onPressed: _busy || _selected.isEmpty ? null : _save,
+            icon: const Icon(Icons.playlist_add_check),
+          ),
+          IconButton(
+            tooltip: 'Cerrar',
             onPressed: _busy ? null : () => Navigator.maybePop(context),
-            child: const Text('Cerrar'),
+            icon: const Icon(Icons.close),
           ),
         ],
       ),
@@ -288,20 +310,17 @@ class _PlanSeleccionHallazgosState extends State<PlanSeleccionHallazgos> {
                               for (final r in _rows)
                                 Padding(
                                   padding: const EdgeInsets.only(right: 6),
-                                  child: ActionChip(
+                                  child: FilterChip(
+                                    selected:
+                                        _linked.contains(r['id']) ||
+                                        _selected.containsKey(r['id']),
                                     label: Text(planText(r, 'numeral')),
-                                    onPressed: () {
-                                      final target = _rowKeys[planText(r, 'id')]
-                                          ?.currentContext;
-                                      if (target != null) {
-                                        Scrollable.ensureVisible(
-                                          target,
-                                          duration: const Duration(
-                                            milliseconds: 250,
-                                          ),
-                                        );
-                                      }
-                                    },
+                                    onSelected:
+                                        _busy ||
+                                            _linked.contains(r['id']) ||
+                                            planText(r, 'tareaId').isEmpty
+                                        ? null
+                                        : (value) => _toggle(r, value),
                                   ),
                                 ),
                             ],
@@ -309,10 +328,7 @@ class _PlanSeleccionHallazgosState extends State<PlanSeleccionHallazgos> {
                         ),
                       for (final r in _rows)
                         Card(
-                          key: _rowKeys.putIfAbsent(
-                            planText(r, 'id'),
-                            GlobalKey.new,
-                          ),
+                          key: ValueKey(planText(r, 'id')),
                           child: CheckboxListTile(
                             value:
                                 _linked.contains(r['id']) ||
@@ -322,16 +338,7 @@ class _PlanSeleccionHallazgosState extends State<PlanSeleccionHallazgos> {
                                     _linked.contains(r['id']) ||
                                     planText(r, 'tareaId').isEmpty
                                 ? null
-                                : (value) => setState(() {
-                                    if (value != true) {
-                                      _selected.remove(r['id']);
-                                    } else if (_selected.length < 40) {
-                                      _selected[planText(r, 'id')] = r;
-                                    } else {
-                                      _error =
-                                          'Vincula los 40 seleccionados antes de agregar más.';
-                                    }
-                                  }),
+                                : (value) => _toggle(r, value == true),
                             title: Text('Numeral ${r['numeral']}'),
                             subtitle: Text(
                               '${r['descripcion']}\n${planText(r, 'observacionInterventoria')}${_linked.contains(r['id'])

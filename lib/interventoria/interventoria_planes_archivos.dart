@@ -133,7 +133,7 @@ class _ReduciendoState extends State<_Reduciendo> {
   Widget build(BuildContext context) => PopScope(
     canPop: error != null,
     child: AlertDialog(
-      title: const Text('Preparando copia para K2'),
+      title: const Text('Preparando copia para Interventoría'),
       content: error == null
           ? const Column(
               mainAxisSize: MainAxisSize.min,

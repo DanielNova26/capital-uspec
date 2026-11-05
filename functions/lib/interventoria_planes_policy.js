@@ -3,8 +3,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.MARGEN_PLAN_DIAS = exports.ESTADOS_PLAN = exports.ROLES_GESTORES_PLANES = exports.ROL_CALIDAD_PLANES = exports.APP_PLANES = exports.ITEMS_COL = exports.PLANES_COL = void 0;
 exports.grupoCentroPlan = grupoCentroPlan;
 exports.tareaAprobadaParaPlan = tareaAprobadaParaPlan;
-exports.exigirTareaAprobada = exigirTareaAprobada;
 exports.estadoGestionAutomatico = estadoGestionAutomatico;
+exports.validarRetiradaPlan = validarRetiradaPlan;
+exports.validarCambioFechas = validarCambioFechas;
+exports.validarPdfPlan = validarPdfPlan;
 exports.diaValido = diaValido;
 exports.sumarDiasPlan = sumarDiasPlan;
 exports.hoyColombia = hoyColombia;
@@ -40,14 +42,35 @@ function tareaAprobadaParaPlan(t) {
         t.solicitud_finalizacion_estado === "aprobado" &&
         t.reasignacion_estado !== "pendiente";
 }
-function exigirTareaAprobada(t) {
-    if (!tareaAprobadaParaPlan(t))
-        throw Error("La tarea debe estar aprobada por su aprobador antes de enviar o presentar la respuesta del plan.");
-}
 function estadoGestionAutomatico(estado, items) {
     if (!["recibido", "en_gestion"].includes(estado))
         return estado;
-    return items.length > 0 && items.every((i) => Number(i.respuestaVersion) > 0 || Number(i.soportesVersion) > 0) ? "en_gestion" : "recibido";
+    return items.some((i) => i.eliminado !== true) ? "en_gestion" : "recibido";
+}
+function validarRetiradaPlan(desarrollo, director, estado, definitiva = false) {
+    if (definitiva && !desarrollo)
+        throw Error("Solo Desarrollo puede eliminar definitivamente un plan de mejora.");
+    if (!desarrollo && (!director || estado !== "recibido")) {
+        throw Error("Solo el director puede inactivar un plan en estado Recibido.");
+    }
+}
+function validarCambioFechas(fechas, anteriores, hoy = hoyColombia()) {
+    for (const key of ["fechaNotificacion", "limiteRespuesta", "limiteSoportes"]) {
+        // Una fecha histórica sin cambios se conserva; cualquier cambio avanza.
+        if (fechas[key] !== anteriores[key] && (fechas[key] < hoy || fechas[key] < anteriores[key])) {
+            throw Error("No puedes seleccionar una fecha atrás.");
+        }
+    }
+}
+function validarPdfPlan(plan, item, etapa = "todo") {
+    if (!item) {
+        if (plan.estadoGestion !== "enviado")
+            throw Error("El PDF del plan solo se genera cuando está Enviado.");
+    }
+    else if ((etapa !== "soportes" && (!item.compromiso || !Number(item.respuestaVersion))) ||
+        (etapa !== "respuesta" && !Number(item.soportesVersion))) {
+        throw Error("Guarda la entrega antes de generar su PDF.");
+    }
 }
 function diaValido(value) {
     const s = typeof value === "string" ? value : "";
@@ -122,7 +145,7 @@ function validarRevision(item, etapa, version, estado, motivo) {
     if (version !== item[`${etapa}Version`])
         throw Error("El responsable cambió la entrega. Actualiza antes de revisar.");
     if (item[`${etapa}Presentado`])
-        throw Error("La entrega ya fue presentada en K2.");
+        throw Error("La entrega ya fue presentada en Interventoría.");
     if (estado === "devuelto" && motivo.trim().length < 8)
         throw Error("Explica la devolución (mínimo 8 caracteres).");
     if (estado === "satisfactorio" && (etapa === "respuesta" ?
