@@ -1,5 +1,35 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-05 — Publicada Web 2.8.19+73 y backend de planes (Codex)
+
+- El sitio anunciaba 2.8.18+72, pero su `main.dart.js` y bootstrap eran
+  distintos de la compilación con las mejoras de Interventoría. Publicada
+  2.8.19+73 en `https://to-do-gestion.web.app`, proyecto `integra360-94704`.
+  La versión común del código también queda en 73 para actualizar desde la Mac.
+- Añadido `no-cache, no-store, must-revalidate` para `/` y `/version.json`.
+  Verificados HTTP 200 y SHA-256 idéntico al build local para ambos, además de
+  `index.html`, `main.dart.js` y `flutter_bootstrap.js`; comprobada la versión
+  2.8.19/build 73 y las cabeceras efectivamente servidas después de publicar.
+- Publicados el índice empresa/visita de hallazgos y las reglas de Firestore,
+  incluida la protección de `TBL_INTERVENTORIA_PLAN_AUDITORIA`. Release activo:
+  `07d8690d-7c0c-4b95-babf-3c9f11a4219e`. La API de reglas devolvió varios 503 y
+  un 409 durante los reintentos; la publicación finalmente terminó correctamente.
+- Actualizadas únicamente `interventoriaPlanes` e `interventoriaPlanesAvisos`
+  en `us-central1`, Node 22. Ambas verificadas en estado ACTIVE y con hash nuevo
+  `53db463419bf9d9c78e5e7dd9b03a2d7f617a8b2`. Comprobado rechazo HTTP 401 /
+  UNAUTHENTICATED de una llamada sin sesión, sin operar sobre planes reales.
+- La subida estándar de Functions falló con ECONNRESET. Se completó mediante
+  el mismo SDK y paquete de 922155 bytes, indicando su longitud al transmitirlo;
+  ajuste temporal del transporte en `tmp/interventoria-upload-buffer.cjs`, sin
+  cambiar el código de las funciones ni instalar o modificar el CLI global.
+- Build Web release y control de versión correctos. No se crearon ni publicaron
+  AAB/IPA de la versión 73, ni se cambiaron los avisos de actualización de tiendas.
+  Se mantienen las pruebas funcionales y de tamaños documentadas abajo.
+- Limitación: el control del equipo bloqueó la inspección visual de la ventana
+  abierta al no poder identificar su URL con seguridad. La comprobación pública
+  se hizo mediante los artefactos y cabeceras servidos; siguen pendientes los
+  flujos autenticados y el dictado con micrófono real en Web, Android e iOS.
+
 ## 2026-11-05 — Flujo, permisos y panel de planes de Interventoría (Codex)
 
 - Ajustar fechas impide retroceder respecto de hoy y del valor vigente, con el
