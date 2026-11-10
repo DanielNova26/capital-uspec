@@ -1,5 +1,27 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-10 — Configuración de WhatsApp para Planillas (Codex)
+
+- Producción registró `WHATSAPP_NOT_CONFIGURED` al cargar una planilla en
+  Empresa 001. El trigger nuevo `ppWhatsAppCargaPlanilla` carecía de la
+  configuración de ejecución del proveedor. Se habilitó con los parámetros
+  de Meta Cloud del trigger existente, sin guardar credenciales en Git.
+  Ambos triggers quedaron activos. Meta confirmó el número emisor conectado
+  y la plantilla `planilla_pago_actualizacion` aprobada.
+- Empresa 001 tiene tres rutas activas con sus listas de Auditoría,
+  Gerencia y Tesorería. En Empresa 002 quedaron activas las rutas hacia
+  Auditoría y Gerencia, con una y tres personas respectivamente, a partir
+  de su rol activo y el teléfono del directorio de la empresa.
+- En Empresa 002 se identificó al responsable de Tesorería por su cargo en
+  esa empresa y las últimas 30 cargas. Tiene acceso al módulo como
+  administrador documental y carece de número válido en el directorio.
+  Ese dato queda pendiente para el aviso de firma final. También faltan
+  números de tres personas habilitadas en Gerencia. Las otras empresas
+  carecen de planillas registradas.
+- Pasaron nueve pruebas de plantillas Cloud y acceso por empresa. La
+  verificación en producción fue de configuración y conectividad. Sigue
+  pendiente observar la entrega de los avisos en el siguiente flujo real.
+
 ## 2026-11-10 — Publicación de Planillas de pago 2.8.24+78 (Codex)
 
 - Web publicada en `https://to-do-gestion.web.app`. Los seis archivos de
