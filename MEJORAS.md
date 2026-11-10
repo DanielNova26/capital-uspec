@@ -1,5 +1,22 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-10 — Publicación de Planillas de pago 2.8.24+78 (Codex)
+
+- Web publicada en `https://to-do-gestion.web.app`. Los seis archivos de
+  versión, arranque, aplicación y service workers coincidieron por SHA-256
+  con la compilación local.
+- Firebase publicó `ppStampDirectPdf`, `ppWhatsAppCargaPlanilla` y
+  `ppWhatsAppCambioFirma`. La función de firma devuelve 401 sin sesión.
+  Los dos índices nuevos quedaron READY y las reglas activas coinciden con
+  `firestore.rules` en el ruleset `827d57de-3a67-4113-886d-8d9555d0e0a2`.
+- Android 2.8.24 (78) compilado y firmado con el certificado de la versión
+  anterior. Bundletool validó la estructura y el manifiesto.
+  Archivo `outputs/android/to-do-gestion-2.8.24-78.aab` (153271161 bytes).
+  SHA-256 `db0affc1424efa7904a9a5cd194f945faf3aee24f4e26dfee6470b02c233dfc3`.
+- Pendiente distribuir en Google Play y App Store y probar con sesión real
+  en Web, Android e iPhone. La consulta de historial con las reglas nuevas
+  requiere el cliente actualizado, que incluye el filtro por empresa.
+
 ## 2026-11-10 — Carga y firma de Planillas de pago (Codex)
 
 - La carga de Tesorería entra directamente a Auditoría. La firma de Auditoría
@@ -19,8 +36,7 @@
   1366 px lógicos con texto al 140 %. Pasaron 239 pruebas de Gestión
   Documental, 337 de Functions y 6 de reglas. Web compiló. La prueba en
   Chrome se quedó en carga y se detuvo. Pendiente validar el flujo con
-  sesión, archivos de producción, Android e iPhone. Coordinar la publicación
-  de los clientes con los índices, las reglas y las funciones de Planillas.
+  sesión, archivos de producción, Android e iPhone.
 
 ## 2026-11-10 — Web 2.8.23+77 con plantillas Excel de varias hojas (Codex)
 
