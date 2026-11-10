@@ -25,6 +25,10 @@
 - Android e iOS requieren validación por separado en dispositivos, incluidos
   teclado, áreas seguras y compartir PDF. Pendiente el recorrido de los tres
   editores de Admin contra una empresa de pruebas con datos reales.
+- Las pruebas de widgets pasaron a 390, 768, 1024 y 1366 px lógicos con
+  escala de texto 1,6, incluidas las vistas compactas simuladas de Android
+  e iOS. También pasó la generación del PDF. La ejecución en Chrome quedó
+  detenida en la carga de la prueba, así que sigue pendiente en navegador.
 
 ## 2026-11-05 — Publicada Web 2.8.19+73 y backend de planes (Codex)
 
