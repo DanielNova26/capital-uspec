@@ -974,8 +974,8 @@ class VisitasService {
     });
   }
 
-  /// La referencia que aplica a una visita: la del subcentro si tiene la
-  /// suya, si no la del centro. Null si no hay ninguna.
+  /// Un subcentro comparte la referencia del centro únicamente cuando
+  /// su configuración lo indica.
   Future<VisitaUbicacion?> ubicacionPara({
     required String empresaId,
     required String centroId,
@@ -985,13 +985,20 @@ class VisitasService {
       final sub = await _ubicaciones
           .doc(VisitaUbicacion.docId(empresaId, centroId, subcentroId))
           .get();
-      if (sub.exists) return VisitaUbicacion.fromMap(sub.id, sub.data()!);
+      final data = sub.data();
+      if (data == null || data['empresaId'] != empresaId) return null;
+      final ubicacion = VisitaUbicacion.fromMap(sub.id, data);
+      if (!ubicacion.usarUbicacionCentro) {
+        return ubicacion.tieneCoordenadas ? ubicacion : null;
+      }
     }
     final c = await _ubicaciones
         .doc(VisitaUbicacion.docId(empresaId, centroId, ''))
         .get();
-    if (!c.exists) return null;
-    return VisitaUbicacion.fromMap(c.id, c.data()!);
+    final data = c.data();
+    if (data == null || data['empresaId'] != empresaId) return null;
+    final ubicacion = VisitaUbicacion.fromMap(c.id, data);
+    return ubicacion.tieneCoordenadas ? ubicacion : null;
   }
 
   // ── Formatos ──────────────────────────────────────────────────────────

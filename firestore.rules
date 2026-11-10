@@ -1325,6 +1325,24 @@ service cloud.firestore {
             || resource.data.get('solicitudCambioFecha', {}).get('estado', '') == 'pendiente');
       }
 
+      function coordenadasVisitaConfiguradas(path, empresaId) {
+        return exists(path) && get(path).data.empresaId == empresaId
+          && get(path).data.get('lat', null) is number
+          && get(path).data.get('lng', null) is number;
+      }
+
+      function subcentroConUbicacion() {
+        let v = resource.data;
+        let centro = v.empresaId + '_' + v.centroId;
+        let sub = centro + '__' + v.subcentroId;
+        let ref = /databases/$(database)/documents/TBL_VISITAS_UBICACIONES/$(sub);
+        return exists(ref) && get(ref).data.empresaId == v.empresaId
+          && (get(ref).data.get('usarUbicacionCentro', false) == true
+            ? coordenadasVisitaConfiguradas(
+                /databases/$(database)/documents/TBL_VISITAS_UBICACIONES/$(centro), v.empresaId)
+            : coordenadasVisitaConfiguradas(ref, v.empresaId));
+      }
+
       allow get: if resource == null
         || esVisitaPropiaDelProfesional()
         || (belongsToCompany(resource.data.empresaId)
@@ -1377,6 +1395,9 @@ service cloud.firestore {
               || (resource.data.estado == 'programada'
                 && request.resource.data.estado == 'en_curso'
                 && enElDiaDeLaVisita()
+                && (resource.data.get('esPrueba', false) == true
+                  || resource.data.get('subcentroId', '') in [null, '']
+                  || subcentroConUbicacion())
                 && request.resource.data.get('formatoId', '') != ''
                 && (request.resource.data.diff(resource.data).affectedKeys()
                     .hasOnly(['estado', 'inicio', 'responsableEstablecimiento',
@@ -1445,14 +1466,24 @@ service cloud.firestore {
         return belongsToCompany(empresaId) && gerenciaVisitasEn(empresaId);
       }
 
+      function configuracionUbicacionValida(d) {
+        return d.get('usarUbicacionCentro', false) is bool
+          && (d.get('usarUbicacionCentro', false) == false
+            || (d.get('subcentroId', '') is string && d.subcentroId.size() > 0
+              && d.get('centroId', '') is string && d.centroId.size() > 0
+              && docId == d.empresaId + '_' + d.centroId + '__' + d.subcentroId));
+      }
+
       allow get: if resource == null
         || participaEnVisitas(resource.data.empresaId);
       allow list: if belongsToCompany(resource.data.empresaId)
         && administraVisitasEn(resource.data.empresaId);
       allow create: if belongsToCompany(request.resource.data.empresaId)
+        && configuracionUbicacionValida(request.resource.data)
         && (isDeveloper() || isDeveloperIn(request.resource.data.empresaId)
           || esGerenciaVisitas(request.resource.data.empresaId));
       allow update: if empresaSeConserva()
+        && configuracionUbicacionValida(request.resource.data)
         && (isDeveloperFor(resource.data.empresaId)
           || isDeveloperIn(resource.data.empresaId)
           || esGerenciaVisitas(resource.data.empresaId));

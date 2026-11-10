@@ -1550,6 +1550,8 @@ class VisitaUbicacion {
   final String subcentroNombre;
   final double lat;
   final double lng;
+  final bool tieneCoordenadas;
+  final bool usarUbicacionCentro;
   final double radioMetros;
   final String ciudad;
   final String direccion;
@@ -1569,6 +1571,8 @@ class VisitaUbicacion {
     this.subcentroNombre = '',
     required this.lat,
     required this.lng,
+    this.tieneCoordenadas = true,
+    this.usarUbicacionCentro = false,
     this.radioMetros = kVisitasRadioDefectoMetros,
     this.ciudad = '',
     this.direccion = '',
@@ -1593,8 +1597,9 @@ class VisitaUbicacion {
     'centroNombre': centroNombre,
     'subcentroId': subcentroId,
     'subcentroNombre': subcentroNombre,
-    'lat': lat,
-    'lng': lng,
+    if (tieneCoordenadas) 'lat': lat,
+    if (tieneCoordenadas) 'lng': lng,
+    if (subcentroId.isNotEmpty) 'usarUbicacionCentro': usarUbicacionCentro,
     'radioMetros': radioMetros,
     'ciudad': ciudad,
     'direccion': direccion,
@@ -1613,6 +1618,8 @@ class VisitaUbicacion {
         subcentroNombre: (d['subcentroNombre'] ?? '').toString(),
         lat: (d['lat'] as num?)?.toDouble() ?? 0,
         lng: (d['lng'] as num?)?.toDouble() ?? 0,
+        tieneCoordenadas: d['lat'] is num && d['lng'] is num,
+        usarUbicacionCentro: d['usarUbicacionCentro'] == true,
         radioMetros:
             (d['radioMetros'] as num?)?.toDouble() ??
             kVisitasRadioDefectoMetros,
@@ -1904,23 +1911,15 @@ class RegistroVisitaResultado {
   bool get enUnEstablecimiento => ubicacionActual != null;
 }
 
-/// Referencia que aplica a una visita: la del subcentro si tiene la suya,
-/// si no la del centro. Mismo criterio que `VisitasService.ubicacionPara`,
-/// pero sobre una lista ya cargada.
+/// Referencia que aplica a la visita dentro de su empresa.
 VisitaUbicacion? referenciaDeVisita(
   VisitaProfesional v,
   List<VisitaUbicacion> ubicaciones,
-) {
-  if (v.subcentroId.isNotEmpty) {
-    for (final u in ubicaciones) {
-      if (u.centroId == v.centroId && u.subcentroId == v.subcentroId) return u;
-    }
-  }
-  for (final u in ubicaciones) {
-    if (u.centroId == v.centroId && u.subcentroId.isEmpty) return u;
-  }
-  return null;
-}
+) => ubicacionQueAplica(
+  ubicaciones.where((u) => u.empresaId == v.empresaId),
+  v.centroId,
+  subcentroId: v.subcentroId,
+);
 
 /// Cruza la posición del profesional con sus visitas pendientes. Pura, para
 /// probarla sin GPS ni Firestore.
@@ -1940,6 +1939,7 @@ RegistroVisitaResultado resolverRegistroVisita({
   double? dActual;
   double? dCercana;
   for (final u in ubicaciones) {
+    if (!u.tieneCoordenadas || u.usarUbicacionCentro) continue;
     final d = distanciaMetros(lat, lng, u.lat, u.lng);
     if (dentro(u, d) && (dActual == null || d < dActual)) {
       actual = u;
@@ -3249,21 +3249,27 @@ class FilaProgramacion {
   String get clave => subcentroId.isEmpty ? centroId : '$centroId|$subcentroId';
 }
 
-/// La ubicación que va a usar la visita al iniciar, igual que
-/// `VisitasService.ubicacionPara`: la del subcentro si tiene la suya, si no
-/// la del centro. Null = no se podrá iniciar (salvo que sea de prueba).
+/// Los subcentros usan su propia ubicación salvo autorización explícita
+/// para compartir la del centro.
 VisitaUbicacion? ubicacionQueAplica(
   Iterable<VisitaUbicacion> ubicaciones,
   String centroId, {
   String subcentroId = '',
 }) {
   VisitaUbicacion? delCentro;
+  VisitaUbicacion? delSubcentro;
   for (final u in ubicaciones) {
     if (u.centroId != centroId) continue;
-    if (subcentroId.isNotEmpty && u.subcentroId == subcentroId) return u;
     if (u.subcentroId.isEmpty) delCentro = u;
+    if (subcentroId.isNotEmpty && u.subcentroId == subcentroId) {
+      delSubcentro = u;
+    }
   }
-  return delCentro;
+  final referencia =
+      subcentroId.isEmpty || delSubcentro?.usarUbicacionCentro == true
+      ? delCentro
+      : delSubcentro;
+  return referencia?.tieneCoordenadas == true ? referencia : null;
 }
 
 /// Qué impide programar el lote. Vacío = se puede.

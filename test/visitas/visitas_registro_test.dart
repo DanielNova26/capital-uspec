@@ -58,14 +58,14 @@ void main() {
   final ahora = DateTime(2026, 9, 21, 9);
 
   group('referenciaDeVisita', () {
-    test('el subcentro con ubicación propia manda; si no, la del centro', () {
+    test('el subcentro sin configuración no toma la del centro', () {
       expect(
         referenciaDeVisita(visita(subcentroId: 'alta'), [tunja, tunjaAlta]),
         same(tunjaAlta),
       );
       expect(
         referenciaDeVisita(visita(subcentroId: 'media'), [tunja, tunjaAlta]),
-        same(tunja),
+        isNull,
       );
       expect(referenciaDeVisita(visita(centroId: 'x'), [tunja]), isNull);
     });

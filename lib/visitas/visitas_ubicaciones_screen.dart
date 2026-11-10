@@ -7,8 +7,8 @@
 // 2026); las reglas de Firestore solo les dejan escribir a ellos.
 //
 // Trae los centros de costo de la empresa (con sus subcentros) y a cada
-// uno le deja poner lat/lng, radio y ciudad. Un subcentro sin ubicación
-// propia hereda la del centro. Sin ubicación, la visita a ese
+// uno le deja poner lat/lng, radio y ciudad. Un subcentro puede compartir
+// la del centro si se elige expresamente. Sin ubicación, la visita a ese
 // establecimiento no se puede iniciar: la lista lo marca en rojo para que
 // se vea de una qué falta.
 //
@@ -143,13 +143,12 @@ class _VisitasUbicacionesTabState extends State<VisitasUbicacionesTab> {
                       .where((r) => r.nombre.toLowerCase().contains(f))
                       .toList();
             final sinUbicacion = filas
-                .where(
-                  (r) =>
-                      r.activo && r.subcentroId.isEmpty && r.ubicacion == null,
-                )
+                .where((r) => r.activo && r.referencia == null)
                 .length;
             // Para orientar la búsqueda de Google hacia donde ya hay sitios.
-            final alguna = us.data!.isEmpty ? null : us.data!.first;
+            final alguna = us.data!
+                .where((u) => u.tieneCoordenadas && !u.usarUbicacionCentro)
+                .firstOrNull;
             return ListView(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
               children: [
@@ -213,8 +212,12 @@ class _VisitasUbicacionesTabState extends State<VisitasUbicacionesTab> {
                   etiqueta: 'establecimientos',
                   itemBuilder: (context, r, _) => _FilaCard(
                     fila: r,
-                    onEditar: () =>
-                        _editar(r, cerca: r.ubicacionCentro ?? alguna),
+                    onEditar: () => _editar(
+                      r,
+                      cerca: r.esSubcentro
+                          ? r.ubicacionPropia
+                          : r.referencia ?? alguna,
+                    ),
                     onReactivar:
                         r.centro.propio && !r.esSubcentro && !r.centro.activo
                         ? () => _reactivar(r.centro)
@@ -224,10 +227,7 @@ class _VisitasUbicacionesTabState extends State<VisitasUbicacionesTab> {
                         : () => _quitar(r.ubicacion!),
                     onAgregarSubcentro: r.esSubcentro || r.centro.propio
                         ? null
-                        : () => _agregarSubcentro(
-                            r,
-                            cerca: r.ubicacion ?? alguna,
-                          ),
+                        : () => _agregarSubcentro(r),
                   ),
                 ),
               ],
@@ -261,7 +261,7 @@ class _VisitasUbicacionesTabState extends State<VisitasUbicacionesTab> {
 
   /// Un subcentro nuevo del centro (Cómbita Alta, Picota ERE 2): queda en el
   /// maestro de centros de costo y enseguida se le busca la ubicación.
-  Future<void> _agregarSubcentro(_Fila r, {VisitaUbicacion? cerca}) async {
+  Future<void> _agregarSubcentro(_Fila r) async {
     final nombre = await showDialog<String>(
       context: context,
       builder: (_) => _NombreSubcentroDialog(centro: r.centro.nombre),
@@ -282,7 +282,6 @@ class _VisitasUbicacionesTabState extends State<VisitasUbicacionesTab> {
           ubicacion: null,
           ubicacionCentro: r.ubicacion,
         ),
-        cerca: cerca,
       );
     } on VisitasException catch (e) {
       if (mounted) _snack(context, e.mensaje, error: true);
@@ -404,7 +403,7 @@ class _Fila {
   final String subcentroNombre;
   final VisitaUbicacion? ubicacion;
 
-  /// La del centro, que hereda un subcentro sin ubicación propia.
+  /// Referencia disponible para compartir si se marca el subcentro.
   final VisitaUbicacion? ubicacionCentro;
 
   /// El centro y, si es subcentro, él mismo están activos.
@@ -418,6 +417,15 @@ class _Fila {
     this.activo = true,
   });
   bool get esSubcentro => subcentroId.isNotEmpty;
+  bool get comparteUbicacion =>
+      esSubcentro && ubicacion?.usarUbicacionCentro == true;
+  VisitaUbicacion? get ubicacionPropia =>
+      ubicacion?.tieneCoordenadas == true ? ubicacion : null;
+  VisitaUbicacion? get referencia {
+    final u = comparteUbicacion ? ubicacionCentro : ubicacionPropia;
+    return u?.tieneCoordenadas == true ? u : null;
+  }
+
   String get nombre =>
       esSubcentro ? '${centro.nombre} · $subcentroNombre' : centro.nombre;
 }
@@ -438,8 +446,8 @@ class _FilaCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final u = fila.ubicacion;
-    final falta = u == null && !fila.esSubcentro;
+    final u = fila.referencia;
+    final falta = u == null;
     return Card(
       margin: EdgeInsets.only(bottom: 8, left: fila.esSubcentro ? 24 : 0),
       shape: RoundedRectangleBorder(
@@ -467,15 +475,17 @@ class _FilaCard extends StatelessWidget {
             // No es centro de costo: se creó en Admin solo para Visitas.
             if (!fila.activo) 'Desactivado',
             if (fila.centro.propio) 'Solo Visitas',
-            u == null
-                ? (fila.esSubcentro
-                      ? 'Hereda la ubicación del centro'
-                      : 'Sin ubicación: tócalo para buscarlo en Google Maps')
-                : [
-                    if (u.direccion.isNotEmpty) u.direccion,
-                    'radio ${u.radioMetros.round()} m',
-                    if (u.ciudad.isNotEmpty) u.ciudad,
-                  ].join(' · '),
+            if (fila.comparteUbicacion)
+              u == null
+                  ? 'El centro principal está sin ubicación'
+                  : 'Usa la ubicación del centro principal',
+            if (u == null && !fila.comparteUbicacion)
+              'Sin ubicación: tócalo para buscarlo en Google Maps',
+            if (u != null) ...[
+              if (u.direccion.isNotEmpty) u.direccion,
+              'radio ${u.radioMetros.round()} m',
+              if (u.ciudad.isNotEmpty) u.ciudad,
+            ],
           ].join(' · '),
           style: TextStyle(
             fontFamily: _kFont,
@@ -539,6 +549,7 @@ class _UbicacionDialogState extends State<_UbicacionDialog> {
   late final TextEditingController _direccion;
   String _placeId = '';
   String _nombreGoogle = '';
+  late bool _usarUbicacionCentro;
   bool _ocupado = false;
   bool _buscando = false;
   List<LugarGoogle>? _resultados;
@@ -549,12 +560,17 @@ class _UbicacionDialogState extends State<_UbicacionDialog> {
   void initState() {
     super.initState();
     final u = widget.fila.ubicacion;
-    _lat = TextEditingController(text: u == null ? '' : u.lat.toString());
-    _lng = TextEditingController(text: u == null ? '' : u.lng.toString());
+    _usarUbicacionCentro = widget.fila.comparteUbicacion;
+    _lat = TextEditingController(
+      text: u?.tieneCoordenadas == true ? u!.lat.toString() : '',
+    );
+    _lng = TextEditingController(
+      text: u?.tieneCoordenadas == true ? u!.lng.toString() : '',
+    );
     _radio = TextEditingController(
       text: (u?.radioMetros ?? kVisitasRadioDefectoMetros).round().toString(),
     );
-    final ciudad = u?.ciudad ?? widget.fila.ubicacionCentro?.ciudad ?? '';
+    final ciudad = u?.ciudad ?? '';
     _ciudad = TextEditingController(text: ciudad);
     _direccion = TextEditingController(text: u?.direccion ?? '');
     _placeId = u?.placeId ?? '';
@@ -579,7 +595,12 @@ class _UbicacionDialogState extends State<_UbicacionDialog> {
 
   LatLng? get _punto {
     final lat = _latV, lng = _lngV;
-    if (lat == null || lng == null || lat.abs() > 90 || lng.abs() > 180) {
+    if (lat == null ||
+        lng == null ||
+        !lat.isFinite ||
+        !lng.isFinite ||
+        lat.abs() > 90 ||
+        lng.abs() > 180) {
       return null;
     }
     return LatLng(lat, lng);
@@ -674,10 +695,19 @@ class _UbicacionDialogState extends State<_UbicacionDialog> {
   }
 
   void _guardar() {
-    final lat = _latV;
-    final lng = _lngV;
-    final radio = double.tryParse(_radio.text.trim());
-    if (lat == null || lng == null || lat.abs() > 90 || lng.abs() > 180) {
+    final anterior = widget.fila.ubicacion;
+    final conservaPropia =
+        _usarUbicacionCentro && anterior?.tieneCoordenadas == true;
+    final punto = _usarUbicacionCentro ? null : _punto;
+    final radio = _usarUbicacionCentro
+        ? anterior?.radioMetros ?? kVisitasRadioDefectoMetros
+        : double.tryParse(_radio.text.trim());
+    final desmarcaSinPropia =
+        widget.fila.comparteUbicacion &&
+        anterior?.tieneCoordenadas != true &&
+        _lat.text.trim().isEmpty &&
+        _lng.text.trim().isEmpty;
+    if (!_usarUbicacionCentro && punto == null && !desmarcaSinPropia) {
       _snack(
         context,
         'Busca el lugar en Google Maps o escribe latitud y longitud.',
@@ -685,7 +715,8 @@ class _UbicacionDialogState extends State<_UbicacionDialog> {
       );
       return;
     }
-    if (radio == null || radio < 20 || radio > 2000) {
+    if (punto != null &&
+        (radio == null || !radio.isFinite || radio < 20 || radio > 2000)) {
       _snack(
         context,
         'El radio debe estar entre 20 y 2000 metros.',
@@ -701,14 +732,22 @@ class _UbicacionDialogState extends State<_UbicacionDialog> {
         centroNombre: widget.fila.centro.nombre,
         subcentroId: widget.fila.subcentroId,
         subcentroNombre: widget.fila.subcentroNombre,
-        lat: lat,
-        lng: lng,
-        radioMetros: radio,
-        ciudad: _ciudad.text.trim(),
-        direccion: _direccion.text.trim(),
+        lat: conservaPropia ? anterior!.lat : punto?.latitude ?? 0,
+        lng: conservaPropia ? anterior!.lng : punto?.longitude ?? 0,
+        tieneCoordenadas: conservaPropia || punto != null,
+        usarUbicacionCentro: _usarUbicacionCentro,
+        radioMetros: radio ?? kVisitasRadioDefectoMetros,
+        ciudad: _usarUbicacionCentro
+            ? anterior?.ciudad ?? ''
+            : _ciudad.text.trim(),
+        direccion: _usarUbicacionCentro
+            ? anterior?.direccion ?? ''
+            : _direccion.text.trim(),
         actualizadoPor: widget.userId,
-        placeId: _placeId,
-        nombreGoogle: _nombreGoogle,
+        placeId: _usarUbicacionCentro ? anterior?.placeId ?? '' : _placeId,
+        nombreGoogle: _usarUbicacionCentro
+            ? anterior?.nombreGoogle ?? ''
+            : _nombreGoogle,
       ),
     );
   }
@@ -888,6 +927,8 @@ class _UbicacionDialogState extends State<_UbicacionDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final centroDisponible =
+        widget.fila.ubicacionCentro?.tieneCoordenadas == true;
     return AlertDialog(
       title: Text(
         widget.fila.nombre,
@@ -900,101 +941,117 @@ class _UbicacionDialogState extends State<_UbicacionDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _buscador(),
-              const SizedBox(height: 12),
-              _vistaMapa(),
-              if (_nombreGoogle.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(
-                    'Lugar de Google: $_nombreGoogle',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
+              if (widget.fila.esSubcentro)
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Usar ubicación del centro principal'),
+                  subtitle: Text(
+                    centroDisponible
+                        ? 'Comparte sus coordenadas y su radio permitido.'
+                        : 'El centro principal aún no tiene ubicación.',
                   ),
+                  value: _usarUbicacionCentro,
+                  onChanged: centroDisponible || _usarUbicacionCentro
+                      ? (v) => setState(() => _usarUbicacionCentro = v ?? false)
+                      : null,
                 ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _direccion,
-                decoration: const InputDecoration(
-                  labelText: 'Dirección',
-                  isDense: true,
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _ciudad,
-                textCapitalization: TextCapitalization.words,
-                decoration: const InputDecoration(
-                  labelText: 'Ciudad (va en el encabezado del acta)',
-                  isDense: true,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _lat,
-                      onChanged: (_) => setState(() {}),
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                        signed: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Latitud',
-                        isDense: true,
+              if (!_usarUbicacionCentro) ...[
+                _buscador(),
+                const SizedBox(height: 12),
+                _vistaMapa(),
+                if (_nombreGoogle.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      'Lugar de Google: $_nombreGoogle',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: _lng,
-                      onChanged: (_) => setState(() {}),
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                        signed: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Longitud',
-                        isDense: true,
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _direccion,
+                  decoration: const InputDecoration(
+                    labelText: 'Dirección',
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _ciudad,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(
+                    labelText: 'Ciudad (va en el encabezado del acta)',
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _lat,
+                        onChanged: (_) => setState(() {}),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                          signed: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Latitud',
+                          isDense: true,
+                        ),
                       ),
                     ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: _lng,
+                        onChanged: (_) => setState(() {}),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                          signed: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Longitud',
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _radio,
+                  onChanged: (_) => setState(() {}),
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Radio permitido (metros)',
+                    helperText:
+                        'Corto a propósito: el acta se hace adentro. 150 m por defecto.',
+                    isDense: true,
                   ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _radio,
-                onChanged: (_) => setState(() {}),
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Radio permitido (metros)',
-                  helperText:
-                      'Corto a propósito: el acta se hace adentro. 150 m por defecto.',
-                  isDense: true,
                 ),
-              ),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                onPressed: _ocupado ? null : _miUbicacion,
-                icon: const Icon(Icons.my_location),
-                label: Text(
-                  _ocupado ? 'Ubicando…' : 'Usar mi ubicación actual',
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: _ocupado ? null : _miUbicacion,
+                  icon: const Icon(Icons.my_location),
+                  label: Text(
+                    _ocupado ? 'Ubicando…' : 'Usar mi ubicación actual',
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                'Si estás parado en la puerta del establecimiento, tu ubicación '
-                'es lo más exacto.',
-                style: TextStyle(
-                  fontFamily: _kFont,
-                  fontSize: 11,
-                  color: Colors.black54,
+                const SizedBox(height: 4),
+                const Text(
+                  'Si estás parado en la puerta del establecimiento, tu ubicación '
+                  'es lo más exacto.',
+                  style: TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 11,
+                    color: Colors.black54,
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ),

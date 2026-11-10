@@ -1,5 +1,21 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-10 — Ubicación independiente de subcentros en Visitas (Codex)
+
+- En Visitas › Ubicaciones, cada subcentro usa su propia referencia por
+  defecto. La casilla «Usar ubicación del centro principal» habilita el uso
+  de sus coordenadas y radio. Al desmarcarla se recupera la ubicación
+  propia si estaba guardada. Si falta referencia, la programación lo avisa
+  y las reglas bloquean el inicio en línea de la visita real.
+- La preparación sin conexión exige el mismo criterio y conserva la
+  referencia en el comprobante. Las descargas existentes mantienen su
+  referencia original. El ajuste queda en el maestro de ubicaciones de
+  Visitas por empresa, con los permisos de edición existentes.
+- Pasaron 68 pruebas de Flutter y 20 con emuladores de Firestore y Storage.
+  Los widgets se comprobaron a 390, 768, 1024 y 1366 px, con texto al 180 %
+  y Android e iOS simulados a 390 px. Pendiente publicación y comprobación
+  autenticada en navegador y en dispositivos físicos.
+
 ## 2026-11-10 — Web 2.8.26+80 publicada y AAB entregado (Codex)
 
 - Publicada la versión 2.8.26 (80) en Firebase Hosting

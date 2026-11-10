@@ -54,6 +54,21 @@ test('clients cannot read or forge preparation receipts or photo records', async
   await assertFails(setDoc(doc(client, `TBL_VISITAS_OFFLINE/forged`), offlineWire(p)));
   await assertFails(setDoc(doc(client, `TBL_VISITAS_OFFLINE/${p.reservaId}/fotos/fake`), {url: 'fake'}));
 });
+test('offline subcenters require their own coordinates or an explicit shared reference', async () => {
+  await fixture('subcentro');
+  await db.doc('TBL_VISITAS/subcentro').update({subcentroId: 's'});
+  const preparar = () => prepare.run({empresaId: 'e', visitaId: 'subcentro', formatoId: 'f'}, context());
+  const sub = db.doc('TBL_VISITAS_UBICACIONES/e_c__s');
+  await assert.rejects(preparar(), /no tiene ubicación/);
+  await sub.set({empresaId: 'e', usarUbicacionCentro: false});
+  await assert.rejects(preparar(), /no tiene ubicación/);
+  await sub.update({lat: 5, lng: -74});
+  assert.equal(offlineDecode(await preparar()).ubicacion.lat, 5);
+  await sub.update({usarUbicacionCentro: true});
+  assert.equal(offlineDecode(await preparar()).ubicacion.lat, 4.6);
+  await sub.update({empresaId: 'otra'});
+  await assert.rejects(preparar(), /no tiene ubicación/);
+});
 test('final report, tasks and receipt commit atomically and retries do not duplicate', async () => {
   const {p, v, payload} = await fixture('idempotent');
   const one = await sync.run(payload(), context());

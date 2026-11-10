@@ -255,16 +255,22 @@ exports.visitasPrepararOffline = functions.region("us-central1").https.onCall(as
             fail("El formato no está habilitado para tu cargo.");
         }
         const root = `${empresaId}_${v.centroId}`;
-        let loc = v.subcentroId ?
-            await tx.get(db.collection("TBL_VISITAS_UBICACIONES").doc(`${root}__${v.subcentroId}`)) : null;
-        if (!loc?.exists)
-            loc = await tx.get(db.collection("TBL_VISITAS_UBICACIONES").doc(root));
-        if (!v.esPrueba && !loc.exists)
+        const ubicaciones = db.collection("TBL_VISITAS_UBICACIONES");
+        let ubicacion = v.subcentroId ?
+            (await tx.get(ubicaciones.doc(`${root}__${v.subcentroId}`))).data() : undefined;
+        if (!v.subcentroId || (ubicacion?.empresaId === empresaId && ubicacion.usarUbicacionCentro === true)) {
+            ubicacion = (await tx.get(ubicaciones.doc(root))).data();
+        }
+        if (ubicacion?.empresaId !== empresaId ||
+            !Number.isFinite(ubicacion.lat) || !Number.isFinite(ubicacion.lng)) {
+            ubicacion = undefined;
+        }
+        if (!v.esPrueba && !ubicacion)
             fail("El establecimiento no tiene ubicación configurada.");
         const empresa = (await tx.get(db.collection("TBL_EMPRESAS").doc(empresaId))).data() || {};
         const p = { userId, uid: context.auth.uid, empresaId, visitaId, formatoId, formato,
             empresaNombre: text(empresa.nombre) || text(empresa.razonSocial) || empresaId,
-            base: v, baseHash: (0, exports.offlineHash)(v), ubicacion: loc.data() || null,
+            base: v, baseHash: (0, exports.offlineHash)(v), ubicacion: ubicacion || null,
             preparadaMs: now, venceMs: now + 7 * DAY, cargo };
         tx.create(receipt, p);
         return p;

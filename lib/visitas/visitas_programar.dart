@@ -500,7 +500,7 @@ class _ProgramarVisitasDialogState extends State<_ProgramarVisitasDialog> {
                 !u.direccion.contains(u.ciudad.trim()))
               u.ciudad.trim(),
             if (e.subcentro != null && u.subcentroId.isEmpty)
-              '(la del establecimiento)',
+              '(ubicación compartida del centro principal)',
           ].join(' · ');
     return Row(
       children: [

@@ -13,6 +13,7 @@ class _SvcFalso implements VisitasService {
   final busquedas = <String>[];
   final subcentrosNuevos = <String>[];
   Object? errorBusqueda;
+  List<VisitaUbicacion> ubicaciones = [];
 
   @override
   Stream<List<VisitaCentro>> streamCentros(
@@ -28,7 +29,7 @@ class _SvcFalso implements VisitasService {
 
   @override
   Stream<List<VisitaUbicacion>> streamUbicaciones(String empresaId) =>
-      Stream.value(const []);
+      Stream.value(ubicaciones);
 
   @override
   Future<List<LugarGoogle>> buscarLugares({
@@ -83,12 +84,25 @@ class _SvcFalso implements VisitasService {
 }
 
 void main() {
-  Future<void> abrir(WidgetTester tester, _SvcFalso svc, Size tamano) async {
+  Future<void> abrir(
+    WidgetTester tester,
+    _SvcFalso svc,
+    Size tamano, {
+    TargetPlatform? plataforma,
+    double escala = 1,
+  }) async {
     tester.view.physicalSize = tamano;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
       MaterialApp(
+        theme: ThemeData(platform: plataforma),
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(escala)),
+          child: child!,
+        ),
         home: Scaffold(
           body: VisitasUbicacionesTab(
             svc: svc,
@@ -107,8 +121,7 @@ void main() {
   ) async {
     final svc = _SvcFalso();
     await abrir(tester, svc, const Size(1300, 900));
-    expect(find.textContaining('1 establecimiento(s) sin ubicación'), findsOne);
-    expect(find.text('Hereda la ubicación del centro'), findsOneWidget);
+    expect(find.textContaining('2 establecimiento(s) sin ubicación'), findsOne);
 
     await tester.tap(find.text('Buen Pastor'));
     await tester.pumpAndSettle();
@@ -267,14 +280,34 @@ void main() {
       lng: -73.33,
     );
 
-    test('la del subcentro si tiene; si no, la del centro', () {
+    test('la ubicación del centro exige una selección expresa', () {
+      final compartida = VisitaUbicacion.fromMap('e_combita__media', {
+        'empresaId': 'e',
+        'centroId': 'combita',
+        'subcentroId': 'media',
+        'usarUbicacionCentro': true,
+      });
+      expect(compartida.tieneCoordenadas, isFalse);
+      expect(compartida.toMap().containsKey('lat'), isFalse);
       expect(
         ubicacionQueAplica([centro, alta], 'combita', subcentroId: 'alta'),
         same(alta),
       );
       expect(
         ubicacionQueAplica([alta, centro], 'combita', subcentroId: 'media'),
+        isNull,
+      );
+      expect(
+        ubicacionQueAplica(
+          [compartida, centro],
+          'combita',
+          subcentroId: 'media',
+        ),
         same(centro),
+      );
+      expect(
+        ubicacionQueAplica([compartida], 'combita', subcentroId: 'media'),
+        isNull,
       );
       expect(ubicacionQueAplica([alta, centro], 'combita'), same(centro));
       // Un subcentro con ubicación no le sirve al centro.
@@ -282,6 +315,79 @@ void main() {
       expect(ubicacionQueAplica([centro], 'picota'), isNull);
     });
   });
+
+  for (final (ancho, plataforma) in [
+    (390.0, TargetPlatform.android),
+    (390.0, TargetPlatform.iOS),
+    for (final ancho in [390.0, 768.0, 1024.0, 1366.0])
+      (ancho, TargetPlatform.windows),
+  ]) {
+    testWidgets('compartir ubicación es opcional a $ancho en $plataforma', (
+      tester,
+    ) async {
+      const centro = VisitaUbicacion(
+        id: 'e_buen_pastor',
+        empresaId: 'e',
+        centroId: 'buen_pastor',
+        centroNombre: 'Buen Pastor',
+        lat: 4.68,
+        lng: -74.07,
+      );
+      final svc = _SvcFalso()..ubicaciones = [centro];
+      Future<void> abrirCaso() => abrir(
+        tester,
+        svc,
+        Size(ancho, 840),
+        plataforma: plataforma,
+        escala: 1.8,
+      );
+      final casilla = find.widgetWithText(
+        CheckboxListTile,
+        'Usar ubicación del centro principal',
+      );
+      await abrirCaso();
+      expect(
+        find.textContaining('1 establecimiento(s) sin ubicación'),
+        findsOne,
+      );
+      await tester.ensureVisible(find.text('Patio 1'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Patio 1'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<CheckboxListTile>(casilla).value, isFalse);
+      await tester.tap(casilla);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Guardar'));
+      await tester.pumpAndSettle();
+      final marcada = svc.guardadas.single;
+      expect(marcada.subcentroId, 'patio_1');
+      expect(marcada.usarUbicacionCentro, isTrue);
+      expect(marcada.tieneCoordenadas, isFalse);
+
+      svc.ubicaciones = [
+        centro,
+        VisitaUbicacion.fromMap('e_buen_pastor__patio_1', marcada.toMap()),
+      ];
+      await tester.pumpWidget(const SizedBox.shrink());
+      await abrirCaso();
+      expect(
+        find.textContaining('Usa la ubicación del centro principal'),
+        findsOne,
+      );
+      await tester.ensureVisible(find.text('Patio 1'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Patio 1'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<CheckboxListTile>(casilla).value, isTrue);
+      await tester.tap(casilla);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Guardar'));
+      await tester.pumpAndSettle();
+      expect(svc.guardadas.last.usarUbicacionCentro, isFalse);
+      expect(svc.guardadas.last.tieneCoordenadas, isFalse);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   group('Google Maps', () {
     test('texto de búsqueda: nombre del subcentro y ciudad sin repetir', () {

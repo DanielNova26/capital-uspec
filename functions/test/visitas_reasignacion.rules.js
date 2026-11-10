@@ -186,3 +186,30 @@ test("el jefe y Desarrollo sí listan el maestro", async () => {
     assert.equal(snap.size, 1, quien);
   }
 });
+
+test("solo una ubicación propia o un uso expresamente marcado habilita el inicio en un subcentro", async () => {
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    for (const s of ["sin", "propia", "compartida"]) {
+      await setDoc(doc(db, `TBL_VISITAS/${s}`), visita({
+        subcentroId: s, formatoId: "f",
+        fechaProgramada: new Date(Date.now() - 60_000),
+      }));
+    }
+  });
+  const dev = auth("dev");
+  const datos = {empresaId: "EMP_A", centroId: "C1"};
+  const marcar = { ...datos, subcentroId: "compartida", usarUbicacionCentro: true };
+  await assertFails(setDoc(doc(auth("prof"), "TBL_VISITAS_UBICACIONES/EMP_A_C1__compartida"), marcar));
+  await assertFails(setDoc(doc(dev, "TBL_VISITAS_UBICACIONES/EMP_A_C1__otro"), marcar));
+  await assertSucceeds(setDoc(doc(dev, "TBL_VISITAS_UBICACIONES/EMP_A_C1__compartida"), marcar));
+  await assertSucceeds(setDoc(doc(dev, "TBL_VISITAS_UBICACIONES/EMP_A_C1__propia"), {
+    ...datos, subcentroId: "propia", lat: 4.8, lng: -74,
+  }));
+  const iniciar = (s) => updateDoc(doc(auth("prof"), `TBL_VISITAS/${s}`), {
+    estado: "en_curso", inicio: {at: new Date()},
+  });
+  await assertFails(iniciar("sin"));
+  await assertSucceeds(iniciar("propia"));
+  await assertSucceeds(iniciar("compartida"));
+});
