@@ -1,5 +1,26 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-09 — Mantenimiento publicado en Web 2.8.20+74 (Codex)
+
+- Publicada Web 2.8.20+74 en `https://to-do-gestion.web.app`.
+  Confirmadas la versión pública y la compilación servida. El despliegue
+  se limitó a Web y su backend.
+- Mantenimiento quedó habilitado para el perfil de Desarrollo solicitado
+  en sus cuatro empresas activas (Capital USPEC, Servir USPEC, FYC y ALFA).
+  La activación, la asignación de operación y la autorización de gestión
+  se verificaron leyendo los documentos de producción.
+- Los tres editores de Admin actualizan el permiso protegido de
+  Mantenimiento junto con la selección de apps. La configuración del
+  módulo y la copia de fichas base requieren un gestor autorizado en cada
+  empresa implicada. Modificar la ficha general no concede acceso por sí
+  solo. La deuda general de `TBL_USUARIOS` continúa abierta.
+- Reglas activas en el release `56a568eb-5b5a-4aae-b78b-daeb418c6cab`.
+  Índice empresa/establecimiento de hallazgos en estado READY. La función
+  `adminSincronizarMaestros` quedó actualizada y ACTIVE.
+- Pasaron 40 pruebas Flutter dirigidas, 18 de maestros y 9 de reglas.
+  El control del navegador no completó la apertura, por lo que falta
+  recorrer Inicio y Admin en una sesión autenticada del perfil.
+
 ## 2026-11-09 — Primer boceto funcional de Mantenimiento (Codex)
 
 - Mantenimiento usa los centros de costo de la empresa activa. Permite
