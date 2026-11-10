@@ -97,6 +97,14 @@ exports.MODULOS_MAESTROS = [
         ],
     },
     {
+        id: "mantenimiento", nombre: "Mantenimiento",
+        maestros: [
+            { id: "TBL_MANTENIMIENTO_EQUIPOS", nombre: "Fichas base de equipos",
+                tipo: "coleccion", clave: ["codigo"],
+                omitir: ["centroDocId", "serie", "factura"] },
+        ],
+    },
+    {
         id: "visitas", nombre: "Visitas",
         maestros: [
             { id: "TBL_VISITAS_FORMATOS", nombre: "Formatos", tipo: "coleccion",

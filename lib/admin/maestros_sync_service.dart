@@ -81,6 +81,15 @@ const kModulosMaestros = <ModuloMaestrosInfo>[
     ],
   ),
   ModuloMaestrosInfo(
+    id: 'mantenimiento',
+    nombre: 'Mantenimiento',
+    icono: Icons.build_circle_outlined,
+    color: Color(0xFF0E7490),
+    maestros: [
+      MaestroInfo('TBL_MANTENIMIENTO_EQUIPOS', 'Fichas base de equipos'),
+    ],
+  ),
+  ModuloMaestrosInfo(
     id: 'visitas',
     nombre: 'Visitas',
     icono: Icons.place_outlined,

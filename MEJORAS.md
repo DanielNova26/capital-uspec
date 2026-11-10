@@ -1,5 +1,31 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-09 — Primer boceto funcional de Mantenimiento (Codex)
+
+- Mantenimiento usa los centros de costo de la empresa activa. Permite
+  registrar equipos, consultar las hojas de vida de equipo y establecimiento
+  y gestionar órdenes correctivas y preventivas desde la apertura al cierre.
+  El informe PDF incluye el detalle, resultado, estado, referencia de factura
+  y vínculo de origen, con filtro por establecimiento y fecha de apertura.
+- El vínculo de Interventoría se selecciona entre los hallazgos del
+  establecimiento. La orden conserva su referencia y permite consultar el
+  hallazgo. La subsanación sigue a cargo de Interventoría. Las facturas
+  se registran por referencia de texto. El piloto deja para otra iteración
+  los archivos adjuntos, el cronograma y la agrupación por subcentro.
+- Admin gestiona el acceso por app y empresa mediante la asignación
+  individual, masiva y el editor de módulos. El acceso habilita toda la
+  operación y no hay niveles internos. El catálogo de maestros permite
+  copiar fichas base por código, sin la ubicación, serie, factura ni órdenes.
+  El piloto queda fuera del borrado masivo de Limpieza.
+- Las reglas del módulo se probaron con empresa secundaria, persona
+  inhabilitada, acceso revocado y reactivado, rol histórico, y vínculos de
+  otra empresa o establecimiento. Sigue abierta la deuda de protección de
+  escrituras de `TBL_USUARIOS` y `TBL_APPS`. Esas tablas son la fuente del
+  acceso efectivo y deben protegerse antes del despliegue productivo.
+- Android e iOS requieren validación por separado en dispositivos, incluidos
+  teclado, áreas seguras y compartir PDF. Pendiente el recorrido de los tres
+  editores de Admin contra una empresa de pruebas con datos reales.
+
 ## 2026-11-05 — Publicada Web 2.8.19+73 y backend de planes (Codex)
 
 - El sitio anunciaba 2.8.18+72, pero su `main.dart.js` y bootstrap eran

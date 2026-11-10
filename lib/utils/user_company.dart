@@ -19,6 +19,7 @@ const Map<String, String> kAppIdNormalizationMap = {
   'nutricion': 'nutriciondashboard',
   'gerencia': 'gerenciadashboard',
   'interventoria': 'interventoriadashboard',
+  'mantenimiento': 'mantenimientodashboard',
   'facturacion': 'facturaciondashboard',
   'rutas': 'rutasdashboard',
   'visitas': 'visitasdashboard',

@@ -14,6 +14,8 @@
 
 import 'package:flutter/material.dart';
 
+const kMantenimientoAppId = 'mantenimientodashboard';
+
 /// Agrupación con la que se le presenta el catálogo a alguien que no es
 /// técnico (Talento Humano). No tiene efecto sobre los permisos.
 enum AppCatalogGroup {
@@ -173,6 +175,17 @@ const List<AppCatalogEntry> kAppCatalog = [
     icono: Icons.document_scanner_rounded,
     color: Color(0xFF0F766E),
     notaRolInterno: 'Admin define el rol dentro de Interventoría.',
+  ),
+  AppCatalogEntry(
+    appId: kMantenimientoAppId,
+    nombre: 'Mantenimiento',
+    paraQueSirve:
+        'Registrar equipos, atender órdenes de trabajo y generar informes por establecimiento.',
+    grupo: AppCatalogGroup.areasOperativas,
+    proceso: ProcesoMapa.apoyo,
+    icono: Icons.build_circle_outlined,
+    color: Color(0xFF0E7490),
+    notaRolInterno: 'La asignación de la app habilita toda la operación.',
   ),
   AppCatalogEntry(
     appId: 'visitasdashboard',

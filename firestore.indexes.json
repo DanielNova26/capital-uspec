@@ -5,6 +5,14 @@
       "queryScope": "COLLECTION",
       "fields": [
         {"fieldPath": "empresaId", "order": "ASCENDING"},
+        {"fieldPath": "centroCostoId", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "TBL_INTERVENTORIA_HALLAZGOS",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "empresaId", "order": "ASCENDING"},
         {"fieldPath": "visitaId", "order": "ASCENDING"}
       ]
     },

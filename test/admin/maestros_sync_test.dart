@@ -38,12 +38,16 @@ void main() {
     }, servidor);
   });
 
-  test('cada módulo existe en Limpieza y no se repite', () {
+  test('los módulos consolidados existen en Limpieza y no se repiten', () {
     final ids = kModulosMaestros.map((m) => m.id).toList();
     expect(ids.toSet().length, ids.length);
     final limpieza = kModulosLimpieza.map((m) => m.id).toSet();
     for (final id in ids) {
-      expect(limpieza, contains(id));
+      if (id == 'mantenimiento') {
+        expect(limpieza, isNot(contains(id)));
+      } else {
+        expect(limpieza, contains(id));
+      }
     }
     // Lo que antes eran pestañas de Admin sigue teniendo su panel.
     expect({

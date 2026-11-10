@@ -1,3 +1,4 @@
+import '../core/app_catalog.dart' show kMantenimientoAppId;
 import 'task_numeracion_card.dart';
 import 'task_jefes_sync_card.dart';
 import 'interventoria_mejoras_card.dart';
@@ -3629,6 +3630,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       'TBL_NUTRICION_ROLES por empresa y persona; roles configurables en TBL_ROLES. Los accesos anteriores por app se pueden consolidar.',
     'interventoria' =>
       'TBL_INTERVENTORIA_ROLES · Roles actuales; creador pendiente de revisar.',
+    'mantenimiento' =>
+      'La asignación de la app habilita toda la operación en la empresa. Sin roles internos.',
     'rutas' =>
       'TBL_RUTAS_ROLES · Roles actuales; creador pendiente de revisar.',
     'visitas' =>
@@ -5535,6 +5538,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         icon: Icons.fingerprint,
         color: Color(0xFF0F766E),
         roles: biometricoTableRoles.levels,
+      ),
+      const _AccessMatrixModule(
+        key: 'mantenimiento',
+        label: 'Mantenimiento',
+        appId: kMantenimientoAppId,
+        icon: Icons.build_circle_outlined,
+        color: Color(0xFF0E7490),
       ),
       const _AccessMatrixModule(
         key: 'gerencia',
@@ -16891,6 +16901,7 @@ const List<({String id, String label})> _kAllModules = [
   (id: 'comprasdashboard', label: 'Compras'),
   (id: 'correodashboard', label: 'Correo'),
   (id: 'interventoriadashboard', label: 'Interventoría'),
+  (id: kMantenimientoAppId, label: 'Mantenimiento'),
   (id: 'facturaciondashboard', label: 'Facturación'),
   (id: 'rutasdashboard', label: 'Rutas'),
   (id: 'visitasdashboard', label: 'Visitas'),

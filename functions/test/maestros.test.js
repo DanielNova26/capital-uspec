@@ -55,11 +55,21 @@ test('el catálogo solo trae maestros: nunca personas, roles ni secretos', () =>
   }
 });
 
-test('los módulos son los mismos ids de Limpieza', () => {
+test('los módulos consolidados usan los mismos ids de Limpieza', () => {
   const limpieza = new Set(MODULOS_LIMPIEZA.map((m) => m.id));
   for (const m of MODULOS_MAESTROS) {
+    if (m.id === 'mantenimiento') continue;
     assert.ok(limpieza.has(m.id), `${m.id} no existe en Limpieza`);
   }
+});
+
+test('mantenimiento copia fichas base sin trasladar activos ni su historial', () => {
+  const modulo = MODULOS_MAESTROS.find((m) => m.id === 'mantenimiento');
+  assert.ok(!MODULOS_LIMPIEZA.some((m) => m.id === modulo.id));
+  assert.deepEqual(modulo.maestros.map((m) => m.id), ['TBL_MANTENIMIENTO_EQUIPOS']);
+  const [equipos] = modulo.maestros;
+  assert.deepEqual(equipos.clave, ['codigo']);
+  assert.deepEqual(equipos.omitir, ['centroDocId', 'serie', 'factura']);
 });
 
 test('la clave ignora tildes, mayúsculas y signos', () => {

@@ -55,6 +55,7 @@ import 'create_task_screen.dart' hide kArial;
 import '../core/task_estado_visible.dart';
 import '../core/access_guard.dart';
 import '../core/app_catalog.dart';
+import '../mantenimiento/mantenimiento_screen.dart';
 import '../core/apps_empresa.dart';
 import '../core/task_calendar.dart';
 import '../interventoria/interventoria_planes_screen.dart';
@@ -2077,6 +2078,35 @@ class _HomeScreenState extends State<HomeScreen> {
             compact: !isWeb,
             onTap: () =>
                 _abrirInterventoria(context, cedula, empresaId, userData),
+          ),
+        ),
+
+      if (userBelongsToEmpresa(userData, empresaId) &&
+          personaHabilitadaEn(userData, empresaId) &&
+          userHasApp(userData, kMantenimientoAppId, empresaId: empresaId) &&
+          !disabledAppIds.contains(kMantenimientoAppId))
+        _HomeModulo(
+          kMantenimientoAppId,
+          ModuleCard(
+            width: cardWidth,
+            title: 'Mantenimiento',
+            icon: Icons.build_circle_outlined,
+            color: const Color(0xFF0E7490),
+            compact: !isWeb,
+            onTap: () async {
+              final permitido = await _guardModuleNavigation(
+                userData: userData,
+                empresaId: empresaId,
+                appId: kMantenimientoAppId,
+                deniedMessage: 'Sin acceso a Mantenimiento',
+              );
+              if (!permitido || !mounted) return;
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => MantenimientoScreen(empresaId: empresaId),
+                ),
+              );
+            },
           ),
         ),
 
