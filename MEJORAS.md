@@ -13,7 +13,8 @@
   ocho simulaciones del inicio descargado en Android e iOS a 390, 768, 1024
   y 1366 px lógicos con texto a escala 1,8. La suite de Visitas registró
   268 pruebas aprobadas y ocho fallos del cronograma, reproducidos también
-  en la revisión anterior `ae67976`.
+  en la revisión anterior `ae67976`. La prueba de almacenamiento en Chrome
+  se quedó cargando y se detuvo sin resultado.
 - Pendiente instalar una versión con el cambio y verificar en Android físico
   supervisado con Family Link y en iPhone. Preparar una visita con internet,
   apagar Wi-Fi y datos móviles, dejar Ubicación activa, probar en el
