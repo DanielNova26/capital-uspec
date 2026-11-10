@@ -745,6 +745,175 @@ void main() {
   );
 
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    for (final width in [390.0, 768.0, 1024.0, 1366.0]) {
+      testWidgets(
+        'inicio descargado comprueba ubicación en $platform a $width',
+        (tester) async {
+          debugDefaultTargetPlatformOverride = platform;
+          await tester.binding.setSurfaceSize(Size(width, 900));
+          addTearDown(() => tester.binding.setSurfaceSize(null));
+          final android = platform == TargetPlatform.android;
+          final messenger = tester.binding.defaultBinaryMessenger;
+          const geo = MethodChannel('flutter.baseflow.com/geolocator');
+          const gps = MethodChannel('com.todogestion.app/visitas_gps');
+          var habilitada = false;
+          var permiso = !android;
+          var precisa = false;
+          var senal = false;
+          var dentro = false;
+          var ajustes = 0;
+          var lecturas = 0;
+          Map<String, Object> posicion() {
+            lecturas++;
+            return {
+              'latitude': dentro ? 4.0 : 5.0,
+              'longitude': -74.0,
+              'accuracy': 10.0,
+              'timestamp': DateTime.now().millisecondsSinceEpoch,
+            };
+          }
+
+          messenger.setMockMethodCallHandler(geo, (call) async {
+            switch (call.method) {
+              case 'checkPermission':
+                return permiso ? 2 : 0; // whileInUse / denied
+              case 'requestPermission':
+                return 1; // deniedForever
+              case 'isLocationServiceEnabled':
+                expect(android, isFalse);
+                return habilitada;
+              case 'getLocationAccuracy':
+                expect(android, isFalse);
+                return precisa ? 1 : 0;
+              case 'openLocationSettings':
+              case 'openAppSettings':
+                ajustes++;
+                return true;
+              case 'getCurrentPosition':
+                expect(android, isFalse);
+                return posicion();
+              default:
+                fail('Llamada de geolocalización inesperada: ${call.method}');
+            }
+          });
+          messenger.setMockMethodCallHandler(gps, (call) async {
+            expect(android, isTrue);
+            expect(call.method, 'leer');
+            if (!habilitada) throw PlatformException(code: 'desactivada');
+            if (!precisa) throw PlatformException(code: 'aproximada');
+            if (!senal) throw PlatformException(code: 'sin_senal');
+            return posicion();
+          });
+          addTearDown(() {
+            messenger.setMockMethodCallHandler(geo, null);
+            messenger.setMockMethodCallHandler(gps, null);
+          });
+
+          final p = package();
+          p['visita']['esPrueba'] = false;
+          p['visita']['responsableEstablecimiento'] = const VisitaResponsable(
+            nombre: 'Responsable',
+          ).toMap();
+          p['ubicacion'] = const VisitaUbicacion(
+            empresaId: 'e',
+            centroId: 'c',
+            centroNombre: 'Establecimiento',
+            lat: 4,
+            lng: -74,
+          ).toMap();
+          final panel = PanelStore();
+          await panel.autorizar(p);
+          final svc = VisitasLocalService(
+            p,
+            store: panel,
+            currentUid: () => null,
+          );
+          await tester.pumpWidget(
+            MaterialApp(
+              home: MediaQuery(
+                data: MediaQueryData(
+                  size: Size(width, 900),
+                  textScaler: const TextScaler.linear(1.8),
+                ),
+                child: pantallaVisitaDescargada(svc),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          Future<void> iniciar() async {
+            final boton = find.text('Iniciar visita');
+            await tester.scrollUntilVisible(
+              boton,
+              200,
+              scrollable: find
+                  .byWidgetPredicate(
+                    (w) =>
+                        w is Scrollable &&
+                        w.axisDirection == AxisDirection.down,
+                  )
+                  .first,
+            );
+            await tester.pumpAndSettle();
+            await tester.tap(boton);
+            await tester.pumpAndSettle();
+          }
+
+          if (android) {
+            await iniciar();
+            expect(find.textContaining('Family Link'), findsOneWidget);
+            expect(svc.visita.estado, kVisitaProgramada);
+            await tester.tap(find.text('Entendido'));
+            await tester.pumpAndSettle();
+            permiso = true;
+          }
+          await iniciar();
+          expect(find.textContaining('Activa la ubicación'), findsOneWidget);
+          expect(svc.visita.estado, kVisitaProgramada);
+          await tester.tap(find.text('Abrir ajustes'));
+          await tester.pumpAndSettle();
+          expect(ajustes, 1);
+
+          habilitada = true;
+          await iniciar();
+          expect(find.textContaining('ubicación aproximada'), findsOneWidget);
+          expect(find.textContaining('Activa la ubicación'), findsNothing);
+          expect(svc.visita.estado, kVisitaProgramada);
+          await tester.tap(find.text('Abrir ajustes'));
+          await tester.pumpAndSettle();
+          expect(ajustes, 2);
+
+          precisa = true;
+          if (android) {
+            await iniciar();
+            expect(
+              find.textContaining('No se obtuvo una posición'),
+              findsOneWidget,
+            );
+            expect(find.text('Abrir ajustes'), findsNothing);
+            expect(svc.visita.estado, kVisitaProgramada);
+            await tester.tap(find.text('Entendido'));
+            await tester.pumpAndSettle();
+          }
+          senal = true;
+          await iniciar();
+          expect(find.textContaining('radio permitido'), findsWidgets);
+          expect(svc.visita.estado, kVisitaProgramada);
+          await tester.tap(find.text('Entendido'));
+          await tester.pumpAndSettle();
+
+          dentro = true;
+          await iniciar();
+          expect(svc.visita.estado, kVisitaEnCurso);
+          expect(svc.visita.inicio!.lat, 4);
+          expect(lecturas, 2);
+          expect(tester.takeException(), isNull);
+          await tester.pumpWidget(const SizedBox());
+          await svc.disposeLocal();
+          debugDefaultTargetPlatformOverride = null;
+        },
+      );
+    }
+
     testWidgets(
       'selección de dañadas conserva las no seleccionadas en $platform',
       (tester) async {

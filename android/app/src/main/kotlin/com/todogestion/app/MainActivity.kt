@@ -8,8 +8,11 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterFragmentActivity() {
+    private var visitasGps: VisitasGps? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        visitasGps = VisitasGps(applicationContext, flutterEngine.dartExecutor.binaryMessenger)
         val storage = VisitasSecureStorage(applicationContext)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger,
             "com.todogestion.app/visitas_secure").setMethodCallHandler { call, result ->
@@ -30,6 +33,12 @@ class MainActivity : FlutterFragmentActivity() {
                     "No se pudo abrir el almacenamiento seguro de visitas. Reinicia la app e inténtalo de nuevo. Conserva los datos del equipo.", null)
             }
         }
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        visitasGps?.dispose()
+        visitasGps = null
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

@@ -37,6 +37,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../widgets/paged_list.dart';
 import 'visitas_models.dart';
 import 'visitas_service.dart';
+import 'visitas_ubicacion_dispositivo.dart';
 
 const String _kFont = 'Arial';
 const Color _kColor = Color(0xFF7C3AED);
@@ -646,19 +647,13 @@ class _UbicacionDialogState extends State<_UbicacionDialog> {
     try {
       final p = await widget.svc.posicionActual();
       if (!mounted) return;
-      if (p == null) {
-        _snack(
-          context,
-          'No se pudo leer el GPS. Revisa permisos.',
-          error: true,
-        );
-        return;
-      }
       // Un punto tomado a mano ya no es el lugar de Google.
       _placeId = '';
       _nombreGoogle = '';
       _ponerPunto(p.latitude, p.longitude);
       _snack(context, 'Coordenadas tomadas (±${p.accuracy.round()} m).');
+    } on ErrorUbicacionVisita catch (e) {
+      if (mounted) _snack(context, e.mensaje, error: true);
     } finally {
       if (mounted) setState(() => _ocupado = false);
     }

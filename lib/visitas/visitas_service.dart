@@ -25,6 +25,7 @@ import '../utils/user_company.dart';
 import 'visitas_formato_sst.dart';
 import 'visitas_models.dart';
 import 'visitas_offline.dart';
+import 'visitas_ubicacion_dispositivo.dart';
 
 /// Error de negocio del módulo con mensaje para la persona. Se distingue
 /// de un fallo de red para que la pantalla no diga "Exception:".
@@ -1529,30 +1530,7 @@ class VisitasService {
     );
   }
 
-  /// Posición del dispositivo. Null si no hay permiso o no hay GPS. Desde
-  /// el 17 sep 2026 sin posición NO se inicia la visita (lo decide
-  /// `verificarUbicacionInicio`); aquí solo se intenta obtenerla.
-  Future<Position?> posicionActual() async {
-    try {
-      if (!await Geolocator.isLocationServiceEnabled()) return null;
-      var perm = await Geolocator.checkPermission();
-      if (perm == LocationPermission.denied) {
-        perm = await Geolocator.requestPermission();
-      }
-      if (perm == LocationPermission.denied ||
-          perm == LocationPermission.deniedForever) {
-        return null;
-      }
-      return await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 15),
-        ),
-      );
-    } catch (_) {
-      return null;
-    }
-  }
+  Future<Position> posicionActual() => leerPosicionVisita();
 
   VisitaMarca _marca(Position? p, {VisitaUbicacion? ref}) {
     double? dist;

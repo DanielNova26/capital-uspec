@@ -45,6 +45,7 @@ import 'visitas_local_service.dart';
 import 'visitas_local_screen.dart';
 import 'visitas_programar.dart';
 import 'visitas_service.dart';
+import 'visitas_ubicacion_dispositivo.dart';
 import 'visitas_ubicaciones_screen.dart';
 
 const Color kVisitasColor = Color(0xFF7C3AED);
@@ -2572,7 +2573,10 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
       );
       return;
     }
-    setState(() => _ocupado = true);
+    setState(() {
+      _ocupado = true;
+      _dondeEstoy = null;
+    });
     try {
       // "¿Dónde estoy?" dentro de Iniciar: se toma la ubicación, se muestra
       // dónde quedó respecto de este establecimiento y, si está dentro, se
@@ -2582,9 +2586,9 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
         posicion = await widget.svc.posicionActual();
         final check = verificarUbicacionInicio(
           referencia: _referencia,
-          lat: posicion?.latitude,
-          lng: posicion?.longitude,
-          precisionMetros: posicion?.accuracy,
+          lat: posicion.latitude,
+          lng: posicion.longitude,
+          precisionMetros: posicion.accuracy,
         );
         if (!mounted) return;
         setState(() => _dondeEstoy = check);
@@ -2604,6 +2608,8 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
       // El formato elegido es el de la visita desde ya; el stream trae la
       // copia guardada enseguida.
       if (elegido != null && mounted) setState(() => _formato = elegido);
+    } on ErrorUbicacionVisita catch (e) {
+      if (mounted) await _avisoBloqueo(e.mensaje, ubicacion: e);
     } on VisitasException catch (e) {
       if (mounted) await _avisoBloqueo(e.mensaje);
     } catch (e) {
@@ -2613,27 +2619,52 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
     }
   }
 
-  Future<void> _avisoBloqueo(String motivo) => showDialog<void>(
-    context: context,
-    builder: (_) => AlertDialog(
-      icon: const Icon(
-        Icons.location_off_outlined,
-        color: Color(0xFFDC2626),
-        size: 40,
-      ),
-      title: const Text('No se puede iniciar'),
-      content: Text(
-        motivo,
-        style: const TextStyle(fontFamily: _kFont, height: 1.4),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Entendido'),
+  Future<void> _avisoBloqueo(
+    String motivo, {
+    ErrorUbicacionVisita? ubicacion,
+  }) async {
+    final abrir = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        scrollable: true,
+        icon: const Icon(
+          Icons.location_off_outlined,
+          color: Color(0xFFDC2626),
+          size: 40,
         ),
-      ],
-    ),
-  );
+        title: const Text('No se puede iniciar'),
+        content: Text(
+          motivo,
+          style: const TextStyle(fontFamily: _kFont, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Entendido'),
+          ),
+          if (ubicacion?.permiteAbrirAjustes == true)
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Abrir ajustes'),
+            ),
+        ],
+      ),
+    );
+    if (abrir != true || ubicacion == null || !mounted) return;
+    var abierto = false;
+    try {
+      abierto = await ubicacion.abrirAjustes();
+    } catch (_) {
+      // El sistema puede bloquear el acceso a Ajustes en un equipo supervisado.
+    }
+    if (!abierto && mounted) {
+      _snack(
+        context,
+        'Abre los ajustes del dispositivo o pide ayuda a quien lo administra.',
+        error: true,
+      );
+    }
+  }
 
   /// El profesional ya no mueve la visita: le pide la fecha a su jefe
   /// inmediato (28 sep 2026).
@@ -3379,7 +3410,13 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
                   ? null
                   : () => _iniciar(v),
               icon: const Icon(Icons.play_arrow_rounded),
-              label: Text(_ocupado ? 'Ubicándote…' : 'Iniciar visita'),
+              label: Text(
+                !_ocupado
+                    ? 'Iniciar visita'
+                    : widget.svc is VisitasLocalService && !v.esPrueba
+                    ? 'Buscando ubicación (hasta 1 min)…'
+                    : 'Ubicándote…',
+              ),
             ),
             const SizedBox(height: 8),
             ..._cambioDeFecha(v),

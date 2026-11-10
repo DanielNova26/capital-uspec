@@ -1,5 +1,25 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-10 — GPS para Visitas descargadas (Codex)
+
+- Android solicita una lectura nueva al receptor GPS al iniciar una visita
+  descargada. Espera hasta 60 segundos sin depender de internet ni de
+  Google Play Services para obtener la posición. El inicio sigue validando
+  el radio del establecimiento. iOS usa la ubicación precisa del sistema.
+- El inicio distingue ubicación desactivada, permiso denegado o aproximado,
+  falta de receptor y falta de lectura a tiempo. Ofrece abrir Ajustes cuando
+  corresponde. Al volver, «Iniciar visita» comprueba de nuevo el estado.
+- Compilaron Android debug y Web. Pasaron 58 pruebas dirigidas, incluidas
+  ocho simulaciones del inicio descargado en Android e iOS a 390, 768, 1024
+  y 1366 px lógicos con texto a escala 1,8. La suite de Visitas registró
+  268 pruebas aprobadas y ocho fallos del cronograma, reproducidos también
+  en la revisión anterior `ae67976`.
+- Pendiente instalar una versión con el cambio y verificar en Android físico
+  supervisado con Family Link y en iPhone. Preparar una visita con internet,
+  apagar Wi-Fi y datos móviles, dejar Ubicación activa, probar en el
+  establecimiento y sincronizar al recuperar la conexión. Verificar también
+  desactivar y reactivar Ubicación y repetir el inicio desde la misma visita.
+
 ## 2026-11-09 — Nuevo diseño web de Mantenimiento (Codex)
 
 - Publicada la versión Web 2.8.21+75 en `https://to-do-gestion.web.app`.

@@ -12,6 +12,7 @@ import '../services/company_branding_service.dart';
 import 'visitas_local_store.dart';
 import 'visitas_models.dart';
 import 'visitas_service.dart';
+import 'visitas_ubicacion_dispositivo.dart';
 
 /// A downloaded visit always writes locally, even when connectivity fluctuates.
 /// Only an explicit sync publishes the frozen final report.
@@ -157,6 +158,9 @@ class VisitasLocalService extends VisitasService {
           Map<String, dynamic>.from(paquete['ubicacion'] as Map),
         );
 
+  @override
+  Future<Position> posicionActual() => leerPosicionVisita(descargada: true);
+
   Future<VisitaMarca> _marca({Position? posicion}) async {
     final v = visita;
     if (v.esPrueba) return VisitaMarca(at: Timestamp.now());
@@ -164,14 +168,14 @@ class VisitasLocalService extends VisitasService {
     final p = posicion ?? await posicionActual();
     final check = verificarUbicacionInicio(
       referencia: ref,
-      lat: p?.latitude,
-      lng: p?.longitude,
-      precisionMetros: p?.accuracy,
+      lat: p.latitude,
+      lng: p.longitude,
+      precisionMetros: p.accuracy,
     );
     if (!check.permitido) throw VisitasException(check.motivo);
     return VisitaMarca(
       at: Timestamp.now(),
-      lat: p!.latitude,
+      lat: p.latitude,
       lng: p.longitude,
       precisionMetros: p.accuracy,
       distanciaMetros: check.distancia,
