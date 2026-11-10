@@ -1,5 +1,17 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-10 — Web 2.8.26+80 publicada y AAB entregado (Codex)
+
+- Publicada la versión 2.8.26 (80) en Firebase Hosting
+  `https://to-do-gestion.web.app`, proyecto `integra360-94704`.
+  La versión anterior servida era 2.8.25 (79).
+- Los seis archivos públicos de versión, arranque, aplicación y service
+  workers respondieron HTTP 200 y coincidieron por SHA-256 con el build
+  local. El manifiesto público confirma 2.8.26 (80).
+- Verificada la integridad del AAB firmado `to-do-gestion-2.8.26-80.aab`
+  para carga en Play Console por el usuario. Sigue pendiente probar el
+  inicio sin red en la tablet física de Piendamó.
+
 ## 2026-11-10 — Tiempo de espera del GPS en Visitas 2.8.26+80 (Codex)
 
 - En una tablet de Piendamó, la lectura satelital de una visita descargada
