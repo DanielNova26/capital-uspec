@@ -1,5 +1,12 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-10 — Web 2.8.23+77 con plantillas Excel de varias hojas (Codex)
+
+- Publicada en `https://to-do-gestion.web.app`. La portada y `version.json`
+  respondieron correctamente, y el JavaScript servido coincide con el
+  compilado que incluye el selector de hojas.
+- Pasaron 233 pruebas de Gestión Documental con el adjunto GER-005.
+
 ## 2026-11-10 — Plantillas Excel con varias hojas en Biblioteca Documental (Codex)
 
 - **Plantilla Excel** permite elegir entre 1 y 100 hojas desde el alta o
@@ -13,8 +20,8 @@
 - Compiló Web. El diálogo pasó pruebas de widgets a 390, 768, 1024 y
   1366 px con texto a escala 1,8 y teclado simulado, con casos separados
   para Android e iOS. La prueba en Chrome quedó en carga y se detuvo.
-  Pendientes la publicación y la verificación del flujo en navegador,
-  Android físico y iPhone.
+  Pendiente verificar el flujo con sesión en navegador, Android físico
+  y iPhone.
 
 ## 2026-11-10 — AAB Android 2.8.22+76 (Codex)
 
