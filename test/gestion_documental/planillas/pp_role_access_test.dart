@@ -20,6 +20,28 @@ Map<String, dynamic> person() => {
 };
 
 void main() {
+  test('Por atender sigue las acciones vigentes e históricas del detalle', () {
+    expect(ppWorkflowActions(PpEstado.observada, PpRoles.tesoreria), [
+      'reenviar',
+    ]);
+    expect(
+      ppWorkflowActions(PpEstado.pendiente_validacion, PpRoles.tesoreria),
+      ['enviar_auditoria'],
+    );
+    expect(ppWorkflowActions(PpEstado.aprobada_auditoria, PpRoles.auditoria), [
+      'enviar_gerencia',
+    ]);
+    expect(
+      ppWorkflowActions(PpEstado.pendiente_firma_gerencia, PpRoles.gerencia),
+      ['firmar', 'rechazar'],
+    );
+    expect(
+      ppWorkflowActions(PpEstado.pendiente_firma_gerencia, PpRoles.auditoria),
+      isEmpty,
+    );
+    expect(ppWorkflowActions(PpEstado.firmada, PpRoles.adminDoc), isEmpty);
+  });
+
   test('nivel raíz solo sirve en la empresa principal', () {
     final user = person();
     expect(resolvePpPlanillasRole(user, 'A'), 'admin_doc');

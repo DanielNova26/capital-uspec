@@ -32,6 +32,29 @@ List<String> ppActionsForLevel(String level) => [
     if (PpRoles.puedeEjecutar(action, level)) action,
 ];
 
+List<String> ppWorkflowActions(PpEstado estado, String? rol) {
+  final permisos = switch (estado) {
+    PpEstado.cargada => const ['confirmar_carga'],
+    PpEstado.pendiente_validacion => const ['enviar_auditoria'],
+    PpEstado.en_revision_auditoria => const [
+      'observar',
+      'aprobar_auditoria',
+      'rechazar_auditoria',
+    ],
+    PpEstado.observada => const ['reenviar'],
+    PpEstado.aprobada_auditoria => const ['enviar_gerencia'],
+    PpEstado.pendiente_firma_gerencia => const ['firmar', 'rechazar_gerencia'],
+    PpEstado.firmada ||
+    PpEstado.rechazada ||
+    PpEstado.anulada => const <String>[],
+  };
+  return [
+    for (final permiso in permisos)
+      if (PpRoles.puedeEjecutar(permiso, rol))
+        if (permiso.startsWith('rechazar_')) 'rechazar' else permiso,
+  ];
+}
+
 String ppLevelDescription(String level) {
   final actions = ppActionsForLevel(level);
   return actions.isEmpty

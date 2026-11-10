@@ -1,7 +1,7 @@
 // lib/gestion_documental/planillas/pp_dashboard_screen.dart
 //
 // Dashboard principal del subflujo Planillas de Pago.
-// Listado de lotes y planillas, con filtros por estado y rol.
+// Bandejas de planillas en trámite y firmadas.
 // Accede desde GdDashboardScreen → botón "Planillas de Pago".
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -18,16 +18,22 @@ import 'pp_subir_pdf_screen.dart';
 import 'pp_planilla_detail_screen.dart';
 import 'pp_service.dart';
 
+enum _AccionFechaFirma { desde, hasta, limpiar }
+
 class PpDashboardScreen extends StatefulWidget {
   final String userId;
   final String empresaId;
   final VoidCallback? onOpenIdentity;
+  final FirebaseFirestore? firestore;
+  final PpService? service;
 
   const PpDashboardScreen({
     super.key,
     required this.userId,
     required this.empresaId,
     this.onOpenIdentity,
+    this.firestore,
+    this.service,
   });
 
   @override
@@ -36,10 +42,11 @@ class PpDashboardScreen extends StatefulWidget {
 
 class _PpDashboardScreenState extends State<PpDashboardScreen>
     with SingleTickerProviderStateMixin {
-  final _service = PpService();
+  late final _db = widget.firestore ?? FirebaseFirestore.instance;
+  late final _service = widget.service ?? PpService(db: _db);
   late TabController _tabCtrl;
   late Future<void> _cleanupFuture;
-  PpEstado? _filtroEstado;
+  bool _soloPorAtender = false;
   final TextEditingController _searchCtrl = TextEditingController();
   String _searchQuery = '';
   DateTime? _firmaDesde;
@@ -48,35 +55,20 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
   bool _deletingSelection = false;
   final Set<String> _selectedPlanillaIds = <String>{};
 
-  // Streams memoizadas: se crean UNA sola vez por clave (empresa/estado) y se
-  // reutilizan entre rebuilds. Recrear el listener en cada build (al escribir en
-  // el buscador, cambiar de pestaña o filtro) provocaba churn de suscripciones
-  // en el SDK de Firestore y el error "INTERNAL ASSERTION FAILED: Unexpected
-  // state" del WatchChangeAggregator. Ver PpService.streamPlanillasPorEmpresa.
+  // Reutilizar las suscripciones al buscar o filtrar en cada bandeja.
   Stream<List<PpPlanilla>>? _planillasStream;
-  PpEstado? _planillasStreamEstado;
-  bool _planillasStreamInit = false;
   Stream<List<PpPlanilla>>? _firmadasStream;
   Stream<DocumentSnapshot<Map<String, dynamic>>>? _usuarioStream;
 
   Stream<DocumentSnapshot<Map<String, dynamic>>> _streamUsuario() {
-    return _usuarioStream ??= FirebaseFirestore.instance
+    return _usuarioStream ??= _db
         .collection('TBL_USUARIOS')
         .doc(widget.userId)
         .snapshots();
   }
 
-  Stream<List<PpPlanilla>> _streamPlanillas() {
-    if (!_planillasStreamInit || _planillasStreamEstado != _filtroEstado) {
-      _planillasStream = _service.streamPlanillasPorEmpresa(
-        widget.empresaId,
-        estado: _filtroEstado,
-      );
-      _planillasStreamEstado = _filtroEstado;
-      _planillasStreamInit = true;
-    }
-    return _planillasStream!;
-  }
+  Stream<List<PpPlanilla>> _streamPlanillas() =>
+      _planillasStream ??= _service.streamPlanillasPorEmpresa(widget.empresaId);
 
   Stream<List<PpPlanilla>> _streamFirmadas() {
     return _firmadasStream ??= _service.streamPlanillasPorEmpresa(
@@ -98,10 +90,6 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
         });
         return;
       }
-      if (_tabCtrl.index == 0 && _filtroEstado == PpEstado.firmada) {
-        setState(() => _filtroEstado = null);
-        return;
-      }
       setState(() {});
     });
     _cleanupFuture = _cleanupForCurrentUser();
@@ -120,10 +108,7 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
       : null;
 
   Future<void> _cleanupForCurrentUser() async {
-    final user = await FirebaseFirestore.instance
-        .collection('TBL_USUARIOS')
-        .doc(widget.userId)
-        .get();
+    final user = await _db.collection('TBL_USUARIOS').doc(widget.userId).get();
     if (!ppCanAccess(user.data(), widget.empresaId)) return;
     await _service.limpiarCamposFirmaBinaria(empresaId: widget.empresaId);
   }
@@ -466,9 +451,8 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
                   ? _buildSinRol()
                   : Column(
                       children: [
-                        _buildSearchBar(),
-                        if (inPlanillasTab) _buildFiltroEstado(),
-                        if (inFirmadasTab) _buildFiltroFechaFirma(),
+                        if (inPlanillasTab || inFirmadasTab)
+                          _buildControlesBandeja(inFirmadasTab),
                         if (_selectionMode &&
                             canDelete &&
                             (inPlanillasTab || inFirmadasTab))
@@ -579,141 +563,120 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
     ),
   );
 
-  Widget _buildSearchBar() => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-    child: TextField(
-      controller: _searchCtrl,
-      style: const TextStyle(fontFamily: kArial, fontSize: 13),
-      decoration: InputDecoration(
-        hintText: _tabCtrl.index == 1
-            ? 'Buscar por nombre, empresa o fecha de firma...'
-            : 'Buscar por nombre o fecha (ej: 2025-04)...',
-        hintStyle: const TextStyle(
-          fontFamily: kArial,
-          fontSize: 12,
-          color: GdPalette.muted,
-        ),
-        prefixIcon: const Icon(Icons.search, size: 18, color: GdPalette.muted),
-        suffixIcon: _searchQuery.isNotEmpty
-            ? IconButton(
-                icon: const Icon(Icons.clear, size: 16, color: GdPalette.muted),
-                onPressed: () => setState(() {
-                  _searchCtrl.clear();
-                  _searchQuery = '';
-                }),
-              )
-            : null,
-        filled: true,
-        fillColor: GdPalette.surface,
-        contentPadding: const EdgeInsets.symmetric(
-          vertical: 10,
-          horizontal: 12,
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: GdPalette.border),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: GdPalette.border),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: GdPalette.accent, width: 1.5),
-        ),
-      ),
-      onChanged: (v) => setState(() => _searchQuery = v.trim().toLowerCase()),
-    ),
-  );
-
-  Widget _buildFiltroFechaFirma() => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-    child: SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          OutlinedButton.icon(
-            onPressed: () => _pickFirmaDate(desde: true),
-            icon: const Icon(Icons.event_outlined, size: 18),
-            label: Text(
-              _firmaDesde == null
-                  ? 'Desde firma'
-                  : 'Desde ${DateFormat('dd/MM/yyyy').format(_firmaDesde!)}',
-              style: const TextStyle(
-                fontFamily: kArial,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          OutlinedButton.icon(
-            onPressed: () => _pickFirmaDate(desde: false),
-            icon: const Icon(Icons.event_available_outlined, size: 18),
-            label: Text(
-              _firmaHasta == null
-                  ? 'Hasta firma'
-                  : 'Hasta ${DateFormat('dd/MM/yyyy').format(_firmaHasta!)}',
-              style: const TextStyle(
-                fontFamily: kArial,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          if (_firmaDesde != null || _firmaHasta != null) ...[
-            const SizedBox(width: 8),
-            TextButton.icon(
-              onPressed: () => setState(() {
-                _firmaDesde = null;
-                _firmaHasta = null;
-              }),
-              icon: const Icon(Icons.clear, size: 18),
-              label: const Text(
-                'Limpiar fechas',
-                style: TextStyle(
-                  fontFamily: kArial,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    ),
-  );
-
-  Widget _buildFiltroEstado() {
-    final estados = <PpEstado?>[
-      null,
-      ...PpEstado.values.where((e) => e != PpEstado.firmada),
-    ];
-    return SizedBox(
-      height: 48,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        itemCount: estados.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (_, i) {
-          final e = estados[i];
-          final selected = _filtroEstado == e;
-          return FilterChip(
-            label: Text(
-              e?.etiqueta ?? 'Todos',
-              style: TextStyle(
-                fontFamily: kArial,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: selected ? Colors.white : GdPalette.primary,
-              ),
-            ),
-            selected: selected,
-            selectedColor: GdPalette.accent,
-            checkmarkColor: Colors.white,
-            backgroundColor: GdPalette.surface,
-            side: const BorderSide(color: GdPalette.border),
-            onSelected: (_) => setState(() => _filtroEstado = e),
+  Widget _buildControlesBandeja(bool firmadas) {
+    final filtro = firmadas
+        ? _buildFiltroFechaFirma()
+        : FilterChip(
+            label: const Text('Por atender'),
+            selected: _soloPorAtender,
+            onSelected: (activo) => setState(() => _soloPorAtender = activo),
           );
-        },
+    final buscar = _buildSearchBar();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+      child: LayoutBuilder(
+        builder: (context, constraints) => constraints.maxWidth >= 620
+            ? Row(
+                children: [
+                  Expanded(child: buscar),
+                  const SizedBox(width: 12),
+                  filtro,
+                ],
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [buscar, const SizedBox(height: 4), filtro],
+              ),
+      ),
+    );
+  }
+
+  Widget _buildSearchBar() => TextField(
+    controller: _searchCtrl,
+    style: const TextStyle(fontFamily: kArial, fontSize: 13),
+    decoration: InputDecoration(
+      hintText: 'Buscar planilla',
+      hintStyle: const TextStyle(
+        fontFamily: kArial,
+        fontSize: 12,
+        color: GdPalette.muted,
+      ),
+      prefixIcon: const Icon(Icons.search, size: 18, color: GdPalette.muted),
+      suffixIcon: _searchQuery.isNotEmpty
+          ? IconButton(
+              icon: const Icon(Icons.clear, size: 16, color: GdPalette.muted),
+              onPressed: () => setState(() {
+                _searchCtrl.clear();
+                _searchQuery = '';
+              }),
+            )
+          : null,
+      filled: true,
+      fillColor: GdPalette.surface,
+      contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: GdPalette.border),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: GdPalette.border),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: GdPalette.accent, width: 1.5),
+      ),
+    ),
+    onChanged: (v) => setState(() => _searchQuery = v.trim().toLowerCase()),
+  );
+
+  Widget _buildFiltroFechaFirma() {
+    final formato = DateFormat('dd/MM/yyyy');
+    return PopupMenuButton<_AccionFechaFirma>(
+      tooltip: 'Filtrar por fecha de firma',
+      onSelected: (accion) {
+        switch (accion) {
+          case _AccionFechaFirma.desde:
+            _pickFirmaDate(desde: true);
+          case _AccionFechaFirma.hasta:
+            _pickFirmaDate(desde: false);
+          case _AccionFechaFirma.limpiar:
+            setState(() {
+              _firmaDesde = null;
+              _firmaHasta = null;
+            });
+        }
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem(
+          value: _AccionFechaFirma.desde,
+          child: Text(
+            _firmaDesde == null
+                ? 'Desde'
+                : 'Desde ${formato.format(_firmaDesde!)}',
+          ),
+        ),
+        PopupMenuItem(
+          value: _AccionFechaFirma.hasta,
+          child: Text(
+            _firmaHasta == null
+                ? 'Hasta'
+                : 'Hasta ${formato.format(_firmaHasta!)}',
+          ),
+        ),
+        if (_firmaDesde != null || _firmaHasta != null)
+          const PopupMenuItem(
+            value: _AccionFechaFirma.limpiar,
+            child: Text('Limpiar fechas'),
+          ),
+      ],
+      child: Chip(
+        avatar: const Icon(Icons.date_range_outlined, size: 18),
+        label: Text(
+          _firmaDesde == null && _firmaHasta == null
+              ? 'Fechas de firma'
+              : 'Fechas de firma activas',
+        ),
       ),
     );
   }
@@ -796,16 +759,23 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
         if (!snap.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        final all = snap.data!
+        final planillas = snap.data!
             .where((p) => p.estado != PpEstado.firmada)
+            .where(
+              (p) =>
+                  !_soloPorAtender ||
+                  _esPendienteParaRol(p.estado, rolPlanillas),
+            )
+            .where(_matchesSearchPlanilla)
             .toList();
-        final planillas = all.where(_matchesSearchPlanilla).toList();
         if (planillas.isEmpty) {
           return Center(
             child: Text(
               _searchQuery.isNotEmpty
                   ? 'Sin resultados para "$_searchQuery".'
-                  : 'No hay planillas${_filtroEstado != null ? " en estado ${_filtroEstado!.etiqueta}" : ""}.',
+                  : _soloPorAtender
+                  ? 'No tienes planillas por atender.'
+                  : 'No hay planillas.',
               style: const TextStyle(
                 fontFamily: kArial,
                 color: GdPalette.muted,
@@ -967,10 +937,12 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
                       ],
                     ),
                     const SizedBox(height: 4),
-                    Row(
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         _estadoChip(planilla.estado, colors),
-                        const SizedBox(width: 8),
                         if (planilla.valorDetectado != null)
                           Text(
                             _formatCurrency(planilla.valorDetectado!),
@@ -1060,18 +1032,8 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
     ),
   );
 
-  bool _esPendienteParaRol(PpEstado estado, String rol) {
-    if (rol == PpRoles.tesoreria) {
-      return estado == PpEstado.cargada || estado == PpEstado.observada;
-    }
-    if (rol == PpRoles.auditoria) {
-      return estado == PpEstado.en_revision_auditoria;
-    }
-    if (rol == PpRoles.gerencia) {
-      return estado == PpEstado.pendiente_firma_gerencia;
-    }
-    return false;
-  }
+  bool _esPendienteParaRol(PpEstado estado, String rol) =>
+      ppWorkflowActions(estado, rol).isNotEmpty;
 
   (Color, Color) _estadoColors(PpEstado e) => switch (e) {
     PpEstado.firmada => (Colors.green.shade50, Colors.green.shade700),
@@ -1092,9 +1054,7 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
 
   bool _matchesSearchPlanilla(PpPlanilla planilla) {
     if (_searchQuery.isEmpty) return true;
-    final nombre =
-        (planilla.nombrePlanillaDetectado ?? planilla.nombreArchivoOriginal)
-            .toLowerCase();
+    final nombre = (planilla.nombrePlanillaDetectado ?? '').toLowerCase();
     final fechaPlanilla = (planilla.fechaPlanillaDetectada ?? '').toLowerCase();
     final empresa = (planilla.empresaNombre ?? '').toLowerCase();
     final firma = planilla.firmadoEn?.toDate();
@@ -1105,6 +1065,11 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
         ? ''
         : DateFormat('dd/MM/yyyy').format(firma.toLocal()).toLowerCase();
     return nombre.contains(_searchQuery) ||
+        planilla.nombreArchivoOriginal.toLowerCase().contains(_searchQuery) ||
+        (planilla.nombrePdfPersonalizado ?? '').toLowerCase().contains(
+          _searchQuery,
+        ) ||
+        planilla.estado.etiqueta.toLowerCase().contains(_searchQuery) ||
         fechaPlanilla.contains(_searchQuery) ||
         empresa.contains(_searchQuery) ||
         firmaIso.contains(_searchQuery) ||
@@ -1138,7 +1103,7 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
       firstDate: DateTime(2020),
       lastDate: DateTime(actual.year + 5, 12, 31),
     );
-    if (picked == null) return;
+    if (!mounted || picked == null) return;
     final pickedDay = DateUtils.dateOnly(picked);
     setState(() {
       if (desde) {

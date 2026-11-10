@@ -1855,50 +1855,8 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
     );
   }
 
-  List<String> _accionesDisponibles(PpPlanilla planilla) {
-    final rol = _currentRole;
-    final estado = planilla.estado;
-
-    final acciones = <String>[];
-
-    if (estado == PpEstado.cargada &&
-        PpRoles.puedeEjecutar('confirmar_carga', rol)) {
-      acciones.add('confirmar_carga');
-    }
-    if (estado == PpEstado.pendiente_validacion &&
-        PpRoles.puedeEjecutar('enviar_auditoria', rol)) {
-      acciones.add('enviar_auditoria');
-    }
-    if (estado == PpEstado.en_revision_auditoria) {
-      if (PpRoles.puedeEjecutar('observar', rol)) {
-        acciones.add('observar');
-      }
-      if (PpRoles.puedeEjecutar('aprobar_auditoria', rol)) {
-        acciones.add('aprobar_auditoria');
-      }
-      if (PpRoles.puedeEjecutar('rechazar_auditoria', rol)) {
-        acciones.add('rechazar');
-      }
-    }
-    if (estado == PpEstado.observada &&
-        PpRoles.puedeEjecutar('reenviar', rol)) {
-      acciones.add('reenviar');
-    }
-    if (estado == PpEstado.aprobada_auditoria &&
-        PpRoles.puedeEjecutar('enviar_gerencia', rol)) {
-      acciones.add('enviar_gerencia');
-    }
-    if (estado == PpEstado.pendiente_firma_gerencia) {
-      if (PpRoles.puedeEjecutar('firmar', rol)) {
-        acciones.add('firmar');
-      }
-      if (PpRoles.puedeEjecutar('rechazar_gerencia', rol)) {
-        acciones.add('rechazar');
-      }
-    }
-
-    return acciones;
-  }
+  List<String> _accionesDisponibles(PpPlanilla planilla) =>
+      ppWorkflowActions(planilla.estado, _currentRole);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 

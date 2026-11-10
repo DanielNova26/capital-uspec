@@ -1,5 +1,20 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-10 — Menos filtros en Planillas de pago (Codex)
+
+- La bandeja principal ofrece búsqueda y un solo filtro, «Por atender».
+  Muestra las planillas sobre las que el rol vigente puede actuar, incluidas
+  las que aún tienen pasos históricos por completar. La búsqueda admite
+  nombres, fechas y estados.
+- Firmadas agrupa las fechas en un menú. Desde Excel usa su propio buscador.
+  Las tarjetas ajustan el estado y el valor a otra línea cuando falta ancho.
+- Pasaron 30 pruebas de Planillas, con widgets a 390, 768, 1024 y 1366 px y
+  texto al 140 %. Se simularon Android e iOS a 390 px. Pendiente publicación
+  y comprobación en navegador autenticado y dispositivos.
+- Producción todavía no registraba una carga posterior a la corrección de
+  WhatsApp. La siguiente carga debe notificar a la lista activa asignada a
+  Auditoría, con entrega pendiente de confirmación en un flujo real.
+
 ## 2026-11-10 — Configuración de WhatsApp para Planillas (Codex)
 
 - Producción registró `WHATSAPP_NOT_CONFIGURED` al cargar una planilla en
