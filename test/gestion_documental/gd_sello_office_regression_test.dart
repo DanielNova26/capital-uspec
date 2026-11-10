@@ -246,6 +246,47 @@ void main() {
     },
   );
 
+  final adjuntoExcel = Platform.environment['GD_XLSX_REGRESSION'];
+  if (adjuntoExcel != null) {
+    test(
+      'GER-005: sella tres encabezados y conserva la hoja de instructivo',
+      () {
+        final archivo = File(adjuntoExcel).readAsBytesSync();
+        final original = partes(archivo);
+        const campos = {
+          'xl/worksheets/sheet1.xml': 'I2',
+          'xl/worksheets/sheet2.xml': 'E2',
+          'xl/worksheets/sheet3.xml': 'G2',
+        };
+        final resultado = gdSellarPlantillaValidada(
+          archivo,
+          aprobadoPor: 'PRUEBA AUTOMÁTICA',
+          aprobadoEn: DateTime(2026),
+        );
+        expect(resultado.bytes, isNotNull, reason: resultado.detalle);
+        final salida = partes(resultado.bytes!);
+        expect(salida.keys.toSet(), original.keys.toSet());
+        for (final nombre in original.keys) {
+          final ref = campos[nombre];
+          if (ref == null) {
+            expect(salida[nombre], original[nombre], reason: nombre);
+            continue;
+          }
+          final antes = XmlDocument.parse(utf8.decode(original[nombre]!));
+          final despues = XmlDocument.parse(utf8.decode(salida[nombre]!));
+          expect(
+            despues.findAllElements('f').map((f) => f.toXmlString()).toList(),
+            antes.findAllElements('f').map((f) => f.toXmlString()).toList(),
+          );
+          final sello = despues
+              .findAllElements('c')
+              .singleWhere((celda) => celda.getAttribute('r') == ref);
+          expect(sello.innerText, 'PRUEBA AUTOMÁTICA');
+        }
+      },
+    );
+  }
+
   // Prueba local opcional sobre el adjunto real, sin copiar datos del usuario
   // al repositorio ni generar una aprobación ficticia para entregarla.
   final adjunto = Platform.environment['GD_DOCX_REGRESSION'];

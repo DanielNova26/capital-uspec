@@ -4,9 +4,8 @@
 // "unos ponen un logo, otros otro, otros un código arriba, otros abajo".
 // Por eso la plantilla no es un archivo suelto: se genera por registro con
 // los datos que ya tiene la Biblioteca (código, nombre, área, versión)
-// y el logo de la empresa. La hoja queda sin protección para que Excel permita
-// combinar celdas; desde la fila 7 cada dependencia arma el contenido como
-// necesite (bordes, combinaciones, filas nuevas...).
+// y el logo de la empresa. El libro y sus hojas quedan sin protección para
+// agregar pestañas y combinar celdas. El contenido empieza en la fila 7.
 //
 // Se escribe OOXML a mano en vez de usar el paquete `excel` porque ese
 // paquete no sabe insertar imágenes con el control requerido, y post-procesar su
@@ -44,6 +43,9 @@ const String kGdPlantillaClaveHoja = 'CALIDAD-USPEC';
 /// Primera fila editable. Las filas 1-4 son el encabezado y la 5 y 6 son
 /// separadores; desde aquí se construye el contenido del formato.
 const int kGdPlantillaPrimeraFilaLibre = 7;
+
+/// Límite de hojas prearmadas en una descarga. Excel permite agregar más.
+const int kGdPlantillaMaxHojas = 100;
 
 /// Celda donde va "quién · cuándo" validó (etiqueta *Aprobado* en M2). El
 /// sello de Calidad la reescribe sobre el archivo subido.
@@ -119,24 +121,42 @@ String gdHashClaveHoja(String clave) {
 }
 
 /// Genera el .xlsx completo.
-Uint8List gdGenerarPlantillaFormato(GdPlantillaFormatoDatos datos) {
+Uint8List gdGenerarPlantillaFormato(
+  GdPlantillaFormatoDatos datos, {
+  int cantidadHojas = 1,
+}) {
+  RangeError.checkValueInInterval(
+    cantidadHojas,
+    1,
+    kGdPlantillaMaxHojas,
+    'cantidadHojas',
+  );
   final logo = _ImagenInfo.detectar(datos.logo);
+  final dibujo = logo == null ? null : _drawing(logo);
+  final relacionesDibujo = logo == null ? null : _drawingRels(logo);
   final archive = Archive();
   void add(String path, String content) {
     final bytes = utf8.encode(content);
     archive.addFile(ArchiveFile(path, bytes.length, bytes));
   }
 
-  add('[Content_Types].xml', _contentTypes(logo));
+  add('[Content_Types].xml', _contentTypes(logo, cantidadHojas));
   add('_rels/.rels', _rootRels);
-  add('xl/workbook.xml', _workbook);
-  add('xl/_rels/workbook.xml.rels', _workbookRels);
+  add('xl/workbook.xml', _workbook(cantidadHojas));
+  add('xl/_rels/workbook.xml.rels', _workbookRels(cantidadHojas));
   add('xl/styles.xml', _styles(datos));
-  add('xl/worksheets/sheet1.xml', _sheet(datos, logo != null));
+  for (var hoja = 1; hoja <= cantidadHojas; hoja++) {
+    add(
+      'xl/worksheets/sheet$hoja.xml',
+      _sheet(datos, logo != null, seleccionada: hoja == 1),
+    );
+    if (dibujo != null && relacionesDibujo != null) {
+      add('xl/worksheets/_rels/sheet$hoja.xml.rels', _sheetRels(hoja));
+      add('xl/drawings/drawing$hoja.xml', dibujo);
+      add('xl/drawings/_rels/drawing$hoja.xml.rels', relacionesDibujo);
+    }
+  }
   if (logo != null) {
-    add('xl/worksheets/_rels/sheet1.xml.rels', _sheetRels);
-    add('xl/drawings/drawing1.xml', _drawing(logo));
-    add('xl/drawings/_rels/drawing1.xml.rels', _drawingRels(logo));
     archive.addFile(
       ArchiveFile(
         'xl/media/image1.${logo.extension}',
@@ -201,7 +221,7 @@ int _altoFilaEncabezadoEmu() => (_altoFilaEncabezadoPt * _emuPorPunto).round();
 // Partes del paquete
 // ─────────────────────────────────────────────────────────────────────────────
 
-String _contentTypes(_ImagenInfo? logo) {
+String _contentTypes(_ImagenInfo? logo, int cantidadHojas) {
   final b = StringBuffer()
     ..write('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>')
     ..write(
@@ -221,15 +241,17 @@ String _contentTypes(_ImagenInfo? logo) {
       '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>',
     )
     ..write(
-      '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>',
-    )
-    ..write(
       '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>',
     );
-  if (logo != null) {
+  for (var hoja = 1; hoja <= cantidadHojas; hoja++) {
     b.write(
-      '<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>',
+      '<Override PartName="/xl/worksheets/sheet$hoja.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>',
     );
+    if (logo != null) {
+      b.write(
+        '<Override PartName="/xl/drawings/drawing$hoja.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>',
+      );
+    }
   }
   b.write('</Types>');
   return b.toString();
@@ -241,24 +263,44 @@ const String _rootRels =
     '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
     '</Relationships>';
 
-const String _workbook =
+String _workbook(int cantidadHojas) {
+  final b = StringBuffer(
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
     'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-    '<sheets><sheet name="Formato" sheetId="1" r:id="rId1"/></sheets>'
-    '</workbook>';
+    '<bookViews><workbookView showSheetTabs="1"/></bookViews><sheets>',
+  );
+  for (var hoja = 1; hoja <= cantidadHojas; hoja++) {
+    final nombre = hoja == 1 ? 'Formato' : 'Formato $hoja';
+    b.write('<sheet name="$nombre" sheetId="$hoja" r:id="rId$hoja"/>');
+  }
+  b.write('</sheets></workbook>');
+  return b.toString();
+}
 
-const String _workbookRels =
+String _workbookRels(int cantidadHojas) {
+  const tipo =
+      'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  final b = StringBuffer(
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">',
+  );
+  for (var hoja = 1; hoja <= cantidadHojas; hoja++) {
+    b.write(
+      '<Relationship Id="rId$hoja" Type="$tipo/worksheet" Target="worksheets/sheet$hoja.xml"/>',
+    );
+  }
+  b.write(
+    '<Relationship Id="rId${cantidadHojas + 1}" Type="$tipo/styles" Target="styles.xml"/>'
+    '</Relationships>',
+  );
+  return b.toString();
+}
+
+String _sheetRels(int hoja) =>
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
-    '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
-    '</Relationships>';
-
-const String _sheetRels =
-    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/>'
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing$hoja.xml"/>'
     '</Relationships>';
 
 String _drawingRels(_ImagenInfo logo) =>
@@ -343,7 +385,11 @@ String _styles(GdPlantillaFormatoDatos datos) {
       '</styleSheet>';
 }
 
-String _sheet(GdPlantillaFormatoDatos datos, bool conLogo) {
+String _sheet(
+  GdPlantillaFormatoDatos datos,
+  bool conLogo, {
+  required bool seleccionada,
+}) {
   final fecha = _fecha(datos.fecha);
   // La celda "Aprobado" (O2:Q2) mide 87 pt: cabe el nombre, no el nombre
   // con fecha y hora. El modelo del jefe pone ahí solo "[usuario]"; la fecha
@@ -417,7 +463,7 @@ String _sheet(GdPlantillaFormatoDatos datos, bool conLogo) {
     )
     ..write('<dimension ref="A1:${_ultimaColumna}6"/>')
     ..write(
-      '<sheetViews><sheetView workbookViewId="0" tabSelected="1">'
+      '<sheetViews><sheetView workbookViewId="0" tabSelected="${seleccionada ? 1 : 0}">'
       '<pane ySplit="6" topLeftCell="A$kGdPlantillaPrimeraFilaLibre" activePane="bottomLeft" state="frozen"/>'
       '<selection pane="bottomLeft" activeCell="A$kGdPlantillaPrimeraFilaLibre" sqref="A$kGdPlantillaPrimeraFilaLibre"/>'
       '</sheetView></sheetViews>',

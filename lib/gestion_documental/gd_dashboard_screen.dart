@@ -11,6 +11,7 @@ import 'gd_library_logic.dart';
 import 'gd_models.dart';
 import 'gd_role_access.dart';
 import 'gd_service.dart';
+import 'widgets/gd_plantilla_excel_dialog.dart';
 import 'widgets/gd_ui_widgets.dart';
 
 enum _LibraryStatusFilter { todos, publicados, enProceso }
@@ -2247,6 +2248,8 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
   /// [word]: la misma plantilla en Word (5 oct 2026).
   Future<void> _descargarPlantilla({bool word = false}) async {
     if (_descargandoPlantilla) return;
+    final cantidadHojas = word ? 1 : await gdElegirCantidadHojas(context);
+    if (!mounted || cantidadHojas == null) return;
     setState(() => _descargandoPlantilla = true);
     try {
       final (bytes, fileName) = await widget.service
@@ -2257,6 +2260,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
             codigo: _codigoController.text.trim(),
             area: _areaController.text.trim(),
             word: word,
+            cantidadHojas: cantidadHojas,
           );
       final extension = word ? 'docx' : 'xlsx';
       await FileSaver.instance.saveFile(
@@ -2314,7 +2318,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
           const SizedBox(height: 8),
           Text(
             listo
-                ? 'Excel o Word con logo, "$_titulo", ${_areaController.text.trim()}, código ${_codigoController.text.trim()} y versión v1. En Excel arma el formato desde la fila 7 y combina celdas como necesites; en Word escribe debajo del encabezado, que se repite en cada página.'
+                ? 'Excel o Word con logo, "$_titulo", ${_areaController.text.trim()}, código ${_codigoController.text.trim()} y versión v1. En Excel puedes elegir varias hojas y editar desde la fila 7 de cada una. En Word el encabezado se repite en cada página.'
                 : 'Escribe el área y el nombre del formato para habilitar la descarga.',
             style: const TextStyle(
               fontFamily: kArial,

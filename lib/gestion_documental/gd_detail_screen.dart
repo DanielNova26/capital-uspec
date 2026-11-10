@@ -20,6 +20,7 @@ import 'gd_role_access.dart';
 import 'gd_library_logic.dart';
 import 'gd_service.dart';
 import 'widgets/gd_pdf_preview.dart';
+import 'widgets/gd_plantilla_excel_dialog.dart';
 import 'widgets/gd_ui_widgets.dart';
 
 class GdDetailScreen extends StatefulWidget {
@@ -658,7 +659,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                 ),
                 if (doc.estado == GdEstado.borrador)
                   const Text(
-                    'Traen el encabezado institucional (logo, nombre, código y versión). En Excel puedes combinar celdas; en Word el encabezado se repite en cada página. Arma el formato debajo y súbelo con "Subir archivo".',
+                    'Traen el encabezado institucional. En Excel puedes elegir varias hojas y combinar celdas. En Word el encabezado se repite en cada página. Arma el formato y súbelo con «Subir archivo».',
                     style: TextStyle(
                       fontFamily: kArial,
                       fontSize: 12,
@@ -2003,11 +2004,14 @@ class _GdDetailScreenState extends State<GdDetailScreen>
     DocumentoDoc doc, {
     bool word = false,
   }) async {
+    final cantidadHojas = word ? 1 : await gdElegirCantidadHojas(context);
+    if (!mounted || cantidadHojas == null) return;
     await _handleAction(() async {
       final (bytes, fileName) = await _service.generarPlantillaFormato(
         docId: doc.docId,
         empresaId: widget.empresaId,
         word: word,
+        cantidadHojas: cantidadHojas,
       );
       final extension = word ? 'docx' : 'xlsx';
       await FileSaver.instance.saveFile(

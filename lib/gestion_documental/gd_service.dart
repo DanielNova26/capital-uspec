@@ -641,7 +641,7 @@ class GdService {
     );
   }
 
-  /// Plantilla Excel del formato con el encabezado bloqueado: logo y nombre
+  /// Plantilla del formato con el encabezado institucional: logo y nombre
   /// de la empresa, nombre del formato, área, código, versión, fecha
   /// y, si ya pasó por Calidad, quién lo validó y cuándo. Devuelve los bytes
   /// y el nombre de archivo sugerido.
@@ -652,6 +652,7 @@ class GdService {
     required String docId,
     required String empresaId,
     bool word = false,
+    int cantidadHojas = 1,
   }) async {
     final docSnap = await _docCol.doc(docId).get();
     final data = docSnap.data();
@@ -680,6 +681,7 @@ class GdService {
       aprobadoPor: aprobadoPor,
       aprobadoEn: aprobadoEn,
       word: word,
+      cantidadHojas: cantidadHojas,
     );
   }
 
@@ -693,6 +695,7 @@ class GdService {
     required String codigo,
     required String area,
     bool word = false,
+    int cantidadHojas = 1,
   }) {
     if (titulo.trim().isEmpty || area.trim().isEmpty) {
       throw const GdException(
@@ -707,6 +710,7 @@ class GdService {
       area: area,
       version: 'v1',
       word: word,
+      cantidadHojas: cantidadHojas,
     );
   }
 
@@ -720,6 +724,7 @@ class GdService {
     String? aprobadoPor,
     DateTime? aprobadoEn,
     bool word = false,
+    required int cantidadHojas,
   }) async {
     final empresaSnap = await _db
         .collection('TBL_EMPRESAS')
@@ -765,7 +770,10 @@ class GdService {
         gdNombreArchivoPlantillaWord(datos),
       );
     }
-    return (gdGenerarPlantillaFormato(datos), gdNombreArchivoPlantilla(datos));
+    return (
+      gdGenerarPlantillaFormato(datos, cantidadHojas: cantidadHojas),
+      gdNombreArchivoPlantilla(datos),
+    );
   }
 
   /// Calidad valida y publica un formato institucional con un único check.

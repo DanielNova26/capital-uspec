@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:todo/gestion_documental/gd_formato_plantilla.dart';
+import 'package:xml/xml.dart';
 
 /// PNG válido de 4x2 px (firma + IHDR + IDAT + IEND). Solo importa la
 /// cabecera: el generador lee ancho/alto, no decodifica píxeles.
@@ -50,6 +51,12 @@ void main() {
       final partes = _partes(gdGenerarPlantillaFormato(datos));
       final hoja = partes['xl/worksheets/sheet1.xml']!;
       final estilos = partes['xl/styles.xml']!;
+      expect(
+        XmlDocument.parse(
+          partes['xl/workbook.xml']!,
+        ).findAllElements('sheet').single.getAttribute('name'),
+        'Formato',
+      );
 
       // Excel deshabilita combinar celdas en toda hoja protegida, aunque las
       // celdas de contenido estén desbloqueadas.
@@ -222,6 +229,83 @@ void main() {
       );
       final partes = _partes(gdGenerarPlantillaFormato(datos));
       expect(partes.containsKey('xl/drawings/drawing1.xml'), isFalse);
+    });
+
+    test('genera cuatro hojas editables con encabezado, logo y sello', () {
+      final datos = GdPlantillaFormatoDatos(
+        empresaNombre: 'UT Alfa',
+        titulo: 'Registro de pesaje y control de residuos',
+        codigo: 'GER-005',
+        area: 'Gerencia',
+        version: 'v1',
+        fecha: DateTime(2026),
+        logo: _pngDePrueba(),
+      );
+      final archivo = gdGenerarPlantillaFormato(datos, cantidadHojas: 4);
+      final partes = _partes(archivo);
+      final libro = XmlDocument.parse(partes['xl/workbook.xml']!);
+      final hojas = libro.findAllElements('sheet').toList();
+      final relaciones = {
+        for (final relacion in XmlDocument.parse(
+          partes['xl/_rels/workbook.xml.rels']!,
+        ).findAllElements('Relationship'))
+          relacion.getAttribute('Id'): relacion.getAttribute('Target'),
+      };
+      final tipos = XmlDocument.parse(partes['[Content_Types].xml']!)
+          .findAllElements('Override')
+          .map((parte) => parte.getAttribute('PartName'))
+          .toSet();
+      expect(libro.findAllElements('workbookProtection'), isEmpty);
+      expect(hojas.map((hoja) => hoja.getAttribute('name')), [
+        'Formato',
+        'Formato 2',
+        'Formato 3',
+        'Formato 4',
+      ]);
+      expect(relaciones.values.toSet(), hasLength(5));
+      expect(relaciones.values, contains('styles.xml'));
+
+      final sello = gdSellarPlantillaValidada(
+        archivo,
+        aprobadoPor: 'Calidad',
+        aprobadoEn: DateTime(2026),
+      );
+      expect(sello.bytes, isNotNull, reason: sello.detalle);
+      final sellado = _partes(sello.bytes!);
+      for (var i = 1; i <= 4; i++) {
+        final ruta = 'xl/worksheets/sheet$i.xml';
+        expect(
+          relaciones[hojas[i - 1].getAttribute('r:id')],
+          'worksheets/sheet$i.xml',
+        );
+        expect(tipos, contains('/$ruta'));
+        expect(tipos, contains('/xl/drawings/drawing$i.xml'));
+        expect(partes[ruta], contains('GER-005'));
+        expect(partes[ruta], contains('tabSelected="${i == 1 ? 1 : 0}"'));
+        expect(partes[ruta], isNot(contains('<sheetProtection')));
+        expect(partes[ruta], contains('<drawing r:id="rId1"/>'));
+        expect(
+          partes['xl/worksheets/_rels/sheet$i.xml.rels'],
+          contains('../drawings/drawing$i.xml'),
+        );
+        expect(partes['xl/drawings/drawing$i.xml'], isNotNull);
+        expect(
+          partes['xl/drawings/_rels/drawing$i.xml.rels'],
+          contains('../media/image1.png'),
+        );
+        expect(sellado[ruta], contains('>Calidad</t>'));
+      }
+      for (final ruta in partes.keys.where(
+        (ruta) => !ruta.startsWith('xl/worksheets/sheet'),
+      )) {
+        expect(sellado[ruta], partes[ruta], reason: ruta);
+      }
+      for (final invalida in [0, kGdPlantillaMaxHojas + 1]) {
+        expect(
+          () => gdGenerarPlantillaFormato(datos, cantidadHojas: invalida),
+          throwsRangeError,
+        );
+      }
     });
 
     test('nombre de archivo legible', () {
