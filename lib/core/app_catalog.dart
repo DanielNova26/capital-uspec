@@ -185,6 +185,7 @@ const List<AppCatalogEntry> kAppCatalog = [
     proceso: ProcesoMapa.apoyo,
     icono: Icons.build_circle_outlined,
     color: Color(0xFF0E7490),
+    soloAdmin: true,
     notaRolInterno: 'La asignación de la app habilita toda la operación.',
   ),
   AppCatalogEntry(

@@ -143,7 +143,8 @@ void main() {
       db.documents['TBL_ROLES/otra'] = {'empresaId': 'B', 'moduleId': 'tareas'};
       final repo = AdminModuleInventoryRepository(db: db, actorId: 'admin');
       expect((await repo.load('A')).roles.map((r) => r.id), ['legacy']);
-      expect(await repo.registerMissing('A'), kAppCatalog.length - 2);
+      expect(await repo.registerMissing('A'), kAppCatalog.length - 3);
+      expect(db.documents['TBL_APPS/A_mantenimientodashboard'], isNull);
       expect(db.documents.containsKey('TBL_APPS/A_tareasdashboard'), isFalse);
       expect(db.documents['TBL_APPS/antiguo']!['nombre'], 'Mis tareas');
       expect(db.documents['TBL_APPS/A_correo']!['enabled'], isTrue);
@@ -154,6 +155,16 @@ void main() {
       expect(db.documents['TBL_APPS/A_comprasdashboard']!['enabled'], isFalse);
       expect(db.documents['TBL_USUARIOS/admin'], actor);
       expect(await repo.registerMissing('A'), 0);
+      db.documents['TBL_MANTENIMIENTO_ACCESOS/A_admin'] = {
+        'empresaId': 'A',
+        'userId': 'admin',
+        'gestor': true,
+      };
+      expect(await repo.registerMissing('A'), 1);
+      expect(
+        db.documents['TBL_APPS/A_mantenimientodashboard']?['enabled'],
+        isFalse,
+      );
     },
   );
 

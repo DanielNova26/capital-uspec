@@ -55,6 +55,7 @@ import 'create_task_screen.dart' hide kArial;
 import '../core/task_estado_visible.dart';
 import '../core/access_guard.dart';
 import '../core/app_catalog.dart';
+import '../mantenimiento/mantenimiento_acceso.dart';
 import '../mantenimiento/mantenimiento_screen.dart';
 import '../core/apps_empresa.dart';
 import '../core/task_calendar.dart';
@@ -2101,6 +2102,32 @@ class _HomeScreenState extends State<HomeScreen> {
                 deniedMessage: 'Sin acceso a Mantenimiento',
               );
               if (!permitido || !mounted) return;
+              try {
+                final acceso = await accesoMantenimientoRef(
+                  FirebaseFirestore.instance,
+                  empresaId,
+                  cedula,
+                ).get(const GetOptions(source: Source.server));
+                if (acceso.data()?['operador'] != true) {
+                  throw StateError(
+                    'Falta la asignación de Mantenimiento en Admin.',
+                  );
+                }
+              } catch (error) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        error is StateError
+                            ? error.message
+                            : 'No se pudo verificar tu acceso a Mantenimiento.',
+                      ),
+                    ),
+                  );
+                }
+                return;
+              }
+              if (!mounted) return;
               Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) => MantenimientoScreen(empresaId: empresaId),

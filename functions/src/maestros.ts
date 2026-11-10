@@ -17,6 +17,7 @@ import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
 import {randomUUID} from "crypto";
 import {requireAdmin} from "./security_admin";
+import {empresasSeleccionables} from "./acceso";
 
 export type Maestro = {
   id: string;
@@ -887,6 +888,25 @@ export const adminSincronizarMaestros = functions
       new Set((data.maestros as unknown[]).map((m) => texto(m))) : null;
     const ejecutar = data?.ejecutar === true;
     const db = admin.firestore();
+
+    if (modulo.id === "mantenimiento") {
+      const empresas = [origen, ...destinos];
+      const [ficha, ...accesos] = await db.getAll(
+        db.collection("TBL_USUARIOS").doc(caller.userDocId),
+        ...empresas.map((empresaId) =>
+          db.collection("TBL_MANTENIMIENTO_ACCESOS")
+            .doc(`${empresaId}_${caller.userDocId}`)));
+      const habilitadas = new Set(empresasSeleccionables(ficha.data() ?? {}));
+      if (accesos.some((snap, i) => {
+        const acceso = snap.data();
+        return !habilitadas.has(empresas[i]) ||
+          acceso?.empresaId !== empresas[i] ||
+          acceso?.userId !== caller.userDocId || acceso?.gestor !== true;
+      })) {
+        throw new functions.https.HttpsError("permission-denied",
+          "Se requiere gestión de Mantenimiento en origen y destino.");
+      }
+    }
 
     const nombres = new Map<string, string>();
     for (const id of [origen, ...destinos]) {

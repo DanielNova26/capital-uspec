@@ -9,6 +9,9 @@ import '../compras/compras_recepcion_logic.dart' show bodegasLegacyParaEmpresa;
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:todo/data/firestore_user_repository.dart';
 import 'package:todo/utils/user_company.dart';
+import '../core/transaccion_legible.dart';
+import '../core/app_catalog.dart' show kMantenimientoAppId;
+import '../mantenimiento/mantenimiento_acceso.dart';
 
 class EmpresaItem {
   final String empresaId;
@@ -612,7 +615,6 @@ class AdminRepository {
     String? empresaId,
   }) async {
     final ref = _db.collection('TBL_USUARIOS').doc(userId);
-    final data = (await ref.get()).data() ?? const <String, dynamic>{};
     final empresa = (empresaId ?? '').trim();
     if (empresa.isEmpty) {
       // Sin empresa no hay a quién asignarlo: queda como antes, en la lista
@@ -623,10 +625,22 @@ class AdminRepository {
       });
       return;
     }
-    final plan = planearAppsPorEmpresa(data, cambios: {empresa: apps});
-    await ref.update({
-      ...plan.comoRutas(),
-      'updatedAt': FieldValue.serverTimestamp(),
+    await _db.runTransactionLegible((transaction) async {
+      final data = (await transaction.get(ref)).data();
+      if (data == null) throw StateError('La persona ya no está disponible.');
+      final plan = planearAppsPorEmpresa(data, cambios: {empresa: apps});
+      sincronizarAccesoMantenimiento(
+        _db,
+        transaction,
+        userId: userId,
+        ficha: data,
+        empresaId: empresa,
+        apps: apps,
+      );
+      transaction.update(ref, {
+        ...plan.comoRutas(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
     });
   }
 
@@ -639,16 +653,24 @@ class AdminRepository {
     if (normalizedToGrant.isEmpty) return;
 
     final ref = _db.collection('TBL_USUARIOS').doc(userId);
-    final snap = await ref.get();
-    if (!snap.exists) return;
-    final data = snap.data() ?? const <String, dynamic>{};
-    final current = extractUserApps(data, empresaId: empresaId).toSet();
-    current.addAll(normalizedToGrant);
-    // Solo suma en esta empresa; las demás quedan como están.
-    final plan = planearAppsPorEmpresa(data, cambios: {empresaId: current});
-    await ref.update({
-      ...plan.comoRutas(),
-      'updatedAt': FieldValue.serverTimestamp(),
+    await _db.runTransactionLegible((transaction) async {
+      final data = (await transaction.get(ref)).data();
+      if (data == null) return;
+      final current = extractUserApps(data, empresaId: empresaId).toSet()
+        ..addAll(normalizedToGrant);
+      final plan = planearAppsPorEmpresa(data, cambios: {empresaId: current});
+      sincronizarAccesoMantenimiento(
+        _db,
+        transaction,
+        userId: userId,
+        ficha: data,
+        empresaId: empresaId,
+        apps: current,
+      );
+      transaction.update(ref, {
+        ...plan.comoRutas(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
     });
   }
 
@@ -1186,6 +1208,7 @@ class AdminRepository {
 
     for (final entry in grouped.entries) {
       final canonicalId = entry.key;
+      if (canonicalId == kMantenimientoAppId) continue;
       final docs = entry.value;
       final canonicalDocId = '${empresaId}_$canonicalId';
       QueryDocumentSnapshot<Map<String, dynamic>>? canonicalDoc;
@@ -1293,6 +1316,17 @@ class AdminRepository {
       elegido.data() ?? const <String, dynamic>{},
       empresaId,
     );
+    if (appId == kMantenimientoAppId) {
+      await col.doc('${empresaId}_$appId').set({
+        'empresaId': empresaId,
+        'appId': appId,
+        'nombre': elegido.data()?['nombre'] ?? 'Mantenimiento',
+        'enabled': enabled,
+        'soloAdmin': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      return;
+    }
     final snap = await col.where('empresaId', isEqualTo: empresaId).get();
     final ids = {
       docId,

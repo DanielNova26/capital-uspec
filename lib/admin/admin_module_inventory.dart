@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../core/app_catalog.dart';
 import '../core/apps_empresa.dart';
 import '../core/transaccion_legible.dart';
+import '../mantenimiento/mantenimiento_acceso.dart';
 import '../utils/user_company.dart';
 import 'task_module_role.dart';
 
@@ -161,6 +162,14 @@ class AdminModuleInventoryRepository {
         (source) => appIdsEquivalent(inventorySourceAppId(source), entry.appId),
       )) {
         continue;
+      }
+      if (entry.appId == kMantenimientoAppId) {
+        final acceso = await accesoMantenimientoRef(
+          _db,
+          empresaId,
+          actorId,
+        ).get();
+        if (acceso.data()?['gestor'] != true) continue;
       }
       final ref = _db.collection('TBL_APPS').doc('${empresaId}_${entry.appId}');
       final added = await _db.runTransactionLegible((transaction) async {

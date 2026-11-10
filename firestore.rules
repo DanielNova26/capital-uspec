@@ -819,13 +819,73 @@ service cloud.firestore {
         );
       allow delete: if false;
     }
+    function accesoMantenimientoPath(empresaId, userId) {
+      return /databases/$(database)/documents/TBL_MANTENIMIENTO_ACCESOS/$(empresaId + '_' + userId);
+    }
+
+    function accesoMantenimientoEn(empresaId, campo) {
+      let userId = request.auth.token.userDocId;
+      let acceso = get(accesoMantenimientoPath(empresaId, userId)).data;
+      return acceso.empresaId == empresaId && acceso.userId == userId
+        && acceso.get(campo, false) == true;
+    }
+
+    function gestionaMantenimiento(empresaId) {
+      return isSignedIn()
+        && accesoMantenimientoEn(empresaId, 'gestor')
+        && fichaPertenece(currentUser(), empresaId) && habilitadaEn(currentUser(), empresaId);
+    }
+
     function operaMantenimiento(empresaId) {
       let app = /databases/$(database)/documents/TBL_APPS/$(empresaId + '_mantenimientodashboard');
       return isSignedIn() && empresaId is string && empresaId.size() > 0
+        && accesoMantenimientoEn(empresaId, 'operador')
         && fichaPertenece(currentUser(), empresaId)
         && habilitadaEn(currentUser(), empresaId)
         && tieneAppsEn(empresaId, ['mantenimientodashboard', 'mantenimiento'], true)
-        && (!exists(app) || get(app).data.get('enabled', true) == true);
+        && get(app).data.enabled == true;
+    }
+
+    match /TBL_MANTENIMIENTO_ACCESOS/{id} {
+      function accesoValido(d) {
+        let persona = /databases/$(database)/documents/TBL_USUARIOS/$(d.userId);
+        return id == d.empresaId + '_' + d.userId
+          && d.operador is bool && d.updatedAt == request.time
+          && (!d.operador || (fichaPertenece(get(persona).data, d.empresaId)
+            && habilitadaEn(get(persona).data, d.empresaId)));
+      }
+
+      allow get: if isSignedIn() && (resource == null
+        || resource.data.userId == request.auth.token.userDocId
+        || gestionaMantenimiento(resource.data.empresaId));
+      allow create: if gestionaMantenimiento(request.resource.data.empresaId)
+        && accesoValido(request.resource.data)
+        && request.resource.data.keys().hasOnly(['empresaId', 'userId', 'operador', 'updatedAt']);
+      allow update: if gestionaMantenimiento(resource.data.empresaId)
+        && accesoValido(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['operador', 'updatedAt']);
+    }
+
+    match /TBL_APPS/{id} {
+      function appMantenimiento(d) {
+        let appId = d.get('appId', '');
+        return id.matches('.*_mantenimiento(dashboard)?')
+          || (appId is string && appId.trim().lower() in ['mantenimiento', 'mantenimientodashboard']);
+      }
+
+      function configuraMantenimiento(d) {
+        return id == d.empresaId + '_mantenimientodashboard'
+          && d.appId == 'mantenimientodashboard' && d.enabled is bool
+          && gestionaMantenimiento(d.empresaId);
+      }
+
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && (!appMantenimiento(request.resource.data)
+        || configuraMantenimiento(request.resource.data));
+      allow update: if isSignedIn() &&
+        ((!appMantenimiento(resource.data) && !appMantenimiento(request.resource.data))
+          || (empresaSeConserva() && configuraMantenimiento(request.resource.data)));
+      allow delete: if isSignedIn() && !appMantenimiento(resource.data);
     }
 
     function idMantenimiento(id) {
@@ -2695,7 +2755,7 @@ service cloud.firestore {
           + '|RUTAS|RUTAS_ROLES|RUTAS_ESTABLECIMIENTOS|RUTAS_PLACAS|RUTAS_CONFIG|RUTAS_ASIGNACIONES|RUTAS_EVIDENCIAS|RUTAS_RESUMEN_DIARIO|RUTAS_UBICACIONES|RUTAS_MOV_CONFIG|RUTAS_MOV_HORARIOS|RUTAS_MOV_MEDICIONES|RUTAS_MOV_RUNS'
           + '|CITAS_NUTRICION|HISTORIAL_NUTRICION'
           + '|FAC_CONFIG'
-          + '|MANTENIMIENTO_EQUIPOS|MANTENIMIENTO_ORDENES'
+          + '|APPS|MANTENIMIENTO_ACCESOS|MANTENIMIENTO_EQUIPOS|MANTENIMIENTO_ORDENES'
           + ')');
     }
   }

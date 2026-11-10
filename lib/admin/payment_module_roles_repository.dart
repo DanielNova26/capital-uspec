@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../core/transaccion_legible.dart';
+import '../mantenimiento/mantenimiento_acceso.dart';
 import '../utils/user_company.dart';
 import 'payment_module_role.dart';
 import 'table_module_role.dart';
@@ -302,6 +303,14 @@ class PaymentModuleRolesRepository {
       final roleUpdates = <String, dynamic>{};
       for (final entry in selections.entries) {
         final empresaId = entry.key;
+        sincronizarAccesoMantenimiento(
+          _db,
+          transaction,
+          userId: userId,
+          ficha: user,
+          empresaId: empresaId,
+          apps: entry.value,
+        );
         for (final config in tableModuleRoleConfigs) {
           if (!config.removeAppOnClear) continue;
           final selected = entry.value.any(

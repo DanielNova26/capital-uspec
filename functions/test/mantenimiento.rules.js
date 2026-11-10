@@ -12,6 +12,7 @@ const {
 const app = "mantenimientodashboard";
 const equipos = "TBL_MANTENIMIENTO_EQUIPOS";
 const ordenes = "TBL_MANTENIMIENTO_ORDENES";
+const accesos = "TBL_MANTENIMIENTO_ACCESOS";
 let env;
 
 const cuenta = (id) => env.authenticatedContext(id, {
@@ -49,6 +50,11 @@ test.before(async () => {
       empresaId: "A", empresasDetalle: {A: {apps: [app], activo: false}},
     },
     "TBL_USUARIOS/desarrollo": {empresaId: "B", apps: [app], desarrollador: true},
+    "TBL_USUARIOS/gestor": {empresaId: "A", apps: ["admindashboard"]},
+    [`${accesos}/A_gestor`]: {empresaId: "A", userId: "gestor", gestor: true, operador: false},
+    [`${accesos}/A_operario`]: {empresaId: "A", userId: "operario", operador: true},
+    [`${accesos}/A_inhabilitado`]: {empresaId: "A", userId: "inhabilitado", operador: true},
+    [`TBL_APPS/A_${app}`]: {empresaId: "A", appId: app, enabled: true},
     "TBL_CENTROS_COSTOS/centro-A": {empresaId: "A", centroId: "sede-A"},
     "TBL_CENTROS_COSTOS/otro-A": {empresaId: "A", centroId: "otra-sede-A"},
     "TBL_CENTROS_COSTOS/centro-B": {empresaId: "B", centroId: "sede-B"},
@@ -115,4 +121,30 @@ test("revoca y reactiva sin recuperar privilegios de un rol histórico", async (
   await assertFails(getDoc(equipo));
   await sembrar({[`TBL_APPS/A_${app}`]: {empresaId: "A", appId: app, enabled: true}});
   await assertSucceeds(getDoc(equipo));
+});
+
+test("una ficha alterada no concede acceso ni permite habilitar la app", async () => {
+  const db = cuenta("sinapp");
+  const admin = cuenta("gestor");
+  const appRef = `TBL_APPS/A_${app}`;
+  const permiso = `${accesos}/A_sinapp`;
+  const data = {empresaId: "A", userId: "sinapp", operador: true, updatedAt: serverTimestamp()};
+  await assertSucceeds(updateDoc(doc(db, "TBL_USUARIOS/sinapp"), {
+    apps: [app, "admindashboard"], desarrollador: true,
+  }));
+  await assertFails(getDoc(doc(db, equipos, "equipo-A")));
+  await assertFails(setDoc(doc(db, permiso), data));
+  await assertFails(updateDoc(doc(db, appRef), {enabled: false}));
+  await assertFails(deleteDoc(doc(db, appRef)));
+  await assertFails(setDoc(doc(admin, permiso), {...data, gestor: true}));
+  await assertSucceeds(setDoc(doc(admin, permiso), data));
+  await assertSucceeds(getDoc(doc(db, equipos, "equipo-A")));
+  await assertSucceeds(updateDoc(doc(admin, appRef), {enabled: false}));
+  await assertFails(getDoc(doc(db, equipos, "equipo-A")));
+  await assertSucceeds(updateDoc(doc(admin, appRef), {enabled: true}));
+  await assertSucceeds(updateDoc(doc(admin, permiso), {operador: false, updatedAt: serverTimestamp()}));
+  await assertFails(getDoc(doc(db, equipos, "equipo-A")));
+  await assertFails(setDoc(doc(admin, `${accesos}/B_operario`), {
+    empresaId: "B", userId: "operario", operador: true, updatedAt: serverTimestamp(),
+  }));
 });

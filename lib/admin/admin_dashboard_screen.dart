@@ -3631,7 +3631,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     'interventoria' =>
       'TBL_INTERVENTORIA_ROLES · Roles actuales; creador pendiente de revisar.',
     'mantenimiento' =>
-      'La asignación de la app habilita toda la operación en la empresa. Sin roles internos.',
+      'La asignación habilita toda la operación en la empresa. '
+          'Los gestores autorizados de Mantenimiento pueden habilitar la app, '
+          'asignarla y copiar fichas base entre sus empresas.',
     'rutas' =>
       'TBL_RUTAS_ROLES · Roles actuales; creador pendiente de revisar.',
     'visitas' =>

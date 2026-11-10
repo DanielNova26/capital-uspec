@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:todo/admin/admin_repository.dart';
 import 'package:todo/admin/payment_module_role.dart';
 import 'package:todo/admin/payment_module_roles_repository.dart';
+import 'package:todo/core/app_catalog.dart';
 import 'package:todo/gestion_documental/planillas/pp_models.dart';
 import 'package:todo/gestion_documental/planillas/pp_role_access.dart';
 
@@ -64,6 +66,36 @@ void main() {
   Map<String, dynamic> user() => db.documents['TBL_USUARIOS/persona']!;
   Map<String, dynamic> detail(String id) =>
       user()['empresasDetalle'][id] as Map<String, dynamic>;
+
+  test(
+    'Admin asigna y revoca Mantenimiento desde ambos editores por empresa',
+    () async {
+      final admin = AdminRepository(db: db);
+      const acceso = 'TBL_MANTENIMIENTO_ACCESOS/A_persona';
+      await admin.updateUserApps('persona', {
+        'tareasdashboard',
+        kMantenimientoAppId,
+      }, empresaId: 'A');
+      expect(db.documents[acceso]?['operador'], isTrue);
+      expect(detail('A')['apps'], contains(kMantenimientoAppId));
+      expect(detail('B')['apps'], ['rutasdashboard']);
+
+      await repo.saveAppSelections(
+        userId: 'persona',
+        selections: {
+          'A': {'tareasdashboard'},
+          'B': {'rutasdashboard', kMantenimientoAppId},
+        },
+      );
+      expect(db.documents[acceso]?['operador'], isFalse);
+      expect(detail('A')['apps'], isNot(contains(kMantenimientoAppId)));
+      expect(
+        db.documents['TBL_MANTENIMIENTO_ACCESOS/B_persona']?['operador'],
+        isTrue,
+      );
+      expect(detail('B')['apps'], contains(kMantenimientoAppId));
+    },
+  );
 
   test(
     'crear mantiene roles individuales y separa definiciones de Tareas',
