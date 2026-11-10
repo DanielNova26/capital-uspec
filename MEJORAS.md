@@ -2,6 +2,7 @@
 
 ## 2026-11-09 — Nuevo diseño web de Mantenimiento (Codex)
 
+- Publicada la versión Web 2.8.21+75 en `https://to-do-gestion.web.app`.
 - Inicio de Mantenimiento abre en Resumen. Sus tarjetas muestran las
   órdenes abiertas, en curso y cerradas, y permiten ver cada grupo con
   el filtro ya aplicado. Desde el encabezado se puede crear una orden
