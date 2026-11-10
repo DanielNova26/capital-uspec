@@ -8,16 +8,39 @@ import '../widgets/empresa_activa_chip.dart';
 import 'mantenimiento_forms.dart';
 import 'mantenimiento_report.dart';
 import 'mantenimiento_service.dart';
+import 'mantenimiento_web_widgets.dart';
 
 enum _Seccion {
-  hojas('Hojas de vida', Icons.folder_open_outlined),
-  equipos('Equipos', Icons.inventory_2_outlined),
-  ordenes('Órdenes', Icons.build_outlined),
-  informe('Informe', Icons.picture_as_pdf_outlined);
+  resumen('Resumen', Icons.dashboard_outlined, '', mantenimientoAcento),
+  hojas(
+    'Hojas de vida',
+    Icons.folder_open_outlined,
+    'Revisa el historial de cada establecimiento.',
+    Color(0xFF2459A6),
+  ),
+  equipos(
+    'Equipos',
+    Icons.inventory_2_outlined,
+    'Registra equipos y consulta su hoja de vida.',
+    mantenimientoAcento,
+  ),
+  ordenes(
+    'Órdenes',
+    Icons.build_outlined,
+    'Crea y sigue trabajos correctivos o preventivos.',
+    Color(0xFF9A4B0E),
+  ),
+  informe(
+    'Informe',
+    Icons.picture_as_pdf_outlined,
+    'Filtra por establecimiento y fecha. Genera el informe en PDF.',
+    Color(0xFF6E478D),
+  );
 
-  const _Seccion(this.label, this.icon);
-  final String label;
+  const _Seccion(this.label, this.icon, this.descripcion, this.color);
+  final String label, descripcion;
   final IconData icon;
+  final Color color;
 }
 
 class MantenimientoScreen extends StatefulWidget {
@@ -54,7 +77,9 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
   late final _centrosStream = _service.establecimientos();
   late final _equiposStream = _service.equipos();
   late final _ordenesStream = _service.ordenes();
-  late _Seccion _seccion = widget._seccionInicial;
+  late _Seccion _seccion = widget.vistaWeb && widget._detalleId == null
+      ? _Seccion.resumen
+      : widget._seccionInicial;
   String? _seleccion;
   String _centroOrdenes = '';
   String _centroInforme = '';
@@ -69,7 +94,10 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
+    backgroundColor: widget.vistaWeb ? mantenimientoFondo : null,
     appBar: AppBar(
+      backgroundColor: widget.vistaWeb ? Colors.white : null,
+      foregroundColor: widget.vistaWeb ? mantenimientoTinta : null,
       title: Text(widget._detalleId == null ? 'Mantenimiento' : _seccion.label),
       actions: [
         ConstrainedBox(
@@ -78,7 +106,9 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
           ),
           child: EmpresaActivaChip(
             empresaId: widget.empresaId,
-            accentColor: Theme.of(context).colorScheme.primary,
+            accentColor: widget.vistaWeb
+                ? mantenimientoAcento
+                : Theme.of(context).colorScheme.primary,
           ),
         ),
         if (!widget.vistaWeb && widget._detalleId == null)
@@ -87,7 +117,7 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
             initialValue: _seccion,
             onSelected: _irA,
             itemBuilder: (_) => [
-              for (final seccion in _Seccion.values)
+              for (final seccion in _Seccion.values.skip(1))
                 PopupMenuItem(value: seccion, child: Text(seccion.label)),
             ],
           ),
@@ -117,34 +147,55 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
           widget.vistaWeb &&
           constraints.maxWidth >= 1160 &&
           MediaQuery.textScalerOf(context).scale(16) <= 26;
-      final contenido = _seccion == _Seccion.informe
-          ? _informe(centros, equipos, ordenes)
-          : _operacion(
-              centros,
-              equipos,
-              ordenes,
-              dividido: widget.vistaWeb && constraints.maxWidth >= 980,
-            );
+      final contenido = switch (_seccion) {
+        _Seccion.resumen => _resumen(centros, equipos, ordenes),
+        _Seccion.informe => _informe(centros, equipos, ordenes),
+        _ => _operacion(
+          centros,
+          equipos,
+          ordenes,
+          dividido: widget.vistaWeb && constraints.maxWidth >= 980,
+        ),
+      };
       if (widget._detalleId != null) return contenido;
       if (panelLateral) {
         return Row(
           children: [
             SizedBox(
-              width: 210,
-              child: ListView(
-                padding: const EdgeInsets.all(12),
-                children: [
-                  for (final seccion in _Seccion.values)
-                    ListTile(
-                      selected: seccion == _seccion,
-                      leading: Icon(seccion.icon),
-                      title: Text(seccion.label),
-                      onTap: () => _irA(seccion),
+              width: 218,
+              child: Material(
+                color: Colors.white,
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(12, 20, 12, 16),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                      child: Text(
+                        'Área de trabajo',
+                        style: Theme.of(context).textTheme.labelMedium
+                            ?.copyWith(
+                              color: mantenimientoAcento,
+                              fontWeight: FontWeight.w800,
+                            ),
+                      ),
                     ),
-                ],
+                    for (final seccion in _Seccion.values)
+                      ListTile(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        selected: seccion == _seccion,
+                        selectedTileColor: const Color(0xFFE6F5F2),
+                        selectedColor: mantenimientoAcento,
+                        leading: Icon(seccion.icon),
+                        title: Text(seccion.label),
+                        onTap: () => _irA(seccion),
+                      ),
+                  ],
+                ),
               ),
             ),
-            const VerticalDivider(width: 1),
+            const VerticalDivider(width: 1, color: mantenimientoBorde),
             Expanded(child: contenido),
           ],
         );
@@ -153,27 +204,237 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (widget.vistaWeb)
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              child: Row(
-                children: [
-                  for (final seccion in _Seccion.values)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
+            ColoredBox(
+              color: Colors.white,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                child: Wrap(
+                  spacing: 8,
+                  children: [
+                    for (final seccion in _Seccion.values)
+                      ChoiceChip(
+                        showCheckmark: false,
+                        backgroundColor: const Color(0xFFF7FAFA),
+                        side: const BorderSide(color: mantenimientoBorde),
+                        avatar: Icon(
+                          seccion.icon,
+                          size: 17,
+                          color: seccion == _seccion
+                              ? mantenimientoAcento
+                              : null,
+                        ),
+                        selectedColor: const Color(0xFFE6F5F2),
                         label: Text(seccion.label),
                         selected: seccion == _seccion,
                         onSelected: (_) => _irA(seccion),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ),
           Expanded(child: contenido),
         ],
       );
     },
+  );
+
+  Widget _resumen(
+    List<EstablecimientoMantenimiento> centros,
+    List<EquipoMantenimiento> equipos,
+    List<OrdenMantenimiento> ordenes,
+  ) {
+    final activos = centros.where((centro) => centro.activo).toList();
+    final totales = <EstadoOrden, int>{
+      for (final estado in EstadoOrden.values) estado: 0,
+    };
+    for (final orden in ordenes) {
+      totales.update(orden.estado, (total) => total + 1);
+    }
+    return _lista([
+      _portada(activos.isEmpty ? null : () => _nuevaOrden(activos, equipos)),
+      _titulo('Estado de las órdenes'),
+      _rejilla([
+        for (final estado in EstadoOrden.values)
+          (compacta) => TarjetaRutaMantenimiento(
+            compacta: compacta,
+            titulo: switch (estado) {
+              EstadoOrden.abierta => 'Abiertas',
+              EstadoOrden.enCurso => 'En curso',
+              EstadoOrden.cerrada => 'Cerradas',
+            },
+            descripcion: switch (estado) {
+              EstadoOrden.abierta => 'Por iniciar',
+              EstadoOrden.enCurso => 'Trabajo en ejecución',
+              EstadoOrden.cerrada => 'Trabajo registrado',
+            },
+            icono: iconoEstadoMantenimiento(estado),
+            color: colorEstadoMantenimiento(estado),
+            indicador: '${totales[estado]}',
+            onTap: () => setState(() {
+              _estado = estado;
+              _centroOrdenes = '';
+              _seccion = _Seccion.ordenes;
+              _seleccion = null;
+            }),
+          ),
+      ], columnas: 3),
+      const SizedBox(height: 8),
+      _titulo('¿Qué quieres hacer?'),
+      _rejilla([
+        for (final seccion in [
+          _Seccion.equipos,
+          _Seccion.ordenes,
+          _Seccion.hojas,
+          _Seccion.informe,
+        ])
+          (compacta) => TarjetaRutaMantenimiento(
+            compacta: compacta,
+            titulo: seccion.label,
+            descripcion: seccion.descripcion,
+            icono: seccion.icon,
+            color: seccion.color,
+            onTap: () => _irA(seccion),
+          ),
+      ], columnas: 4),
+    ], key: const ValueKey(_Seccion.resumen));
+  }
+
+  Widget _portada(VoidCallback? nuevaOrden) => LayoutBuilder(
+    builder: (context, constraints) {
+      final estilos = Theme.of(context).textTheme;
+      return Container(
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF17384D), Color(0xFF10695F)],
+          ),
+          borderRadius: BorderRadius.circular(22),
+        ),
+        padding: EdgeInsets.all(constraints.maxWidth < 480 ? 18 : 24),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'CENTRO DE OPERACIÓN',
+                    style: estilos.labelMedium?.copyWith(
+                      color: const Color(0xFFAEF0E2),
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Panel de mantenimiento',
+                    style:
+                        (constraints.maxWidth < 480
+                                ? estilos.headlineSmall
+                                : estilos.headlineMedium)
+                            ?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                            ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Atiende órdenes y consulta equipos e historiales.',
+                    style: estilos.bodyMedium?.copyWith(
+                      color: const Color(0xFFE0F4F1),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 8,
+                    children: [
+                      if (nuevaOrden != null)
+                        FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: mantenimientoAcento,
+                          ),
+                          onPressed: nuevaOrden,
+                          icon: const Icon(Icons.add_rounded),
+                          label: const Text('Nueva orden'),
+                        ),
+                      TextButton.icon(
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: () => _irA(_Seccion.hojas),
+                        icon: const Icon(Icons.folder_open_outlined),
+                        label: const Text('Ver hojas de vida'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            if (constraints.maxWidth >= 670) ...[
+              const SizedBox(width: 20),
+              Container(
+                width: 116,
+                height: 116,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: .12),
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: .24),
+                  ),
+                ),
+                child: const Icon(
+                  Icons.handyman_outlined,
+                  size: 60,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ],
+        ),
+      );
+    },
+  );
+
+  Widget _rejilla(
+    List<Widget Function(bool compacta)> tarjetas, {
+    required int columnas,
+  }) => LayoutBuilder(
+    builder: (context, constraints) {
+      const espacio = 12.0;
+      final columnasVisibles = constraints.maxWidth >= 870
+          ? columnas
+          : constraints.maxWidth >= 620
+          ? 2
+          : 1;
+      final ancho =
+          (constraints.maxWidth - espacio * (columnasVisibles - 1)) /
+          columnasVisibles;
+      return Wrap(
+        spacing: espacio,
+        runSpacing: espacio,
+        children: [
+          for (final tarjeta in tarjetas)
+            SizedBox(width: ancho, child: tarjeta(columnasVisibles == 1)),
+        ],
+      );
+    },
+  );
+
+  void _nuevaOrden(
+    List<EstablecimientoMantenimiento> centros,
+    List<EquipoMantenimiento> equipos, {
+    String? centro,
+    String? equipo,
+  }) => _abrir(
+    OrdenMantenimientoForm(
+      service: _service,
+      centros: centros,
+      equipos: equipos,
+      vistaWeb: widget.vistaWeb,
+      centroId: centro,
+      equipoId: equipo,
+    ),
   );
 
   Widget _operacion(
@@ -195,21 +456,15 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
         )
         .toList();
 
-    void nuevaOrden({String? centro, String? equipo}) => _abrir(
-      OrdenMantenimientoForm(
-        service: _service,
-        centros: disponibles,
-        equipos: equipos,
-        centroId: centro,
-        equipoId: equipo,
-      ),
-    );
+    void nuevaOrden({String? centro, String? equipo}) =>
+        _nuevaOrden(disponibles, equipos, centro: centro, equipo: equipo);
 
     void editarEquipo([EquipoMantenimiento? equipo]) => _abrir(
       EquipoMantenimientoForm(
         service: _service,
         centros: centros,
         equipo: equipo,
+        vistaWeb: widget.vistaWeb,
       ),
     );
 
@@ -277,6 +532,7 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
               ? null
               : _detalleOrden(orden, nombres, inventario);
         case _Seccion.informe:
+        case _Seccion.resumen:
           return null;
       }
     }
@@ -297,37 +553,48 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
     }
 
     final lista = _lista([
-      _titulo(
+      _encabezado(
         _seccion == _Seccion.hojas
             ? 'Hojas de vida por establecimiento'
             : _seccion.label,
+        _seccion,
       ),
       if (_seccion == _Seccion.hojas) ...[
-        const Text(
-          'Consulta el historial del establecimiento. Las fichas individuales están en Equipos.',
-        ),
-        if (centros.isEmpty) const Text('No hay establecimientos registrados.'),
+        if (!widget.vistaWeb)
+          const Text(
+            'Consulta el historial del establecimiento. Las fichas individuales están en Equipos.',
+          ),
+        if (centros.isEmpty)
+          _vacio(
+            'Aún no hay establecimientos',
+            'Los establecimientos de la empresa aparecerán aquí.',
+            Icons.location_city_outlined,
+          ),
         for (final centro in centros)
-          ListTile(
+          _registro(
+            icono: Icons.location_city_outlined,
             selected: dividido && _seleccion == centro.id,
             title: Text(centro.centro.nombre),
             subtitle: centro.activo ? null : const Text('Inactivo'),
-            trailing: const Icon(Icons.chevron_right),
             onTap: () => abrir(centro.id),
           ),
       ],
       if (_seccion == _Seccion.equipos) ...[
         _accion('Nuevo equipo', Icons.add, editarEquipo),
         if (equipos.isEmpty)
-          const Text('Registra el primer equipo de la empresa.'),
+          _vacio(
+            'Inventario vacío',
+            'Registra el primer equipo de la empresa.',
+            Icons.inventory_2_outlined,
+          ),
         for (final equipo in equipos)
-          ListTile(
+          _registro(
+            icono: Icons.inventory_2_outlined,
             selected: dividido && _seleccion == equipo.id,
             title: Text(equipo.nombre),
             subtitle: Text(
               '${equipo.codigo} · ${nombres[equipo.centroDocId] ?? 'Sin asignar'}',
             ),
-            trailing: const Icon(Icons.chevron_right),
             onTap: () => abrir(equipo.id),
           ),
       ],
@@ -351,12 +618,21 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
         ),
         DropdownButtonFormField<EstadoOrden>(
           initialValue: _estado,
-          decoration: const InputDecoration(labelText: 'Estado'),
-          hint: const Text('Todos los estados'),
+          isExpanded: true,
+          decoration: _decoracionFiltro('Estado'),
+          hint: const Text(
+            'Todos los estados',
+            overflow: TextOverflow.ellipsis,
+          ),
           items: [
-            const DropdownMenuItem(child: Text('Todos los estados')),
+            const DropdownMenuItem(
+              child: Text('Todos los estados', overflow: TextOverflow.ellipsis),
+            ),
             for (final estado in EstadoOrden.values)
-              DropdownMenuItem(value: estado, child: Text(estado.label)),
+              DropdownMenuItem(
+                value: estado,
+                child: Text(estado.label, overflow: TextOverflow.ellipsis),
+              ),
           ],
           onChanged: (valor) => setState(() {
             _estado = valor;
@@ -370,18 +646,25 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
           subtitulo: (o) => nombres[o.centroDocId] ?? o.centroDocId,
         ),
       ],
-    ]);
+    ], key: ValueKey(_seccion));
     if (!dividido) return lista;
     final seleccionado = _seleccion == null ? null : detalle(_seleccion!);
     return Row(
       children: [
         Expanded(flex: 2, child: lista),
-        const VerticalDivider(width: 1),
+        const VerticalDivider(width: 1, color: mantenimientoBorde),
         Expanded(
           flex: 3,
           child: seleccionado == null
-              ? const Center(
-                  child: Text('Selecciona un registro para ver su detalle.'),
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: _vacio(
+                      'Explora el detalle',
+                      'Selecciona un registro de la lista para verlo aquí.',
+                      _seccion.icon,
+                    ),
+                  ),
                 )
               : _lista(seleccionado, key: ValueKey(_seleccion)),
         ),
@@ -396,25 +679,44 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
   ) {
     final equipo = equipos[orden.equipoId];
     final cerrada = orden.estado == EstadoOrden.cerrada;
-    return [
-      _titulo('${orden.tipo.label} · ${orden.estado.label}'),
+    final datos = [
       SelectableText('Orden ${orden.id}'),
       Text(centros[orden.centroDocId] ?? orden.centroDocId),
       if (equipo != null) Text('${equipo.codigo} · ${equipo.nombre}'),
       Text('Apertura ${_fecha(orden.creada)}'),
       if (orden.cerrada != null) Text('Cierre ${_fecha(orden.cerrada)}'),
-      _titulo('Trabajo solicitado'),
-      Text(orden.detalle),
-      if (orden.hallazgoId.isNotEmpty)
-        OutlinedButton.icon(
-          onPressed: () => _verHallazgo(orden.hallazgoId),
-          icon: const Icon(Icons.link),
-          label: const Text('Ver hallazgo de Interventoría'),
-        ),
-      if (orden.resultado.isNotEmpty) ...[
-        _titulo('Trabajo realizado'),
-        Text(orden.resultado),
+    ];
+    return [
+      if (widget.vistaWeb)
+        _panelDetalle('Orden de trabajo', [
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              _selloEstado(orden.estado),
+              SelloMantenimiento(
+                texto: orden.tipo.label,
+                color: mantenimientoTinta,
+              ),
+            ],
+          ),
+          ...datos,
+        ])
+      else ...[
+        _titulo('${orden.tipo.label} · ${orden.estado.label}'),
+        ...datos,
       ],
+      ..._bloqueDetalle('Trabajo solicitado', [
+        Text(orden.detalle),
+        if (orden.hallazgoId.isNotEmpty)
+          OutlinedButton.icon(
+            onPressed: () => _verHallazgo(orden.hallazgoId),
+            icon: const Icon(Icons.link),
+            label: const Text('Ver hallazgo de Interventoría'),
+          ),
+      ]),
+      if (orden.resultado.isNotEmpty)
+        ..._bloqueDetalle('Trabajo realizado', [Text(orden.resultado)]),
       Text(
         orden.factura.isEmpty
             ? 'Factura sin registrar'
@@ -437,6 +739,7 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
     String resultado = '';
     _abrir(
       EditorMantenimiento(
+        vistaWeb: widget.vistaWeb,
         titulo: switch (orden.estado) {
           EstadoOrden.abierta => 'Iniciar trabajo',
           EstadoOrden.enCurso => 'Cerrar orden',
@@ -520,11 +823,7 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
     final alcance =
         '${nombres[_centroInforme] ?? 'Todos los establecimientos'}'
         ' · ${periodo == null ? 'Todo el historial' : '${_fecha(periodo.start)} al ${_fecha(periodo.end)}'}';
-    return _lista([
-      _titulo('Informe de mantenimiento'),
-      const Text(
-        'Selecciona las órdenes por establecimiento y fecha de apertura.',
-      ),
+    final filtros = [
       _filtroCentro(
         centros,
         _centroInforme,
@@ -549,11 +848,42 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
             ),
         ],
       ),
-      Text('${filtradas.length} órdenes en el informe'),
-      for (final estado in EstadoOrden.values)
-        Text(
-          '${estado.label}: ${filtradas.where((orden) => orden.estado == estado).length}',
+    ];
+    return _lista([
+      _encabezado('Informe de mantenimiento', _Seccion.informe),
+      if (widget.vistaWeb)
+        _panelDetalle('Alcance del informe', filtros)
+      else ...[
+        const Text(
+          'Selecciona las órdenes por establecimiento y fecha de apertura.',
         ),
+        ...filtros,
+      ],
+      if (widget.vistaWeb)
+        _panelDetalle('${filtradas.length} órdenes en el informe', [
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              for (final estado in EstadoOrden.values)
+                _selloEstado(
+                  estado,
+                  cantidad: filtradas.where((o) => o.estado == estado).length,
+                ),
+            ],
+          ),
+          if (filtradas.isEmpty)
+            const Text(
+              'Cambia los filtros para encontrar órdenes que puedas incluir.',
+            ),
+        ])
+      else ...[
+        Text('${filtradas.length} órdenes en el informe'),
+        for (final estado in EstadoOrden.values)
+          Text(
+            '${estado.label}: ${filtradas.where((orden) => orden.estado == estado).length}',
+          ),
+      ],
       _accion(
         _exportando ? 'Generando…' : 'Generar informe PDF',
         Icons.picture_as_pdf_outlined,
@@ -563,7 +893,7 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
                 for (final equipo in equipos) equipo.id: equipo,
               }),
       ),
-    ]);
+    ], key: const ValueKey(_Seccion.informe));
   }
 
   Future<void> _elegirPeriodo() async {
@@ -617,7 +947,7 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
     ValueChanged<String> cambiar,
   ) => DropdownButtonFormField<String>(
     initialValue: centros.any((c) => c.id == id) ? id : '',
-    decoration: const InputDecoration(labelText: 'Establecimiento'),
+    decoration: _decoracionFiltro('Establecimiento'),
     isExpanded: true,
     items: [
       opcionMantenimiento('', 'Todos los establecimientos'),
@@ -633,20 +963,43 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
     required String Function(OrdenMantenimiento) subtitulo,
     String? seleccionado,
   }) => [
-    if (ordenes.isEmpty) const Text('No hay órdenes para esta selección.'),
+    if (ordenes.isEmpty)
+      _vacio(
+        'No hay órdenes para esta selección',
+        'Prueba con otros filtros o registra una orden para iniciar el historial.',
+        Icons.assignment_outlined,
+      ),
     for (final orden in ordenes)
-      ListTile(
+      _registro(
+        icono: iconoEstadoMantenimiento(orden.estado),
+        color: colorEstadoMantenimiento(orden.estado),
         selected: seleccionado == orden.id,
         title: Text(
           orden.detalle,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),
-        subtitle: Text(
-          '${orden.tipo.label} · ${orden.estado.label} · ${_fecha(orden.creada)}'
-          '\n${subtitulo(orden)}',
-        ),
-        trailing: const Icon(Icons.chevron_right),
+        subtitle: widget.vistaWeb
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 5,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      _selloEstado(orden.estado),
+                      Text('${orden.tipo.label} · ${_fecha(orden.creada)}'),
+                    ],
+                  ),
+                  Text(subtitulo(orden)),
+                ],
+              )
+            : Text(
+                '${orden.tipo.label} · ${orden.estado.label} · ${_fecha(orden.creada)}'
+                '\n${subtitulo(orden)}',
+              ),
         onTap: () => abrir(orden),
       ),
   ];
@@ -655,12 +1008,99 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
       ? 'Pendiente'
       : MaterialLocalizations.of(context).formatCompactDate(fecha.toLocal());
 
-  Widget _titulo(String texto) =>
-      Text(texto, style: Theme.of(context).textTheme.titleLarge);
+  Widget _titulo(String texto) => Text(
+    texto,
+    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+      color: widget.vistaWeb ? mantenimientoTinta : null,
+      fontWeight: widget.vistaWeb ? FontWeight.w800 : null,
+    ),
+  );
+
+  Widget _encabezado(String titulo, _Seccion seccion) => widget.vistaWeb
+      ? EncabezadoMantenimiento(
+          titulo: titulo,
+          descripcion: seccion.descripcion,
+          icono: seccion.icon,
+        )
+      : _titulo(titulo);
+
+  InputDecoration _decoracionFiltro(String label) => InputDecoration(
+    labelText: label,
+    filled: widget.vistaWeb ? true : null,
+    fillColor: widget.vistaWeb ? Colors.white : null,
+    border: widget.vistaWeb
+        ? OutlineInputBorder(borderRadius: BorderRadius.circular(12))
+        : null,
+  );
+
+  Widget _registro({
+    required IconData icono,
+    Color color = mantenimientoAcento,
+    required Widget title,
+    Widget? subtitle,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final tile = ListTile(
+      leading: widget.vistaWeb
+          ? IconoMantenimiento(icono: icono, color: color)
+          : null,
+      selected: selected,
+      title: title,
+      subtitle: subtitle,
+      trailing: const Icon(Icons.chevron_right),
+      onTap: onTap,
+    );
+    return widget.vistaWeb
+        ? PanelMantenimiento(
+            padding: EdgeInsets.zero,
+            seleccionado: selected,
+            child: tile,
+          )
+        : tile;
+  }
+
+  Widget _vacio(String titulo, String descripcion, IconData icono) =>
+      widget.vistaWeb
+      ? PanelMantenimiento(
+          child: EncabezadoMantenimiento(
+            titulo: titulo,
+            descripcion: descripcion,
+            icono: icono,
+          ),
+        )
+      : Text(titulo);
+
+  Widget _selloEstado(EstadoOrden estado, {int? cantidad}) =>
+      SelloMantenimiento(
+        texto: cantidad == null ? estado.label : '${estado.label} · $cantidad',
+        color: colorEstadoMantenimiento(estado),
+        icono: iconoEstadoMantenimiento(estado),
+      );
+
+  Widget _panelDetalle(String titulo, List<Widget> contenido) =>
+      PanelMantenimiento(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _titulo(titulo),
+            for (final item in contenido)
+              Padding(padding: const EdgeInsets.only(top: 8), child: item),
+          ],
+        ),
+      );
+
+  List<Widget> _bloqueDetalle(String titulo, List<Widget> contenido) =>
+      widget.vistaWeb
+      ? [_panelDetalle(titulo, contenido)]
+      : [_titulo(titulo), ...contenido];
 
   Widget _accion(String texto, IconData icono, VoidCallback? pulsar) => Align(
     alignment: AlignmentDirectional.centerStart,
     child: FilledButton.icon(
+      style: widget.vistaWeb
+          ? FilledButton.styleFrom(backgroundColor: mantenimientoAcento)
+          : null,
       onPressed: pulsar,
       icon: Icon(icono),
       label: Text(texto),
@@ -671,8 +1111,11 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
     key: key,
     padding: const EdgeInsets.all(16),
     children: [
-      for (final widget in contenido)
-        Padding(padding: const EdgeInsets.only(bottom: 8), child: widget),
+      for (final elemento in contenido)
+        Padding(
+          padding: EdgeInsets.only(bottom: widget.vistaWeb ? 12 : 8),
+          child: elemento,
+        ),
     ],
   );
 

@@ -125,6 +125,11 @@ void main() {
       tester,
     ) async {
       await _abrirModulo(tester, _ServicioPrueba(), ancho: ancho);
+      await tester.tap(find.text('Hojas de vida').hitTestable().first);
+      await tester.pumpAndSettle();
+      if (ancho == 390) {
+        await _desplazarHasta(tester, find.text('Sede Norte'));
+      }
       await tester.tap(find.text('Sede Norte'));
       await tester.pumpAndSettle();
       expect(find.text('Historial de mantenimiento'), findsOneWidget);
@@ -135,6 +140,24 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('El resumen abre Órdenes filtradas por el estado elegido', (
+    tester,
+  ) async {
+    await _abrirModulo(tester, _ServicioPrueba(), ancho: 1024);
+    await _desplazarHasta(tester, find.text('Abiertas'));
+    await tester.tap(find.text('Abiertas'));
+    await tester.pumpAndSettle();
+    expect(find.text('No hay órdenes para esta selección'), findsOneWidget);
+    expect(find.text('Revisar fuga'), findsNothing);
+    await tester.tap(find.text('Resumen'));
+    await tester.pumpAndSettle();
+    await _desplazarHasta(tester, find.text('Cerradas'));
+    await tester.tap(find.text('Cerradas'));
+    await tester.pumpAndSettle();
+    expect(find.text('Revisar fuga'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     testWidgets(

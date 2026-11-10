@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../interventoria/interventoria_models.dart';
 import 'mantenimiento_service.dart';
+import 'mantenimiento_web_widgets.dart';
 
 DropdownMenuItem<String> opcionMantenimiento(String id, String label) =>
     DropdownMenuItem(
@@ -36,11 +37,13 @@ class EditorMantenimiento extends StatefulWidget {
     required this.titulo,
     required this.guardar,
     required this.campos,
+    this.vistaWeb = false,
   });
 
   final String titulo;
   final Future<void> Function() guardar;
   final List<Widget> campos;
+  final bool vistaWeb;
 
   @override
   State<EditorMantenimiento> createState() => _EditorMantenimientoState();
@@ -73,51 +76,59 @@ class _EditorMantenimientoState extends State<EditorMantenimiento> {
   }
 
   @override
-  Widget build(BuildContext context) => PopScope(
-    canPop: !_guardando,
-    child: Scaffold(
-      appBar: AppBar(title: Text(widget.titulo)),
-      body: SafeArea(
-        child: Form(
-          key: _form,
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 600),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      for (final campo in widget.campos)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: IgnorePointer(
-                            ignoring: _guardando,
-                            child: campo,
-                          ),
-                        ),
-                      if (_error != null)
-                        Text(
-                          _error!,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
-                          ),
-                        ),
-                      FilledButton(
-                        onPressed: _guardando ? null : _guardar,
-                        child: Text(_guardando ? 'Guardando…' : 'Guardar'),
-                      ),
-                    ],
+  Widget build(BuildContext context) {
+    final contenido = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final campo in widget.campos)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: IgnorePointer(ignoring: _guardando, child: campo),
+          ),
+        if (_error != null)
+          Text(
+            _error!,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        FilledButton(
+          style: widget.vistaWeb
+              ? FilledButton.styleFrom(backgroundColor: mantenimientoAcento)
+              : null,
+          onPressed: _guardando ? null : _guardar,
+          child: Text(_guardando ? 'Guardando…' : 'Guardar'),
+        ),
+      ],
+    );
+    return PopScope(
+      canPop: !_guardando,
+      child: Scaffold(
+        backgroundColor: widget.vistaWeb ? mantenimientoFondo : null,
+        appBar: AppBar(
+          title: Text(widget.titulo),
+          backgroundColor: widget.vistaWeb ? Colors.white : null,
+          foregroundColor: widget.vistaWeb ? mantenimientoTinta : null,
+        ),
+        body: SafeArea(
+          child: Form(
+            key: _form,
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 600),
+                    child: widget.vistaWeb
+                        ? PanelMantenimiento(child: contenido)
+                        : contenido,
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class EquipoMantenimientoForm extends StatefulWidget {
@@ -126,11 +137,13 @@ class EquipoMantenimientoForm extends StatefulWidget {
     required this.service,
     required this.centros,
     this.equipo,
+    this.vistaWeb = false,
   });
 
   final MantenimientoService service;
   final List<EstablecimientoMantenimiento> centros;
   final EquipoMantenimiento? equipo;
+  final bool vistaWeb;
 
   @override
   State<EquipoMantenimientoForm> createState() =>
@@ -149,6 +162,7 @@ class _EquipoMantenimientoFormState extends State<EquipoMantenimientoForm> {
     final centros = widget.centros.where((c) => c.activo || c.id == _centro);
     return EditorMantenimiento(
       titulo: widget.equipo == null ? 'Nuevo equipo' : 'Editar equipo',
+      vistaWeb: widget.vistaWeb,
       guardar: () => widget.service.guardarEquipo(
         equipo: widget.equipo,
         centroDocId: _centro,
@@ -158,6 +172,13 @@ class _EquipoMantenimientoFormState extends State<EquipoMantenimientoForm> {
         factura: _factura.trim(),
       ),
       campos: [
+        if (widget.vistaWeb)
+          const EncabezadoMantenimiento(
+            titulo: 'Datos del equipo',
+            descripcion:
+                'El código y el nombre identifican el equipo en su hoja de vida.',
+            icono: Icons.inventory_2_outlined,
+          ),
         DropdownButtonFormField<String>(
           initialValue: _centro,
           isExpanded: true,
@@ -210,12 +231,14 @@ class OrdenMantenimientoForm extends StatefulWidget {
     required this.equipos,
     this.centroId,
     this.equipoId,
+    this.vistaWeb = false,
   });
 
   final MantenimientoService service;
   final List<EstablecimientoMantenimiento> centros;
   final List<EquipoMantenimiento> equipos;
   final String? centroId, equipoId;
+  final bool vistaWeb;
 
   @override
   State<OrdenMantenimientoForm> createState() => _OrdenMantenimientoFormState();
@@ -264,6 +287,7 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm> {
   @override
   Widget build(BuildContext context) => EditorMantenimiento(
     titulo: 'Nueva orden de trabajo',
+    vistaWeb: widget.vistaWeb,
     guardar: () => widget.service.crearOrden(
       centroDocId: _centroId!,
       equipoId: _equipoId,
@@ -273,6 +297,13 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm> {
       factura: _factura.trim(),
     ),
     campos: [
+      if (widget.vistaWeb)
+        const EncabezadoMantenimiento(
+          titulo: 'Datos del trabajo',
+          descripcion:
+              'Elige el establecimiento y describe el trabajo. Puedes asociar un equipo o un hallazgo de Interventoría.',
+          icono: Icons.assignment_outlined,
+        ),
       DropdownButtonFormField<String>(
         initialValue: _centroId,
         isExpanded: true,

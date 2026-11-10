@@ -1,5 +1,19 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-09 — Nuevo diseño web de Mantenimiento (Codex)
+
+- Inicio de Mantenimiento abre en Resumen. Sus tarjetas muestran las
+  órdenes abiertas, en curso y cerradas, y permiten ver cada grupo con
+  el filtro ya aplicado. Desde el encabezado se puede crear una orden
+  o consultar las hojas de vida.
+- Navegación lateral en Web amplia y secciones accesibles desde el
+  encabezado en ventanas estrechas. Se diferenciaron los estados con
+  texto, iconos y color. Los formularios y el informe agrupan datos y
+  acciones con indicaciones breves.
+- Pasaron las ocho pruebas dirigidas de Mantenimiento. La vista Web se
+  probó a 390, 768, 1024 y 1366 px lógicos con escala de texto 1,6 y se
+  revisaron capturas del resumen a 390 y 1366 px.
+
 ## 2026-11-09 — Mantenimiento publicado en Web 2.8.20+74 (Codex)
 
 - Publicada Web 2.8.20+74 en `https://to-do-gestion.web.app`.
