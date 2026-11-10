@@ -1,5 +1,26 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-10 — Regreso desde la firma en Planillas 2.8.25+79 (Codex)
+
+- La barra compacta de Planillas reserva el inicio para Volver y mantiene
+  Mi identidad digital como acción separada. Beneficiarios usa un icono y
+  Subir PDFs queda en el botón flotante. Volver también está disponible
+  durante la carga inicial.
+- En Identidad Digital, los botones de captura saltan de línea cuando
+  falta espacio. La actualización incluye el buscador, «Por atender» y
+  el menú de fechas de Firmadas.
+- Pasaron 35 pruebas de Planillas. El recorrido abre Identidad Digital,
+  dibuja en el lienzo y comprueba las dos vueltas de navegación. Pruebas
+  de widgets a 390, 768, 1024 y 1366 px, con Android e iOS simulados a
+  390 px y texto al 180 %. Pendiente validación en dispositivos físicos.
+- Web publicada en `https://to-do-gestion.web.app`. La versión servida
+  y los seis archivos de arranque y aplicación coincidieron por SHA-256
+  con la compilación local.
+- AAB de Android firmado con el mismo certificado que 2.8.24+78.
+  Bundletool validó la estructura y el manifiesto 2.8.25 (79).
+  Archivo `outputs/android/to-do-gestion-2.8.25-79.aab` (153327682 bytes).
+  SHA-256 `99795f20194fd19c1632b4a4c651803701287890227dfc1071436f76d367b899`.
+
 ## 2026-11-10 — Menos filtros en Planillas de pago (Codex)
 
 - La bandeja principal ofrece búsqueda y un solo filtro, «Por atender».

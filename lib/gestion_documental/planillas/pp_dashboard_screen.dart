@@ -121,6 +121,17 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
     return n.isNotEmpty ? n : null;
   }
 
+  void _openBeneficiarios() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PpBeneficiariosScreen(
+          empresaId: widget.empresaId,
+          userId: widget.userId,
+        ),
+      ),
+    );
+  }
+
   void _openSubirPdf(String rolPlanillas, String? nombreActor) {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -166,19 +177,25 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
 
   @override
   Widget build(BuildContext context) {
-    final isWeb = MediaQuery.of(context).size.width >= 900;
+    final ancho = MediaQuery.sizeOf(context).width;
+    final escala = MediaQuery.textScalerOf(context).scale(12) / 12;
+    final isWeb = ancho >= 900 && ancho >= 900 * escala;
 
     return FutureBuilder<void>(
       future: _cleanupFuture,
       builder: (context, cleanupSnap) {
         if (cleanupSnap.connectionState != ConnectionState.done) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
+          return Scaffold(
+            appBar: AppBar(title: const Text('Planillas de pago')),
+            body: const Center(child: CircularProgressIndicator()),
           );
         }
         return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
           stream: _streamUsuario(),
           builder: (context, userSnap) {
+            final cargandoRol =
+                userSnap.connectionState == ConnectionState.waiting &&
+                !userSnap.hasData;
             final rolPlanillas = _resolveRolPlanillas(userSnap.data?.data());
             final nombreActor = _resolveNombreActor(userSnap.data?.data());
             final inPlanillasTab = _tabCtrl.index == 0;
@@ -191,6 +208,10 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
               'eliminar_planilla',
               rolPlanillas,
             );
+            final canManageBeneficiarios = PpRoles.puedeEjecutar(
+              'gestionar_beneficiarios',
+              rolPlanillas,
+            );
 
             return Scaffold(
               backgroundColor: GdPalette.background,
@@ -200,6 +221,8 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
                 elevation: 0,
                 title: const Text(
                   'PLANILLAS DE PAGO',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontFamily: kArial,
                     fontWeight: FontWeight.w900,
@@ -229,7 +252,7 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
                               icon: const Icon(Icons.draw_outlined),
                             ),
                     ),
-                  if (rolPlanillas != null)
+                  if (isWeb && rolPlanillas != null)
                     Container(
                       margin: const EdgeInsets.symmetric(
                         vertical: 14,
@@ -253,22 +276,11 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
                   // El maestro de beneficiarios. Antes iba detrás de
                   // `eliminar_planilla`, que excluye a Tesorería: la persona
                   // que más lo necesita no veía el botón.
-                  if (PpRoles.puedeEjecutar(
-                    'gestionar_beneficiarios',
-                    rolPlanillas,
-                  ))
+                  if (isWeb && canManageBeneficiarios)
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: OutlinedButton.icon(
-                        onPressed: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => PpBeneficiariosScreen(
-                              empresaId: widget.empresaId,
-                              userId: widget.userId,
-                            ),
-                          ),
-                        ),
+                        onPressed: _openBeneficiarios,
                         icon: const Icon(
                           Icons.account_balance_outlined,
                           size: 18,
@@ -286,6 +298,12 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
                           side: const BorderSide(color: GdPalette.border),
                         ),
                       ),
+                    )
+                  else if (canManageBeneficiarios)
+                    IconButton(
+                      onPressed: _openBeneficiarios,
+                      tooltip: 'Beneficiarios',
+                      icon: const Icon(Icons.account_balance_outlined),
                     ),
                   if (canDelete && isWeb && inPlanillasTab)
                     Padding(
@@ -377,44 +395,37 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
                         ),
                       ),
                     ),
-                  if (canUpload)
+                  if (isWeb && canUpload)
                     Padding(
                       padding: const EdgeInsets.only(right: 12),
-                      child: isWeb
-                          ? ElevatedButton.icon(
-                              onPressed: () =>
-                                  _openSubirPdf(rolPlanillas!, nombreActor),
-                              icon: const Icon(
-                                Icons.picture_as_pdf_outlined,
-                                size: 18,
-                                color: Colors.white,
-                              ),
-                              label: const Text(
-                                'SUBIR PDFs',
-                                style: TextStyle(
-                                  fontFamily: kArial,
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: 12,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: GdPalette.accent,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 20,
-                                  vertical: 14,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                              ),
-                            )
-                          : IconButton(
-                              icon: const Icon(Icons.picture_as_pdf_outlined),
-                              onPressed: () =>
-                                  _openSubirPdf(rolPlanillas!, nombreActor),
-                              tooltip: 'Subir PDFs',
-                            ),
+                      child: ElevatedButton.icon(
+                        onPressed: () =>
+                            _openSubirPdf(rolPlanillas!, nombreActor),
+                        icon: const Icon(
+                          Icons.picture_as_pdf_outlined,
+                          size: 18,
+                          color: Colors.white,
+                        ),
+                        label: const Text(
+                          'SUBIR PDFs',
+                          style: TextStyle(
+                            fontFamily: kArial,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 12,
+                            color: Colors.white,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: GdPalette.accent,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 14,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
                     ),
                 ],
                 bottom: TabBar(
@@ -447,7 +458,9 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
                   ],
                 ),
               ),
-              body: rolPlanillas == null
+              body: cargandoRol
+                  ? const Center(child: CircularProgressIndicator())
+                  : rolPlanillas == null
                   ? _buildSinRol()
                   : Column(
                       children: [
@@ -527,7 +540,7 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
   }
 
   Widget _buildSinRol() => Center(
-    child: Padding(
+    child: SingleChildScrollView(
       padding: const EdgeInsets.all(32),
       child: ModuleCard(
         color: GdPalette.accent.withValues(alpha: 0.04),

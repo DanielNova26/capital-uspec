@@ -13,11 +13,13 @@ import 'widgets/gd_ui_widgets.dart';
 class GdFirmasScreen extends StatefulWidget {
   final String empresaId;
   final String userId;
+  final GdService? service;
 
   const GdFirmasScreen({
     super.key,
     required this.empresaId,
     required this.userId,
+    this.service,
   });
 
   @override
@@ -25,7 +27,7 @@ class GdFirmasScreen extends StatefulWidget {
 }
 
 class _GdFirmasScreenState extends State<GdFirmasScreen> {
-  final _service = GdService();
+  late final _service = widget.service ?? GdService();
   final _nameController = TextEditingController();
   final _cargoController = TextEditingController();
 
@@ -251,20 +253,22 @@ class _GdFirmasScreenState extends State<GdFirmasScreen> {
             ],
           ),
           const SizedBox(height: 24),
-          Row(
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               _buildActionBtn(
                 label: 'Limpiar',
                 icon: Icons.refresh,
                 onTap: () => _signatureController.clear(),
               ),
-              const SizedBox(width: 12),
               _buildActionBtn(
                 label: 'Subir PNG',
                 icon: Icons.upload_file,
                 onTap: _pickAndUpload,
               ),
-              const Spacer(),
               ElevatedButton.icon(
                 onPressed: _loading ? null : _saveSignature,
                 icon: const Icon(Icons.save_alt, size: 20),
