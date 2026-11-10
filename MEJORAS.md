@@ -1,5 +1,22 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-10 — AAB Android 2.8.22+76 (Codex)
+
+- Compilación release firmada de To-Do Gestión para Play Console.
+  Archivo local `outputs/android/to-do-gestion-2.8.22-76.aab`,
+  153273241 bytes. Incluye el canal GPS para Visitas descargadas en Android.
+- Bundletool 1.18.1 validó la estructura. Manifiesto verificado con
+  paquete `com.todogestion.app`, versión 2.8.22, código 76, minSdk 24 y
+  targetSdk 36. El bundle solicita alineación ZIP de 16 KB.
+- Jarsigner verificó la firma. El certificado coincide con el AAB 71 y
+  aparecen los avisos de certificado autofirmado, sello de tiempo y lectura
+  del JAR ya registrados para la compilación anterior.
+- SHA-256 del archivo de entrega
+  `20c8fe9f30260de7ad7ce80790f42e43a969da1cb70888bcc0b5da2c0b03f1c6`.
+- Pasaron 58 pruebas dirigidas de Visitas. Pendientes la carga en Play
+  Console por el usuario y la prueba del GPS sin red en una tablet física
+  supervisada con Family Link.
+
 ## 2026-11-10 — GPS para Visitas descargadas (Codex)
 
 - Android solicita una lectura nueva al receptor GPS al iniciar una visita
