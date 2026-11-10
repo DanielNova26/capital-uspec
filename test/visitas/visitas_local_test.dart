@@ -799,6 +799,7 @@ void main() {
           messenger.setMockMethodCallHandler(gps, (call) async {
             expect(android, isTrue);
             expect(call.method, 'leer');
+            expect(call.arguments, {'esperaMs': 120000});
             if (!habilitada) throw PlatformException(code: 'desactivada');
             if (!precisa) throw PlatformException(code: 'aproximada');
             if (!senal) throw PlatformException(code: 'sin_senal');

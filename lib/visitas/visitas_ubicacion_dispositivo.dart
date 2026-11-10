@@ -25,8 +25,8 @@ enum ErrorUbicacionVisita implements Exception {
       'La app tiene permiso de ubicación aproximada. Activa Ubicación precisa '
           'en los permisos de la app.',
     sinReceptor =>
-      'Android no detecta un receptor GPS en este dispositivo. Para iniciar '
-          'esta visita sin conexión, usa un equipo con GPS y prepara allí la visita.',
+      'Android no encuentra una fuente de ubicación disponible. Para iniciar '
+          'sin conexión, usa un equipo con GPS y prepara allí la visita.',
     sinSenal =>
       'No se obtuvo una posición a tiempo. Si estás en el establecimiento, '
           'acércate a una zona con vista al cielo y vuelve a intentar.',
@@ -47,7 +47,10 @@ bool get _android => !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
 const _gpsAndroid = MethodChannel('com.todogestion.app/visitas_gps');
 
-/// Las visitas descargadas de Android usan una lectura nueva de GPS_PROVIDER.
+Duration get esperaUbicacionDescargada =>
+    Duration(seconds: _android ? 120 : 60);
+
+/// En Android se consultan en paralelo el GPS y las fuentes disponibles.
 /// Las demás conservan el servicio de ubicación de su plataforma.
 Future<Position> leerPosicionVisita({bool descargada = false}) async {
   final satelital = descargada && _android;
@@ -66,6 +69,7 @@ Future<Position> leerPosicionVisita({bool descargada = false}) async {
     if (satelital) {
       final posicion = await _gpsAndroid.invokeMapMethod<String, Object>(
         'leer',
+        {'esperaMs': esperaUbicacionDescargada.inMilliseconds},
       );
       if (posicion == null) throw ErrorUbicacionVisita.fallo;
       return Position.fromMap(posicion);
@@ -80,7 +84,9 @@ Future<Position> leerPosicionVisita({bool descargada = false}) async {
     return await Geolocator.getCurrentPosition(
       locationSettings: LocationSettings(
         accuracy: LocationAccuracy.high,
-        timeLimit: Duration(seconds: descargada ? 60 : 15),
+        timeLimit: descargada
+            ? esperaUbicacionDescargada
+            : const Duration(seconds: 15),
       ),
     );
   } on ErrorUbicacionVisita {

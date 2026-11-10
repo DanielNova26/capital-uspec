@@ -5,13 +5,14 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
-import android.location.LocationListener
 import android.location.LocationManager
-import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
+import androidx.core.location.LocationListenerCompat
+import androidx.core.location.LocationManagerCompat
+import androidx.core.location.LocationRequestCompat
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
 
@@ -24,7 +25,7 @@ internal class VisitasGps(private val context: Context, messenger: BinaryMesseng
     init {
         channel.setMethodCallHandler { call, result ->
             when (call.method) {
-                "leer" -> leer(result)
+                "leer" -> leer(call.argument<Int>("esperaMs") ?: 120_000, result)
                 else -> result.notImplemented()
             }
         }
@@ -36,18 +37,17 @@ internal class VisitasGps(private val context: Context, messenger: BinaryMesseng
     }
 
     @SuppressLint("MissingPermission")
-    private fun leer(result: MethodChannel.Result) {
+    private fun leer(esperaMs: Int, result: MethodChannel.Result) {
         if (cancelar != null) {
             result.error("fallo", null, null)
             return
         }
-        val provider = LocationManager.GPS_PROVIDER
         val manager = locationManager
-        if (manager == null || provider !in manager.allProviders) {
+        if (manager == null) {
             result.error("sin_receptor", null, null)
             return
         }
-        if (!manager.isProviderEnabled(provider)) {
+        if (!LocationManagerCompat.isLocationEnabled(manager)) {
             result.error("desactivada", null, null)
             return
         }
@@ -61,35 +61,56 @@ internal class VisitasGps(private val context: Context, messenger: BinaryMesseng
             return
         }
 
+        val gps = LocationManager.GPS_PROVIDER
+        val providers = manager.getProviders(true).filter {
+            it == gps || it == LocationManager.FUSED_PROVIDER || it == LocationManager.NETWORK_PROVIDER
+        }
+        if (providers.isEmpty()) {
+            val codigo = if (gps in manager.allProviders) "desactivada" else "sin_receptor"
+            result.error(codigo, null, null)
+            return
+        }
+
         val desde = SystemClock.elapsedRealtimeNanos()
-        val listener = object : LocationListener {
+        val listener = object : LocationListenerCompat {
             override fun onLocationChanged(location: Location) {
                 // El sistema puede entregar primero una lectura anterior al intento.
                 if (location.elapsedRealtimeNanos < desde || !location.hasAccuracy()) return
+                // Las fuentes asistidas pueden dar posiciones demasiado amplias para la visita.
+                if (location.provider != gps && location.accuracy > 100f) return
                 terminar(posicion = location)
             }
 
             override fun onProviderDisabled(provider: String) {
-                terminar(error = "desactivada")
+                if (!LocationManagerCompat.isLocationEnabled(manager)) {
+                    terminar(error = "desactivada")
+                }
             }
-
-            override fun onProviderEnabled(provider: String) {}
-
-            @Deprecated("Callback anterior a Android 10")
-            override fun onStatusChanged(provider: String, status: Int, extras: Bundle?) {}
 
             private val plazo = Runnable { terminar(error = "sin_senal") }
             private val cancelarLectura: () -> Unit = { terminar(error = "fallo") }
 
             fun iniciar() {
                 cancelar = cancelarLectura
-                main.postDelayed(plazo, 60_000L)
+                main.postDelayed(plazo, esperaMs.coerceIn(1_000, 120_000).toLong())
+                val solicitud = LocationRequestCompat.Builder(0L)
+                    .setQuality(LocationRequestCompat.QUALITY_HIGH_ACCURACY)
+                    .build()
+                var registrado = false
                 try {
-                    manager.requestLocationUpdates(provider, 0L, 0f, this, Looper.getMainLooper())
+                    for (provider in providers) {
+                        try {
+                            LocationManagerCompat.requestLocationUpdates(
+                                manager, provider, solicitud, this, Looper.getMainLooper()
+                            )
+                            registrado = true
+                        } catch (_: IllegalArgumentException) {
+                            // El proveedor pudo desaparecer mientras se iniciaba la lectura.
+                        }
+                    }
+                    if (!registrado) terminar(error = "fallo")
                 } catch (_: SecurityException) {
                     terminar(error = "permiso")
-                } catch (_: IllegalArgumentException) {
-                    terminar(error = "sin_receptor")
                 }
             }
 

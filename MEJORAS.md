@@ -1,5 +1,20 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-10 — Tiempo de espera del GPS en Visitas 2.8.26+80 (Codex)
+
+- En una tablet de Piendamó, la lectura satelital de una visita descargada
+  agotó el plazo de 60 segundos. Android consulta ahora en paralelo el GPS
+  y los proveedores asistidos habilitados, con hasta 120 segundos de espera.
+- La posición debe ser nueva. Para las fuentes asistidas se exige una
+  precisión de 100 m o mejor. El inicio verifica el radio del establecimiento.
+- Pasaron 58 pruebas dirigidas, incluidas las simulaciones de Android e iOS
+  a 390, 768, 1024 y 1366 px con texto al 180 %. Pendiente instalar la
+  actualización y probar la recepción sin red en la tablet de Piendamó.
+- AAB de Android firmado con el certificado del AAB 79. Bundletool validó
+  la estructura y el manifiesto 2.8.26 (80), con targetSdk 36.
+  Archivo `outputs/android/to-do-gestion-2.8.26-80.aab` (153332827 bytes).
+  SHA-256 `a66ca9cbf03e4410aa1063e55b8424ca89b31909968658d1e071668ec69da5e0`.
+
 ## 2026-11-10 — Regreso desde la firma en Planillas 2.8.25+79 (Codex)
 
 - La barra compacta de Planillas reserva el inicio para Volver y mantiene

@@ -3414,7 +3414,7 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
                 !_ocupado
                     ? 'Iniciar visita'
                     : widget.svc is VisitasLocalService && !v.esPrueba
-                    ? 'Buscando ubicación (hasta 1 min)…'
+                    ? 'Buscando ubicación (hasta ${esperaUbicacionDescargada.inMinutes} min)…'
                     : 'Ubicándote…',
               ),
             ),
