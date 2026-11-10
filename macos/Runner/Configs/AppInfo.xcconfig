@@ -8,7 +8,8 @@
 PRODUCT_NAME = capital_uspec
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.example.capitalUspec
+PRODUCT_BUNDLE_IDENTIFIER = com.capitaluspec.gestionapp
+DEVELOPMENT_TEAM = 29TDC266FJ
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2025 com.example. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 To-Do Gestión.

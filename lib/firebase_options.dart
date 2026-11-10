@@ -70,15 +70,8 @@ class DefaultFirebaseOptions {
     iosBundleId: 'com.capitaluspec.gestionapp',
   );
 
-  static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: 'AIzaSyAn_VXHlHj_bCZaOaJ2tkK4Lr4s970vI-8',
-    appId: '1:379551786878:ios:b2f6d4777de370c884352f',
-    messagingSenderId: '379551786878',
-    projectId: 'integra360-94704',
-    databaseURL: 'https://integra360-94704-default-rtdb.firebaseio.com',
-    storageBucket: 'integra360-94704.firebasestorage.app',
-    iosBundleId: 'com.example.capitalUspec',
-  );
+  // La app nativa de Mac usa el mismo registro de Apple que iOS.
+  static const FirebaseOptions macos = ios;
 
   static const FirebaseOptions windows = FirebaseOptions(
     apiKey: 'AIzaSyA0YxkcePFqXJah5Om22ocaXSyCMzLz9NQ',

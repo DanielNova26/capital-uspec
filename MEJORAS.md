@@ -1,5 +1,25 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-10 — Publicación de subcentros en la versión 2.8.27+81 (Codex)
+
+- Web publicada en `https://to-do-gestion.web.app`. Se verificaron versión
+  2.8.27 (81), HTTP 200 y coincidencia SHA-256 de los seis archivos públicos
+  de inicio, versión, aplicación y service workers con la compilación local.
+- Desplegadas la función `visitasPrepararOffline` en `us-central1` y las
+  reglas de Firestore. Las reglas activas coinciden con la fuente en el
+  ruleset `61db48a7-3ac7-4fe2-9212-c56656f42027`. La función rechazó la
+  solicitud de comprobación sin sesión.
+- AAB Android `outputs/android/to-do-gestion-2.8.27-81.aab`, 153340837
+  bytes. Bundletool validó estructura y manifiesto (API 36) y Jarsigner
+  verificó la firma con el mismo certificado del AAB 80. SHA-256
+  `bcedee27139dae93f041bbae83a2b1b8215f9b13c231ba2f32c6dc3dc793cdd6`.
+  Pendiente la carga en Play Console y la prueba en tablet física.
+- El destino macOS usa el identificador y el registro Firebase Apple
+  existentes, el equipo Apple del proyecto y los permisos de sandbox
+  para red, llavero, archivos seleccionados, micrófono y ubicación.
+  Los plist se validaron en Windows. Pendientes compilar, probar y firmar
+  con Xcode en un Mac y publicar según `docs/PUBLICAR_MACOS_2.8.27.md`.
+
 ## 2026-11-10 — Ubicación independiente de subcentros en Visitas (Codex)
 
 - En Visitas › Ubicaciones, cada subcentro usa su propia referencia por
