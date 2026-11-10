@@ -252,7 +252,7 @@ function normalizePlanillasRole(raw: unknown): string {
   return role;
 }
 
-function userBelongsToEmpresa(
+export function userBelongsToEmpresa(
   data: admin.firestore.DocumentData,
   empresaId: string
 ): boolean {
@@ -285,7 +285,7 @@ function userBelongsToEmpresa(
  * @param {string} empresaId Empresa activa que se debe validar.
  * @return {boolean} true cuando el usuario sigue activo en la empresa.
  */
-function userIsActiveInEmpresa(
+export function userIsActiveInEmpresa(
   data: admin.firestore.DocumentData,
   empresaId: string
 ): boolean {

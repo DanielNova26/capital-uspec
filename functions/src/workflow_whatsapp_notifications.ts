@@ -67,79 +67,99 @@ async function once(eventId: string, work: () => Promise<void>) {
 export const ppWhatsAppCambioFirma = functions
   .region(REGION)
   .firestore.document("TBL_PP_PLANILLAS/{planillaId}")
-  .onUpdate(async (change, context) => {
-    const before = change.before.data();
-    const after = change.after.data();
-    const previous = text(before.estado);
-    const current = text(after.estado);
-    if (previous === current) return;
-    const empresaId = text(after.empresaId);
-    if (!empresaId) return;
-    const nombre = text(after.nombrePlanillaDetectado || after.nombreArchivoOriginal) ||
-      `Planilla ${context.params.planillaId}`;
-    if (current === "en_revision_auditoria") {
-      // Clave por evento y no por estado: una planilla observada vuelve a
-      // `en_revision_auditoria` al corregirse, y con la clave por estado ese
-      // segundo paso no avisaba a Auditoría. `eventId` es único por cambio y
-      // estable en los reintentos, que es lo que la idempotencia necesita.
-      await once(`pp_tesoreria_${context.params.planillaId}_${context.eventId}`, async () => {
-        await sendWhatsAppRoute({
-          empresaId,
-          routeId: "planillas_tesoreria_auditoria",
-          mensaje: `💳 *Planilla firmada por Tesorería*\n📄 ${nombre}\n🔎 Está disponible para revisión de Auditoría.`,
-          metadata: {
-            type: "planillas_tesoreria_auditoria",
-            templateKey: "planilla_pago_actualizacion",
-            planillaId: context.params.planillaId,
-            templateVariables: {
-              planilla: nombre,
-              estado: "Firmada por Tesorería",
-              accion: "Revisión de Auditoría",
-            },
-          },
-        });
-      });
-    }
-    if (current === "aprobada_auditoria") {
-      await once(`pp_auditoria_${context.params.planillaId}_${context.eventId}`, async () => {
-        await sendWhatsAppRoute({
-          empresaId,
-          routeId: "planillas_auditoria_gerencia",
-          mensaje: `✅ *Planilla firmada por Auditoría*\n📄 ${nombre}\n✍️ Está disponible para el proceso de Gerencia.`,
-          metadata: {
-            type: "planillas_auditoria_gerencia",
-            templateKey: "planilla_pago_actualizacion",
-            planillaId: context.params.planillaId,
-            templateVariables: {
-              planilla: nombre,
-              estado: "Firmada por Auditoría",
-              accion: "Proceso de Gerencia",
-            },
-          },
-        });
-      });
-    }
-    if (current === "firmada") {
-      // Gerencia completó el último filtro: Tesorería descarga los documentos.
-      await once(`pp_gerencia_${context.params.planillaId}_${context.eventId}`, async () => {
-        await sendWhatsAppRoute({
-          empresaId,
-          routeId: "planillas_gerencia_tesoreria",
-          mensaje: `✅ *Planilla firmada por Gerencia*\n📄 ${nombre}\n💳 Tesorería ya puede descargar la planilla firmada y el archivo plano.`,
-          metadata: {
-            type: "planillas_gerencia_tesoreria",
-            templateKey: "planilla_pago_actualizacion",
-            planillaId: context.params.planillaId,
-            templateVariables: {
-              planilla: nombre,
-              estado: "Firmada por Gerencia",
-              accion: "Descargar la planilla firmada y el archivo plano",
-            },
-          },
-        });
-      });
+  .onUpdate((change, context) =>
+    notificarEtapaPlanilla(text(change.before.data().estado), change.after.data(), context));
+
+export const ppWhatsAppCargaPlanilla = functions
+  .region(REGION)
+  .firestore.document("TBL_PP_PLANILLAS/{planillaId}")
+  .onCreate(async (snapshot, context) => {
+    const planilla = snapshot.data();
+    if (text(planilla.estado) === "en_revision_auditoria") {
+      await notificarEtapaPlanilla("", planilla, context);
     }
   });
+
+/**
+ * Avisa a la etapa que ya puede operar la planilla.
+ * @param {string} previous Estado anterior.
+ * @param {FirebaseFirestore.DocumentData} after Planilla guardada.
+ * @param {functions.EventContext} context Contexto del evento.
+ */
+async function notificarEtapaPlanilla(
+  previous: string,
+  after: FirebaseFirestore.DocumentData,
+  context: functions.EventContext,
+) {
+  const current = text(after.estado);
+  if (previous === current) return;
+  const empresaId = text(after.empresaId);
+  if (!empresaId) return;
+  const nombre = text(after.nombrePlanillaDetectado || after.nombreArchivoOriginal) ||
+      `Planilla ${context.params.planillaId}`;
+  if (current === "en_revision_auditoria") {
+    // Clave por evento y no por estado: una planilla observada vuelve a
+    // `en_revision_auditoria` al corregirse, y con la clave por estado ese
+    // segundo paso no avisaba a Auditoría. `eventId` es único por cambio y
+    // estable en los reintentos, que es lo que la idempotencia necesita.
+    await once(`pp_tesoreria_${context.params.planillaId}_${context.eventId}`, async () => {
+      await sendWhatsAppRoute({
+        empresaId,
+        routeId: "planillas_tesoreria_auditoria",
+        mensaje: `💳 *Planilla enviada por Tesorería*\n📄 ${nombre}\n🔎 Está disponible para revisión de Auditoría.`,
+        metadata: {
+          type: "planillas_tesoreria_auditoria",
+          templateKey: "planilla_pago_actualizacion",
+          planillaId: context.params.planillaId,
+          templateVariables: {
+            planilla: nombre,
+            estado: "En revisión de Auditoría",
+            accion: "Revisión de Auditoría",
+          },
+        },
+      });
+    });
+  }
+  if (current === "pendiente_firma_gerencia") {
+    await once(`pp_auditoria_${context.params.planillaId}_${context.eventId}`, async () => {
+      await sendWhatsAppRoute({
+        empresaId,
+        routeId: "planillas_auditoria_gerencia",
+        mensaje: `✅ *Planilla firmada por Auditoría*\n📄 ${nombre}\n✍️ Está disponible para el proceso de Gerencia.`,
+        metadata: {
+          type: "planillas_auditoria_gerencia",
+          templateKey: "planilla_pago_actualizacion",
+          planillaId: context.params.planillaId,
+          templateVariables: {
+            planilla: nombre,
+            estado: "Firmada por Auditoría",
+            accion: "Proceso de Gerencia",
+          },
+        },
+      });
+    });
+  }
+  if (current === "firmada") {
+    // Gerencia completó el último filtro: Tesorería descarga los documentos.
+    await once(`pp_gerencia_${context.params.planillaId}_${context.eventId}`, async () => {
+      await sendWhatsAppRoute({
+        empresaId,
+        routeId: "planillas_gerencia_tesoreria",
+        mensaje: `✅ *Planilla firmada por Gerencia*\n📄 ${nombre}\n💳 Tesorería ya puede descargar la planilla firmada y el archivo plano.`,
+        metadata: {
+          type: "planillas_gerencia_tesoreria",
+          templateKey: "planilla_pago_actualizacion",
+          planillaId: context.params.planillaId,
+          templateVariables: {
+            planilla: nombre,
+            estado: "Firmada por Gerencia",
+            accion: "Descargar la planilla firmada y el archivo plano",
+          },
+        },
+      });
+    });
+  }
+}
 
 /**
  * "Planta externa (Estación Soacha)". El subcentro quedó guardado de dos

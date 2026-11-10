@@ -94,6 +94,7 @@ export {
 export { ppStampDirectPdf } from "./pp_stamp_pdf";
 export {
   ppWhatsAppCambioFirma,
+  ppWhatsAppCargaPlanilla,
   interventoriaWhatsAppNuevaActa,
   facturacionWhatsAppDocumentoRechazado,
 } from "./workflow_whatsapp_notifications";

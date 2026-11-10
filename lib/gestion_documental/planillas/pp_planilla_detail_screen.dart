@@ -542,11 +542,11 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
   }
 
   String _accionLabel(String accion) => switch (accion) {
-    'confirmar_carga' => 'Confirmar carga',
+    'confirmar_carga' => 'Confirmar y enviar a Auditoría',
     'enviar_auditoria' => 'Enviar a auditoría',
     'observar' => 'Observaciones',
     'reenviar' => 'Corregir y reenviar',
-    'aprobar_auditoria' => 'Aprobar auditoría',
+    'aprobar_auditoria' => 'Firmar y enviar a Gerencia',
     'enviar_gerencia' => 'Enviar a gerencia',
     'firmar' => 'Firmar planilla',
     'rechazar' => 'Rechazar',
@@ -857,7 +857,11 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
   }
 
   String _downloadFileName(PpPlanilla planilla) {
-    final preferido = (planilla.nombrePlanillaDetectado ?? '').trim();
+    final preferido =
+        (planilla.nombrePdfPersonalizado ??
+                planilla.nombrePlanillaDetectado ??
+                '')
+            .trim();
     final fallback = planilla.nombreArchivoOriginal.trim();
     final base = preferido.isNotEmpty ? preferido : fallback;
     final safe = base
@@ -1094,7 +1098,10 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
           icon: const Icon(Icons.table_view_outlined, size: 18),
           label: Text(
             _generandoPlano ? 'Generando…' : 'Descargar archivo plano (CSV)',
-            style: const TextStyle(fontFamily: 'Arial', fontWeight: FontWeight.w700),
+            style: const TextStyle(
+              fontFamily: 'Arial',
+              fontWeight: FontWeight.w700,
+            ),
           ),
           style: OutlinedButton.styleFrom(
             foregroundColor: GdPalette.primary,
@@ -1374,7 +1381,9 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: colors.$2),
       ),
-      child: Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
           Icon(_estadoIcon(estado), size: 18, color: colors.$2),
           const SizedBox(width: 8),
           Text(
@@ -1386,7 +1395,8 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
               color: colors.$2,
             ),
           ),
-        ]),
+        ],
+      ),
     );
   }
 
@@ -1754,7 +1764,7 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
 
   Widget _buildHistorial(String planillaId) {
     return StreamBuilder<List<PpFlujoEvento>>(
-      stream: _service.streamHistorial(planillaId),
+      stream: _service.streamHistorial(planillaId, empresaId: widget.empresaId),
       builder: (context, snap) {
         final eventos = snap.data ?? [];
         if (eventos.isEmpty) return const SizedBox.shrink();

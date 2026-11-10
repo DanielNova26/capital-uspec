@@ -1,5 +1,27 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-10 — Carga y firma de Planillas de pago (Codex)
+
+- La carga de Tesorería entra directamente a Auditoría. La firma de Auditoría
+  actualiza el PDF, registra quién lo firmó y lo deja en la bandeja de Gerencia.
+  Los estados de espera históricos conservan sus acciones de avance.
+- Desde Excel se puede marcar más de una planilla, ver el número de PDF y
+  editar cada nombre. Cada planilla conserva sus propias filas y su PDF. El
+  lote se publica de una vez, con hasta 249 PDF. Si se corrige una planilla
+  observada, su Excel queda asociado a esa planilla.
+- Las reglas de Planillas y la función de sellado verifican la empresa y el
+  nivel de la persona en cada etapa. Se mantiene el registro de los pasos y
+  los avisos configurados. La protección general de escritura de las fichas
+  de `TBL_USUARIOS`, origen de los roles, sigue pendiente de una revisión
+  transversal.
+- Pruebas del flujo de carga y firma con almacenamiento simulado, reglas
+  en el emulador de Firestore y selección y nombres a 390, 768, 1024 y
+  1366 px lógicos con texto al 140 %. Pasaron 239 pruebas de Gestión
+  Documental, 337 de Functions y 6 de reglas. Web compiló. La prueba en
+  Chrome se quedó en carga y se detuvo. Pendiente validar el flujo con
+  sesión, archivos de producción, Android e iPhone. Coordinar la publicación
+  de los clientes con los índices, las reglas y las funciones de Planillas.
+
 ## 2026-11-10 — Web 2.8.23+77 con plantillas Excel de varias hojas (Codex)
 
 - Publicada en `https://to-do-gestion.web.app`. La portada y `version.json`

@@ -121,11 +121,11 @@ extension PpEstadoX on PpEstado {
 
 /// Transiciones válidas por estado actual.
 const Map<PpEstado, Set<PpEstado>> kPpTransicionesValidas = {
-  PpEstado.cargada: {PpEstado.pendiente_validacion},
+  PpEstado.cargada: {PpEstado.en_revision_auditoria},
   PpEstado.pendiente_validacion: {PpEstado.en_revision_auditoria},
   PpEstado.en_revision_auditoria: {
     PpEstado.observada,
-    PpEstado.aprobada_auditoria,
+    PpEstado.pendiente_firma_gerencia,
     PpEstado.rechazada,
   },
   PpEstado.observada: {PpEstado.en_revision_auditoria},
@@ -178,6 +178,7 @@ extension PpLoteEstadoX on PpLoteEstado {
 enum PpAccion {
   lote_creado,
   planilla_creada,
+  carga_enviada_auditoria,
   carga_confirmada,
   enviado_auditoria,
   observado,
@@ -200,6 +201,8 @@ extension PpAccionX on PpAccion {
         return 'Lote de carga creado';
       case PpAccion.planilla_creada:
         return 'Planilla individual creada';
+      case PpAccion.carga_enviada_auditoria:
+        return 'Planilla cargada y enviada a Auditoría';
       case PpAccion.carga_confirmada:
         return 'Carga confirmada por tesorería';
       case PpAccion.enviado_auditoria:
@@ -346,6 +349,7 @@ class PpPlanilla {
 
   // Origen del archivo
   final String nombreArchivoOriginal; // nombre del PDF físico cargado
+  final String? nombrePdfPersonalizado;
   final String? nombrePlanillaDetectado; // extraído del PDF o del Excel
   final String? fechaPlanillaDetectada; // en formato 'YYYY-MM-DD' si se detectó
   final double? valorDetectado; // valor monetario detectado
@@ -401,6 +405,7 @@ class PpPlanilla {
     this.empresaNombre,
     required this.loteId,
     required this.nombreArchivoOriginal,
+    this.nombrePdfPersonalizado,
     this.nombrePlanillaDetectado,
     this.fechaPlanillaDetectada,
     this.valorDetectado,
@@ -456,6 +461,7 @@ class PpPlanilla {
           : empresaNombre,
       loteId: (m['loteId'] ?? '').toString(),
       nombreArchivoOriginal: (m['nombreArchivoOriginal'] ?? '').toString(),
+      nombrePdfPersonalizado: m['nombrePdfPersonalizado'] as String?,
       nombrePlanillaDetectado: m['nombrePlanillaDetectado'] as String?,
       fechaPlanillaDetectada: m['fechaPlanillaDetectada'] as String?,
       valorDetectado: (m['valorDetectado'] as num?)?.toDouble(),
@@ -495,6 +501,8 @@ class PpPlanilla {
     'empresaNombre': empresaNombre,
     'loteId': loteId,
     'nombreArchivoOriginal': nombreArchivoOriginal,
+    if (nombrePdfPersonalizado != null)
+      'nombrePdfPersonalizado': nombrePdfPersonalizado,
     'nombrePlanillaDetectado': nombrePlanillaDetectado,
     'fechaPlanillaDetectada': fechaPlanillaDetectada,
     'valorDetectado': valorDetectado,
@@ -557,6 +565,7 @@ class PpPlanilla {
     empresaNombre: empresaNombre ?? this.empresaNombre,
     loteId: loteId,
     nombreArchivoOriginal: nombreArchivoOriginal,
+    nombrePdfPersonalizado: nombrePdfPersonalizado,
     nombrePlanillaDetectado:
         nombrePlanillaDetectado ?? this.nombrePlanillaDetectado,
     fechaPlanillaDetectada:

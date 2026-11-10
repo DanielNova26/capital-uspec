@@ -13,6 +13,7 @@ const {
   getDoc,
   setDoc,
   updateDoc,
+  writeBatch,
 } = require("firebase/firestore");
 
 const projectId = "capital-uspec-rules-test";
@@ -116,6 +117,73 @@ test("un usuario no puede ascenderse creando su propio rol", async () => {
       rol: "administrador",
     })
   );
+});
+
+test("Planillas avanza solo con el rol y la empresa de cada etapa", async () => {
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await Promise.all([
+      ...["tesoreria", "auditoria", "gerencia"].map((rol) =>
+        setDoc(doc(db, `TBL_USUARIOS/pp_${rol}`), {
+          empresaId: "EMP_B",
+          appsPorEmpresa: true,
+          empresasDetalle: {
+            EMP_A: {
+              apps: ["planillaspagodashboard"],
+              rolPlanillas: rol,
+              rolPlanillasId: `EMP_A_${rol}`,
+            },
+            EMP_B: {apps: ["planillaspagodashboard"]},
+          },
+        })),
+    ]);
+  });
+
+  const teso = auth("pp_tesoreria");
+  const audit = auth("pp_auditoria");
+  const ger = auth("pp_gerencia");
+  const planilla = "TBL_PP_PLANILLAS/flujo";
+  const datos = {
+    empresaId: "EMP_A",
+    loteId: "lote",
+    estado: "en_revision_auditoria",
+    cargadoPor: "pp_tesoreria",
+    pathPdf: "planillas_pago/EMP_A/lote/pdfs/original.pdf",
+  };
+  await assertFails(setDoc(doc(audit, planilla), datos));
+  await assertFails(setDoc(doc(teso, planilla), {...datos, empresaId: "EMP_B"}));
+  const carga = writeBatch(teso);
+  carga.set(doc(teso, "TBL_PP_LOTES/lote"), {
+    empresaId: "EMP_A", creadoPor: "pp_tesoreria",
+  });
+  carga.set(doc(teso, planilla), datos);
+  carga.set(doc(teso, "TBL_PP_FLUJO/carga"), {
+    empresaId: "EMP_A", realizadoPor: "pp_tesoreria",
+    accion: "carga_enviada_auditoria",
+  });
+  await assertSucceeds(carga.commit());
+  await assertFails(getDoc(doc(auth("bob"), planilla)));
+  await assertSucceeds(getDoc(doc(audit, planilla)));
+  const aprobacion = {
+    estado: "pendiente_firma_gerencia",
+    revisadoPor: "pp_auditoria",
+    pathPdf: "planillas_pago/EMP_A/firmados/auditoria.pdf",
+  };
+  await assertFails(updateDoc(doc(teso, planilla), aprobacion));
+  await assertFails(setDoc(doc(teso, "TBL_PP_FLUJO/firmado"), {
+    empresaId: "EMP_A", realizadoPor: "pp_tesoreria", accion: "firmado",
+  }));
+  await assertFails(updateDoc(doc(audit, planilla), {
+    ...aprobacion, pathPdf: datos.pathPdf,
+  }));
+  await assertSucceeds(updateDoc(doc(audit, planilla), aprobacion));
+  await assertFails(updateDoc(doc(audit, planilla), {
+    estado: "firmada", firmadoPor: "pp_auditoria",
+  }));
+  await assertSucceeds(updateDoc(doc(ger, planilla), {
+    estado: "firmada", firmadoPor: "pp_gerencia",
+  }));
+  await assertFails(updateDoc(doc(teso, "TBL_PP_FLUJO/carga"), {empresaId: "EMP_B"}));
 });
 
 test("los administradores funcionales gestionan roles y maestros", async () => {

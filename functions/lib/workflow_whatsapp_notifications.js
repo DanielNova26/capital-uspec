@@ -23,7 +23,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.facturacionWhatsAppDocumentoRechazado = exports.interventoriaWhatsAppNuevaActa = exports.ppWhatsAppCambioFirma = void 0;
+exports.facturacionWhatsAppDocumentoRechazado = exports.interventoriaWhatsAppNuevaActa = exports.ppWhatsAppCargaPlanilla = exports.ppWhatsAppCambioFirma = void 0;
 exports.etiquetaCentroConSubcentro = etiquetaCentroConSubcentro;
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
@@ -87,10 +87,23 @@ async function once(eventId, work) {
 exports.ppWhatsAppCambioFirma = functions
     .region(REGION)
     .firestore.document("TBL_PP_PLANILLAS/{planillaId}")
-    .onUpdate(async (change, context) => {
-    const before = change.before.data();
-    const after = change.after.data();
-    const previous = text(before.estado);
+    .onUpdate((change, context) => notificarEtapaPlanilla(text(change.before.data().estado), change.after.data(), context));
+exports.ppWhatsAppCargaPlanilla = functions
+    .region(REGION)
+    .firestore.document("TBL_PP_PLANILLAS/{planillaId}")
+    .onCreate(async (snapshot, context) => {
+    const planilla = snapshot.data();
+    if (text(planilla.estado) === "en_revision_auditoria") {
+        await notificarEtapaPlanilla("", planilla, context);
+    }
+});
+/**
+ * Avisa a la etapa que ya puede operar la planilla.
+ * @param {string} previous Estado anterior.
+ * @param {FirebaseFirestore.DocumentData} after Planilla guardada.
+ * @param {functions.EventContext} context Contexto del evento.
+ */
+async function notificarEtapaPlanilla(previous, after, context) {
     const current = text(after.estado);
     if (previous === current)
         return;
@@ -108,21 +121,21 @@ exports.ppWhatsAppCambioFirma = functions
             await (0, whatsapp_1.sendWhatsAppRoute)({
                 empresaId,
                 routeId: "planillas_tesoreria_auditoria",
-                mensaje: `💳 *Planilla firmada por Tesorería*\n📄 ${nombre}\n🔎 Está disponible para revisión de Auditoría.`,
+                mensaje: `💳 *Planilla enviada por Tesorería*\n📄 ${nombre}\n🔎 Está disponible para revisión de Auditoría.`,
                 metadata: {
                     type: "planillas_tesoreria_auditoria",
                     templateKey: "planilla_pago_actualizacion",
                     planillaId: context.params.planillaId,
                     templateVariables: {
                         planilla: nombre,
-                        estado: "Firmada por Tesorería",
+                        estado: "En revisión de Auditoría",
                         accion: "Revisión de Auditoría",
                     },
                 },
             });
         });
     }
-    if (current === "aprobada_auditoria") {
+    if (current === "pendiente_firma_gerencia") {
         await once(`pp_auditoria_${context.params.planillaId}_${context.eventId}`, async () => {
             await (0, whatsapp_1.sendWhatsAppRoute)({
                 empresaId,
@@ -161,7 +174,7 @@ exports.ppWhatsAppCambioFirma = functions
             });
         });
     }
-});
+}
 /**
  * "Planta externa (Estación Soacha)". El subcentro quedó guardado de dos
  * formas en las actas ("Alta" y "Cómbita Alta"): se le quita el centro del

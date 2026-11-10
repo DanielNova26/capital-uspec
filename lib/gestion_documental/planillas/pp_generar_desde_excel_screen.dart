@@ -4,7 +4,6 @@
 
 import 'dart:typed_data';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -23,6 +22,7 @@ class PpGenerarDesdeExcelScreen extends StatefulWidget {
   final String rolPlanillas;
   final String? nombreActor;
   final void Function(String loteId)? onLoteCreado;
+  final PpService? service;
 
   const PpGenerarDesdeExcelScreen({
     super.key,
@@ -31,6 +31,7 @@ class PpGenerarDesdeExcelScreen extends StatefulWidget {
     required this.rolPlanillas,
     this.nombreActor,
     this.onLoteCreado,
+    this.service,
   });
 
   @override
@@ -41,7 +42,7 @@ class PpGenerarDesdeExcelScreen extends StatefulWidget {
 class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
   static const int _previewLimit = 40;
 
-  final _service = PpService();
+  late final _service = widget.service ?? PpService();
   final _parser = PpExcelParser();
   final _descCtrl = TextEditingController();
   final _filtroCtrl = TextEditingController();
@@ -62,6 +63,8 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
 
   bool _isDragging = false;
   bool _generando = false;
+  final _nombresSeleccionados = <String, String>{};
+  int _limiteSelector = 16;
   String? _consolidadoSeleccionado;
   String? _error;
   String? _progreso;
@@ -272,7 +275,7 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
     for (final entry in indice.entries) {
       totales[entry.key] = entry.value.fold<double>(
         0,
-        (sum, fila) => sum + (fila.valor ?? 0),
+        (total, fila) => total + (fila.valor ?? 0),
       );
     }
 
@@ -283,9 +286,13 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
       _consolidadosIndexados = consolidados;
       _filasPorConsolidado = indice;
       _totalesPorConsolidado = totales;
-      _consolidadoSeleccionado = consolidados.isNotEmpty
-          ? consolidados.first
-          : null;
+      _nombresSeleccionados.clear();
+      _limiteSelector = 16;
+      _consolidadoSeleccionado = null;
+      if (consolidados.length == 1) {
+        _consolidadoSeleccionado = consolidados.single;
+        _nombresSeleccionados[consolidados.single] = '';
+      }
       _exito = null;
       _error = parsed.error;
       _filtroCtrl.clear();
@@ -316,7 +323,7 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
       allowedExtensions: ['xlsx', 'xls'],
       withData: true,
     );
-    if (result == null || result.files.isEmpty) return;
+    if (!mounted || result == null || result.files.isEmpty) return;
     final file = result.files.first;
     if (file.bytes == null) return;
     _cargarExcel(file.bytes!, file.name);
@@ -333,7 +340,7 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
     if (excel.isEmpty) return;
     try {
       final bytes = await excel.first.readAsBytes();
-      _cargarExcel(bytes, excel.first.name);
+      if (mounted) _cargarExcel(bytes, excel.first.name);
     } catch (_) {}
     if (mounted) setState(() => _isDragging = false);
   }
@@ -439,59 +446,31 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
   }
 
   Future<void> _generar() async {
-    final consolidado = _consolidadoSeleccionado;
-    final filas = _filasFiltradas;
-    if (consolidado == null || consolidado.isEmpty) {
-      setState(
-        () => _error = 'Selecciona un consolidado o número de planilla.',
-      );
-      return;
-    }
-    if (filas.isEmpty) {
-      setState(() => _error = 'No hay filas para el consolidado seleccionado.');
-      return;
-    }
+    if (_generando || _nombresSeleccionados.isEmpty) return;
+    final planillas = [
+      for (final entry in _nombresSeleccionados.entries)
+        (
+          consolidado: entry.key,
+          filas: _filasPorConsolidado[entry.key]!,
+          nombrePdf: entry.value,
+        ),
+    ];
 
     setState(() {
       _generando = true;
       _error = null;
       _exito = null;
-      _progreso = 'Generando PDF de planilla $consolidado...';
+      _progreso = 'Generando ${planillas.length} PDF para Auditoría…';
     });
-
-    // Load firma blob directly from Firestore — avoids Storage CORS issues on web.
-    Uint8List? firmaBlob;
-    try {
-      final snap = await FirebaseFirestore.instance
-          .collection('TBL_USUARIOS')
-          .doc(widget.userId)
-          .get();
-      final data = snap.data();
-      if (data != null) {
-        final detalleRaw = data['empresasDetalle'];
-        dynamic blobRaw;
-        if (detalleRaw is Map) {
-          final scoped = detalleRaw[widget.empresaId];
-          if (scoped is Map) blobRaw = scoped['firmaBlob'];
-        }
-        blobRaw ??= data['firmaBlob'];
-        if (blobRaw is Uint8List && blobRaw.isNotEmpty) {
-          firmaBlob = blobRaw;
-        } else if (blobRaw is List && blobRaw.isNotEmpty) {
-          firmaBlob = Uint8List.fromList(blobRaw.cast<int>());
-        }
-      }
-    } catch (_) {}
 
     try {
       final resolvedLogo = await _resolverLogoSeleccionadoParaGenerar();
-      final loteId = await _service.crearPlanillaConsolidadaDesdeExcel(
+      final loteId = await _service.crearPlanillasConsolidadasDesdeExcel(
         empresaId: widget.empresaId,
         actorId: widget.userId,
         rolPlanillas: widget.rolPlanillas,
         nombreActor: widget.nombreActor,
-        consolidado: consolidado,
-        filas: filas,
+        planillas: planillas,
         excelBytes: _excelBytes,
         excelNombre: _excelNombre,
         logoBytes: resolvedLogo.bytes,
@@ -499,28 +478,30 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
         logoUrl: resolvedLogo.url,
         logoNombre: resolvedLogo.nombre,
         sinLogo: resolvedLogo.sinLogo,
-        firmaElaboradoBlob: firmaBlob,
         descripcion: _descCtrl.text.trim().isEmpty
             ? null
             : _descCtrl.text.trim(),
         sheetTitle: _excelResult?.sheetTitle,
       );
 
-      widget.onLoteCreado?.call(loteId);
-
+      if (!mounted) return;
       setState(() {
-        _exito =
-            'Se generó la planilla $consolidado con ${filas.length} fila(s) y total ${_formatCurrency(_totalFiltrado)}.';
+        _exito = 'Se enviaron ${planillas.length} PDF a Auditoría.';
+        _nombresSeleccionados.clear();
+        _consolidadoSeleccionado = null;
         _progreso = null;
         _generando = false;
       });
+      widget.onLoteCreado?.call(loteId);
     } on PpException catch (e) {
+      if (!mounted) return;
       setState(() {
         _generando = false;
         _progreso = null;
         _error = e.mensaje;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _generando = false;
         _progreso = null;
@@ -531,8 +512,13 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isWeb = MediaQuery.of(context).size.width >= 900;
+    return LayoutBuilder(
+      builder: (context, constraints) =>
+          _buildContent(constraints.maxWidth >= 900),
+    );
+  }
 
+  Widget _buildContent(bool isWeb) {
     if (_generando) {
       return Center(
         child: Column(
@@ -582,10 +568,14 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
             _consolidados.isNotEmpty) ...[
           const SizedBox(height: 20),
           _buildConsolidadoSelector(isWeb),
-          const SizedBox(height: 20),
-          _buildResumenFiltros(isWeb),
-          const SizedBox(height: 20),
-          _buildPreviewTable(),
+          if (_nombresSeleccionados.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            _buildNombresPdf(),
+            const SizedBox(height: 20),
+            _buildResumenFiltros(isWeb),
+            const SizedBox(height: 20),
+            _buildPreviewTable(),
+          ],
         ],
         const SizedBox(height: 20),
         _buildOpcionesGeneracion(),
@@ -615,15 +605,15 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
-            onPressed: _filasFiltradas.isEmpty ? null : _generar,
+            onPressed: _nombresSeleccionados.isEmpty ? null : _generar,
             icon: const Icon(
               Icons.picture_as_pdf_outlined,
               color: Colors.white,
             ),
             label: Text(
-              _consolidadoSeleccionado == null
-                  ? 'SELECCIONA UNA PLANILLA'
-                  : 'GENERAR PDF PLANILLA ${_consolidadoSeleccionado!}',
+              _nombresSeleccionados.isEmpty
+                  ? 'Selecciona las planillas'
+                  : 'Generar y enviar ${_nombresSeleccionados.length} PDF a Auditoría',
               style: const TextStyle(
                 fontFamily: kArial,
                 fontWeight: FontWeight.w900,
@@ -660,20 +650,22 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
                   size: 20,
                 ),
                 SizedBox(width: 10),
-                Text(
-                  'Excel de planillas',
-                  style: TextStyle(
-                    fontFamily: kArial,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 15,
-                    color: GdPalette.primary,
+                Flexible(
+                  child: Text(
+                    'Excel de planillas',
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                      color: GdPalette.primary,
+                    ),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 4),
             const Text(
-              'Sube el consolidado, detectamos la fila de encabezados y agrupamos por planilla para que generes el PDF filtrado.',
+              'Sube el consolidado, detectamos la fila de encabezados y agrupamos por planilla para que elijas qué PDF generar.',
               style: TextStyle(
                 fontFamily: kArial,
                 fontSize: 12,
@@ -825,20 +817,22 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
                   size: 20,
                 ),
                 SizedBox(width: 10),
-                Text(
-                  'Filtrar por consolidado / planilla',
-                  style: TextStyle(
-                    fontFamily: kArial,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 15,
-                    color: GdPalette.primary,
+                Flexible(
+                  child: Text(
+                    'Seleccionar planillas',
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                      color: GdPalette.primary,
+                    ),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 4),
             const Text(
-              'Escribe o selecciona la planilla que quieres convertir en PDF. El total y la tabla se recalculan con ese filtro.',
+              'Marca las planillas que quieras enviar. Se genera un PDF por cada planilla seleccionada.',
               style: TextStyle(
                 fontFamily: kArial,
                 fontSize: 12,
@@ -868,7 +862,7 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
                   borderSide: const BorderSide(color: GdPalette.border),
                 ),
               ),
-              onChanged: (_) => setState(() {}),
+              onChanged: (_) => setState(() => _limiteSelector = 16),
             ),
             const SizedBox(height: 14),
             if (filtrados.isEmpty)
@@ -880,41 +874,32 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
                   color: GdPalette.muted,
                 ),
               )
-            else
+            else if (isWeb)
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                children: filtrados.take(isWeb ? 30 : 16).map((item) {
-                  final selected = item == _consolidadoSeleccionado;
-                  return ChoiceChip(
-                    label: Text(
-                      item,
-                      style: TextStyle(
-                        fontFamily: kArial,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: selected ? Colors.white : GdPalette.primary,
-                      ),
+                children: [
+                  for (final item in filtrados.take(_limiteSelector))
+                    FilterChip(
+                      label: Text(item),
+                      selected: _nombresSeleccionados.containsKey(item),
+                      onSelected: (selected) => _marcar(item, selected),
                     ),
-                    selected: selected,
-                    selectedColor: GdPalette.accent,
-                    backgroundColor: GdPalette.surface,
-                    side: const BorderSide(color: GdPalette.border),
-                    onSelected: (_) =>
-                        setState(() => _consolidadoSeleccionado = item),
-                  );
-                }).toList(),
+                ],
               ),
-            if (filtrados.length > (isWeb ? 30 : 16))
-              Padding(
-                padding: const EdgeInsets.only(top: 10),
+            if (!isWeb)
+              for (final item in filtrados.take(_limiteSelector))
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(item),
+                  value: _nombresSeleccionados.containsKey(item),
+                  onChanged: (selected) => _marcar(item, selected == true),
+                ),
+            if (filtrados.length > _limiteSelector)
+              TextButton(
+                onPressed: () => setState(() => _limiteSelector += 16),
                 child: Text(
-                  'Mostrando ${isWeb ? 30 : 16} de ${filtrados.length} coincidencias. Ajusta la búsqueda para afinar.',
-                  style: const TextStyle(
-                    fontFamily: kArial,
-                    fontSize: 11,
-                    color: GdPalette.muted,
-                  ),
+                  'Ver más planillas (${filtrados.length - _limiteSelector})',
                 ),
               ),
           ],
@@ -922,6 +907,64 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
       ),
     );
   }
+
+  void _marcar(String consolidado, bool selected) {
+    setState(() {
+      if (selected) {
+        if (_nombresSeleccionados.length >= PpService.maxPlanillasPorLote) {
+          _error =
+              'Selecciona hasta ${PpService.maxPlanillasPorLote} planillas por carga.';
+          return;
+        }
+        _nombresSeleccionados[consolidado] = '';
+        _consolidadoSeleccionado = consolidado;
+      } else {
+        _nombresSeleccionados.remove(consolidado);
+        if (_consolidadoSeleccionado == consolidado) {
+          _consolidadoSeleccionado = _nombresSeleccionados.keys.lastOrNull;
+        }
+      }
+      _error = null;
+    });
+  }
+
+  Widget _buildNombresPdf() => ModuleCard(
+    padding: const EdgeInsets.all(20),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          '${_nombresSeleccionados.length} PDF por generar',
+          style: const TextStyle(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 12),
+        PagedListSection<String>(
+          items: _nombresSeleccionados.keys.toList(),
+          pageSize: 8,
+          etiqueta: 'PDF',
+          separator: const SizedBox(height: 12),
+          itemBuilder: (context, item, _) => TextFormField(
+            key: ValueKey(item),
+            initialValue: _nombresSeleccionados[item],
+            maxLength: 120,
+            onChanged: (nombre) => _nombresSeleccionados[item] = nombre,
+            decoration: InputDecoration(
+              labelText: 'Nombre del PDF de la planilla $item',
+              hintText: 'Nombre automático',
+              counterText: '',
+              border: const OutlineInputBorder(),
+              suffixIcon: IconButton(
+                tooltip: 'Ver filas de la planilla $item',
+                icon: const Icon(Icons.preview_outlined),
+                onPressed: () =>
+                    setState(() => _consolidadoSeleccionado = item),
+              ),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 
   Widget _buildResumenFiltros(bool isWeb) {
     final filas = _filasFiltradas;
@@ -1004,13 +1047,15 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
               children: [
                 Icon(Icons.preview_outlined, color: GdPalette.accent, size: 20),
                 SizedBox(width: 10),
-                Text(
-                  'Vista previa de filas filtradas',
-                  style: TextStyle(
-                    fontFamily: kArial,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 15,
-                    color: GdPalette.primary,
+                Flexible(
+                  child: Text(
+                    'Vista previa de la planilla',
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                      color: GdPalette.primary,
+                    ),
                   ),
                 ),
               ],
@@ -1102,13 +1147,15 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
                   size: 20,
                 ),
                 SizedBox(width: 10),
-                Text(
-                  'Opciones de salida',
-                  style: TextStyle(
-                    fontFamily: kArial,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 15,
-                    color: GdPalette.primary,
+                Flexible(
+                  child: Text(
+                    'Opciones de salida',
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                      color: GdPalette.primary,
+                    ),
                   ),
                 ),
               ],

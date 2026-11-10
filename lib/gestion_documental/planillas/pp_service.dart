@@ -749,14 +749,15 @@ class PpService {
           : <String, dynamic>{'tipo_generacion': 'pdf_cargado'};
 
       final ahora = FieldValue.serverTimestamp();
-      await planillaRef.set({
+      final batch = _db.batch();
+      batch.set(planillaRef, {
         'empresaId': empresaId,
         'loteId': loteId,
         'nombreArchivoOriginal': pdf.nombre,
         'nombrePlanillaDetectado': match.filaExcel?.nombrePlanilla,
         'fechaPlanillaDetectada': match.filaExcel?.fecha,
         'valorDetectado': match.filaExcel?.valor,
-        'estado': PpEstado.cargada.valor,
+        'estado': PpEstado.en_revision_auditoria.valor,
         'cargadoPor': actorId,
         'nombreCargado': actorSnapshot.nombre,
         'cargoCargado': actorSnapshot.cargo,
@@ -791,6 +792,28 @@ class PpService {
         'createdAt': ahora,
         'updatedAt': ahora,
       });
+      batch.set(
+        _flujo.doc(),
+        _datosEvento(
+          planillaId: planillaRef.id,
+          loteId: loteId,
+          empresaId: empresaId,
+          accion: PpAccion.carga_enviada_auditoria,
+          actorId: actorId,
+          nombreActor: nombreActor,
+          metadatos: {
+            'nombreArchivo': pdf.nombre,
+            'matchEstado': match.matchEstado.valor,
+            'score': match.score,
+          },
+        ),
+      );
+      batch.update(loteRef, {
+        'totalPlanillas': FieldValue.increment(1),
+        'estado': PpLoteEstado.en_proceso.valor,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      await batch.commit();
       await _guardarRenderPdfBase(
         planillaId: planillaRef.id,
         empresaId: empresaId,
@@ -807,36 +830,29 @@ class PpService {
         pdfBytes: pdf.bytes,
       );
 
-      await _registrarEventoLote(
-        planillaId: planillaRef.id,
-        loteId: loteId,
+      creadas++;
+      await _notificarAuditoria(
         empresaId: empresaId,
-        accion: PpAccion.planilla_creada,
+        planillaId: planillaRef.id,
         actorId: actorId,
         nombreActor: nombreActor,
-        metadatos: {
-          'nombreArchivo': pdf.nombre,
-          'matchEstado': match.matchEstado.valor,
-          'score': match.score,
-        },
       );
-
-      creadas++;
     }
 
     // Actualizar contador del lote
-    await loteRef.update({
-      'totalPlanillas': creadas,
-      'estado': PpLoteEstado.listo.valor,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+    if (creadas == 0) {
+      await loteRef.update({
+        'estado': PpLoteEstado.listo.valor,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
 
     debugPrint('[PpService] Lote creado: $loteId con $creadas planillas');
     return loteId;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // SUBIR PDFs DIRECTOS: sin lote ni Excel, cada PDF → planilla con estado cargada
+  // SUBIR PDFs DIRECTOS: sin lote ni Excel, cada PDF → planilla para Auditoría
   // ─────────────────────────────────────────────────────────────────────────
 
   Future<int> subirPdfsDirectos({
@@ -848,6 +864,11 @@ class PpService {
     void Function(int procesados, int total)? onProgress,
   }) async {
     if (pdfs.isEmpty) throw const PpException('Selecciona al menos un PDF.');
+    final nombres = pdfs.map((pdf) => _buildPdfFileName(pdf.nombre)).toList();
+    if (nombres.map((nombre) => nombre.toLowerCase()).toSet().length !=
+        nombres.length) {
+      throw const PpException('Escribe un nombre distinto para cada PDF.');
+    }
     await _validarRol(
       'confirmar_carga',
       rolPlanillas,
@@ -869,6 +890,7 @@ class PpService {
     onProgress?.call(0, pdfs.length);
 
     for (final pdf in pdfs) {
+      final nombre = nombres[creadas];
       final planillaRef = _planillas.doc();
       final planillaId = planillaRef.id;
       final ahora = FieldValue.serverTimestamp();
@@ -877,7 +899,7 @@ class PpService {
         loteId: '',
         planillaId: planillaId,
         bytes: pdf.bytes,
-        nombre: pdf.nombre,
+        nombre: nombre,
       );
       final pdfFirmadoCarga = await _aplicarFirmaCargaInicial(
         pdfBytes: pdf.bytes,
@@ -885,20 +907,18 @@ class PpService {
       );
 
       final ts = DateTime.now().millisecondsSinceEpoch;
-      final safe = pdf.nombre.replaceAll(RegExp(r'[^\w.\-]'), '_');
+      final safe = nombre.replaceAll(RegExp(r'[^\w.\-]'), '_');
       final path = 'planillas_pago/$empresaId/directos/$planillaId/${ts}_$safe';
       final ref = _storage.ref(path);
-      await ref.putData(
-        pdfFirmadoCarga,
-        _pdfMetadata(_buildPdfFileName(pdf.nombre)),
-      );
+      await ref.putData(pdfFirmadoCarga, _pdfMetadata(nombre));
       final url = await ref.getDownloadURL();
 
-      await planillaRef.set({
+      final batch = _db.batch();
+      batch.set(planillaRef, {
         'empresaId': empresaId,
         'empresaNombre': empresaNombrePlanilla,
         'loteId': null,
-        'nombreArchivoOriginal': pdf.nombre,
+        'nombreArchivoOriginal': nombre,
         'nombrePlanillaDetectado': null,
         'fechaPlanillaDetectada': null,
         'valorDetectado': null,
@@ -906,7 +926,7 @@ class PpService {
         'logoUrl': logoActivo?['url'],
         'logoNombre': logoActivo?['nombre'],
         'sinLogo': logoActivo == null,
-        'estado': PpEstado.cargada.valor,
+        'estado': PpEstado.en_revision_auditoria.valor,
         'cargadoPor': actorId,
         'nombreCargado': actorSnapshot.nombre,
         'cargoCargado': actorSnapshot.cargo,
@@ -947,6 +967,21 @@ class PpService {
         'createdAt': ahora,
         'updatedAt': ahora,
       });
+      batch.set(
+        _flujo.doc(),
+        _datosEvento(
+          planillaId: planillaId,
+          loteId: planillaId,
+          empresaId: empresaId,
+          accion: PpAccion.carga_enviada_auditoria,
+          actorId: actorId,
+          nombreActor: nombreActor,
+          metadatos: {'nombreArchivo': nombre, 'metodo': 'pdf_directo'},
+        ),
+      );
+      await batch.commit();
+      creadas++;
+      onProgress?.call(creadas, pdfs.length);
       await _guardarRenderPdfBase(
         planillaId: planillaId,
         empresaId: empresaId,
@@ -963,18 +998,12 @@ class PpService {
         pdfBytes: pdf.bytes,
       );
 
-      await _registrarEventoLote(
-        planillaId: planillaId,
-        loteId: planillaId,
+      await _notificarAuditoria(
         empresaId: empresaId,
-        accion: PpAccion.planilla_creada,
+        planillaId: planillaRef.id,
         actorId: actorId,
         nombreActor: nombreActor,
-        metadatos: {'nombreArchivo': pdf.nombre, 'metodo': 'pdf_directo'},
       );
-
-      creadas++;
-      onProgress?.call(creadas, pdfs.length);
     }
 
     debugPrint('[PpService] $creadas planillas creadas desde PDFs directos');
@@ -982,7 +1011,7 @@ class PpService {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // CONFIRMAR CARGA: cargada → pendiente_validacion
+  // CONFIRMAR CARGA HISTÓRICA: cargada → en_revision_auditoria
   // ─────────────────────────────────────────────────────────────────────────
 
   Future<void> confirmarCarga({
@@ -1029,7 +1058,7 @@ class PpService {
       final stamped = await _stampearTrazabilidadEnPdf(
         originalPdfUrl: pdfUrlActual,
         originalPdfPath: pdfPathActual,
-        estado: PpEstado.pendiente_validacion,
+        estado: PpEstado.en_revision_auditoria,
         bloques: [
           _PdfStampBlock(
             titulo: 'CARGADO POR',
@@ -1063,8 +1092,8 @@ class PpService {
       loteId: loteId,
       empresaId: empresaId,
       desde: PpEstado.cargada,
-      hacia: PpEstado.pendiente_validacion,
-      accion: PpAccion.carga_confirmada,
+      hacia: PpEstado.en_revision_auditoria,
+      accion: PpAccion.carga_enviada_auditoria,
       actorId: actorId,
       nombreActor: nombreActor,
       camposExtra: {
@@ -1081,6 +1110,12 @@ class PpService {
             ? {'pathPdfOriginal': pdfPathActual}
             : null,
       },
+    );
+    await _notificarAuditoria(
+      empresaId: empresaId,
+      planillaId: planillaId,
+      actorId: actorId,
+      nombreActor: nombreActor,
     );
   }
 
@@ -1114,12 +1149,9 @@ class PpService {
       actorId: actorId,
       nombreActor: nombreActor,
     );
-    await _notificar(
+    await _notificarAuditoria(
       empresaId: empresaId,
       planillaId: planillaId,
-      rolesDestino: [PpRoles.auditoria],
-      titulo: 'Planilla pendiente de revisión',
-      descripcion: 'Una planilla está lista para revisión de auditoría.',
       actorId: actorId,
       nombreActor: nombreActor,
     );
@@ -1172,8 +1204,7 @@ class PpService {
       planillaId: planillaId,
       rolesDestino: [PpRoles.tesoreria],
       titulo: 'Planilla observada por auditoría',
-      descripcion:
-          'Auditoría observó una planilla: ${observacion.trim()}',
+      descripcion: 'Auditoría observó una planilla: ${observacion.trim()}',
       actorId: actorId,
       nombreActor: nombreActor,
     );
@@ -1410,14 +1441,6 @@ class PpService {
     );
     final logoBytes = resolvedLogo.bytes;
 
-    final storageScopeId = loteId.trim().isNotEmpty ? loteId : planillaId;
-    final excelUpload = await _subirExcel(
-      empresaId: empresaId,
-      loteId: storageScopeId,
-      bytes: excelBytes,
-      nombre: nombreExcel,
-    );
-
     final ({bool esConsolidado, List<PpExcelFila> filas}) resolved;
     if (consolidadoSeleccionado != null &&
         consolidadoSeleccionado.trim().isNotEmpty) {
@@ -1428,10 +1451,12 @@ class PpService {
                 _normalizeLookup((f.nombrePlanilla ?? '').trim()) == nombreNorm,
           )
           .toList();
-      resolved = (
-        esConsolidado: true,
-        filas: filasSeleccionadas.isNotEmpty ? filasSeleccionadas : parse.filas,
-      );
+      if (filasSeleccionadas.isEmpty) {
+        throw const PpException(
+          'La planilla seleccionada no está en el Excel.',
+        );
+      }
+      resolved = (esConsolidado: true, filas: filasSeleccionadas);
     } else {
       resolved = _resolverReemplazoObservadoDesdeExcel(
         planillaData: data,
@@ -1535,21 +1560,18 @@ class PpService {
       excelRowIndex = fila.rowIndex;
     }
 
+    final (excelUrl, excelPath) = await _subirExcel(
+      empresaId: empresaId,
+      loteId: planillaId,
+      bytes: excelBytes,
+      nombre: nombreExcel,
+    );
     final (pdfUrl, pdfPath) = await _subirPdf(
       empresaId: empresaId,
-      loteId: storageScopeId,
+      loteId: planillaId,
       bytes: pdfBytes,
-      nombre: nombreArchivo,
+      nombre: _cleanString(data['nombrePdfPersonalizado']) ?? nombreArchivo,
     );
-
-    if (loteId.trim().isNotEmpty) {
-      await _lotes.doc(loteId).set({
-        'excelUrl': excelUpload.$1,
-        'excelPath': excelUpload.$2,
-        'excelNombre': nombreExcel,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-    }
 
     await _transicionar(
       planillaId: planillaId,
@@ -1581,6 +1603,8 @@ class PpService {
         'metadatosExtraccion': {
           'metodo': 'corregido_desde_excel',
           'excelNombre': nombreExcel,
+          'excelUrl': excelUrl,
+          'excelPath': excelPath,
           'cargadoEn': DateTime.now().toIso8601String(),
         },
         'cargadoPor': actorId,
@@ -1599,7 +1623,7 @@ class PpService {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // APROBAR AUDITORÍA: en_revision_auditoria → aprobada_auditoria
+  // APROBAR AUDITORÍA: en_revision_auditoria → pendiente_firma_gerencia
   // ─────────────────────────────────────────────────────────────────────────
 
   Future<void> aprobarAuditoria({
@@ -1688,8 +1712,6 @@ class PpService {
         planillaId: planillaId,
         empresaId: empresaId,
         estado: PpEstado.aprobada_auditoria,
-        sourcePdfUrl: sourcePdfUrl,
-        sourcePdfPath: sourcePdfPath,
         bloques: _buildDirectPdfBlocksPayload(
           blocks,
           planillaData: planillaData,
@@ -1728,8 +1750,7 @@ class PpService {
                 estado: PpEstado.aprobada_auditoria,
                 bloques: blocks,
               );
-    if (esPdfDirecto &&
-        (pdfPathSellado ?? '').trim().isEmpty &&
+    if ((pdfPathSellado ?? '').trim().isEmpty &&
         (stamped == null || stamped.isEmpty)) {
       throw const PpException(
         'No se pudo regenerar el PDF con la firma de auditoria.',
@@ -1740,7 +1761,7 @@ class PpService {
         empresaId: empresaId,
         planillaId: planillaId,
         bytes: stamped,
-        nombrePlanilla: _cleanString(planillaData['nombrePlanillaDetectado']),
+        nombrePlanilla: _nombrePdfParaDescarga(planillaData),
       );
       pdfUrlSellado = url;
       pdfPathSellado = path;
@@ -1772,12 +1793,19 @@ class PpService {
       loteId: loteId,
       empresaId: empresaId,
       desde: PpEstado.en_revision_auditoria,
-      hacia: PpEstado.aprobada_auditoria,
+      hacia: PpEstado.pendiente_firma_gerencia,
       accion: PpAccion.aprobado_auditoria,
       actorId: actorId,
       nombreActor: nombreActor,
       observacion: comentario,
       camposExtra: camposExtra,
+      pdfEsperado: (url: pdfUrlActual, path: pdfPathActual),
+    );
+    await _notificarGerencia(
+      empresaId: empresaId,
+      planillaId: planillaId,
+      actorId: actorId,
+      nombreActor: nombreActor,
     );
   }
 
@@ -1811,13 +1839,9 @@ class PpService {
       actorId: actorId,
       nombreActor: nombreActor,
     );
-    await _notificar(
+    await _notificarGerencia(
       empresaId: empresaId,
       planillaId: planillaId,
-      rolesDestino: [PpRoles.gerencia],
-      titulo: 'Planilla pendiente de firma',
-      descripcion:
-          'Una planilla aprobada por auditoría está lista para su firma.',
       actorId: actorId,
       nombreActor: nombreActor,
     );
@@ -1946,8 +1970,6 @@ class PpService {
         planillaId: planillaId,
         empresaId: empresaId,
         estado: PpEstado.firmada,
-        sourcePdfUrl: sourcePdfUrl,
-        sourcePdfPath: sourcePdfPath,
         bloques: _buildDirectPdfBlocksPayload(
           blocks,
           planillaData: planillaData,
@@ -2003,9 +2025,7 @@ class PpService {
             empresaId: empresaId,
             planillaId: planillaId,
             bytes: stamped,
-            nombrePlanilla: _cleanString(
-              planillaData['nombrePlanillaDetectado'],
-            ),
+            nombrePlanilla: _nombrePdfParaDescarga(planillaData),
           );
           urlPdfFirmado = url;
           pathPdfFirmado = path;
@@ -2193,10 +2213,19 @@ class PpService {
     }
 
     final loteId = (data['loteId'] ?? '').toString().trim();
+    final metadatos = data['metadatosExtraccion'];
+    final excelCorregido = metadatos is Map
+        ? _cleanString(metadatos['excelPath'])
+        : null;
     final storagePaths = <String>{
       (data['pathPdf'] ?? '').toString().trim(),
       (data['pathPdfBase'] ?? '').toString().trim(),
       (data['pathPdfOriginal'] ?? '').toString().trim(),
+      if (excelCorregido != null &&
+          excelCorregido.startsWith(
+            'planillas_pago/$empresaId/$planillaId/excel/',
+          ))
+        excelCorregido,
     }..removeWhere((path) => path.isEmpty);
 
     await _eliminarSubcoleccionPlanilla(planillaId, '_render_pages');
@@ -2503,12 +2532,6 @@ class PpService {
         planillaId: planillaId,
         empresaId: empresaId,
         estado: estado,
-        sourcePdfUrl: (baseUrl.isEmpty ? currentUrl : baseUrl).isEmpty
-            ? null
-            : (baseUrl.isEmpty ? currentUrl : baseUrl),
-        sourcePdfPath: (basePath.isEmpty ? currentPath : basePath).isEmpty
-            ? null
-            : (basePath.isEmpty ? currentPath : basePath),
         bloques: _buildDirectPdfBlocksPayload(
           blocks,
           planillaData: data,
@@ -2574,7 +2597,7 @@ class PpService {
         empresaId: empresaId,
         planillaId: planillaId,
         bytes: stamped,
-        nombrePlanilla: _cleanString(data['nombrePlanillaDetectado']),
+        nombrePlanilla: _nombrePdfParaDescarga(data),
       );
 
       await _planillas.doc(planillaId).update({
@@ -2604,7 +2627,11 @@ class PpService {
       .snapshots()
       .map((s) => s.docs.map((d) => PpLote.fromMap(d.id, d.data())).toList());
 
-  Stream<List<PpPlanilla>> streamPlanillasPorLote(String loteId) => _planillas
+  Stream<List<PpPlanilla>> streamPlanillasPorLote(
+    String loteId, {
+    required String empresaId,
+  }) => _planillas
+      .where('empresaId', isEqualTo: empresaId)
       .where('loteId', isEqualTo: loteId)
       .orderBy('createdAt', descending: false)
       .snapshots()
@@ -2626,7 +2653,11 @@ class PpService {
         );
   }
 
-  Stream<List<PpFlujoEvento>> streamHistorial(String planillaId) => _flujo
+  Stream<List<PpFlujoEvento>> streamHistorial(
+    String planillaId, {
+    required String empresaId,
+  }) => _flujo
+      .where('empresaId', isEqualTo: empresaId)
       .where('planillaId', isEqualTo: planillaId)
       .orderBy('realizadoEn', descending: true)
       .snapshots()
@@ -2692,6 +2723,7 @@ class PpService {
     if (!loteSnap.exists) return;
 
     final planillasSnap = await _planillas
+        .where('empresaId', isEqualTo: empresaId)
         .where('loteId', isEqualTo: loteId)
         .get();
     if (planillasSnap.docs.isEmpty) {
@@ -2768,6 +2800,7 @@ class PpService {
     String? nombreActor,
     String? observacion,
     Map<String, dynamic>? camposExtra,
+    ({String? url, String? path})? pdfEsperado,
   }) async {
     // Validar transición
     final validas = kPpTransicionesValidas[desde] ?? {};
@@ -2777,42 +2810,51 @@ class PpService {
       );
     }
 
-    // Leer estado actual
-    final snap = await _planillas.doc(planillaId).get();
-    if (!snap.exists) throw const PpException('Planilla no encontrada.');
-    final estadoReal = PpEstadoX.deString(
-      (snap.data()?['estado'] ?? '').toString(),
-    );
-    if (estadoReal != desde) {
-      throw PpException(
-        'Estado actual (${estadoReal.etiqueta}) no coincide con el esperado (${desde.etiqueta}).',
-      );
-    }
-
-    final update = <String, dynamic>{
-      'estado': hacia.valor,
-      'updatedAt': FieldValue.serverTimestamp(),
-      ...?camposExtra,
-    };
-    await _planillas.doc(planillaId).update(update);
-
-    await _registrarEventoLote(
-      planillaId: planillaId,
-      loteId: loteId,
-      empresaId: empresaId,
-      accion: accion,
-      actorId: actorId,
-      nombreActor: nombreActor,
-      observacion: observacion,
-    );
-
-    // Actualizar estado del lote (solo si la planilla pertenece a un lote).
-    if (loteId.isNotEmpty) {
-      await _lotes.doc(loteId).set({
-        'estado': PpLoteEstado.en_proceso.valor,
+    final planillaRef = _planillas.doc(planillaId);
+    final eventoRef = _flujo.doc();
+    await _db.runTransaction((tx) async {
+      final data = (await tx.get(planillaRef)).data();
+      if (data == null) throw const PpException('Planilla no encontrada.');
+      if (data['empresaId'] != empresaId || (data['loteId'] ?? '') != loteId) {
+        throw const PpException('La planilla cambió de empresa o lote.');
+      }
+      final estadoReal = PpEstadoX.deString((data['estado'] ?? '').toString());
+      if (estadoReal != desde) {
+        throw PpException(
+          'Estado actual (${estadoReal.etiqueta}) no coincide con el esperado (${desde.etiqueta}).',
+        );
+      }
+      if (pdfEsperado != null &&
+          (data['urlPdf'] != pdfEsperado.url ||
+              data['pathPdf'] != pdfEsperado.path)) {
+        throw const PpException(
+          'El PDF cambió durante la firma. Abre la planilla y vuelve a revisarla.',
+        );
+      }
+      tx.update(planillaRef, {
+        'estado': hacia.valor,
         'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-    }
+        ...?camposExtra,
+      });
+      tx.set(
+        eventoRef,
+        _datosEvento(
+          planillaId: planillaId,
+          loteId: loteId,
+          empresaId: empresaId,
+          accion: accion,
+          actorId: actorId,
+          nombreActor: nombreActor,
+          observacion: observacion,
+        ),
+      );
+      if (loteId.isNotEmpty) {
+        tx.update(_lotes.doc(loteId), {
+          'estado': PpLoteEstado.en_proceso.valor,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+    });
   }
 
   Future<void> _registrarEventoLote({
@@ -2825,18 +2867,40 @@ class PpService {
     String? observacion,
     Map<String, dynamic>? metadatos,
   }) async {
-    await _flujo.add({
-      'planillaId': planillaId,
-      'loteId': loteId,
-      'empresaId': empresaId,
-      'accion': accion.valor,
-      'realizadoPor': actorId,
-      'nombreActor': nombreActor,
-      'realizadoEn': FieldValue.serverTimestamp(),
-      'observacion': observacion,
-      'metadatos': metadatos,
-    });
+    await _flujo.add(
+      _datosEvento(
+        planillaId: planillaId,
+        loteId: loteId,
+        empresaId: empresaId,
+        accion: accion,
+        actorId: actorId,
+        nombreActor: nombreActor,
+        observacion: observacion,
+        metadatos: metadatos,
+      ),
+    );
   }
+
+  Map<String, dynamic> _datosEvento({
+    required String planillaId,
+    required String loteId,
+    required String empresaId,
+    required PpAccion accion,
+    required String actorId,
+    String? nombreActor,
+    String? observacion,
+    Map<String, dynamic>? metadatos,
+  }) => {
+    'planillaId': planillaId,
+    'loteId': loteId,
+    'empresaId': empresaId,
+    'accion': accion.valor,
+    'realizadoPor': actorId,
+    'nombreActor': nombreActor,
+    'realizadoEn': FieldValue.serverTimestamp(),
+    'observacion': observacion,
+    'metadatos': metadatos,
+  };
 
   Future<(String, String)> _subirExcel({
     required String empresaId,
@@ -2864,10 +2928,12 @@ class PpService {
     required String loteId,
     required Uint8List bytes,
     required String nombre,
+    String? planillaId,
   }) async {
     final ts = DateTime.now().millisecondsSinceEpoch;
     final safe = nombre.replaceAll(RegExp(r'[^\w.\-]'), '_');
-    final path = 'planillas_pago/$empresaId/$loteId/pdfs/${ts}_$safe';
+    final prefijo = planillaId ?? ts.toString();
+    final path = 'planillas_pago/$empresaId/$loteId/pdfs/${prefijo}_$safe';
     final ref = _storage.ref(path);
     await ref.putData(bytes, _pdfMetadata(_buildPdfFileName(nombre)));
     final url = await ref.getDownloadURL();
@@ -3320,9 +3386,9 @@ class PpService {
     required Uint8List bytes,
     String? nombrePlanilla,
   }) async {
-    final ts = DateTime.now().millisecondsSinceEpoch;
+    final intentoId = _planillas.doc().id;
     final path =
-        'planillas_pago/$empresaId/firmados/${planillaId}_${ts}_firmado.pdf';
+        'planillas_pago/$empresaId/firmados/${planillaId}_${intentoId}_firmado.pdf';
     final ref = _storage.ref(path);
     final fileName = _buildPdfFileName(
       nombrePlanilla,
@@ -3332,6 +3398,11 @@ class PpService {
     final url = await ref.getDownloadURL();
     return (url, path);
   }
+
+  String? _nombrePdfParaDescarga(Map<String, dynamic> data) =>
+      _cleanString(data['nombrePdfPersonalizado']) ??
+      _cleanString(data['nombrePlanillaDetectado']) ??
+      _cleanString(data['nombreArchivoOriginal']);
 
   String _buildPdfFileName(
     String? rawName, {
@@ -3377,8 +3448,7 @@ class PpService {
       if (path == null || path.isEmpty) return;
 
       final fileName = _buildPdfFileName(
-        _cleanString(data['nombrePlanillaDetectado']) ??
-            _cleanString(data['nombreArchivoOriginal']),
+        _nombrePdfParaDescarga(data),
         fallbackBase: planillaId,
       );
       await _storage.ref(path).updateMetadata(_pdfMetadata(fileName));
@@ -3504,7 +3574,8 @@ class PpService {
 
       final planillaRef = _planillas.doc();
       final ahora = FieldValue.serverTimestamp();
-      await planillaRef.set({
+      final batch = _db.batch();
+      batch.set(planillaRef, {
         'empresaId': empresaId,
         'empresaNombre': empresaNombrePlanilla,
         'loteId': loteId,
@@ -3516,7 +3587,7 @@ class PpService {
         'logoUrl': logoActivo?['url'],
         'logoNombre': logoActivo?['nombre'],
         'sinLogo': logoActivo == null,
-        'estado': PpEstado.cargada.valor,
+        'estado': PpEstado.en_revision_auditoria.valor,
         'cargadoPor': actorId,
         'nombreCargado': actorSnapshot.nombre,
         'cargoCargado': actorSnapshot.cargo,
@@ -3560,24 +3631,32 @@ class PpService {
         'createdAt': ahora,
         'updatedAt': ahora,
       });
-
-      await _registrarEventoLote(
-        planillaId: planillaRef.id,
-        loteId: loteId,
+      batch.set(
+        _flujo.doc(),
+        _datosEvento(
+          planillaId: planillaRef.id,
+          loteId: loteId,
+          empresaId: empresaId,
+          accion: PpAccion.carga_enviada_auditoria,
+          actorId: actorId,
+          nombreActor: nombreActor,
+          metadatos: {'rowIndex': fila.rowIndex, 'nombre': nombre},
+        ),
+      );
+      batch.update(loteRef, {
+        'totalPlanillas': FieldValue.increment(1),
+        'estado': PpLoteEstado.en_proceso.valor,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      await batch.commit();
+      creadas++;
+      await _notificarAuditoria(
         empresaId: empresaId,
-        accion: PpAccion.planilla_creada,
+        planillaId: planillaRef.id,
         actorId: actorId,
         nombreActor: nombreActor,
-        metadatos: {'rowIndex': fila.rowIndex, 'nombre': nombre},
       );
-      creadas++;
     }
-
-    await loteRef.update({
-      'totalPlanillas': creadas,
-      'estado': PpLoteEstado.listo.valor,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
 
     debugPrint(
       '[PpService] Lote generado desde Excel: $loteId con $creadas planillas',
@@ -3585,12 +3664,17 @@ class PpService {
     return loteId;
   }
 
-  Future<String> crearPlanillaConsolidadaDesdeExcel({
+  // Dos escrituras por planilla, más el lote y su evento.
+  static const maxPlanillasPorLote = 249;
+
+  Future<String> crearPlanillasConsolidadasDesdeExcel({
     required String empresaId,
     required String actorId,
     required String rolPlanillas,
-    required String consolidado,
-    required List<PpExcelFila> filas,
+    required List<
+      ({String consolidado, List<PpExcelFila> filas, String? nombrePdf})
+    >
+    planillas,
     String? nombreActor,
     Uint8List? excelBytes,
     String? excelNombre,
@@ -3599,14 +3683,20 @@ class PpService {
     String? logoUrl,
     String? logoNombre,
     bool sinLogo = false,
-    Uint8List? firmaElaboradoBlob,
     String? descripcion,
     String? sheetTitle,
   }) async {
-    if (filas.isEmpty) {
+    if (planillas.isEmpty || planillas.any((p) => p.filas.isEmpty)) {
+      throw const PpException('Selecciona planillas con filas para generar.');
+    }
+    if (planillas.length > maxPlanillasPorLote) {
       throw const PpException(
-        'No hay filas para generar la planilla consolidada.',
+        'Selecciona hasta $maxPlanillasPorLote planillas por carga.',
       );
+    }
+    if (planillas.map((p) => p.consolidado).toSet().length !=
+        planillas.length) {
+      throw const PpException('Una planilla está seleccionada más de una vez.');
     }
     await _validarRol(
       'confirmar_carga',
@@ -3619,8 +3709,6 @@ class PpService {
       empresaId,
       nombreActor,
     );
-    // Use blob passed from caller (loaded in UI layer) — fallback to snapshot blob.
-    final firmaBlob = firmaElaboradoBlob ?? actorSnapshot.firmaBlob;
     final resolvedLogo = await _resolverLogoGeneracion(
       empresaId: empresaId,
       logoBytes: logoBytes,
@@ -3633,7 +3721,21 @@ class PpService {
       empresaId: empresaId,
       nombreLogoPreferido: resolvedLogo.nombre,
     );
-    final logoFinal = resolvedLogo.bytes;
+    final nombresUsados = <String>{};
+    final nombres = [
+      for (final planilla in planillas)
+        _buildPdfFileName(
+          _cleanString(planilla.nombrePdf) ??
+              _nombreArchivoConsolidado(
+                planilla.consolidado,
+                planilla.filas,
+                empresaNombre: empresaNombrePlanilla,
+              ),
+        ),
+    ];
+    if (nombres.any((nombre) => !nombresUsados.add(nombre.toLowerCase()))) {
+      throw const PpException('Escribe un nombre distinto para cada PDF.');
+    }
 
     final loteRef = _lotes.doc();
     final loteId = loteRef.id;
@@ -3651,23 +3753,19 @@ class PpService {
       excelPath = p;
     }
 
-    final fechaPlanilla = _firstNonEmptyDate(filas);
-    final totalPlanilla = _sumarValores(filas);
-    final pagador = _firstNonEmptyExtra(filas, const ['pagador', 'banco']);
-    final banco = _firstNonEmptyExtra(filas, const ['banco']);
-
-    await loteRef.set({
+    final batch = _db.batch();
+    batch.set(loteRef, {
       'empresaId': empresaId,
       'creadoPor': actorId,
       'nombreCreadoPor': nombreActor,
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
-      'estado': PpLoteEstado.procesando.valor,
+      'estado': PpLoteEstado.en_proceso.valor,
       'excelUrl': excelUrl,
       'excelPath': excelPath,
       'excelNombre': excelNombre,
-      'totalPdfs': 1,
-      'totalPlanillas': 0,
+      'totalPdfs': planillas.length,
+      'totalPlanillas': planillas.length,
       'planillasFirmadas': 0,
       'planillasRechazadas': 0,
       'descripcion': descripcion,
@@ -3679,128 +3777,153 @@ class PpService {
       'sinLogo': resolvedLogo.sinLogo,
     });
 
-    await _registrarEventoLote(
-      planillaId: loteId,
-      loteId: loteId,
-      empresaId: empresaId,
-      accion: PpAccion.lote_creado,
-      actorId: actorId,
-      nombreActor: nombreActor,
-      metadatos: {
-        'consolidado': consolidado,
-        'filasConsolidadas': filas.length,
-        'origen': 'excel_consolidado',
-      },
+    batch.set(
+      _flujo.doc(),
+      _datosEvento(
+        planillaId: loteId,
+        loteId: loteId,
+        empresaId: empresaId,
+        accion: PpAccion.lote_creado,
+        actorId: actorId,
+        nombreActor: nombreActor,
+        metadatos: {
+          'totalPlanillas': planillas.length,
+          'origen': 'excel_consolidado',
+        },
+      ),
     );
 
-    final pdfBytes = await _generarPdfConsolidadoDesdeFilas(
-      consolidado: consolidado,
-      filas: filas,
-      logoBytes: logoFinal,
-      empresaNombre: empresaNombrePlanilla,
-      sheetTitle: sheetTitle,
-      nombreElaborado: actorSnapshot.nombre,
-      cargoElaborado: actorSnapshot.cargo,
-      firmaElaboradoUrl: actorSnapshot.urlFirma,
-      firmaElaboradoPath: actorSnapshot.pathFirma,
-      firmaElaboradoBlob: firmaBlob,
-    );
+    final planillaIds = <String>[];
+    final archivosPreparados = <String>[if (excelPath != null) excelPath];
+    try {
+      for (var i = 0; i < planillas.length; i++) {
+        final (:consolidado, :filas, nombrePdf: _) = planillas[i];
+        final fechaPlanilla = _firstNonEmptyDate(filas);
+        final totalPlanilla = _sumarValores(filas);
+        final pagador = _firstNonEmptyExtra(filas, const ['pagador', 'banco']);
+        final banco = _firstNonEmptyExtra(filas, const ['banco']);
 
-    final nombreArchivo = _nombreArchivoConsolidado(
-      consolidado,
-      filas,
-      empresaNombre: empresaNombrePlanilla,
-    );
-    final (pdfUrl, pdfPath) = await _subirPdf(
-      empresaId: empresaId,
-      loteId: loteId,
-      bytes: pdfBytes,
-      nombre: nombreArchivo,
-    );
+        final pdfBytes = await _generarPdfConsolidadoDesdeFilas(
+          consolidado: consolidado,
+          filas: filas,
+          logoBytes: resolvedLogo.bytes,
+          empresaNombre: empresaNombrePlanilla,
+          sheetTitle: sheetTitle,
+          nombreElaborado: actorSnapshot.nombre,
+          cargoElaborado: actorSnapshot.cargo,
+          firmaElaboradoUrl: actorSnapshot.urlFirma,
+          firmaElaboradoPath: actorSnapshot.pathFirma,
+          firmaElaboradoBlob: actorSnapshot.firmaBlob,
+        );
 
-    final planillaRef = _planillas.doc();
-    final ahora = FieldValue.serverTimestamp();
-    await planillaRef.set({
-      'empresaId': empresaId,
-      'empresaNombre': empresaNombrePlanilla,
-      'loteId': loteId,
-      'nombreArchivoOriginal': nombreArchivo,
-      'nombrePlanillaDetectado': consolidado,
-      'fechaPlanillaDetectada': fechaPlanilla,
-      'valorDetectado': totalPlanilla,
-      'logoPath': resolvedLogo.path,
-      'logoUrl': resolvedLogo.url,
-      'logoNombre': resolvedLogo.nombre,
-      'sinLogo': resolvedLogo.sinLogo,
-      'estado': PpEstado.cargada.valor,
-      'cargadoPor': actorId,
-      'nombreCargado': actorSnapshot.nombre,
-      'cargoCargado': actorSnapshot.cargo,
-      'urlFirmaCargado': actorSnapshot.urlFirma,
-      'revisadoPor': null,
-      'revisadoEn': null,
-      'firmadoPor': null,
-      'firmadoEn': null,
-      'urlFirmaAuditoria': null,
-      'nombreAuditorFirmante': null,
-      'cargoAuditorFirmante': null,
-      'urlFirmaUsada': null,
-      'nombreFirmante': null,
-      'cargoFirmante': null,
-      'urlPdf': pdfUrl,
-      'pathPdf': pdfPath,
-      'datosExcel': {
-        'tipo_generacion': 'excel_consolidado',
-        'empresa_nombre': empresaNombrePlanilla,
-        'consolidado': consolidado,
-        'pagador': pagador,
-        ...?banco == null ? null : {'banco': banco},
-        'logo_path': resolvedLogo.path,
-        'logo_url': resolvedLogo.url,
-        'logo_nombre': resolvedLogo.nombre,
-        'sin_logo': resolvedLogo.sinLogo,
-        'filas_consolidadas': filas.length,
-        'rango_filas_excel': _rangoFilasExcel(filas),
-        ...?sheetTitle == null ? null : {'sheet_title': sheetTitle},
-        // Stored so PDF can be regenerated from Firestore without Storage reads.
-        'filas_rows': filas.map((f) => f.toMap()).toList(),
-      },
-      'matchEstado': PpMatchEstado.coincidencia_exacta.valor,
-      'excelRowIndex': filas.first.rowIndex,
-      'metadatosExtraccion': {
-        'metodo': 'generado_desde_excel_consolidado',
-        'excelRows': filas.map((f) => f.excelRowNumber).toList(),
-        'empresaNombre': empresaNombrePlanilla,
-        'cargadoEn': DateTime.now().toIso8601String(),
-      },
-      'observaciones': [],
-      'createdAt': ahora,
-      'updatedAt': ahora,
-    });
+        final nombreArchivo = nombres[i];
+        final planillaRef = _planillas.doc();
+        final (pdfUrl, pdfPath) = await _subirPdf(
+          empresaId: empresaId,
+          loteId: loteId,
+          bytes: pdfBytes,
+          nombre: nombreArchivo,
+          planillaId: planillaRef.id,
+        );
 
-    await _registrarEventoLote(
-      planillaId: planillaRef.id,
-      loteId: loteId,
-      empresaId: empresaId,
-      accion: PpAccion.planilla_creada,
-      actorId: actorId,
-      nombreActor: nombreActor,
-      metadatos: {
-        'consolidado': consolidado,
-        'filasConsolidadas': filas.length,
-        'nombre': nombreArchivo,
-      },
-    );
+        archivosPreparados.add(pdfPath);
 
-    await loteRef.update({
-      'totalPlanillas': 1,
-      'estado': PpLoteEstado.listo.valor,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+        final ahora = FieldValue.serverTimestamp();
+        batch.set(planillaRef, {
+          'empresaId': empresaId,
+          'empresaNombre': empresaNombrePlanilla,
+          'loteId': loteId,
+          'nombreArchivoOriginal': nombreArchivo,
+          'nombrePdfPersonalizado': nombreArchivo,
+          'nombrePlanillaDetectado': consolidado,
+          'fechaPlanillaDetectada': fechaPlanilla,
+          'valorDetectado': totalPlanilla,
+          'logoPath': resolvedLogo.path,
+          'logoUrl': resolvedLogo.url,
+          'logoNombre': resolvedLogo.nombre,
+          'sinLogo': resolvedLogo.sinLogo,
+          'estado': PpEstado.en_revision_auditoria.valor,
+          'cargadoPor': actorId,
+          'nombreCargado': actorSnapshot.nombre,
+          'cargoCargado': actorSnapshot.cargo,
+          'urlFirmaCargado': actorSnapshot.urlFirma,
+          'revisadoPor': null,
+          'revisadoEn': null,
+          'firmadoPor': null,
+          'firmadoEn': null,
+          'urlFirmaAuditoria': null,
+          'nombreAuditorFirmante': null,
+          'cargoAuditorFirmante': null,
+          'urlFirmaUsada': null,
+          'nombreFirmante': null,
+          'cargoFirmante': null,
+          'urlPdf': pdfUrl,
+          'pathPdf': pdfPath,
+          'datosExcel': {
+            'tipo_generacion': 'excel_consolidado',
+            'empresa_nombre': empresaNombrePlanilla,
+            'consolidado': consolidado,
+            'pagador': pagador,
+            ...?banco == null ? null : {'banco': banco},
+            'logo_path': resolvedLogo.path,
+            'logo_url': resolvedLogo.url,
+            'logo_nombre': resolvedLogo.nombre,
+            'sin_logo': resolvedLogo.sinLogo,
+            'filas_consolidadas': filas.length,
+            'rango_filas_excel': _rangoFilasExcel(filas),
+            ...?sheetTitle == null ? null : {'sheet_title': sheetTitle},
+            // Stored so PDF can be regenerated from Firestore without Storage reads.
+            'filas_rows': filas.map((f) => f.toMap()).toList(),
+          },
+          'matchEstado': PpMatchEstado.coincidencia_exacta.valor,
+          'excelRowIndex': filas.first.rowIndex,
+          'metadatosExtraccion': {
+            'metodo': 'generado_desde_excel_consolidado',
+            'excelRows': filas.map((f) => f.excelRowNumber).toList(),
+            'empresaNombre': empresaNombrePlanilla,
+            'cargadoEn': DateTime.now().toIso8601String(),
+          },
+          'observaciones': [],
+          'createdAt': ahora,
+          'updatedAt': ahora,
+        });
 
-    debugPrint(
-      '[PpService] Lote consolidado generado: $loteId para $consolidado',
-    );
+        batch.set(
+          _flujo.doc(),
+          _datosEvento(
+            planillaId: planillaRef.id,
+            loteId: loteId,
+            empresaId: empresaId,
+            accion: PpAccion.carga_enviada_auditoria,
+            actorId: actorId,
+            nombreActor: nombreActor,
+            metadatos: {
+              'consolidado': consolidado,
+              'filasConsolidadas': filas.length,
+              'nombre': nombreArchivo,
+            },
+          ),
+        );
+
+        planillaIds.add(planillaRef.id);
+      }
+    } catch (_) {
+      for (final path in archivosPreparados) {
+        await _storage.ref(path).delete().catchError((_) {});
+      }
+      rethrow;
+    }
+
+    // Ninguna planilla se publica si falla la preparación de alguno de los PDF.
+    await batch.commit();
+    for (final planillaId in planillaIds) {
+      await _notificarAuditoria(
+        empresaId: empresaId,
+        planillaId: planillaId,
+        actorId: actorId,
+        nombreActor: nombreActor,
+      );
+    }
     return loteId;
   }
 
@@ -4881,7 +5004,7 @@ class PpService {
           await _loadBinary(url: storedLogoUrl, path: storedLogoPath) ??
           Uint8List(0);
     }
-    if (logoBytes.isEmpty) {
+    if (logoBytes.isEmpty && datosExcel['sin_logo'] != true) {
       logoBytes = await _cargarLogoEmpresa(empresaId);
     }
     final empresaNombrePlanilla = await _resolverNombreEmpresaPlanilla(
@@ -4895,6 +5018,21 @@ class PpService {
       empresaId,
       planillaData['nombreCargado'] as String?,
     );
+    final metadatos = planillaData['metadatosExtraccion'];
+    Future<Uint8List?> cargarExcelOrigen() async {
+      if (metadatos is Map && metadatos['excelPath'] != null) {
+        return _loadBinary(
+          url: _cleanString(metadatos['excelUrl']),
+          path: _cleanString(metadatos['excelPath']),
+        );
+      }
+      if (loteId.isEmpty) return null;
+      final loteData = (await _lotes.doc(loteId).get()).data();
+      return _loadBinary(
+        url: _cleanString(loteData?['excelUrl']),
+        path: _cleanString(loteData?['excelPath']),
+      );
+    }
 
     if (tipoGeneracion == 'excel_consolidado') {
       // Priority: use filas stored in Firestore (no Storage read needed on web).
@@ -4909,18 +5047,11 @@ class PpService {
 
       // Fallback: load Excel from Storage and parse.
       if (filas == null || filas.isEmpty) {
-        final loteSnap = await _lotes.doc(loteId).get();
-        final loteData = loteSnap.data();
-        if (loteData == null) return null;
-        final excelBytes = await _loadBinary(
-          url: loteData['excelUrl'] as String?,
-          path: loteData['excelPath'] as String?,
-        );
+        final excelBytes = await cargarExcelOrigen();
         if (excelBytes == null || excelBytes.isEmpty) return null;
         final parse = _excelParser.parse(excelBytes);
         if (!parse.exitoso || parse.filas.isEmpty) return null;
 
-        final metadatos = planillaData['metadatosExtraccion'];
         final excelRows = metadatos is Map && metadatos['excelRows'] is List
             ? (metadatos['excelRows'] as List)
                   .map((e) => int.tryParse(e.toString()))
@@ -4987,24 +5118,14 @@ class PpService {
 
     // Fallback: load Excel from Storage.
     if (fila == null) {
-      final loteSnap = await _lotes.doc(loteId).get();
-      final loteData = loteSnap.data();
-      if (loteData != null) {
-        final excelBytes = await _loadBinary(
-          url: loteData['excelUrl'] as String?,
-          path: loteData['excelPath'] as String?,
-        );
-        if (excelBytes != null && excelBytes.isNotEmpty) {
-          final parse = _excelParser.parse(excelBytes);
-          if (parse.exitoso) {
-            final excelRowIndex = planillaData['excelRowIndex'] as int?;
-            for (final item in parse.filas) {
-              if (item.rowIndex == excelRowIndex) {
-                fila = item;
-                break;
-              }
-            }
-          }
+      final excelBytes = await cargarExcelOrigen();
+      if (excelBytes != null && excelBytes.isNotEmpty) {
+        final parse = _excelParser.parse(excelBytes);
+        final excelRowIndex = planillaData['excelRowIndex'] as int?;
+        if (parse.exitoso) {
+          fila = parse.filas
+              .where((item) => item.rowIndex == excelRowIndex)
+              .firstOrNull;
         }
       }
     }
@@ -5218,8 +5339,6 @@ class PpService {
     required String planillaId,
     required String empresaId,
     required PpEstado estado,
-    required String? sourcePdfUrl,
-    required String? sourcePdfPath,
     required List<Map<String, dynamic>> bloques,
   }) async {
     try {
@@ -5228,8 +5347,6 @@ class PpService {
         'planillaId': planillaId,
         'empresaId': empresaId,
         'estado': estado.valor,
-        'sourcePdfUrl': sourcePdfUrl,
-        'sourcePdfPath': sourcePdfPath,
         'bloques': bloques,
       });
       final data = Map<String, dynamic>.from(response.data as Map);
@@ -5457,7 +5574,10 @@ class PpService {
     // PDFs subidos directamente no tienen lote; omitir actualización.
     if (loteId.isEmpty) return;
 
-    final snap = await _planillas.where('loteId', isEqualTo: loteId).get();
+    final snap = await _planillas
+        .where('empresaId', isEqualTo: empresaId)
+        .where('loteId', isEqualTo: loteId)
+        .get();
     final todas = snap.docs.map((d) => d.data()['estado'].toString()).toList();
     final firmadas = todas.where((s) => s == PpEstado.firmada.valor).length;
     final rechazadas = todas.where((s) => s == PpEstado.rechazada.valor).length;
@@ -5473,6 +5593,37 @@ class PpService {
       'updatedAt': FieldValue.serverTimestamp(),
     });
   }
+
+  Future<void> _notificarAuditoria({
+    required String empresaId,
+    required String planillaId,
+    required String actorId,
+    String? nombreActor,
+  }) => _notificar(
+    empresaId: empresaId,
+    planillaId: planillaId,
+    rolesDestino: [PpRoles.auditoria],
+    titulo: 'Planilla pendiente de revisión',
+    descripcion: 'Una planilla está lista para revisión de Auditoría.',
+    actorId: actorId,
+    nombreActor: nombreActor,
+  );
+
+  Future<void> _notificarGerencia({
+    required String empresaId,
+    required String planillaId,
+    required String actorId,
+    String? nombreActor,
+  }) => _notificar(
+    empresaId: empresaId,
+    planillaId: planillaId,
+    rolesDestino: [PpRoles.gerencia],
+    titulo: 'Planilla pendiente de firma',
+    descripcion:
+        'Una planilla aprobada por Auditoría está lista para su firma.',
+    actorId: actorId,
+    nombreActor: nombreActor,
+  );
 
   Future<void> _notificar({
     required String empresaId,

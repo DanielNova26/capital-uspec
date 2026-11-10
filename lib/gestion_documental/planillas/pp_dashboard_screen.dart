@@ -149,7 +149,7 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
-                  '$n planilla${n == 1 ? '' : 's'} cargada${n == 1 ? '' : 's'} correctamente.',
+                  '$n planilla${n == 1 ? '' : 's'} en revisión de Auditoría.',
                   style: const TextStyle(fontFamily: kArial),
                 ),
                 backgroundColor: const Color(0xFF10B981),
@@ -768,7 +768,7 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Planillas generadas y listas para el flujo de firma.',
+              'Planillas generadas y enviadas a Auditoría.',
               style: const TextStyle(fontFamily: kArial),
             ),
           ),

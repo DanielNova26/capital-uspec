@@ -33,6 +33,7 @@ class PpSubirPdfScreen extends StatefulWidget {
 class _PpSubirPdfScreenState extends State<PpSubirPdfScreen> {
   final _service = PpService();
   final List<({String nombre, Uint8List bytes})> _pdfs = [];
+  final _nombresPdf = <String, String>{};
   bool _uploading = false;
   bool _isDragging = false;
   int _pdfsProcesados = 0;
@@ -46,7 +47,7 @@ class _PpSubirPdfScreenState extends State<PpSubirPdfScreen> {
       allowMultiple: true,
       withData: true,
     );
-    if (result == null) return;
+    if (!mounted || _uploading || result == null) return;
 
     final conBytes = result.files.where((f) => f.bytes != null).toList();
     final sinBytes = result.files.length - conBytes.length;
@@ -79,6 +80,7 @@ class _PpSubirPdfScreenState extends State<PpSubirPdfScreen> {
       }
     }
 
+    if (!mounted || _uploading) return;
     setState(() {
       _isDragging = false;
       for (final n in nuevos) {
@@ -90,11 +92,22 @@ class _PpSubirPdfScreenState extends State<PpSubirPdfScreen> {
     });
   }
 
-  void _removePdf(String nombre) =>
-      setState(() => _pdfs.removeWhere((p) => p.nombre == nombre));
+  void _removePdf(String nombre) => setState(() {
+    _pdfs.removeWhere((p) => p.nombre == nombre);
+    _nombresPdf.remove(nombre);
+  });
 
   Future<void> _submit() async {
-    if (_pdfs.isEmpty) return;
+    if (_uploading || _pdfs.isEmpty) return;
+    final pdfs = [
+      for (final pdf in _pdfs)
+        (
+          nombre: _nombresPdf[pdf.nombre]?.trim().isNotEmpty == true
+              ? _nombresPdf[pdf.nombre]!
+              : pdf.nombre,
+          bytes: pdf.bytes,
+        ),
+    ];
     setState(() {
       _uploading = true;
       _error = null;
@@ -108,7 +121,7 @@ class _PpSubirPdfScreenState extends State<PpSubirPdfScreen> {
         actorId: widget.userId,
         rolPlanillas: widget.rolPlanillas,
         nombreActor: widget.nombreActor,
-        pdfs: _pdfs,
+        pdfs: pdfs,
         onProgress: (procesados, total) {
           if (!mounted) return;
           setState(() {
@@ -120,12 +133,25 @@ class _PpSubirPdfScreenState extends State<PpSubirPdfScreen> {
       if (!mounted) return;
       widget.onSubido(n);
     } on PpException catch (e) {
-      setState(() => _error = e.mensaje);
+      _mostrarErrorCarga(e.mensaje);
     } catch (e) {
-      setState(() => _error = 'Error inesperado: $e');
+      _mostrarErrorCarga('No se completó la carga. $e');
     } finally {
       if (mounted) setState(() => _uploading = false);
     }
+  }
+
+  void _mostrarErrorCarga(String mensaje) {
+    if (!mounted) return;
+    setState(() {
+      for (final pdf in _pdfs.take(_pdfsProcesados)) {
+        _nombresPdf.remove(pdf.nombre);
+      }
+      _pdfs.removeRange(0, _pdfsProcesados);
+      _error = _pdfsProcesados == 0
+          ? mensaje
+          : 'Se enviaron $_pdfsProcesados PDF a Auditoría. $mensaje';
+    });
   }
 
   @override
@@ -227,7 +253,7 @@ class _PpSubirPdfScreenState extends State<PpSubirPdfScreen> {
                             ),
                             const SizedBox(height: 4),
                             const Text(
-                              'Cada PDF se convierte en una planilla individual lista para el flujo de firma.',
+                              'Cada PDF se envía a Auditoría como una planilla. Puedes cambiar el nombre antes de enviarlo.',
                               style: TextStyle(
                                 fontFamily: kArial,
                                 fontSize: 12,
@@ -273,7 +299,7 @@ class _PpSubirPdfScreenState extends State<PpSubirPdfScreen> {
                             color: Colors.white,
                           ),
                           label: Text(
-                            'SUBIR ${_pdfs.length} PDF${_pdfs.length == 1 ? '' : 's'}',
+                            'Enviar ${_pdfs.length} PDF a Auditoría',
                             style: const TextStyle(
                               fontFamily: kArial,
                               fontWeight: FontWeight.w900,
@@ -404,13 +430,20 @@ class _PpSubirPdfScreenState extends State<PpSubirPdfScreen> {
           const Icon(Icons.picture_as_pdf, size: 18, color: GdPalette.accent),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              nombre,
+            child: TextFormField(
+              key: ValueKey(nombre),
+              initialValue: _nombresPdf[nombre] ?? nombre,
+              maxLength: 120,
+              onChanged: (value) => _nombresPdf[nombre] = value,
               style: const TextStyle(fontFamily: kArial, fontSize: 13),
-              overflow: TextOverflow.ellipsis,
+              decoration: const InputDecoration(
+                labelText: 'Nombre del PDF',
+                counterText: '',
+              ),
             ),
           ),
           IconButton(
+            tooltip: 'Quitar PDF',
             icon: const Icon(Icons.close, size: 16),
             onPressed: () => _removePdf(nombre),
             color: GdPalette.muted,

@@ -256,11 +256,15 @@ service cloud.firestore {
       let u = currentUser();
       let detalle = u.get('empresasDetalle', {});
       let bloque = detalle is map ? detalle.get(empresaId, {}) : {};
-      let propio = bloque is map ? bloque.get('rolPlanillas', null) : null;
+      let lista = u.get('empresas', []);
+      let empresas = (lista is list ? lista.toSet() : [].toSet())
+        .union(detalle is map ? detalle.keys().toSet() : [].toSet());
+      let principal = u.get('empresaId', '');
       let raiz = u.get('rolPlanillas', '');
-      return isSignedIn() && propio is string
-        ? propio
-        : (raizEsDeEmpresa(u, empresaId) && raiz is string ? raiz : '');
+      let rol = bloque is map && 'rolPlanillas' in bloque ? bloque.rolPlanillas
+        : ((principal == empresaId || (principal in [null, '']
+          && empresas.hasOnly([empresaId]))) ? raiz : '');
+      return rol is string ? rol.trim().lower() : '';
     }
 
     // Desarrollador marcado DENTRO de la empresa (`empresasDetalle[e].roleKey`
@@ -1585,6 +1589,151 @@ service cloud.firestore {
       return hasPlanillasRole(empresaId, ['tesoreria', 'admin_doc', 'desarrollador']);
     }
 
+    function operaPlanillas(empresaId, roles) {
+      let u = currentUser();
+      let detalle = u.get('empresasDetalle', {});
+      let candidato = detalle is map ? detalle.get(empresaId, {}) : {};
+      let bloque = candidato is map ? candidato : {};
+      return belongsToCompany(empresaId)
+        && (isDeveloper() || isDeveloperIn(empresaId)
+          || (planillasRole(empresaId) in roles
+            && bloque.get('soloTalentoHumano', false) != true
+            && (bloque.get('rolPlanillasId', null) in [null, '']
+              || tieneAppsEn(empresaId,
+                ['planillaspagodashboard', 'planillaspago', 'planillas'], true))));
+    }
+
+    function consultaPlanillas(empresaId) {
+      return operaPlanillas(empresaId, ['tesoreria', 'auditoria', 'gerencia', 'admin_doc']);
+    }
+
+    match /TBL_PP_PLANILLAS/{planillaId} {
+      function camposEditados() {
+        return request.resource.data.diff(resource.data).affectedKeys();
+      }
+      function cambioPermitido(e, anterior, siguiente) {
+        return (siguiente == 'en_revision_auditoria'
+            && anterior in ['cargada', 'pendiente_validacion', 'observada']
+            && (!camposEditados().hasAny(['revisadoPor', 'revisadoEn',
+              'urlFirmaAuditoria', 'pathFirmaAuditoria',
+              'nombreAuditorFirmante', 'cargoAuditorFirmante'])
+              || (anterior == 'observada'
+                && request.resource.data.get('revisadoPor', null) == null
+                && request.resource.data.get('revisadoEn', null) == null
+                && request.resource.data.get('urlFirmaAuditoria', null) == null
+                && request.resource.data.get('pathFirmaAuditoria', null) == null
+                && request.resource.data.get('nombreAuditorFirmante', null) == null
+                && request.resource.data.get('cargoAuditorFirmante', null) == null))
+            && !camposEditados().hasAny(['firmadoPor', 'firmadoEn', 'urlFirmaUsada',
+              'pathFirmaUsada', 'nombreFirmante', 'cargoFirmante'])
+            && operaPlanillas(e, ['tesoreria', 'admin_doc']))
+          // Compatibilidad con cargas aún abiertas en clientes anteriores.
+          || (anterior == 'cargada' && siguiente == 'pendiente_validacion'
+            && camposEditados().hasOnly(['estado', 'updatedAt', 'cargadoPor', 'nombreCargado',
+              'cargoCargado', 'urlFirmaCargado', 'urlPdf', 'pathPdf', 'urlPdfOriginal', 'pathPdfOriginal'])
+            && operaPlanillas(e, ['tesoreria', 'admin_doc']))
+          || (anterior == 'en_revision_auditoria'
+            && siguiente in ['observada', 'rechazada']
+            && camposEditados().hasOnly(['estado', 'updatedAt', 'revisadoPor', 'revisadoEn',
+              'nombreAuditorFirmante', 'observaciones'])
+            && operaPlanillas(e, ['auditoria', 'admin_doc']))
+          || (anterior == 'en_revision_auditoria'
+            && siguiente in ['aprobada_auditoria', 'pendiente_firma_gerencia']
+            && request.resource.data.revisadoPor == request.auth.token.userDocId
+            && request.resource.data.pathPdf != resource.data.get('pathPdf', '')
+            && request.resource.data.pathPdf.matches('planillas_pago/' + e + '/firmados/[^/]+')
+            && camposEditados().hasOnly(['estado', 'updatedAt', 'revisadoPor', 'revisadoEn',
+              'urlFirmaAuditoria', 'pathFirmaAuditoria', 'nombreAuditorFirmante',
+              'cargoAuditorFirmante', 'urlPdf', 'pathPdf', 'urlPdfOriginal', 'pathPdfOriginal'])
+            && operaPlanillas(e, ['auditoria', 'admin_doc']))
+          || (anterior == 'aprobada_auditoria' && siguiente == 'pendiente_firma_gerencia'
+            && camposEditados().hasOnly(['estado', 'updatedAt'])
+            && operaPlanillas(e, ['auditoria', 'admin_doc']))
+          || (anterior == 'pendiente_firma_gerencia'
+            && ((siguiente == 'rechazada' && camposEditados().hasOnly(['estado', 'updatedAt']))
+              || (siguiente == 'firmada'
+                && request.resource.data.firmadoPor == request.auth.token.userDocId
+                && camposEditados().hasOnly(['estado', 'updatedAt', 'firmadoPor', 'firmadoEn',
+                  'urlFirmaUsada', 'pathFirmaUsada', 'nombreFirmante', 'cargoFirmante',
+                  'urlPdf', 'pathPdf', 'urlPdfOriginal', 'pathPdfOriginal'])))
+            && operaPlanillas(e, ['gerencia', 'admin_doc']));
+      }
+      function edicionSinTransicion(e, estado) {
+        let campos = camposEditados();
+        return (campos.hasOnly(['firmaCargadoBlob', 'firmaAuditoriaBlob',
+            'firmaGerenciaBlob', 'updatedAt'])
+          && !request.resource.data.keys().hasAny(
+            ['firmaCargadoBlob', 'firmaAuditoriaBlob', 'firmaGerenciaBlob'])
+          && consultaPlanillas(e))
+          || (campos.hasOnly(['datosExcel', 'nombrePlanillaDetectado',
+            'fechaPlanillaDetectada', 'valorDetectado', 'matchEstado',
+            'metadatosExtraccion', 'updatedAt'])
+            && operaPlanillas(e, ['tesoreria', 'admin_doc']))
+          || (estado == 'observada' && campos.hasOnly(['observaciones'])
+            && operaPlanillas(e, ['auditoria', 'admin_doc']))
+          || (estado in ['aprobada_auditoria', 'pendiente_firma_gerencia', 'firmada']
+            && campos.hasOnly(['urlPdf', 'pathPdf', 'urlPdfBase', 'pathPdfBase',
+              'urlPdfOriginal', 'pathPdfOriginal', 'updatedAt'])
+            && operaPlanillas(e, estado == 'firmada'
+              ? ['gerencia', 'admin_doc'] : ['auditoria', 'admin_doc']));
+      }
+
+      allow read: if consultaPlanillas(resource.data.empresaId);
+      allow create: if operaPlanillas(request.resource.data.empresaId, ['tesoreria', 'admin_doc'])
+        && request.resource.data.estado in ['cargada', 'en_revision_auditoria']
+        && request.resource.data.cargadoPor == request.auth.token.userDocId
+        && request.resource.data.get('revisadoPor', null) == null
+        && request.resource.data.get('firmadoPor', null) == null;
+      allow update: if empresaSeConserva()
+        && resource.data.get('loteId', null) == request.resource.data.get('loteId', null)
+        && (resource.data.estado == request.resource.data.estado
+          ? edicionSinTransicion(resource.data.empresaId, resource.data.estado)
+          : cambioPermitido(resource.data.empresaId, resource.data.estado, request.resource.data.estado));
+      allow delete: if operaPlanillas(resource.data.empresaId, ['admin_doc']);
+
+      match /{cache}/{docId} {
+        function empresaPlanilla() {
+          return get(/databases/$(database)/documents/TBL_PP_PLANILLAS/$(planillaId)).data.empresaId;
+        }
+        function esCachePdf() {
+          return cache in ['_pdf_base_inline', '_pdf_base_chunks', '_render_pages'];
+        }
+        allow read: if esCachePdf() && consultaPlanillas(empresaPlanilla());
+        allow create, update: if esCachePdf()
+          && request.resource.data.empresaId == empresaPlanilla()
+          && operaPlanillas(request.resource.data.empresaId, ['tesoreria', 'admin_doc']);
+        allow delete: if esCachePdf() && operaPlanillas(empresaPlanilla(), ['tesoreria', 'admin_doc']);
+      }
+    }
+
+    match /TBL_PP_LOTES/{loteId} {
+      allow read: if consultaPlanillas(resource.data.empresaId);
+      allow create: if operaPlanillas(request.resource.data.empresaId, ['tesoreria', 'admin_doc'])
+        && request.resource.data.creadoPor == request.auth.token.userDocId;
+      allow update: if empresaSeConserva()
+        && (request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['estado', 'planillasFirmadas', 'planillasRechazadas', 'updatedAt'])
+          ? consultaPlanillas(resource.data.empresaId)
+          : operaPlanillas(resource.data.empresaId, ['tesoreria', 'admin_doc']));
+      allow delete: if operaPlanillas(resource.data.empresaId, ['admin_doc']);
+    }
+
+    match /TBL_PP_FLUJO/{eventoId} {
+      function escribeEvento(e, accion) {
+        return (accion in ['lote_creado', 'planilla_creada', 'carga_enviada_auditoria',
+          'carga_confirmada', 'enviado_auditoria', 'reenviado', 'conciliacion_manual',
+          'metadatos_actualizados'] && operaPlanillas(e, ['tesoreria', 'admin_doc']))
+          || (accion in ['observado', 'aprobado_auditoria', 'enviado_gerencia',
+            'rechazado_auditoria'] && operaPlanillas(e, ['auditoria', 'admin_doc']))
+          || (accion in ['firmado', 'rechazado_gerencia']
+            && operaPlanillas(e, ['gerencia', 'admin_doc']));
+      }
+      allow read: if consultaPlanillas(resource.data.empresaId);
+      allow create: if request.resource.data.realizadoPor == request.auth.token.userDocId
+        && escribeEvento(request.resource.data.empresaId, request.resource.data.accion);
+      allow update, delete: if false;
+    }
+
     match /TBL_PAGOS_BENEFICIARIOS/{docId} {
       allow read: if gestionaPagos(resource.data.empresaId);
       allow create, update: if gestionaPagos(request.resource.data.empresaId)
@@ -2752,6 +2901,7 @@ service cloud.firestore {
           + '|BIOMETRICO_DISPOSITIVOS|BIOMETRICO_CREDENCIALES|BIOMETRICO_EVENTOS|BIOMETRICO_HORARIOS|BIOMETRICO_JORNADAS|BIOMETRICO_APROBACIONES|BIOMETRICO_AUDITORIA|BIOMETRICO_PINES'
           + '|LOGIN_SESIONES'
           + '|PAGOS_BENEFICIARIOS|PAGOS_BENEFICIARIOS_CUENTA'
+          + '|PP_PLANILLAS|PP_LOTES|PP_FLUJO'
           + '|RUTAS|RUTAS_ROLES|RUTAS_ESTABLECIMIENTOS|RUTAS_PLACAS|RUTAS_CONFIG|RUTAS_ASIGNACIONES|RUTAS_EVIDENCIAS|RUTAS_RESUMEN_DIARIO|RUTAS_UBICACIONES|RUTAS_MOV_CONFIG|RUTAS_MOV_HORARIOS|RUTAS_MOV_MEDICIONES|RUTAS_MOV_RUNS'
           + '|CITAS_NUTRICION|HISTORIAL_NUTRICION'
           + '|FAC_CONFIG'

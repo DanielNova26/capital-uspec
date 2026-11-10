@@ -24,8 +24,11 @@ var __importStar = (this && this.__importStar) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ppStampDirectPdf = void 0;
+const node_crypto_1 = require("node:crypto");
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
+const correo_1 = require("./correo");
+const pp_notifications_1 = require("./pp_notifications");
 const pdf_lib_1 = require("pdf-lib");
 const getDb = () => admin.firestore();
 const getBucket = () => admin.storage().bucket();
@@ -39,7 +42,7 @@ function hexToRgbColor(hex) {
     return (0, pdf_lib_1.rgb)(((value >> 16) & 0xff) / 255, ((value >> 8) & 0xff) / 255, (value & 0xff) / 255);
 }
 function parseStoragePathFromUrl(url) {
-    if (!url)
+    if (typeof url !== "string")
         return null;
     const trimmed = url.trim();
     if (!trimmed)
@@ -198,34 +201,76 @@ async function stampPdfDirecto({ sourceBytes, bloques, estado, }) {
 exports.ppStampDirectPdf = functions
     .region("us-central1")
     .runWith({ timeoutSeconds: 120, memory: "1GB" })
-    .https.onCall(async (data) => {
+    .https.onCall(async (data, context) => {
+    const userId = context.auth?.token.userDocId;
+    if (context.auth?.token.authVersion !== 2 || typeof userId !== "string") {
+        throw new functions.https.HttpsError("unauthenticated", "Sesión requerida.");
+    }
     const planillaId = (data?.planillaId || "").toString().trim();
     const empresaId = (data?.empresaId || "").toString().trim();
     const estado = (data?.estado || "").toString().trim();
-    if (!planillaId || !empresaId) {
+    if (!planillaId || !empresaId || planillaId.includes("/") || empresaId.includes("/")) {
         throw new functions.https.HttpsError("invalid-argument", "planillaId y empresaId son obligatorios.");
+    }
+    const user = (await getDb().collection("TBL_USUARIOS").doc(userId).get()).data();
+    const bloque = user?.empresasDetalle?.[empresaId];
+    const developer = user && (0, correo_1.isDeveloper)(user, empresaId);
+    const rol = user && (0, pp_notifications_1.resolvePlanillasRole)(user, empresaId);
+    if (!user || !(0, pp_notifications_1.userIsActiveInEmpresa)(user, empresaId) ||
+        (!developer && (!(0, pp_notifications_1.userBelongsToEmpresa)(user, empresaId) || bloque?.soloTalentoHumano === true ||
+            (rol !== "admin_doc" && rol !== "auditoria" && rol !== "gerencia")))) {
+        throw new functions.https.HttpsError("permission-denied", "Sin acceso a la firma de planillas.");
     }
     const planillaSnap = await getDb().collection("TBL_PP_PLANILLAS").doc(planillaId).get();
     if (!planillaSnap.exists) {
         throw new functions.https.HttpsError("not-found", "Planilla no encontrada.");
     }
     const planilla = planillaSnap.data() || {};
-    const sourcePdfPath = (data?.sourcePdfPath || "").toString().trim() ||
-        (planilla.pathPdfBase || planilla.pathPdfOriginal || planilla.pathPdf || "").toString().trim();
-    const sourcePdfUrl = (data?.sourcePdfUrl || "").toString().trim() ||
-        (planilla.urlPdfBase || planilla.urlPdfOriginal || planilla.urlPdf || "").toString().trim();
-    const sourceBytes = await downloadStorageBytes(sourcePdfPath, sourcePdfUrl);
+    const anterior = planilla.estado;
+    const audita = anterior === "en_revision_auditoria" && estado === "aprobada_auditoria";
+    const firma = anterior === "pendiente_firma_gerencia" && estado === "firmada";
+    const repara = anterior === estado &&
+        ["aprobada_auditoria", "pendiente_firma_gerencia", "firmada"].includes(estado);
+    if (planilla.empresaId !== empresaId ||
+        !(audita && (developer || rol === "auditoria" || rol === "admin_doc") ||
+            firma && (developer || rol === "gerencia" || rol === "admin_doc") ||
+            repara && (developer || rol === "admin_doc" ||
+                rol === (estado === "firmada" ? "gerencia" : "auditoria")))) {
+        throw new functions.https.HttpsError("permission-denied", "Firma fuera de la etapa o empresa permitida.");
+    }
+    const sourcePdfPath = String(planilla.pathPdfBase || planilla.pathPdfOriginal ||
+        planilla.pathPdf || parseStoragePathFromUrl(planilla.urlPdfBase ||
+        planilla.urlPdfOriginal || planilla.urlPdf) || "").trim();
+    if (!sourcePdfPath.startsWith(`planillas_pago/${empresaId}/`)) {
+        throw new functions.https.HttpsError("failed-precondition", "El PDF base está fuera de la empresa.");
+    }
+    const sourceBytes = await downloadStorageBytes(sourcePdfPath);
     if (!sourceBytes || !sourceBytes.length) {
         throw new functions.https.HttpsError("failed-precondition", "No se pudo abrir el PDF base desde Storage.");
     }
     const bloques = Array.isArray(data?.bloques) ? data.bloques : [];
+    const firmasValidas = new Set([
+        bloque?.pathFirma ?? user.pathFirma,
+        parseStoragePathFromUrl(bloque?.urlFirma ?? user.urlFirma),
+        planilla.pathFirmaCargado, parseStoragePathFromUrl(planilla.urlFirmaCargado),
+        planilla.pathFirmaAuditoria, parseStoragePathFromUrl(planilla.urlFirmaAuditoria),
+        planilla.pathFirmaUsada, parseStoragePathFromUrl(planilla.urlFirmaUsada),
+    ]);
+    if (bloques.some((bloqueFirma) => {
+        if (!bloqueFirma || typeof bloqueFirma !== "object")
+            return true;
+        const path = String(bloqueFirma.firmaPath || "").trim() ||
+            parseStoragePathFromUrl(bloqueFirma.firmaUrl);
+        return path && !firmasValidas.has(path);
+    })) {
+        throw new functions.https.HttpsError("permission-denied", "Firma fuera de la planilla.");
+    }
     const stampedBytes = await stampPdfDirecto({
         sourceBytes,
         bloques,
         estado,
     });
-    const ts = Date.now();
-    const signedPath = `planillas_pago/${empresaId}/firmados/${planillaId}_${ts}_firmado.pdf`;
+    const signedPath = `planillas_pago/${empresaId}/firmados/${planillaId}_${(0, node_crypto_1.randomUUID)()}_firmado.pdf`;
     const bucket = getBucket();
     await bucket.file(signedPath).save(Buffer.from(stampedBytes), {
         metadata: {

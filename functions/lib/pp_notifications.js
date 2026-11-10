@@ -41,6 +41,8 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ppNotificaciones1600 = exports.ppNotificaciones1200 = exports.ppNotificaciones0800 = void 0;
 exports.resolvePlanillasRole = resolvePlanillasRole;
+exports.userBelongsToEmpresa = userBelongsToEmpresa;
+exports.userIsActiveInEmpresa = userIsActiveInEmpresa;
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
 const apps_por_empresa_1 = require("./apps_por_empresa");
