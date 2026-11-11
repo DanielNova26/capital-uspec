@@ -1,5 +1,17 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-11 — AAB Android 2.8.30+84 (Codex)
+
+- El AAB incluye la confirmación del inicio de Visitas en línea y el aviso
+  con el número de visita ante un rechazo del servidor.
+- Archivo local `outputs/android/to-do-gestion-2.8.30-84.aab`, 153101600
+  bytes. Bundletool verificó la estructura y el manifiesto de
+  `com.todogestion.app` con versión 2.8.30, código 84 y SDK objetivo 36.
+  Jarsigner verificó la firma con el certificado del AAB 82.
+- SHA-256 `5c442c09aeec474829974008c7639f267fc0cbcb0987a39e64376a228a3545ee`.
+  Pasaron 68 pruebas de Flutter. Pendientes la carga en Play Console y
+  la validación en la tablet del reporte.
+
 ## 2026-11-11 — Confirmación del inicio de una visita en línea (Codex)
 
 - El inicio en línea espera la transacción de Firestore antes de que la
