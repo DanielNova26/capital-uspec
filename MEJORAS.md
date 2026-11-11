@@ -1,5 +1,21 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-11 — Confirmación del inicio de una visita en línea (Codex)
+
+- El inicio en línea espera la transacción de Firestore antes de que la
+  pantalla reciba el estado en curso. Si la visita cambió de estado,
+  profesional o establecimiento durante la apertura, se pide volver a
+  abrirla. Las visitas descargadas siguen usando el guardado local.
+- Cuando Firestore rechaza el inicio, el aviso muestra el número de la
+  visita o el establecimiento cuando todavía no tiene número. La captura
+  del reporte no incluía la visita y no hubo un registro identificable
+  de la denegación en Cloud Logging.
+- Pasaron 68 pruebas de Flutter y la prueba de emulador que comprueba
+  que un rechazo conserva el estado programado y una confirmación
+  publica el estado en curso. La suite de reglas conservó dos fallos
+  previos de cierre y aprobación de fecha, reproducidos en la revisión
+  anterior. Pendiente publicar y verificar el caso en una tablet física.
+
 ## 2026-11-11 — Mantenimiento deshabilitado hasta su puesta en marcha (Codex)
 
 - Deshabilitado en producción en las cuatro empresas donde estaba activo

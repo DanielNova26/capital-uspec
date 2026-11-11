@@ -2612,6 +2612,16 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
       if (mounted) await _avisoBloqueo(e.mensaje, ubicacion: e);
     } on VisitasException catch (e) {
       if (mounted) await _avisoBloqueo(e.mensaje);
+    } on FirebaseException catch (e) {
+      if (!mounted) return;
+      final visita = v.numero == null
+          ? 'la visita de ${v.establecimiento}'
+          : 'la visita ${numeroVisitaCorto(v.numero)}';
+      final mensaje = e.code == 'permission-denied'
+          ? 'El servidor rechazó el inicio de $visita. '
+                'Pide a tu jefe que revise la asignación, la fecha y el formato.'
+          : 'No se pudo iniciar $visita. ${e.message ?? e.code}';
+      _snack(context, mensaje, error: true);
     } catch (e) {
       if (mounted) _snack(context, 'No se pudo iniciar: $e', error: true);
     } finally {

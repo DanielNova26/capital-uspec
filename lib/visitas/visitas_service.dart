@@ -1618,21 +1618,40 @@ class VisitasService {
       if (!check.permitido) throw VisitasException(check.motivo);
     }
 
-    await _local(
-      _visitas.doc(v.id).update({
-        'estado': kVisitaEnCurso,
-        'inicio': _marca(pos, ref: ref).toMap(),
-        'responsableEstablecimiento': responsable.toMap(),
-        'ciudad': ciudad,
-        'cargoProfesional': cargoProfesional,
-        if (elegido != null) ...{
-          'formatoId': elegido.id,
-          'formatoNombre': elegido.nombre,
-          'formatoAsignado': elegido.toMap(),
-        },
-        'updatedAt': FieldValue.serverTimestamp(),
-      }),
-    );
+    final doc = _visitas.doc(v.id);
+    final cambios = {
+      'estado': kVisitaEnCurso,
+      'inicio': _marca(pos, ref: ref).toMap(),
+      'responsableEstablecimiento': responsable.toMap(),
+      'ciudad': ciudad,
+      'cargoProfesional': cargoProfesional,
+      if (elegido != null) ...{
+        'formatoId': elegido.id,
+        'formatoNombre': elegido.nombre,
+        'formatoAsignado': elegido.toMap(),
+      },
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    if (!kIsWeb && !await VisitasOffline.instance.hayConexion()) {
+      await _local(doc.update(cambios));
+      return;
+    }
+    // La transacción solo publica el nuevo estado tras la aceptación de
+    // Firestore. Un update normal lo emitiría primero en la caché local.
+    await _db.runTransaction((tx) async {
+      final actual = (await tx.get(doc)).data();
+      if (actual == null ||
+          actual['estado'] != kVisitaProgramada ||
+          actual['empresaId'] != v.empresaId ||
+          actual['profesionalId'] != v.profesionalId ||
+          actual['centroId'] != v.centroId ||
+          (actual['subcentroId'] ?? '') != v.subcentroId) {
+        throw const VisitasException(
+          'La visita cambió. Vuelve a abrirla para ver su estado actual.',
+        );
+      }
+      tx.update(doc, cambios);
+    });
   }
 
   /// Sin conexión, Firestore deja la escritura en el equipo y la sube al

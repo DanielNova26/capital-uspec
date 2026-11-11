@@ -23,7 +23,9 @@ const {
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
   query,
+  runTransaction,
   setDoc,
   updateDoc,
   where,
@@ -168,6 +170,7 @@ test.before(async () => {
       }),
       setDoc(doc(db, "TBL_VISITAS/hoy"), visita()),
       setDoc(doc(db, "TBL_VISITAS/hoy2"), visita()),
+      setDoc(doc(db, "TBL_VISITAS/inicioConfirmado"), visita()),
       setDoc(doc(db, "TBL_VISITAS/ayer"), visita({fechaProgramada: dia(-1)})),
       setDoc(doc(db, "TBL_VISITAS/manana"), visita({fechaProgramada: dia(1)})),
       setDoc(doc(db, "TBL_VISITAS/cursoHoy"), visita({
@@ -243,6 +246,38 @@ test("solo se inicia el día programado", async () => {
   await assertFails(updateDoc(doc(db, "TBL_VISITAS/manana"), {
     ...inicio, ...conFormato,
   }));
+});
+
+test("un inicio rechazado no se publica como visita en curso", {timeout: 15000}, async () => {
+  const db = auth("prof");
+  const ref = doc(db, "TBL_VISITAS/inicioConfirmado");
+  const estados = [];
+  let resolverProgramada, resolverEnCurso;
+  const programada = new Promise(resolve => { resolverProgramada = resolve; });
+  const enCurso = new Promise(resolve => { resolverEnCurso = resolve; });
+  const cancelar = onSnapshot(ref, {includeMetadataChanges: true}, (snap) => {
+    const estado = snap.data()?.estado;
+    const pendiente = snap.metadata.hasPendingWrites;
+    estados.push({estado, pendiente});
+    if (estado === "programada" && !pendiente) resolverProgramada();
+    if (estado === "en_curso" && !pendiente) resolverEnCurso();
+  });
+  const iniciar = (formatoAsignado) => runTransaction(db, async (tx) => {
+    const actual = await tx.get(ref);
+    assert.equal(actual.data().estado, "programada");
+    tx.update(ref, {...inicio, ...conFormato, formatoAsignado});
+  });
+  try {
+    await programada;
+    await assertFails(iniciar({...formato, version: 7}));
+    assert.equal((await getDoc(ref)).data().estado, "programada");
+    assert.ok(estados.every(evento => evento.estado !== "en_curso"));
+    await assertSucceeds(iniciar(formato));
+    await enCurso;
+    assert.ok(estados.every(evento => evento.estado !== "en_curso" || !evento.pendiente));
+  } finally {
+    cancelar();
+  }
 });
 
 test("se cierra el mismo día; al día siguiente no", async () => {
