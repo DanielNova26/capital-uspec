@@ -1,5 +1,20 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-10 — Retiro del monitor de OpenWA (Codex)
+
+- Retirado `whatsappOpenWaMonitor` del código y de Firebase. Se verificó en
+  producción que la función, la tarea de Cloud Scheduler y el tema de Pub/Sub
+  ya no existen. El monitor leía los 470 documentos de usuarios cada minuto.
+  Ahorro estimado de 676.800 lecturas de usuarios por cada 24 horas al volumen
+  verificado. Pendiente medir un día completo en Cloud Monitoring.
+- La auditoría registró 98 envíos recientes aceptados por WhatsApp Cloud de
+  Meta. El monitor solo revisaba sesiones de OpenWA y reportaba cero sesiones
+  revisadas. El webhook de Meta y las funciones verificadas de mensajería
+  siguen activos. La verificación usó la auditoría de producción sin generar
+  mensajes de prueba.
+- TypeScript compiló y pasaron las 334 pruebas de Cloud Functions. El cambio
+  se aplicó en el servidor y no requiere una versión nueva de la app.
+
 ## 2026-11-10 — Publicación de subcentros en la versión 2.8.27+81 (Codex)
 
 - Web publicada en `https://to-do-gestion.web.app`. Se verificaron versión

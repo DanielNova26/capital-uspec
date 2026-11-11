@@ -117,7 +117,6 @@ export {
   whatsappAdminAsignarListado,
   whatsappAdminDirectorio,
   whatsappAdminProbar,
-  whatsappOpenWaMonitor,
 } from "./whatsapp";
 export {
   whatsappMetaWebhook,
