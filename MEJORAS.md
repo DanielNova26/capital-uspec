@@ -1,5 +1,20 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-11 — Corrección de actas de Interventoría sin recargar el PDF (Codex)
+
+- Al guardar una corrección se conserva el PDF principal y los adjuntos
+  existentes. También pueden corregirse actas históricas sin archivo.
+  Si se sube un PDF nuevo, pasa a ser el principal y se conserva el anterior.
+  El registro inicial sigue pidiendo el PDF o las imágenes del acta.
+- La tarjeta de adjuntos ajusta su encabezado al espacio disponible.
+  Se comprobó el formulario con datos de prueba a 390, 768, 1024 y 1366
+  píxeles lógicos y texto al 160 %, incluidas las variantes Android e iOS a
+  390 píxeles. Quedan pendientes una sesión de producción y la verificación
+  en dispositivos Android e iOS físicos.
+- Pasaron 478 pruebas de Interventoría. Publicada Web 2.8.32+86 en
+  `to-do-gestion.web.app`. Los seis archivos públicos de arranque y versión
+  coinciden por SHA-256 con la compilación local.
+
 ## 2026-11-11 — AAB Android 2.8.30+84 (Codex)
 
 - El AAB incluye la confirmación del inicio de Visitas en línea y el aviso

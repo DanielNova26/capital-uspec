@@ -1,6 +1,15 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:cloud_firestore/cloud_firestore.dart' show Timestamp;
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:todo/interventoria/interventoria_models.dart';
+import 'package:todo/interventoria/interventoria_service.dart';
+
+import '../support/memory_firestore.dart';
+
+class _Storage extends Fake implements FirebaseStorage {}
+
+class _Functions extends Fake implements FirebaseFunctions {}
 
 InterventoriaItem _item(String key, double? v, {bool ne = false}) =>
     InterventoriaItem(key: key, label: key, valor: v, noEvaluado: ne);
@@ -56,7 +65,7 @@ void main() {
   });
 
   group('cierre del registro', () {
-    test('exige número de acta y PDF nuevo, también al corregir', () {
+    test('exige número y archivo en el registro inicial', () {
       expect(
         validarCierreRegistroActa(numeroActa: ' ', hayArchivoNuevo: true),
         contains('número de acta'),
@@ -68,6 +77,25 @@ void main() {
       expect(
         validarCierreRegistroActa(numeroActa: '123', hayArchivoNuevo: true),
         isNull,
+      );
+    });
+
+    test('permite corregir sin archivo y sigue exigiendo número', () {
+      expect(
+        validarCierreRegistroActa(
+          numeroActa: '123',
+          hayArchivoNuevo: false,
+          esCorreccion: true,
+        ),
+        isNull,
+      );
+      expect(
+        validarCierreRegistroActa(
+          numeroActa: ' ',
+          hayArchivoNuevo: false,
+          esCorreccion: true,
+        ),
+        contains('número de acta'),
       );
     });
 
@@ -100,6 +128,117 @@ void main() {
         contains('0 a 100'),
       );
     });
+  });
+
+  group('guardado de correcciones', () {
+    const path = 'TBL_INTERVENTORIA_VISITAS/acta';
+    const originalUrl = 'https://ejemplo.test/original.pdf';
+    const adjuntoAnterior = {
+      'url': originalUrl,
+      'nombre': 'original.pdf',
+      'datoHistorico': 'conservar',
+    };
+    late MemoryFirestore db;
+    late InterventoriaService service;
+    late InterventoriaVisita correccion;
+
+    setUp(() {
+      db = MemoryFirestore();
+      addTearDown(db.close);
+      service = InterventoriaService(
+        db: db,
+        storage: _Storage(),
+        functions: _Functions(),
+      );
+      db.documents[path] = {
+        'empresaId': 'empresa',
+        'creadoPor': 'autor',
+        'faseActa': kFaseActaDevuelta,
+        'idVisitaK2': '123',
+      };
+      correccion = InterventoriaVisita.fromMap('acta', {
+        ...db.documents[path]!,
+        'idVisitaK2': '124',
+      });
+    });
+
+    for (final archivos in <Map<String, Object>>[
+      {
+        'actaOriginalUrl': originalUrl,
+        'imagenesActa': [adjuntoAnterior],
+      },
+      {'actaOriginalUrl': originalUrl},
+      {},
+    ]) {
+      test(
+        'guarda los datos y conserva los campos adjuntos ${archivos.keys}',
+        () async {
+          db.beforeTransaction = () => db.documents[path]!.addAll(archivos);
+
+          await service.corregirActaDevuelta(
+            visita: correccion,
+            corregidoPorId: 'autor',
+          );
+
+          final guardada = db.documents[path]!;
+          expect(guardada['idVisitaK2'], '124');
+          expect(guardada['faseActa'], 'puntajes');
+          expect(
+            guardada.containsKey('imagenesActa'),
+            archivos.containsKey('imagenesActa'),
+          );
+          expect(guardada['imagenesActa'], archivos['imagenesActa']);
+          expect(
+            guardada.containsKey('actaOriginalUrl'),
+            archivos.containsKey('actaOriginalUrl'),
+          );
+          expect(guardada['actaOriginalUrl'], archivos['actaOriginalUrl']);
+        },
+      );
+    }
+
+    for (final soloUrl in [false, true]) {
+      test(
+        'actualiza el PDF principal y conserva el previo (solo URL: $soloUrl)',
+        () async {
+          const nuevaUrl = 'https://ejemplo.test/corregida.pdf';
+          final fecha = Timestamp.now();
+          final nuevo = InterventoriaAdjunto(
+            url: nuevaUrl,
+            nombre: 'corregida.pdf',
+            path: 'acta/corregida.pdf',
+            contentType: 'application/pdf',
+            origen: 'web',
+            fechaSubida: fecha,
+          ).toMap();
+          db.documents[path]!.addAll({
+            'actaOriginalUrl': originalUrl,
+            'fechaRegistro': fecha,
+            if (!soloUrl) 'imagenesActa': [adjuntoAnterior],
+          });
+
+          await service.corregirActaDevuelta(
+            visita: InterventoriaVisita.fromMap('acta', {
+              'empresaId': 'empresa',
+              'idVisitaK2': '124',
+              'actaOriginalUrl': nuevaUrl,
+              'imagenesActa': [nuevo],
+            }),
+            corregidoPorId: 'autor',
+          );
+
+          final guardada = db.documents[path]!;
+          expect(guardada['actaOriginalUrl'], nuevaUrl);
+          final adjuntos = guardada['imagenesActa'] as List;
+          expect(adjuntos, hasLength(2));
+          expect(
+            adjuntos.first,
+            soloUrl ? containsPair('url', originalUrl) : adjuntoAnterior,
+          );
+          expect(adjuntos.last, nuevo);
+        },
+      );
+    }
   });
 
   test('el concepto sanitario vigente se lleva al ítem del acta', () {

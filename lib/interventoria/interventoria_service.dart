@@ -1919,6 +1919,8 @@ class InterventoriaService {
 
   /// Guarda la corrección sobre la misma acta y la devuelve a la bandeja de
   /// revisión. No borra el historial `devoluciones` ni crea otro documento.
+  /// Los adjuntos y la URL principal de [visita] corresponden a archivos
+  /// recién subidos. Los archivos existentes se conservan en la transacción.
   Future<void> corregirActaDevuelta({
     required InterventoriaVisita visita,
     required String corregidoPorId,
@@ -1927,19 +1929,14 @@ class InterventoriaService {
     if (visita.id.isEmpty) {
       throw StateError('El acta todavía no se ha guardado.');
     }
-    if (!contieneActaPdf(visita.adjuntos)) {
-      throw ArgumentError('El acta corregida debe conservar un PDF.');
-    }
-
     final ref = _db.collection('TBL_INTERVENTORIA_VISITAS').doc(visita.id);
     String correccionTareaId = '';
     await _db.runTransaction((transaction) async {
       final snapshot = await transaction.get(ref);
       if (!snapshot.exists) throw StateError('El acta ya no existe.');
-      final actual = InterventoriaVisita.fromMap(snapshot.id, snapshot.data()!);
-      correccionTareaId = (snapshot.data()?['correccionTareaId'] ?? '')
-          .toString()
-          .trim();
+      final data = snapshot.data()!;
+      final actual = InterventoriaVisita.fromMap(snapshot.id, data);
+      correccionTareaId = (data['correccionTareaId'] ?? '').toString().trim();
       if (!esActaDevueltaParaCorreccion(actual)) {
         throw StateError('El acta ya no está pendiente de corrección.');
       }
@@ -1953,6 +1950,10 @@ class InterventoriaService {
         throw StateError('Esta corrección está asignada a otra persona.');
       }
 
+      final nuevoPdfUrl = visita.actaOriginalUrl;
+      final adjuntoHistorico = nuevoPdfUrl.isEmpty
+          ? null
+          : actual.adjuntoActaHistorico;
       transaction.update(ref, {
         'centroCostoId': visita.centroCostoId,
         'centroCostoCodigo': visita.centroCostoCodigo,
@@ -1970,8 +1971,13 @@ class InterventoriaService {
         'itemsEvaluacion': visita.items.map(
           (key, value) => MapEntry(key, value.toMap()),
         ),
-        'imagenesActa': visita.adjuntos.map((a) => a.toMap()).toList(),
-        'actaOriginalUrl': visita.actaOriginalUrl,
+        if (visita.adjuntos.isNotEmpty)
+          'imagenesActa': [
+            ...?data['imagenesActa'] as List?,
+            if (adjuntoHistorico != null) adjuntoHistorico.toMap(),
+            for (final adjunto in visita.adjuntos) adjunto.toMap(),
+          ],
+        if (nuevoPdfUrl.isNotEmpty) 'actaOriginalUrl': nuevoPdfUrl,
         'ocrTextoExtraido': visita.ocrTextoExtraido,
         'faseActa': 'puntajes',
         'corregidaPorId': corregidoPorId,

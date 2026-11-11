@@ -1259,6 +1259,24 @@ class InterventoriaVisita {
   /// calculado.
   double get porcentajeOficial => porcentajeFinal ?? porcentajeGeneral;
 
+  /// Actas antiguas guardaban el PDF principal solo por URL.
+  InterventoriaAdjunto? get adjuntoActaHistorico {
+    final url = actaOriginalUrl.trim();
+    if (url.isEmpty ||
+        contieneActaPdf(adjuntos) ||
+        adjuntos.any((adjunto) => adjunto.url.trim() == url)) {
+      return null;
+    }
+    return InterventoriaAdjunto(
+      url: url,
+      nombre: 'Acta actual.pdf',
+      path: '',
+      contentType: 'application/pdf',
+      origen: 'historico',
+      fechaSubida: fechaRegistro,
+    );
+  }
+
   const InterventoriaVisita({
     this.idVisitaK2 = '',
     this.id = '',
@@ -2533,18 +2551,18 @@ const int kMinMotivoPorcentajeFinal = 10;
 /// Qué le falta al registro de un acta, o null si está completo. Es lo que
 /// exigen el registro nuevo y la corrección de un acta devuelta:
 /// - número de acta;
-/// - el PDF del acta cargado ahora (en una corrección no vale el anterior:
-///   se corrige y se vuelve a subir el PDF corregido);
+/// - el PDF o las imágenes del acta cuando se registra por primera vez;
 /// - si se escribió un porcentaje final: que sea válido y con motivo.
 String? validarCierreRegistroActa({
   required String numeroActa,
   required bool hayArchivoNuevo,
+  bool esCorreccion = false,
   String porcentajeFinalTexto = '',
   String motivoPorcentajeFinal = '',
 }) {
   if (numeroActa.trim().isEmpty) return 'Indica el número de acta.';
-  if (!hayArchivoNuevo) {
-    return 'Carga el PDF del acta (también al corregirla).';
+  if (!esCorreccion && !hayArchivoNuevo) {
+    return 'Carga el PDF o las imágenes del acta.';
   }
   if (porcentajeFinalTexto.trim().isNotEmpty) {
     if (leerPorcentajeFinal(porcentajeFinalTexto) == null) {

@@ -7421,23 +7421,8 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
       );
     }
     _itemKeys = _clavesDeItems();
-    _adjuntosExistentes = [...?existente?.adjuntos];
-    // Compatibilidad con actas antiguas que solo guardaban la URL principal
-    // y no el objeto completo dentro de `imagenesActa`.
-    if (existente != null &&
-        existente.actaOriginalUrl.trim().isNotEmpty &&
-        !contieneActaPdf(_adjuntosExistentes)) {
-      _adjuntosExistentes.add(
-        InterventoriaAdjunto(
-          url: existente.actaOriginalUrl,
-          nombre: 'Acta actual.pdf',
-          path: '',
-          contentType: 'application/pdf',
-          origen: 'historico',
-          fechaSubida: existente.fechaRegistro,
-        ),
-      );
-    }
+    final adjuntoHistorico = existente?.adjuntoActaHistorico;
+    _adjuntosExistentes = [...?existente?.adjuntos, ?adjuntoHistorico];
     _ocrCtrl.text = existente?.ocrTextoExtraido ?? '';
 
     final centroInicial = existente?.centroCostoId.trim().isNotEmpty == true
@@ -7726,11 +7711,10 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
     );
   }
 
-  /// Lo que falta para guardar, o null: número de acta, PDF cargado ahora
-  /// (también al corregir) y, si hay porcentaje final, su motivo.
   String? get _faltaParaGuardar => validarCierreRegistroActa(
     numeroActa: _idVisitaK2Ctrl.text,
     hayArchivoNuevo: _files.isNotEmpty,
+    esCorreccion: _editando,
     porcentajeFinalTexto: _pctFinalCtrl.text,
     motivoPorcentajeFinal: _pctFinalMotivoCtrl.text,
   );
@@ -7978,6 +7962,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
         _ActaGeneralCard(
           files: _files,
           existingFiles: _adjuntosExistentes,
+          esCorreccion: _editando,
           extracting: _extracting,
           onPickArchivo: _pickArchivo,
           onPickCamera: _pickCamera,
@@ -9107,14 +9092,9 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
                 ),
         );
       }
-      final adjuntos = <InterventoriaAdjunto>[
-        ..._adjuntosExistentes,
-        ...nuevosAdjuntosSubidos,
-      ];
-      // Si se adjuntó un PDF nuevo, pasa a ser el principal. Si no, se
-      // conserva el original que ya respaldaba el acta.
+      // Solo un PDF nuevo cambia el documento principal.
       InterventoriaAdjunto? actaPdf;
-      for (final adjunto in adjuntos.reversed) {
+      for (final adjunto in nuevosAdjuntosSubidos.reversed) {
         if (adjunto.contentType.toLowerCase() == 'application/pdf') {
           actaPdf = adjunto;
           break;
@@ -9144,8 +9124,8 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
             ? ''
             : _pctFinalMotivoCtrl.text.trim(),
         items: itemsParaGuardar,
-        adjuntos: adjuntos,
-        actaOriginalUrl: actaPdf?.url ?? existente?.actaOriginalUrl ?? '',
+        adjuntos: nuevosAdjuntosSubidos,
+        actaOriginalUrl: actaPdf?.url ?? '',
         observaciones: existente?.observaciones ?? '',
         ocrTextoExtraido: _ocrCtrl.text.trim(),
         ocrDatosDetectados: existente?.ocrDatosDetectados ?? const {},
@@ -9955,6 +9935,7 @@ class _EmptyHallazgos extends StatelessWidget {
 class _ActaGeneralCard extends StatelessWidget {
   final List<_PickedActa> files;
   final List<InterventoriaAdjunto> existingFiles;
+  final bool esCorreccion;
   final bool extracting;
   final VoidCallback onPickArchivo;
   final VoidCallback onPickCamera;
@@ -9966,6 +9947,7 @@ class _ActaGeneralCard extends StatelessWidget {
   const _ActaGeneralCard({
     required this.files,
     this.existingFiles = const [],
+    required this.esCorreccion,
     required this.extracting,
     required this.onPickArchivo,
     required this.onPickCamera,
@@ -9977,6 +9959,7 @@ class _ActaGeneralCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final faltaAdjunto = !esCorreccion && files.isEmpty;
     final imageCount = files
         .where(
           (f) => f.contentType == 'image/jpeg' || f.contentType == 'image/png',
@@ -9993,19 +9976,21 @@ class _ActaGeneralCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            Wrap(
+              spacing: 12,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                const Expanded(
-                  child: Text(
-                    'Adjuntar acta en PDF (opcional)',
-                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                Text(
+                  esCorreccion ? 'Adjuntar PDF (opcional)' : 'Acta en PDF',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
                   ),
                 ),
-                if (files.isNotEmpty || existingFiles.isNotEmpty)
+                if (files.isNotEmpty)
                   Text(
-                    files.isEmpty
-                        ? '${existingFiles.length} archivo(s) actual(es)'
-                        : imageCount > 0
+                    imageCount > 0
                         ? '$imageCount imagen(es) -> PDF'
                         : '$pdfCount PDF',
                     style: const TextStyle(
@@ -10018,19 +10003,17 @@ class _ActaGeneralCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              files.isEmpty && existingFiles.isEmpty
-                  ? 'Adjunta el PDF del acta o escanea sus páginas. No se exige evidencia inicial de los hallazgos.'
-                  : existingFiles.isNotEmpty && files.isEmpty
-                  ? 'El archivo actual se conservará. Adjunta uno nuevo solo si debes reemplazar o complementar el soporte.'
-                  : 'Las imágenes escaneadas se convierten en el PDF general al guardar.',
+              files.isNotEmpty
+                  ? 'Las imágenes escaneadas se convierten en PDF al guardar.'
+                  : existingFiles.isNotEmpty
+                  ? 'El archivo actual se conservará. Puedes adjuntar un PDF nuevo si debes actualizarlo.'
+                  : esCorreccion
+                  ? 'Puedes guardar la corrección sin adjuntar un archivo.'
+                  : 'Adjunta el PDF del acta o escanea sus páginas.',
               style: TextStyle(
                 fontSize: 11,
-                color: files.isEmpty && existingFiles.isEmpty
-                    ? _kDanger
-                    : const Color(0xFF64748B),
-                fontWeight: files.isEmpty && existingFiles.isEmpty
-                    ? FontWeight.w700
-                    : FontWeight.normal,
+                color: faltaAdjunto ? _kDanger : const Color(0xFF64748B),
+                fontWeight: faltaAdjunto ? FontWeight.w700 : FontWeight.normal,
               ),
             ),
             const SizedBox(height: 8),
