@@ -1,5 +1,18 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-11 — Mantenimiento deshabilitado hasta su puesta en marcha (Codex)
+
+- Deshabilitado en producción en las cuatro empresas donde estaba activo
+  (Capital USPEC, Servir USPEC, FYC y ALFA). Se verificó `enabled: false`
+  en cada registro canónico. Las asignaciones de acceso se conservaron.
+- Para habilitarlo, seleccionar la empresa en Admin → Apps, roles y permisos
+  → Configuración de apps y encender el interruptor de Mantenimiento.
+  La configuración requiere un gestor autorizado de esa empresa.
+- Pasaron 13 pruebas Flutter y cuatro pruebas de reglas de Mantenimiento.
+  El emulador verificó el bloqueo de acceso con el módulo apagado y la
+  reactivación por un gestor. Esta comprobación no se hizo con una sesión
+  de producción en Web, Android ni iOS.
+
 ## 2026-11-11 — Carga masiva de empleados en Talento Humano (Codex)
 
 - Talento Humano → Gestión de personal → Carga masiva genera un Excel con un
