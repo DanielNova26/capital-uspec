@@ -1,5 +1,17 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-10 — Entrega móvil 2.8.28+82 (Codex)
+
+- Generado `outputs/android/to-do-gestion-2.8.28-82.aab` a partir del código
+  de `5693ea8`. Bundletool validó la estructura y el manifiesto confirma
+  `com.todogestion.app`, versión 2.8.28, compilación 82 y SDK objetivo 36.
+  Jarsigner verificó la firma y el certificado coincide con el AAB 81.
+  Tamaño de 153890574 bytes y SHA-256
+  `b521b9aa349085a39fa86a60ff1b9fe89ae1be23adeb93b07d7506618c83ee11`.
+- La guía [para publicar desde el Mac](docs/PUBLICAR_IOS_2.8.28.md) usa el
+  registro iOS existente de To-Do Gestión. Quedan pendientes la compilación,
+  firma y prueba en iPhone desde el Mac, y las cargas en ambas tiendas.
+
 ## 2026-11-10 — Menos lecturas en el inicio (Codex)
 
 - La agenda de planes de mejora carga al entrar y se actualiza al retomar o
