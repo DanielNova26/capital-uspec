@@ -1,5 +1,34 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-10 — Menos lecturas en el inicio (Codex)
+
+- La agenda de planes de mejora carga al entrar y se actualiza al retomar o
+  navegar por el calendario, con reutilización durante cinco minutos. Un aviso
+  nuevo de plan y el botón de actualizar permiten recargar antes. Se retiró
+  el sondeo cada cinco minutos por sesión.
+- El inicio conserva las suscripciones a módulos y tareas entre
+  reconstrucciones. El calendario cierra las consultas de Visitas al cambiar
+  a una empresa sin acceso. Las fechas históricas de tareas y visitas tienen
+  distintos campos o tipos. El filtro de fecha en Firestore queda pendiente
+  de compatibilidad con esos registros.
+- Campana, Nuevas e Historial comparten la consulta viva al abrir desde el
+  inicio. Historial muestra tandas de 40 usando esa misma consulta. El
+  contador sigue interpretando `read`, `leido` y `visto`, incluidos avisos
+  históricos sin esos campos. Queda pendiente un contador agregado en tiempo
+  real compatible con esos estados.
+- Pasaron 19 pruebas dirigidas. Notificaciones y el encabezado de agenda
+  se comprobaron con texto ampliado a 390, 768, 1024 y 1366 píxeles según
+  el componente. Las ocho fallas de `visitas_cronograma_test.dart` se
+  reprodujeron por separado sobre `894d36c`, antes del cambio.
+- Web 2.8.28 (82) publicada. Versión y SHA-256 de los seis archivos públicos
+  de arranque coinciden con la compilación local. Chrome cargó la vista
+  Flutter pública a los cuatro anchos. El ejecutor de pruebas Flutter para
+  Chrome permaneció en la carga y se detuvo; las pruebas de componentes se
+  ejecutaron con el ejecutor local. Análisis dirigido sin errores y con
+  advertencias previas.
+- Pendientes la validación con sesión real en dispositivos Android e iOS,
+  las publicaciones móviles y la medición del ahorro con tráfico real.
+
 ## 2026-11-10 — Retiro del monitor de OpenWA (Codex)
 
 - Retirado `whatsappOpenWaMonitor` del código y de Firebase. Se verificó en

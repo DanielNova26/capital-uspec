@@ -1,6 +1,7 @@
 // lib/home/notifications_screen.dart
 
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -26,6 +27,8 @@ import 'task_aviso_navigation.dart';
 
 const String _notifsRoot = 'TBL_NOTIFICACIONES';
 const Color kMarronOscuro = Color(0xFF145DA0);
+typedef NotificationSnapshot =
+    AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>>;
 
 bool _isRutasEvidenceRejected(String type) =>
     type.trim().toLowerCase() == 'rutas_evidencia_rechazada';
@@ -263,18 +266,81 @@ Future<bool> _openNotificationTask(
   return true;
 }
 
-class NotificationsScreen extends StatelessWidget {
+class NotificationsScreen extends StatefulWidget {
   final String userId;
   final String? empresaId;
+  final ValueListenable<NotificationSnapshot>? notifications;
 
-  const NotificationsScreen({Key? key, required this.userId, this.empresaId})
-    : super(key: key);
+  const NotificationsScreen({
+    super.key,
+    required this.userId,
+    this.empresaId,
+    this.notifications,
+  });
+
+  @override
+  State<NotificationsScreen> createState() => _NotificationsScreenState();
+}
+
+class _NotificationsScreenState extends State<NotificationsScreen> {
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _stream;
+  String get userId => widget.userId;
+  String? get empresaId => widget.empresaId;
+
+  @override
+  void initState() {
+    super.initState();
+    _bindStream();
+  }
+
+  @override
+  void didUpdateWidget(covariant NotificationsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.userId != userId ||
+        oldWidget.notifications != widget.notifications) {
+      _bindStream();
+    }
+  }
+
+  void _bindStream() {
+    _stream = widget.notifications == null
+        ? FirebaseFirestore.instance
+              .collection(_notifsRoot)
+              .doc(userId)
+              .collection('notifications')
+              .orderBy('createdAt', descending: true)
+              .snapshots()
+        : null;
+  }
+
+  static int _createdAtRank(Object? value) => switch (value) {
+    num _ => 1,
+    Timestamp _ => 2,
+    String _ => 3,
+    _ => 0,
+  };
+
+  static int _newestFirst(
+    QueryDocumentSnapshot<Map<String, dynamic>> a,
+    QueryDocumentSnapshot<Map<String, dynamic>> b,
+  ) {
+    final first = a.data()['createdAt'];
+    final second = b.data()['createdAt'];
+    final order = switch ((first, second)) {
+      (num x, num y) => y.compareTo(x),
+      (Timestamp x, Timestamp y) => y.compareTo(x),
+      (String x, String y) => y.compareTo(x),
+      _ => _createdAtRank(second).compareTo(_createdAtRank(first)),
+    };
+    return order != 0 ? order : b.id.compareTo(a.id);
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final isWeb = MediaQuery.of(context).size.width >= 900;
+    final notifications = widget.notifications;
 
     return DefaultTabController(
       length: 2,
@@ -364,21 +430,51 @@ class NotificationsScreen extends StatelessWidget {
             ),
           ),
         ),
-        body: TabBarView(
-          children: [
-            _NotificationList(
-              userId: userId,
-              onlyUnread: true,
-              empresaId: empresaId,
-            ),
-            _NotificationList(
-              userId: userId,
-              onlyUnread: false,
-              empresaId: empresaId,
-            ),
-          ],
-        ),
+        body: notifications == null
+            ? StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                key: ValueKey(userId),
+                stream: _stream,
+                builder: (context, snapshot) => _buildTabs(snapshot),
+              )
+            : ValueListenableBuilder<NotificationSnapshot>(
+                valueListenable: notifications,
+                builder: (context, snapshot, _) => _buildTabs(snapshot),
+              ),
       ),
+    );
+  }
+
+  Widget _buildTabs(NotificationSnapshot snapshot) {
+    if (snapshot.hasError) {
+      return const EmptyStateWidget(
+        icon: Icons.error_outline,
+        title: 'Error al cargar',
+        message: 'No pudimos cargar tus notificaciones en este momento.',
+      );
+    }
+    final data = snapshot.data;
+    if (data == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    // La campana también cuenta avisos históricos sin createdAt. Las pestañas
+    // conservan el orden y los registros de la consulta original de historial.
+    final docs = widget.notifications == null
+        ? data.docs
+        : (data.docs
+              .where((doc) => doc.data().containsKey('createdAt'))
+              .toList()
+            ..sort(_newestFirst));
+    return TabBarView(
+      children: [
+        for (final onlyUnread in [true, false])
+          _NotificationList(
+            key: ValueKey((userId, empresaId, onlyUnread)),
+            userId: userId,
+            onlyUnread: onlyUnread,
+            empresaId: empresaId,
+            docs: docs,
+          ),
+      ],
     );
   }
 
@@ -393,7 +489,7 @@ class NotificationsScreen extends StatelessWidget {
     final eid = (empresaId ?? '').trim();
     final toMark = snap.docs.where((d) {
       final data = d.data();
-      if (_NotificationList.isReadData(data)) {
+      if (_NotificationListState.isReadData(data)) {
         return false;
       }
       if (eid.isNotEmpty) {
@@ -415,17 +511,35 @@ class NotificationsScreen extends StatelessWidget {
   }
 }
 
-class _NotificationList extends StatelessWidget {
+class _NotificationList extends StatefulWidget {
   final String userId;
   final bool onlyUnread;
   final String? empresaId;
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
 
   const _NotificationList({
-    Key? key,
+    super.key,
     required this.userId,
     required this.onlyUnread,
+    required this.docs,
     this.empresaId,
-  }) : super(key: key);
+  });
+
+  @override
+  State<_NotificationList> createState() => _NotificationListState();
+}
+
+class _NotificationListState extends State<_NotificationList>
+    with AutomaticKeepAliveClientMixin {
+  static const _historyPageSize = 40;
+  int _historyLimit = _historyPageSize;
+
+  String get userId => widget.userId;
+  bool get onlyUnread => widget.onlyUnread;
+  String? get empresaId => widget.empresaId;
+
+  @override
+  bool get wantKeepAlive => true;
 
   DateTime? _parseCreatedAt(dynamic createdAt) {
     if (createdAt == null) return null;
@@ -589,645 +703,505 @@ class _NotificationList extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
 
-    final stream = FirebaseFirestore.instance
-        .collection(_notifsRoot)
-        .doc(userId)
-        .collection('notifications')
-        .orderBy('createdAt', descending: true)
-        .snapshots();
+    super.build(context);
+    final docs = widget.docs;
+    final uniqueDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    final seen = <String>{};
 
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: stream,
-      builder: (ctx, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+    for (final d in docs) {
+      final data = d.data();
+      // Filtro de empresa activa: si hay empresa seleccionada, sólo entra esa empresa.
+      if (!_matchesEmpresa(data)) continue;
+      final taskId = (data['taskId'] as String?) ?? '';
+      final when = _parseCreatedAt(data['createdAt']);
+      final key = '$taskId-${when?.millisecondsSinceEpoch ?? d.id}';
+      if (seen.add(key)) {
+        if (!onlyUnread || !_isRead(data)) {
+          uniqueDocs.add(d);
         }
+      }
+    }
 
-        if (snap.hasError) {
-          return EmptyStateWidget(
-            icon: Icons.error_outline,
-            title: 'Error al cargar',
-            message: 'No pudimos cargar tus notificaciones en este momento.',
-            actionLabel: 'Reintentar',
-            onAction: () {},
-          );
-        }
+    if (uniqueDocs.isEmpty) {
+      return EmptyStateWidget(
+        icon: onlyUnread
+            ? Icons.notifications_off_outlined
+            : Icons.notifications_none_rounded,
+        title: onlyUnread ? 'Sin novedades' : 'Historial vacío',
+        message: onlyUnread
+            ? 'Estás al día. No tienes notificaciones nuevas.'
+            : 'Aún no tienes un historial de actividades.',
+      );
+    }
 
-        final docs = snap.data?.docs ?? [];
-        final uniqueDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-        final seen = <String>{};
+    // Group by company + date when no active company was provided.
+    final grouped =
+        <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+    final showCompanyDivision = (empresaId ?? '').trim().isEmpty;
+    final companyKeys = <String>{};
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
 
-        for (final d in docs) {
-          final data = d.data();
-          // Filtro de empresa activa: si hay empresa seleccionada, sólo entra esa empresa.
-          if (!_matchesEmpresa(data)) continue;
-          final taskId = (data['taskId'] as String?) ?? '';
-          final when = _parseCreatedAt(data['createdAt']);
-          final key = '$taskId-${when?.millisecondsSinceEpoch ?? d.id}';
-          if (seen.add(key)) {
-            if (!onlyUnread || !_isRead(data)) {
-              uniqueDocs.add(d);
-            }
-          }
-        }
+    final shown = onlyUnread ? uniqueDocs : uniqueDocs.take(_historyLimit);
+    final hasMore = !onlyUnread && uniqueDocs.length > _historyLimit;
+    for (final doc in shown) {
+      final data = doc.data();
+      companyKeys.add(_empresaKey(data));
+      final dt = _parseCreatedAt(data['createdAt']);
+      String dateKey = 'Anteriores';
+      if (dt != null) {
+        final date = DateTime(dt.year, dt.month, dt.day);
+        if (date == today) {
+          dateKey = 'Hoy';
+        } else if (date == yesterday)
+          dateKey = 'Ayer';
+        else
+          dateKey = DateFormat('MMMM dd, yyyy', 'es_CO').format(date);
+      }
+      final key = showCompanyDivision
+          ? '${_empresaLabel(data)} · $dateKey'
+          : dateKey;
+      grouped.putIfAbsent(key, () => []).add(doc);
+    }
 
-        if (uniqueDocs.isEmpty) {
-          return EmptyStateWidget(
-            icon: onlyUnread
-                ? Icons.notifications_off_outlined
-                : Icons.notifications_none_rounded,
-            title: onlyUnread ? 'Sin novedades' : 'Historial vacío',
-            message: onlyUnread
-                ? 'Estás al día. No tienes notificaciones nuevas.'
-                : 'Aún no tienes un historial de actividades.',
-          );
-        }
-
-        // Group by company + date when no active company was provided.
-        final grouped =
-            <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
-        final showCompanyDivision = (empresaId ?? '').trim().isEmpty;
-        final companyKeys = <String>{};
-        final now = DateTime.now();
-        final today = DateTime(now.year, now.month, now.day);
-        final yesterday = today.subtract(const Duration(days: 1));
-
-        for (final doc in uniqueDocs) {
-          final data = doc.data();
-          companyKeys.add(_empresaKey(data));
-          final dt = _parseCreatedAt(data['createdAt']);
-          String dateKey = 'Anteriores';
-          if (dt != null) {
-            final date = DateTime(dt.year, dt.month, dt.day);
-            if (date == today) {
-              dateKey = 'Hoy';
-            } else if (date == yesterday)
-              dateKey = 'Ayer';
-            else
-              dateKey = DateFormat('MMMM dd, yyyy', 'es_CO').format(date);
-          }
-          final key = showCompanyDivision
-              ? '${_empresaLabel(data)} · $dateKey'
-              : dateKey;
-          grouped.putIfAbsent(key, () => []).add(doc);
-        }
-
-        return Center(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: isWeb ? 800 : double.infinity,
-            ),
-            child: ListView.builder(
-              padding: EdgeInsets.symmetric(
-                horizontal: isWeb ? 32 : 16,
-                vertical: 24,
-              ),
-              itemCount: grouped.keys.length + 1,
-              itemBuilder: (context, groupIndex) {
-                if (groupIndex == 0) {
-                  final unreadCount = uniqueDocs
-                      .where((doc) => !_isRead(doc.data()))
-                      .length;
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 24),
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          scheme.primary.withValues(alpha: 0.10),
-                          scheme.surfaceContainerHighest.withValues(
-                            alpha: 0.55,
-                          ),
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
+    return Center(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: isWeb ? 800 : double.infinity),
+        child: ListView.builder(
+          padding: EdgeInsets.symmetric(
+            horizontal: isWeb ? 32 : 16,
+            vertical: 24,
+          ),
+          itemCount: grouped.length + (hasMore ? 2 : 1),
+          itemBuilder: (context, groupIndex) {
+            if (groupIndex == 0) {
+              final unreadCount = uniqueDocs
+                  .where((doc) => !_isRead(doc.data()))
+                  .length;
+              return Container(
+                margin: const EdgeInsets.only(bottom: 24),
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      scheme.primary.withValues(alpha: 0.10),
+                      scheme.surfaceContainerHighest.withValues(alpha: 0.55),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: scheme.primary.withValues(alpha: 0.10),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 52,
+                      height: 52,
+                      decoration: BoxDecoration(
+                        color: scheme.primary.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(16),
                       ),
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(
-                        color: scheme.primary.withValues(alpha: 0.10),
+                      child: Icon(
+                        Icons.notifications_active_rounded,
+                        color: scheme.primary,
                       ),
                     ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 52,
-                          height: 52,
-                          decoration: BoxDecoration(
-                            color: scheme.primary.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(16),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            onlyUnread
+                                ? 'Bandeja nueva'
+                                : 'Historial de actividad',
+                            style: TextStyle(
+                              fontFamily: kArial,
+                              fontSize: 17,
+                              fontWeight: FontWeight.w900,
+                              color: scheme.onSurface,
+                            ),
                           ),
-                          child: Icon(
-                            Icons.notifications_active_rounded,
-                            color: scheme.primary,
+                          const SizedBox(height: 4),
+                          Text(
+                            onlyUnread
+                                ? '$unreadCount alerta${unreadCount == 1 ? "" : "s"} pendiente${unreadCount == 1 ? "" : "s"}${showCompanyDivision ? " en ${companyKeys.length} empresa${companyKeys.length == 1 ? "" : "s"}" : ""}'
+                                : '${uniqueDocs.length} registro${uniqueDocs.length == 1 ? "" : "s"} disponible${uniqueDocs.length == 1 ? "" : "s"}${showCompanyDivision ? " en ${companyKeys.length} empresa${companyKeys.length == 1 ? "" : "s"}" : ""}',
+                            style: TextStyle(
+                              fontFamily: kArial,
+                              fontSize: 13,
+                              color: scheme.onSurfaceVariant,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                onlyUnread
-                                    ? 'Bandeja nueva'
-                                    : 'Historial de actividad',
-                                style: TextStyle(
-                                  fontFamily: kArial,
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w900,
-                                  color: scheme.onSurface,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                onlyUnread
-                                    ? '$unreadCount alerta${unreadCount == 1 ? "" : "s"} pendiente${unreadCount == 1 ? "" : "s"}${showCompanyDivision ? " en ${companyKeys.length} empresa${companyKeys.length == 1 ? "" : "s"}" : ""}'
-                                    : '${uniqueDocs.length} registro${uniqueDocs.length == 1 ? "" : "s"} disponible${uniqueDocs.length == 1 ? "" : "s"}${showCompanyDivision ? " en ${companyKeys.length} empresa${companyKeys.length == 1 ? "" : "s"}" : ""}',
-                                style: TextStyle(
-                                  fontFamily: kArial,
-                                  fontSize: 13,
-                                  color: scheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ],
-                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+            if (groupIndex > grouped.length) {
+              return Center(
+                child: OutlinedButton(
+                  onPressed: () =>
+                      setState(() => _historyLimit += _historyPageSize),
+                  child: const Text('Ver más notificaciones'),
+                ),
+              );
+            }
+            final groupKey = grouped.keys.elementAt(groupIndex - 1);
+            final items = grouped[groupKey]!;
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: scheme.surfaceContainerHighest.withValues(
+                        alpha: 0.5,
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      groupKey.toUpperCase(),
+                      style: TextStyle(
+                        color: scheme.primary,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 11,
+                        letterSpacing: 1.5,
+                        fontFamily: kArial,
+                      ),
+                    ),
+                  ),
+                ),
+                ...items.map((doc) {
+                  final data = doc.data();
+                  final taskId = data['taskId'] as String?;
+                  final title = (data['title'] as String?) ?? '';
+                  final desc = (data['description'] as String?) ?? '';
+                  final type = (data['type'] ?? '').toString();
+                  final from = _fromOf(data);
+                  final fromId = (data['fromId'] ?? '').toString().trim();
+                  final fromLabel = _fromLabel(type);
+                  final category = _typeLabel(type);
+                  final companyLabel = _empresaLabel(data);
+                  final dt = _parseCreatedAt(data['createdAt']);
+                  final when = dt != null
+                      ? DateFormat('hh:mm a').format(dt).toLowerCase()
+                      : '--:--';
+                  final isRead = _isRead(data);
+                  final typeIcon = _getIconForType(type);
+                  final typeColor = _getColorForType(type, context);
+                  final imageUrl = (data['imageUrl'] as String?)?.trim() ?? '';
+                  final bannerId = (data['bannerId'] as String?)?.trim() ?? '';
+                  final notifEmpresaId =
+                      (data['empresaId'] as String?)?.trim() ?? '';
+                  final hasBanner =
+                      bannerId.isNotEmpty && notifEmpresaId.isNotEmpty;
+                  final target = (data['target'] as String?)?.trim() ?? '';
+                  final isHojaVidaNotif =
+                      type == 'hv_correccion' ||
+                      type == 'hv_aprobada' ||
+                      target == 'hoja_vida';
+
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: scheme.surface,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: isRead
+                            ? scheme.outlineVariant.withValues(alpha: 0.3)
+                            : scheme.primary.withValues(alpha: 0.15),
+                        width: 1,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: isRead
+                              ? Colors.black.withValues(alpha: 0.02)
+                              : scheme.primary.withValues(alpha: 0.04),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
                         ),
                       ],
                     ),
-                  );
-                }
-                final groupKey = grouped.keys.elementAt(groupIndex - 1);
-                final items = grouped[groupKey]!;
-
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: scheme.surfaceContainerHighest.withValues(
-                            alpha: 0.5,
-                          ),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          groupKey.toUpperCase(),
-                          style: TextStyle(
-                            color: scheme.primary,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 11,
-                            letterSpacing: 1.5,
-                            fontFamily: kArial,
-                          ),
-                        ),
-                      ),
-                    ),
-                    ...items.map((doc) {
-                      final data = doc.data();
-                      final taskId = data['taskId'] as String?;
-                      final title = (data['title'] as String?) ?? '';
-                      final desc = (data['description'] as String?) ?? '';
-                      final type = (data['type'] ?? '').toString();
-                      final from = _fromOf(data);
-                      final fromId = (data['fromId'] ?? '').toString().trim();
-                      final fromLabel = _fromLabel(type);
-                      final category = _typeLabel(type);
-                      final companyLabel = _empresaLabel(data);
-                      final dt = _parseCreatedAt(data['createdAt']);
-                      final when = dt != null
-                          ? DateFormat('hh:mm a').format(dt).toLowerCase()
-                          : '--:--';
-                      final isRead = _isRead(data);
-                      final typeIcon = _getIconForType(type);
-                      final typeColor = _getColorForType(type, context);
-                      final imageUrl =
-                          (data['imageUrl'] as String?)?.trim() ?? '';
-                      final bannerId =
-                          (data['bannerId'] as String?)?.trim() ?? '';
-                      final notifEmpresaId =
-                          (data['empresaId'] as String?)?.trim() ?? '';
-                      final hasBanner =
-                          bannerId.isNotEmpty && notifEmpresaId.isNotEmpty;
-                      final target = (data['target'] as String?)?.trim() ?? '';
-                      final isHojaVidaNotif =
-                          type == 'hv_correccion' ||
-                          type == 'hv_aprobada' ||
-                          target == 'hoja_vida';
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 16),
-                        decoration: BoxDecoration(
-                          color: scheme.surface,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Material(
                             color: isRead
-                                ? scheme.outlineVariant.withValues(alpha: 0.3)
-                                : scheme.primary.withValues(alpha: 0.15),
-                            width: 1,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: isRead
-                                  ? Colors.black.withValues(alpha: 0.02)
-                                  : scheme.primary.withValues(alpha: 0.04),
-                              blurRadius: 12,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(20),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Material(
-                                color: isRead
-                                    ? Colors.transparent
-                                    : scheme.primary.withValues(alpha: 0.02),
-                                child: InkWell(
-                                  onTap: () async {
-                                    // Hoja de vida: corrección → abre el formulario
-                                    if (isHojaVidaNotif) {
-                                      if (!isRead) {
-                                        try {
-                                          await doc.reference.update({
-                                            'read': true,
-                                          });
-                                        } catch (_) {}
-                                      }
-                                      if (!context.mounted) return;
-                                      final eid = notifEmpresaId.isNotEmpty
-                                          ? notifEmpresaId
-                                          : (empresaId ?? '');
-                                      Navigator.push(
+                                ? Colors.transparent
+                                : scheme.primary.withValues(alpha: 0.02),
+                            child: InkWell(
+                              onTap: () async {
+                                // Hoja de vida: corrección → abre el formulario
+                                if (isHojaVidaNotif) {
+                                  if (!isRead) {
+                                    try {
+                                      await doc.reference.update({
+                                        'read': true,
+                                      });
+                                    } catch (_) {}
+                                  }
+                                  if (!context.mounted) return;
+                                  final eid = notifEmpresaId.isNotEmpty
+                                      ? notifEmpresaId
+                                      : (empresaId ?? '');
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => HojaDeVidaScreen(
+                                        userId: userId,
+                                        empresaId: eid,
+                                        mode: HvMode.perfil,
+                                      ),
+                                    ),
+                                  );
+                                  return;
+                                }
+
+                                if (_isRutasEvidenceRejected(type)) {
+                                  final opened =
+                                      await _openRutasModuleFromNotification(
                                         context,
-                                        MaterialPageRoute(
-                                          builder: (_) => HojaDeVidaScreen(
-                                            userId: userId,
-                                            empresaId: eid,
-                                            mode: HvMode.perfil,
-                                          ),
-                                        ),
+                                        cedula: userId,
+                                        empresaId: notifEmpresaId.isNotEmpty
+                                            ? notifEmpresaId
+                                            : empresaId,
                                       );
-                                      return;
-                                    }
+                                  if (opened && !isRead) {
+                                    try {
+                                      await doc.reference.update({
+                                        'read': true,
+                                      });
+                                    } catch (_) {}
+                                  }
+                                  return;
+                                }
 
-                                    if (_isRutasEvidenceRejected(type)) {
-                                      final opened =
-                                          await _openRutasModuleFromNotification(
-                                            context,
-                                            cedula: userId,
-                                            empresaId: notifEmpresaId.isNotEmpty
-                                                ? notifEmpresaId
-                                                : empresaId,
-                                          );
-                                      if (opened && !isRead) {
-                                        try {
-                                          await doc.reference.update({
-                                            'read': true,
-                                          });
-                                        } catch (_) {}
-                                      }
-                                      return;
-                                    }
-
-                                    if (type == 'interventoria_plan_mejora') {
-                                      final opened = await abrirPlanesDesdeAviso(
+                                if (type == 'interventoria_plan_mejora') {
+                                  final opened = await abrirPlanesDesdeAviso(
+                                    context,
+                                    empresaId: notifEmpresaId,
+                                    tareaId: taskId ?? '',
+                                    planId:
+                                        (data['planId'] ??
+                                                data['sourceEntityId'] ??
+                                                '')
+                                            .toString(),
+                                  );
+                                  if (opened && !isRead) {
+                                    try {
+                                      await doc.reference.update({
+                                        'read': true,
+                                      });
+                                    } catch (_) {}
+                                  }
+                                  return;
+                                }
+                                if (_isInterventoriaActaEliminada(type)) {
+                                  final opened =
+                                      await _openInterventoriaFromNotification(
                                         context,
-                                        empresaId: notifEmpresaId,
-                                        tareaId: taskId ?? '',
-                                        planId:
-                                            (data['planId'] ??
-                                                    data['sourceEntityId'] ??
-                                                    '')
+                                        userId: userId,
+                                        empresaId: notifEmpresaId.isNotEmpty
+                                            ? notifEmpresaId
+                                            : empresaId,
+                                      );
+                                  if (opened && !isRead) {
+                                    try {
+                                      await doc.reference.update({
+                                        'read': true,
+                                      });
+                                    } catch (_) {}
+                                  }
+                                  return;
+                                }
+
+                                if (_isInterventoriaDeleteRequest(type)) {
+                                  final opened =
+                                      await _openInterventoriaFromNotification(
+                                        context,
+                                        userId: userId,
+                                        empresaId: notifEmpresaId.isNotEmpty
+                                            ? notifEmpresaId
+                                            : empresaId,
+                                        deleteRequestId:
+                                            (data['sourceEntityId'] ?? '')
                                                 .toString(),
                                       );
-                                      if (opened && !isRead) {
-                                        try {
-                                          await doc.reference.update({
-                                            'read': true,
-                                          });
-                                        } catch (_) {}
-                                      }
-                                      return;
-                                    }
-                                    if (_isInterventoriaActaEliminada(type)) {
-                                      final opened =
-                                          await _openInterventoriaFromNotification(
-                                            context,
-                                            userId: userId,
-                                            empresaId: notifEmpresaId.isNotEmpty
-                                                ? notifEmpresaId
-                                                : empresaId,
-                                          );
-                                      if (opened && !isRead) {
-                                        try {
-                                          await doc.reference.update({
-                                            'read': true,
-                                          });
-                                        } catch (_) {}
-                                      }
-                                      return;
-                                    }
+                                  if (opened && !isRead) {
+                                    try {
+                                      await doc.reference.update({
+                                        'read': true,
+                                      });
+                                    } catch (_) {}
+                                  }
+                                  return;
+                                }
 
-                                    if (_isInterventoriaDeleteRequest(type)) {
-                                      final opened =
-                                          await _openInterventoriaFromNotification(
-                                            context,
-                                            userId: userId,
-                                            empresaId: notifEmpresaId.isNotEmpty
-                                                ? notifEmpresaId
-                                                : empresaId,
-                                            deleteRequestId:
-                                                (data['sourceEntityId'] ?? '')
-                                                    .toString(),
-                                          );
-                                      if (opened && !isRead) {
-                                        try {
-                                          await doc.reference.update({
-                                            'read': true,
-                                          });
-                                        } catch (_) {}
-                                      }
-                                      return;
-                                    }
-
-                                    if (taskId == null ||
-                                        taskId.trim().isEmpty) {
-                                      if (!isRead) {
-                                        try {
-                                          await doc.reference.update({
-                                            'read': true,
-                                          });
-                                        } catch (_) {}
-                                      }
-                                      return;
-                                    }
-                                    if (!context.mounted) return;
-                                    final opened = await _openNotificationTask(
-                                      context,
-                                      type: type,
-                                      taskId: taskId,
-                                      cedula: userId,
-                                      empresaId: notifEmpresaId.isNotEmpty
-                                          ? notifEmpresaId
-                                          : empresaId,
-                                    );
-                                    if (opened && !isRead) {
-                                      try {
-                                        await doc.reference.update({
-                                          'read': true,
-                                        });
-                                      } catch (_) {}
-                                    }
-                                  },
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(16),
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
+                                if (taskId == null || taskId.trim().isEmpty) {
+                                  if (!isRead) {
+                                    try {
+                                      await doc.reference.update({
+                                        'read': true,
+                                      });
+                                    } catch (_) {}
+                                  }
+                                  return;
+                                }
+                                if (!context.mounted) return;
+                                final opened = await _openNotificationTask(
+                                  context,
+                                  type: type,
+                                  taskId: taskId,
+                                  cedula: userId,
+                                  empresaId: notifEmpresaId.isNotEmpty
+                                      ? notifEmpresaId
+                                      : empresaId,
+                                );
+                                if (opened && !isRead) {
+                                  try {
+                                    await doc.reference.update({'read': true});
+                                  } catch (_) {}
+                                }
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Stack(
+                                      alignment: Alignment.topRight,
                                       children: [
-                                        Stack(
-                                          alignment: Alignment.topRight,
-                                          children: [
-                                            Container(
-                                              width: 48,
-                                              height: 48,
+                                        Container(
+                                          width: 48,
+                                          height: 48,
+                                          decoration: BoxDecoration(
+                                            color: isRead
+                                                ? scheme.surfaceContainerHighest
+                                                      .withValues(alpha: 0.3)
+                                                : typeColor.withValues(
+                                                    alpha: 0.12,
+                                                  ),
+                                            borderRadius: BorderRadius.circular(
+                                              14,
+                                            ),
+                                          ),
+                                          child: Icon(
+                                            typeIcon,
+                                            color: isRead
+                                                ? scheme.onSurfaceVariant
+                                                      .withValues(alpha: 0.7)
+                                                : typeColor,
+                                            size: 24,
+                                          ),
+                                        ),
+                                        if (!isRead)
+                                          Positioned(
+                                            right: -2,
+                                            top: -2,
+                                            child: Container(
+                                              width: 12,
+                                              height: 12,
                                               decoration: BoxDecoration(
-                                                color: isRead
-                                                    ? scheme
-                                                          .surfaceContainerHighest
-                                                          .withValues(
-                                                            alpha: 0.3,
-                                                          )
-                                                    : typeColor.withValues(
-                                                        alpha: 0.12,
-                                                      ),
-                                                borderRadius:
-                                                    BorderRadius.circular(14),
-                                              ),
-                                              child: Icon(
-                                                typeIcon,
-                                                color: isRead
-                                                    ? scheme.onSurfaceVariant
-                                                          .withValues(
-                                                            alpha: 0.7,
-                                                          )
-                                                    : typeColor,
-                                                size: 24,
+                                                color: scheme.primary,
+                                                shape: BoxShape.circle,
+                                                border: Border.all(
+                                                  color: scheme.surface,
+                                                  width: 2,
+                                                ),
                                               ),
                                             ),
-                                            if (!isRead)
-                                              Positioned(
-                                                right: -2,
-                                                top: -2,
-                                                child: Container(
-                                                  width: 12,
-                                                  height: 12,
-                                                  decoration: BoxDecoration(
-                                                    color: scheme.primary,
-                                                    shape: BoxShape.circle,
-                                                    border: Border.all(
-                                                      color: scheme.surface,
-                                                      width: 2,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                          ],
-                                        ),
-                                        const SizedBox(width: 16),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
+                                          ),
+                                      ],
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
                                             children: [
-                                              Row(
-                                                children: [
-                                                  Expanded(
-                                                    child: Text(
-                                                      title,
-                                                      style: TextStyle(
-                                                        fontFamily: kArial,
-                                                        fontWeight: isRead
-                                                            ? FontWeight.w700
-                                                            : FontWeight.w900,
-                                                        fontSize: 15,
-                                                        color: isRead
-                                                            ? scheme.onSurface
-                                                                  .withValues(
-                                                                    alpha: 0.8,
-                                                                  )
-                                                            : scheme.onSurface,
-                                                        letterSpacing: -0.2,
-                                                      ),
-                                                    ),
+                                              Expanded(
+                                                child: Text(
+                                                  title,
+                                                  style: TextStyle(
+                                                    fontFamily: kArial,
+                                                    fontWeight: isRead
+                                                        ? FontWeight.w700
+                                                        : FontWeight.w900,
+                                                    fontSize: 15,
+                                                    color: isRead
+                                                        ? scheme.onSurface
+                                                              .withValues(
+                                                                alpha: 0.8,
+                                                              )
+                                                        : scheme.onSurface,
+                                                    letterSpacing: -0.2,
                                                   ),
-                                                  const SizedBox(width: 8),
-                                                  Text(
-                                                    when,
-                                                    style: TextStyle(
-                                                      fontSize: 11,
-                                                      fontWeight:
-                                                          FontWeight.w600,
-                                                      color: scheme
-                                                          .onSurfaceVariant
-                                                          .withValues(
-                                                            alpha: 0.6,
-                                                          ),
-                                                    ),
-                                                  ),
-                                                ],
+                                                ),
                                               ),
-                                              const SizedBox(height: 6),
-                                              Wrap(
-                                                spacing: 8,
-                                                runSpacing: 8,
-                                                children: [
-                                                  Container(
-                                                    padding:
-                                                        const EdgeInsets.symmetric(
-                                                          horizontal: 10,
-                                                          vertical: 4,
-                                                        ),
-                                                    decoration: BoxDecoration(
-                                                      color: typeColor
-                                                          .withValues(
-                                                            alpha: 0.10,
-                                                          ),
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                            999,
-                                                          ),
-                                                    ),
-                                                    child: Text(
-                                                      category,
-                                                      style: TextStyle(
-                                                        fontFamily: kArial,
-                                                        fontSize: 11,
-                                                        fontWeight:
-                                                            FontWeight.w800,
-                                                        color: typeColor,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  TaskNumeroAvisoChip(
-                                                    taskId: taskId,
-                                                    numero: data['taskNumero'],
-                                                  ),
-                                                  if (showCompanyDivision)
-                                                    Container(
-                                                      padding:
-                                                          const EdgeInsets.symmetric(
-                                                            horizontal: 10,
-                                                            vertical: 4,
-                                                          ),
-                                                      decoration: BoxDecoration(
-                                                        color: scheme
-                                                            .surfaceContainerHighest
-                                                            .withValues(
-                                                              alpha: 0.55,
-                                                            ),
-                                                        borderRadius:
-                                                            BorderRadius.circular(
-                                                              999,
-                                                            ),
-                                                      ),
-                                                      child: Text(
-                                                        companyLabel,
-                                                        style: TextStyle(
-                                                          fontFamily: kArial,
-                                                          fontSize: 11,
-                                                          fontWeight:
-                                                              FontWeight.w800,
-                                                          color: scheme
-                                                              .onSurfaceVariant,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                ],
-                                              ),
-                                              const SizedBox(height: 8),
+                                              const SizedBox(width: 8),
                                               Text(
-                                                sinPrefijoNumeroTarea(desc),
+                                                when,
                                                 style: TextStyle(
-                                                  fontFamily: kArial,
-                                                  color:
-                                                      scheme.onSurfaceVariant,
-                                                  fontSize: 14,
-                                                  height: 1.4,
-                                                  fontWeight: isRead
-                                                      ? FontWeight.w400
-                                                      : FontWeight.w500,
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: scheme.onSurfaceVariant
+                                                      .withValues(alpha: 0.6),
                                                 ),
                                               ),
-                                              if (isHojaVidaNotif) ...[
-                                                const SizedBox(height: 10),
-                                                Container(
-                                                  padding:
-                                                      const EdgeInsets.symmetric(
-                                                        horizontal: 10,
-                                                        vertical: 7,
-                                                      ),
-                                                  decoration: BoxDecoration(
-                                                    color: typeColor.withValues(
-                                                      alpha: 0.08,
+                                            ],
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Wrap(
+                                            spacing: 8,
+                                            runSpacing: 8,
+                                            children: [
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 10,
+                                                      vertical: 4,
                                                     ),
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          10,
-                                                        ),
-                                                    border: Border.all(
-                                                      color: typeColor
-                                                          .withValues(
-                                                            alpha: 0.18,
-                                                          ),
-                                                    ),
+                                                decoration: BoxDecoration(
+                                                  color: typeColor.withValues(
+                                                    alpha: 0.10,
                                                   ),
-                                                  child: Row(
-                                                    mainAxisSize:
-                                                        MainAxisSize.min,
-                                                    children: [
-                                                      Icon(
-                                                        Icons
-                                                            .open_in_new_rounded,
-                                                        size: 14,
-                                                        color: typeColor,
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                        999,
                                                       ),
-                                                      const SizedBox(width: 6),
-                                                      Flexible(
-                                                        child: Text(
-                                                          type == 'hv_correccion'
-                                                              ? 'Abrir hoja de vida para corregir'
-                                                              : 'Abrir mi hoja de vida',
-                                                          maxLines: 1,
-                                                          overflow: TextOverflow
-                                                              .ellipsis,
-                                                          style: TextStyle(
-                                                            color: typeColor,
-                                                            fontSize: 12,
-                                                            fontWeight:
-                                                                FontWeight.w800,
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ],
+                                                ),
+                                                child: Text(
+                                                  category,
+                                                  style: TextStyle(
+                                                    fontFamily: kArial,
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w800,
+                                                    color: typeColor,
                                                   ),
                                                 ),
-                                              ],
-                                              if (imageUrl.isNotEmpty) ...[
-                                                const SizedBox(height: 12),
-                                                _StorageImage(
-                                                  url: imageUrl,
-                                                  scheme: scheme,
-                                                ),
-                                              ],
-                                              if (from.isNotEmpty) ...[
-                                                const SizedBox(height: 12),
+                                              ),
+                                              TaskNumeroAvisoChip(
+                                                taskId: taskId,
+                                                numero: data['taskNumero'],
+                                              ),
+                                              if (showCompanyDivision)
                                                 Container(
                                                   padding:
                                                       const EdgeInsets.symmetric(
@@ -1237,107 +1211,200 @@ class _NotificationList extends StatelessWidget {
                                                   decoration: BoxDecoration(
                                                     color: scheme
                                                         .surfaceContainerHighest
-                                                        .withValues(alpha: 0.3),
+                                                        .withValues(
+                                                          alpha: 0.55,
+                                                        ),
                                                     borderRadius:
                                                         BorderRadius.circular(
-                                                          8,
+                                                          999,
                                                         ),
                                                   ),
-                                                  child: Row(
-                                                    mainAxisSize:
-                                                        MainAxisSize.min,
-                                                    children: [
-                                                      Icon(
-                                                        Icons
-                                                            .person_outline_rounded,
-                                                        size: 12,
-                                                        color: scheme
-                                                            .onSurfaceVariant
-                                                            .withValues(
-                                                              alpha: 0.7,
-                                                            ),
-                                                      ),
-                                                      const SizedBox(width: 6),
-                                                      UserNameText(
-                                                        fromId,
-                                                        fallbackName: from,
-                                                        prefix: '$fromLabel: ',
-                                                        style: TextStyle(
-                                                          fontFamily: kArial,
-                                                          fontSize: 11,
-                                                          fontWeight:
-                                                              FontWeight.w700,
-                                                          color: scheme
-                                                              .onSurfaceVariant
-                                                              .withValues(
-                                                                alpha: 0.8,
-                                                              ),
-                                                        ),
-                                                      ),
-                                                    ],
+                                                  child: Text(
+                                                    companyLabel,
+                                                    style: TextStyle(
+                                                      fontFamily: kArial,
+                                                      fontSize: 11,
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                      color: scheme
+                                                          .onSurfaceVariant,
+                                                    ),
                                                   ),
                                                 ),
-                                              ],
                                             ],
                                           ),
-                                        ),
-                                        if (taskId != null) ...[
-                                          const SizedBox(width: 8),
-                                          Padding(
-                                            padding: const EdgeInsets.only(
-                                              top: 12,
-                                            ),
-                                            child: Icon(
-                                              Icons.arrow_forward_ios_rounded,
-                                              size: 14,
-                                              color: scheme.onSurfaceVariant
-                                                  .withValues(alpha: 0.3),
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            sinPrefijoNumeroTarea(desc),
+                                            style: TextStyle(
+                                              fontFamily: kArial,
+                                              color: scheme.onSurfaceVariant,
+                                              fontSize: 14,
+                                              height: 1.4,
+                                              fontWeight: isRead
+                                                  ? FontWeight.w400
+                                                  : FontWeight.w500,
                                             ),
                                           ),
+                                          if (isHojaVidaNotif) ...[
+                                            const SizedBox(height: 10),
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 10,
+                                                    vertical: 7,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                color: typeColor.withValues(
+                                                  alpha: 0.08,
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
+                                                border: Border.all(
+                                                  color: typeColor.withValues(
+                                                    alpha: 0.18,
+                                                  ),
+                                                ),
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    Icons.open_in_new_rounded,
+                                                    size: 14,
+                                                    color: typeColor,
+                                                  ),
+                                                  const SizedBox(width: 6),
+                                                  Flexible(
+                                                    child: Text(
+                                                      type == 'hv_correccion'
+                                                          ? 'Abrir hoja de vida para corregir'
+                                                          : 'Abrir mi hoja de vida',
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: TextStyle(
+                                                        color: typeColor,
+                                                        fontSize: 12,
+                                                        fontWeight:
+                                                            FontWeight.w800,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                          if (imageUrl.isNotEmpty) ...[
+                                            const SizedBox(height: 12),
+                                            _StorageImage(
+                                              url: imageUrl,
+                                              scheme: scheme,
+                                            ),
+                                          ],
+                                          if (from.isNotEmpty) ...[
+                                            const SizedBox(height: 12),
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 10,
+                                                    vertical: 4,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                color: scheme
+                                                    .surfaceContainerHighest
+                                                    .withValues(alpha: 0.3),
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    Icons
+                                                        .person_outline_rounded,
+                                                    size: 12,
+                                                    color: scheme
+                                                        .onSurfaceVariant
+                                                        .withValues(alpha: 0.7),
+                                                  ),
+                                                  const SizedBox(width: 6),
+                                                  UserNameText(
+                                                    fromId,
+                                                    fallbackName: from,
+                                                    prefix: '$fromLabel: ',
+                                                    style: TextStyle(
+                                                      fontFamily: kArial,
+                                                      fontSize: 11,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                      color: scheme
+                                                          .onSurfaceVariant
+                                                          .withValues(
+                                                            alpha: 0.8,
+                                                          ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
                                         ],
-                                      ],
+                                      ),
                                     ),
-                                  ),
+                                    if (taskId != null) ...[
+                                      const SizedBox(width: 8),
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 12),
+                                        child: Icon(
+                                          Icons.arrow_forward_ios_rounded,
+                                          size: 14,
+                                          color: scheme.onSurfaceVariant
+                                              .withValues(alpha: 0.3),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
                                 ),
                               ),
-                              // Reacciones y comentarios estilo WhatsApp (solo para banners TH)
-                              if (hasBanner) ...[
-                                Divider(
-                                  height: 1,
-                                  color: scheme.outlineVariant.withValues(
-                                    alpha: 0.4,
-                                  ),
-                                ),
-                                _ReactionBar(
-                                  bannerId: bannerId,
-                                  empresaId: notifEmpresaId,
-                                  userId: userId,
-                                ),
-                                Divider(
-                                  height: 1,
-                                  color: scheme.outlineVariant.withValues(
-                                    alpha: 0.3,
-                                  ),
-                                ),
-                                _CommentsSection(
-                                  bannerId: bannerId,
-                                  empresaId: notifEmpresaId,
-                                  userId: userId,
-                                ),
-                              ],
-                            ],
+                            ),
                           ),
-                        ),
-                      );
-                    }),
-                    const SizedBox(height: 16),
-                  ],
-                );
-              },
-            ),
-          ),
-        );
-      },
+                          // Reacciones y comentarios estilo WhatsApp (solo para banners TH)
+                          if (hasBanner) ...[
+                            Divider(
+                              height: 1,
+                              color: scheme.outlineVariant.withValues(
+                                alpha: 0.4,
+                              ),
+                            ),
+                            _ReactionBar(
+                              bannerId: bannerId,
+                              empresaId: notifEmpresaId,
+                              userId: userId,
+                            ),
+                            Divider(
+                              height: 1,
+                              color: scheme.outlineVariant.withValues(
+                                alpha: 0.3,
+                              ),
+                            ),
+                            _CommentsSection(
+                              bannerId: bannerId,
+                              empresaId: notifEmpresaId,
+                              userId: userId,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+                const SizedBox(height: 16),
+              ],
+            );
+          },
+        ),
+      ),
     );
   }
 }

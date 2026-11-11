@@ -90,47 +90,72 @@ class _HomeScreenState extends State<HomeScreen> {
   late DateTime _selectedDay;
   Map<String, List<Map<String, dynamic>>> _events = {};
   Map<String, List<Map<String, dynamic>>> _planesEvents = {};
-  String? _planesKey;
-  Timer? _planesTimer;
+  ({String cedula, String empresaId})? _planesScope;
+  Object? _planesRequest;
+  DateTime? _planesLastAttempt;
+  bool _homeRouteCurrent = false;
+  late final AppLifecycleListener _appLifecycle;
   String? _planesError;
 
-  void _restartPlanesAgenda(String cedula, String empresaId, bool enabled) {
-    final key = '$cedula:$empresaId:$enabled';
-    if (_planesKey == key) return;
-    _planesKey = key;
-    _planesTimer?.cancel();
+  void _syncPlanesAgenda(String cedula, String empresaId, bool enabled) {
+    final scope = enabled && empresaId.isNotEmpty
+        ? (cedula: cedula, empresaId: empresaId)
+        : null;
+    if (_planesScope == scope) return;
+    _planesScope = scope;
+    _planesRequest = null;
+    _planesLastAttempt = null;
     _planesEvents = {};
     _planesError = null;
-    if (!enabled) return;
-    Future<void> load() async {
-      try {
-        final data = await InterventoriaPlanesService(
-          empresaId,
-        ).call({'accion': 'agenda'});
-        if (!mounted || _planesKey != key) return;
-        final events = <String, List<Map<String, dynamic>>>{};
-        for (final e in planList(data['eventos'])) {
-          events.putIfAbsent(planText(e, 'fecha'), () => []).add({
-            ...e,
-            '_calType': 'plan_mejora',
-          });
-        }
-        setState(() {
-          _planesEvents = events;
-          _planesError = null;
-        });
-      } catch (_) {
-        if (mounted && _planesKey == key)
-          setState(() {
-            _planesEvents = {};
-            _planesError =
-                'No se pudo actualizar la agenda de planes de mejora.';
-          });
-      }
-    }
+    unawaited(_refreshPlanesAgenda());
+  }
 
-    unawaited(load());
-    _planesTimer = Timer.periodic(const Duration(minutes: 5), (_) => load());
+  Future<void> _refreshPlanesAgenda({bool force = false}) async {
+    final scope = _planesScope;
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    if (scope == null ||
+        !_homeRouteCurrent ||
+        _planesRequest != null ||
+        lifecycle == AppLifecycleState.hidden ||
+        lifecycle == AppLifecycleState.paused ||
+        lifecycle == AppLifecycleState.detached) {
+      return;
+    }
+    final now = DateTime.now();
+    final lastAttempt = _planesLastAttempt;
+    if (!force &&
+        lastAttempt != null &&
+        now.difference(lastAttempt) < const Duration(minutes: 5)) {
+      return;
+    }
+    final request = Object();
+    _planesRequest = request;
+    _planesLastAttempt = now;
+    try {
+      final data = await InterventoriaPlanesService(
+        scope.empresaId,
+      ).call({'accion': 'agenda'});
+      if (!mounted || !identical(_planesRequest, request)) return;
+      final events = <String, List<Map<String, dynamic>>>{};
+      for (final event in planList(data['eventos'])) {
+        events.putIfAbsent(planText(event, 'fecha'), () => []).add({
+          ...event,
+          '_calType': 'plan_mejora',
+        });
+      }
+      setState(() {
+        _planesEvents = events;
+        _planesError = null;
+      });
+    } catch (_) {
+      if (mounted && identical(_planesRequest, request)) {
+        setState(() {
+          _planesError = 'No se pudo actualizar la agenda de planes de mejora.';
+        });
+      }
+    } finally {
+      if (identical(_planesRequest, request)) _planesRequest = null;
+    }
   }
 
   bool _didRegisterToken = false;
@@ -138,12 +163,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// Saca de la app al instante si lo inhabilitan (ver VigilanteAcceso).
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _vigilanteSub;
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _notifSub;
-  final Set<String> _seenNotifIds = <String>{};
-  bool _notifsPrimed = false;
-  String? _listeningUserId;
-  // Empresa activa actualizada en build() para filtrar toasts en el listener.
-  String? _currentEmpresaId;
+  late Stream<DocumentSnapshot<Map<String, dynamic>>> _userStream;
+  late ValueNotifier<NotificationSnapshot> _notifications;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _notificationSub;
+  String? _appsCompany;
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _appsStream;
+  (String, String, bool)? _taskScope;
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _assignedStream;
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _receivingStream;
 
   // ── Citas de Nutrición para el calendario ────────────────────────────────
   // Mapa de eventos de Nutrición separado del mapa de tareas, indexado por
@@ -181,13 +208,78 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _navegandoACorreccion = false;
   Future<void> Function()? _cerrarDialogoCorreccion;
 
-  // Con el módulo de Tareas apagado no se consulta TBL_TAREAS. Son campos y no
-  // `Stream.empty()` en línea para conservar la misma instancia entre builds y
-  // no re-suscribir el StreamBuilder en cada reconstrucción.
-  final Stream<QuerySnapshot<Map<String, dynamic>>> _sinTareasAsignadas =
-      Stream<QuerySnapshot<Map<String, dynamic>>>.empty();
-  final Stream<QuerySnapshot<Map<String, dynamic>>> _sinTareasPorRecibir =
-      Stream<QuerySnapshot<Map<String, dynamic>>>.empty();
+  void _bindUserStreams() {
+    final db = FirebaseFirestore.instance;
+    _userStream = db
+        .collection('TBL_USUARIOS')
+        .doc(widget.username)
+        .snapshots();
+    final notifications = ValueNotifier<NotificationSnapshot>(
+      const AsyncSnapshot.waiting(),
+    );
+    _notifications = notifications;
+    _notificationSub = db
+        .collection('TBL_NOTIFICACIONES')
+        .doc(widget.username)
+        .collection('notifications')
+        .snapshots()
+        .listen(
+          (snapshot) {
+            final previous = notifications.value.data;
+            notifications.value = AsyncSnapshot.withData(
+              ConnectionState.active,
+              snapshot,
+            );
+            final empresaId = _planesScope?.empresaId;
+            if (empresaId == null ||
+                previous == null ||
+                previous.metadata.isFromCache) {
+              return;
+            }
+            final hasNewPlan = snapshot.docChanges.any((change) {
+              final data = change.doc.data();
+              return change.type == DocumentChangeType.added &&
+                  data?['type'] == 'interventoria_plan_mejora' &&
+                  data?['empresaId'] == empresaId;
+            });
+            if (hasNewPlan) {
+              _planesLastAttempt = null;
+              unawaited(_refreshPlanesAgenda());
+            }
+          },
+          onError: (Object error, StackTrace trace) {
+            notifications.value = AsyncSnapshot.withError(
+              ConnectionState.active,
+              error,
+              trace,
+            );
+          },
+        );
+  }
+
+  void _bindTaskStreams(String cedula, String empresaId, bool enabled) {
+    final scope = (cedula, empresaId, enabled);
+    if (_taskScope == scope) return;
+    _taskScope = scope;
+    _assignedStream = null;
+    _receivingStream = null;
+    if (!enabled || empresaId.isEmpty) return;
+    final tasks = FirebaseFirestore.instance
+        .collection('TBL_TAREAS')
+        .where('empresaId', isEqualTo: empresaId);
+    _assignedStream = tasks
+        .where('asignado_uid', isEqualTo: cedula)
+        .snapshots();
+    _receivingStream = tasks
+        .where(
+          Filter.or(
+            Filter('aprobador_uid', isEqualTo: cedula),
+            // Tareas anteriores al contrato v2.
+            Filter('jefe_uid', isEqualTo: cedula),
+          ),
+        )
+        .snapshots();
+  }
 
   bool get _isWebShell => kIsWeb && MediaQuery.of(context).size.width >= 900;
 
@@ -403,34 +495,6 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (_) {}
   }
 
-  void _startNotifListener(String userId) {
-    if (userId.isEmpty) return;
-    _notifSub?.cancel();
-    _listeningUserId = userId;
-    _notifSub = FirebaseFirestore.instance
-        .collection('TBL_NOTIFICACIONES')
-        .doc(userId)
-        .collection('notifications')
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .listen((snap) async {
-          if (!_notifsPrimed) {
-            for (final doc in snap.docs) {
-              _seenNotifIds.add(doc.id);
-            }
-            _notifsPrimed = true;
-            return;
-          }
-          for (final change in snap.docChanges) {
-            if (change.type != DocumentChangeType.added) continue;
-            _seenNotifIds.add(change.doc.id);
-            // La notificación push en foreground y background la gestiona FCM
-            // vía el trigger onNotificationCreated en Cloud Functions.
-            // Este listener sólo mantiene el conjunto de IDs vistos para el badge.
-          }
-        });
-  }
-
   Future<void> _ensureFcmRegistered(String userId) async {
     if (userId.isEmpty) return;
     try {
@@ -510,25 +574,29 @@ class _HomeScreenState extends State<HomeScreen> {
     return events;
   }
 
-  /// Suscribe las visitas del calendario. Solo re-suscribe si cambia
-  /// cédula/empresa. La consulta de jefe se abre solo si el usuario tiene
+  /// Suscribe las visitas del calendario por cédula, empresa y acceso al módulo.
+  /// La consulta de jefe se abre solo si el usuario tiene
   /// ese rol (o es desarrollador): las reglas la rechazarían para un
   /// profesional y el error quedaría en la consola sin necesidad.
   Future<void> _restartVisitasSubscription(
     String cedula,
     String empresaId,
-    Map<String, dynamic> userData,
-  ) async {
-    final key = '$cedula:$empresaId';
+    Map<String, dynamic> userData, {
+    required bool enabled,
+  }) async {
+    final key = '$cedula:$empresaId:$enabled';
     if (_lastVisitasKey == key) return;
     _lastVisitasKey = key;
     _visitasMiasSub?.cancel();
     _visitasJefeSub?.cancel();
+    _visitasMiasSub = null;
+    _visitasJefeSub = null;
     _visitasMiasEvents = {};
     _visitasJefeEvents = {};
+    if (!enabled || empresaId.isEmpty) return;
 
     final col = FirebaseFirestore.instance.collection(kVisitasCol);
-    _visitasMiasSub = col
+    final visitasMias = col
         .where('empresaId', isEqualTo: empresaId)
         .where('profesionalId', isEqualTo: cedula)
         .snapshots()
@@ -537,13 +605,14 @@ class _HomeScreenState extends State<HomeScreen> {
             setState(() => _visitasMiasEvents = _visitasAEventos(snap));
           }
         }, onError: (_) {});
+    _visitasMiasSub = visitasMias;
 
     final rol = await VisitasService().rolVisitasDeUsuario(
       empresaId: empresaId,
       userId: cedula,
       userData: userData,
     );
-    if (!mounted || _lastVisitasKey != key) return;
+    if (!mounted || !identical(_visitasMiasSub, visitasMias)) return;
     final esJefe =
         rol == kVisitasRolJefe ||
         rol == kVisitasRolGerencia ||
@@ -1026,6 +1095,10 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _focusedDay = DateTime.now();
     _selectedDay = DateTime.now();
+    _bindUserStreams();
+    _appLifecycle = AppLifecycleListener(
+      onResume: () => _refreshPlanesAgenda(),
+    );
     _vigilanteSub = VigilanteAcceso.iniciar(context, widget.username);
 
     // El aviso de actualización se consulta aquí y no en main(): una consulta
@@ -1037,13 +1110,36 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant HomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.username != widget.username) {
+      _notificationSub?.cancel();
+      _notifications.dispose();
+      _bindUserStreams();
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final current = ModalRoute.isCurrentOf(context) ?? true;
+    if (_homeRouteCurrent == current) return;
+    _homeRouteCurrent = current;
+    if (current) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_refreshPlanesAgenda());
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _vigilanteSub?.cancel();
     _tokenSub?.cancel();
-    _notifSub?.cancel();
+    _notificationSub?.cancel();
+    _notifications.dispose();
+    _appLifecycle.dispose();
     _citasSub?.cancel();
-    _planesTimer?.cancel();
-    _planesKey = null;
     _abastecimientoSub?.cancel();
     _visitasMiasSub?.cancel();
     _visitasJefeSub?.cancel();
@@ -1058,8 +1154,17 @@ class _HomeScreenState extends State<HomeScreen> {
     final scheme = theme.colorScheme;
     final String scopeEmpresa =
         EmpresaScope.of(context).selectedEmpresaId ?? widget.empresaId;
-    // Mantener empresa activa sincronizada para el listener de toasts.
-    _currentEmpresaId = scopeEmpresa;
+    if (_planesScope != null &&
+        _planesScope != (cedula: cedula, empresaId: scopeEmpresa)) {
+      _syncPlanesAgenda(cedula, scopeEmpresa, false);
+    }
+    if (_appsCompany != scopeEmpresa) {
+      _appsCompany = scopeEmpresa;
+      _appsStream = FirebaseFirestore.instance
+          .collection('TBL_APPS')
+          .where('empresaId', isEqualTo: scopeEmpresa)
+          .snapshots();
+    }
     // Suscribir/re-suscribir citas de Nutrición para el calendario.
     _restartCitasSubscription(cedula, scopeEmpresa);
     unawaited(_restartAbastecimientoSubscription(cedula, scopeEmpresa));
@@ -1071,10 +1176,8 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('TBL_USUARIOS')
-          .doc(cedula)
-          .snapshots(),
+      key: ValueKey(cedula),
+      stream: _userStream,
       builder: (context, userSnap) {
         if (!userSnap.hasData) {
           return HomeShell(userId: cedula, body: const SkeletonList());
@@ -1087,34 +1190,11 @@ class _HomeScreenState extends State<HomeScreen> {
         final apps = !isDev && soloTalentoHumanoEn(userData, scopeEmpresa)
             ? const <String>[]
             : extractUserApps(userData, empresaId: scopeEmpresa);
-        _restartPlanesAgenda(
-          cedula,
-          scopeEmpresa,
-          isDev ||
-              apps.any(
-                (app) =>
-                    appIdsEquivalent(app, 'interventoriadashboard') ||
-                    appIdsEquivalent(app, 'tareasdashboard'),
-              ),
-        );
         final nombreUsuario =
             userData['primerNombre'] ?? userData['nombres'] ?? cedula;
-        // Visitas en el calendario: solo si el módulo está en sus accesos
-        // (o es desarrollador); de lo contrario las reglas rechazarían la
-        // consulta. Re-suscribe solo cuando cambia cédula/empresa.
-        // La app puede estar guardada con nombre corto o largo ('visitas' o
-        // 'visitasdashboard'): se comparan como equivalentes.
-        if (isDev || apps.any((app) => appIdsEquivalent(app, kVisitasAppId))) {
-          unawaited(
-            _restartVisitasSubscription(cedula, scopeEmpresa, userData),
-          );
-        }
-
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance
-              .collection('TBL_APPS')
-              .where('empresaId', isEqualTo: scopeEmpresa)
-              .snapshots(),
+          key: ValueKey(scopeEmpresa),
+          stream: _appsStream,
           builder: (context, appsEmpresaSnap) {
             // 30 sep 2026: antes de conocer qué módulos tiene prendidos la
             // empresa se pintaban todos los del usuario y, al llegar la
@@ -1150,6 +1230,24 @@ class _HomeScreenState extends State<HomeScreen> {
               kInterventoriaAppId,
               disabledAppIds,
             );
+            unawaited(
+              _restartVisitasSubscription(
+                cedula,
+                scopeEmpresa,
+                userData,
+                enabled: _moduleVisible(
+                  apps,
+                  isDev,
+                  kVisitasAppId,
+                  disabledAppIds,
+                ),
+              ),
+            );
+            _syncPlanesAgenda(
+              cedula,
+              scopeEmpresa,
+              showInterventoria || showTareas,
+            );
             _reiniciarCorreccionesActa(
               userId: cedula,
               empresaId: scopeEmpresa,
@@ -1165,31 +1263,13 @@ class _HomeScreenState extends State<HomeScreen> {
             // 2 oct 2026: la consulta lleva la empresa activa. Las reglas de
             // TBL_TAREAS no dejan listar sin ella, y el filtro de abajo ya
             // descartaba lo de otras empresas.
-            final empresaTareas = scopeEmpresa.trim();
-            final consultarTareas = showTareas && empresaTareas.isNotEmpty;
+            _bindTaskStreams(cedula, scopeEmpresa.trim(), showTareas);
             return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: consultarTareas
-                  ? FirebaseFirestore.instance
-                        .collection('TBL_TAREAS')
-                        .where('empresaId', isEqualTo: empresaTareas)
-                        .where('asignado_uid', isEqualTo: cedula)
-                        .snapshots()
-                  : _sinTareasAsignadas,
+              key: ValueKey(_taskScope),
+              stream: _assignedStream,
               builder: (context, assignedSnap) {
                 return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: consultarTareas
-                      ? FirebaseFirestore.instance
-                            .collection('TBL_TAREAS')
-                            .where('empresaId', isEqualTo: empresaTareas)
-                            .where(
-                              Filter.or(
-                                Filter('aprobador_uid', isEqualTo: cedula),
-                                // Tareas anteriores al contrato v2.
-                                Filter('jefe_uid', isEqualTo: cedula),
-                              ),
-                            )
-                            .snapshots()
-                      : _sinTareasPorRecibir,
+                  stream: _receivingStream,
                   builder: (context, receivingSnap) {
                     // Fusionar y deduplicar por doc.id
                     final seen = <String>{};
@@ -1373,7 +1453,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 flex: 1,
                 child: Column(
                   children: [
-                    const SectionHeader(title: 'Calendario de Actividades'),
+                    SectionHeader(
+                      title: 'Calendario de Actividades',
+                      trailing: _planesRefreshButton(),
+                    ),
                     if (_planesError != null) Text(_planesError!),
                     const SizedBox(height: 12),
                     _buildCalendarCard(scheme),
@@ -1437,7 +1520,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
 
           const SizedBox(height: 32),
-          const SectionHeader(title: 'Mi Agenda'),
+          SectionHeader(title: 'Mi Agenda', trailing: _planesRefreshButton()),
+          if (_planesError != null) Text(_planesError!),
           const SizedBox(height: 12),
           _buildCalendarCard(scheme),
 
@@ -1518,13 +1602,10 @@ class _HomeScreenState extends State<HomeScreen> {
         widget.empresaId;
     final isMobile = !_isWebShell;
 
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('TBL_NOTIFICACIONES')
-          .doc(cedula)
-          .collection('notifications')
-          .snapshots(),
-      builder: (context, snap) {
+    final notifications = _notifications;
+    return ValueListenableBuilder<NotificationSnapshot>(
+      valueListenable: notifications,
+      builder: (context, snap, _) {
         final docs = snap.data?.docs ?? [];
         final unread = docs.where((d) {
           final data = d.data();
@@ -1547,8 +1628,11 @@ class _HomeScreenState extends State<HomeScreen> {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) =>
-                    NotificationsScreen(userId: cedula, empresaId: eid),
+                builder: (_) => NotificationsScreen(
+                  userId: cedula,
+                  empresaId: eid,
+                  notifications: notifications,
+                ),
               ),
             );
           },
@@ -2179,6 +2263,15 @@ class _HomeScreenState extends State<HomeScreen> {
     ];
   }
 
+  Widget? _planesRefreshButton() {
+    if (_planesScope == null) return null;
+    return IconButton(
+      tooltip: 'Actualizar planes de mejora',
+      onPressed: () => _refreshPlanesAgenda(force: true),
+      icon: const Icon(Icons.refresh),
+    );
+  }
+
   Widget _buildCalendarCard(ColorScheme scheme) {
     return Card(
       elevation: 2,
@@ -2190,10 +2283,17 @@ class _HomeScreenState extends State<HomeScreen> {
         focusedDay: _focusedDay,
         selectedDayPredicate: (day) => _isSameDay(_selectedDay, day),
         eventLoader: _getEventsForDay,
-        onDaySelected: (sel, foc) => setState(() {
-          _selectedDay = sel;
-          _focusedDay = foc;
-        }),
+        onDaySelected: (sel, foc) {
+          setState(() {
+            _selectedDay = sel;
+            _focusedDay = foc;
+          });
+          unawaited(_refreshPlanesAgenda());
+        },
+        onPageChanged: (day) {
+          _focusedDay = day;
+          unawaited(_refreshPlanesAgenda());
+        },
         calendarStyle: CalendarStyle(
           todayDecoration: BoxDecoration(
             color: scheme.primary.withValues(alpha: 0.3),
@@ -2302,14 +2402,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   tareaId: planText(t, 'tareaId'),
                   planId: planText(t, 'planId'),
                 );
-                if (mounted) {
-                  _planesKey = null;
-                  _restartPlanesAgenda(
-                    cedula,
-                    _currentEmpresaId ?? widget.empresaId,
-                    true,
-                  );
-                }
+                if (mounted) await _refreshPlanesAgenda(force: true);
               },
             ),
           );
