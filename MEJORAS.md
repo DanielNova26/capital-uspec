@@ -1,5 +1,25 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-11 — Carga masiva de empleados en Talento Humano (Codex)
+
+- Talento Humano → Gestión de personal → Carga masiva genera un Excel con un
+  ejemplo y desplegables de tipos de documento, áreas, cargos, centros de
+  costos, jefes directos y estados. Las opciones se consultan al descargar.
+- Se admiten hasta 100 altas por archivo. La revisión señala la fila original
+  de cada error y la confirmación guarda el lote completo en una transacción.
+  El servidor verifica la empresa y el nivel de gestión, rechaza documentos
+  ya registrados y crea los registros con la lista de módulos vacía.
+- Pasaron 16 pruebas Flutter, con carga y confirmación a 390, 768, 1024 y
+  1366 píxeles lógicos y texto al 160 %. Excel de escritorio abrió la plantilla
+  y aplicó los seis desplegables hasta la fila 101. Pasaron 335 pruebas de
+  Functions y 8 con el emulador de Firestore. Se verificaron la empresa
+  secundaria, roles históricos, revocación, concurrencia y conservación
+  de fichas existentes.
+- Publicadas Web 2.8.29+83 y la función `talentoCargarPersonal`. Los cuatro
+  archivos de arranque publicados coinciden por SHA-256 con la compilación
+  local. Pendientes el recorrido con sesión real en producción y las
+  pruebas y publicaciones en Android e iOS.
+
 ## 2026-11-10 — Entrega móvil 2.8.28+82 (Codex)
 
 - Generado `outputs/android/to-do-gestion-2.8.28-82.aab` a partir del código

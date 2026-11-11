@@ -405,7 +405,7 @@ class _TalentoHumanoDashboardScreenState
         builder: (_) =>
             PersonnelImportScreen(userId: userId, empresaId: empresaId),
       ),
-    );
+    ).then((_) => _refreshDashboard());
   }
 
   void _openResumes(BuildContext context) {
@@ -1614,7 +1614,7 @@ class _PeopleHero extends StatelessWidget {
           FilledButton.icon(
             onPressed: onImport,
             icon: const Icon(Icons.upload_file_rounded),
-            label: const Text('Cargar desde Excel'),
+            label: const Text('Carga masiva'),
             style: FilledButton.styleFrom(
               backgroundColor: _khPrimary,
               foregroundColor: Colors.white,
@@ -1679,7 +1679,7 @@ class _MobilePeopleCard extends StatelessWidget {
           FilledButton.icon(
             onPressed: onImport,
             icon: const Icon(Icons.upload_file_rounded),
-            label: const Text('Cargar personal desde Excel'),
+            label: const Text('Carga masiva desde Excel'),
             style: FilledButton.styleFrom(
               backgroundColor: _khPrimary,
               padding: const EdgeInsets.symmetric(vertical: 14),

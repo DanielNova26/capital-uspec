@@ -149,14 +149,16 @@ class InternalModuleLayout extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 12),
-                    Text(
-                      title.toUpperCase(),
-                      style: const TextStyle(
-                        fontFamily: kArial,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 24,
-                        color: Color(0xFF0F172A), // Slate 900
-                        letterSpacing: -0.5,
+                    Flexible(
+                      child: Text(
+                        title.toUpperCase(),
+                        style: const TextStyle(
+                          fontFamily: kArial,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 24,
+                          color: Color(0xFF0F172A), // Slate 900
+                          letterSpacing: -0.5,
+                        ),
                       ),
                     ),
                     if (badge != null) ...[
