@@ -8,6 +8,7 @@ import {planDeEntrega} from "./notification_catalog";
 export {marcacionesPrueba} from "./marcaciones_prueba";
 export {biometricoGestion, biometricoDispositivo} from "./biometrico";
 export {talentoCargarPersonal} from "./talento_personal_import";
+export {mantenimientoOrden} from "./mantenimiento_ordenes";
 
 // Autenticación privada de To-Do. La contraseña se valida exclusivamente en
 // servidor y la aplicación recibe una sesión Firebase individual.

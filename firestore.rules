@@ -935,54 +935,9 @@ service cloud.firestore {
     }
 
     match /TBL_MANTENIMIENTO_ORDENES/{id} {
-      function equipoValido(d) {
-        let equipo = /databases/$(database)/documents/TBL_MANTENIMIENTO_EQUIPOS/$(d.equipoId);
-        return d.equipoId == '' || (idMantenimiento(d.equipoId)
-          && get(equipo).data.empresaId == d.empresaId
-          && get(equipo).data.get('centroDocId', '') == d.centroDocId);
-      }
-
-      function hallazgoValido(d) {
-        let hallazgo = /databases/$(database)/documents/TBL_INTERVENTORIA_HALLAZGOS/$(d.hallazgoId);
-        let centro = centroMantenimiento(d.centroDocId);
-        return d.hallazgoId == '' || (idMantenimiento(d.hallazgoId)
-          && get(hallazgo).data.empresaId == d.empresaId
-          && get(hallazgo).data.centroCostoId in
-            [d.centroDocId, get(centro).data.get('centroId', d.centroDocId)]);
-      }
-
-      function cambiosValidos(antes, d) {
-        return (antes.estado == 'abierta' && d.estado == 'en_curso'
-            && d.resultado == '' && d.cerradaAt == null)
-          || (antes.estado == 'en_curso' && d.estado == 'cerrada'
-            && d.resultado.trim().size() > 0 && d.cerradaAt == request.time)
-          || (antes.estado == 'cerrada' && d.estado == 'cerrada'
-            && d.resultado == antes.resultado && d.cerradaAt == antes.cerradaAt);
-      }
-
       allow read: if operaMantenimiento(resource.data.empresaId);
-      allow create: if operaMantenimiento(request.resource.data.empresaId)
-        && ordenNuevaValida(request.resource.data);
-      function ordenNuevaValida(d) {
-        return d.keys().hasOnly(['empresaId', 'centroDocId', 'equipoId',
-            'hallazgoId', 'tipo', 'detalle', 'estado', 'resultado', 'factura',
-            'createdAt', 'updatedAt', 'cerradaAt'])
-          && d.tipo in ['correctivo', 'preventivo']
-          && d.detalle is string && d.detalle.trim().size() > 0 && d.detalle.size() <= 1200
-          && d.factura is string && d.factura.size() <= 160
-          && d.estado == 'abierta' && d.resultado == '' && d.cerradaAt == null
-          && d.createdAt == request.time && d.updatedAt == request.time
-          && centroMantenimientoValido(d.empresaId, d.centroDocId)
-          && equipoValido(d) && hallazgoValido(d);
-      }
-
-      allow update: if empresaSeConserva() && operaMantenimiento(resource.data.empresaId)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
-          ['estado', 'resultado', 'factura', 'cerradaAt', 'updatedAt'])
-        && request.resource.data.factura is string && request.resource.data.factura.size() <= 160
-        && request.resource.data.resultado is string && request.resource.data.resultado.size() <= 1200
-        && request.resource.data.updatedAt == request.time
-        && cambiosValidos(resource.data, request.resource.data);
+      // El servidor valida ubicación, consecutivo, archivos y cierre definitivo.
+      allow write: if false;
     }
 
     match /TBL_INTERVENTORIA_HALLAZGOS/{docId} {
@@ -2936,7 +2891,7 @@ service cloud.firestore {
           + '|RUTAS|RUTAS_ROLES|RUTAS_ESTABLECIMIENTOS|RUTAS_PLACAS|RUTAS_CONFIG|RUTAS_ASIGNACIONES|RUTAS_EVIDENCIAS|RUTAS_RESUMEN_DIARIO|RUTAS_UBICACIONES|RUTAS_MOV_CONFIG|RUTAS_MOV_HORARIOS|RUTAS_MOV_MEDICIONES|RUTAS_MOV_RUNS'
           + '|CITAS_NUTRICION|HISTORIAL_NUTRICION'
           + '|FAC_CONFIG'
-          + '|APPS|MANTENIMIENTO_ACCESOS|MANTENIMIENTO_EQUIPOS|MANTENIMIENTO_ORDENES'
+          + '|APPS|MANTENIMIENTO_(ACCESOS|EQUIPOS|ORDENES|ARCHIVOS|CONTADORES)'
           + ')');
     }
   }

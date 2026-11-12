@@ -2,9 +2,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 
+import '../core/subcentros_costo.dart';
 import '../interventoria/interventoria_models.dart'
     show EstablecimientoDelHallazgo;
 import '../widgets/empresa_activa_chip.dart';
+import 'mantenimiento_archivos.dart';
 import 'mantenimiento_forms.dart';
 import 'mantenimiento_report.dart';
 import 'mantenimiento_service.dart';
@@ -86,6 +88,9 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
   EstadoOrden? _estado;
   DateTimeRange? _periodo;
   bool _exportando = false;
+  IntervencionMantenimiento? _intervencionOrdenes;
+  String _busquedaOrdenes = '', _grupoOrdenes = '';
+  bool? _conHallazgo;
 
   void _irA(_Seccion seccion) => setState(() {
     _seccion = seccion;
@@ -273,6 +278,10 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
             onTap: () => setState(() {
               _estado = estado;
               _centroOrdenes = '';
+              _intervencionOrdenes = null;
+              _busquedaOrdenes = '';
+              _grupoOrdenes = '';
+              _conHallazgo = null;
               _seccion = _Seccion.ordenes;
               _seleccion = null;
             }),
@@ -448,11 +457,36 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
     };
     final inventario = {for (final equipo in equipos) equipo.id: equipo};
     final disponibles = centros.where((centro) => centro.activo).toList();
+    final grupos =
+        centros
+            .map((c) => c.centro.grupo)
+            .where((g) => g.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+    final sedesGrupo = centros
+        .where((c) => c.centro.grupo == _grupoOrdenes)
+        .map((c) => c.id)
+        .toSet();
     final ordenesVisibles = ordenes
         .where(
           (orden) =>
+              (_grupoOrdenes.isEmpty ||
+                  sedesGrupo.contains(orden.centroDocId)) &&
+              (_conHallazgo == null ||
+                  _conHallazgo ==
+                      (orden.hallazgoId.isNotEmpty ||
+                          orden.hallazgoExterno.isNotEmpty)) &&
+              [
+                orden.asunto,
+                orden.detalle,
+                orden.referencia,
+                orden.subcentroNombre,
+              ].join(' ').toLowerCase().contains(_busquedaOrdenes) &&
               (_centroOrdenes.isEmpty || orden.centroDocId == _centroOrdenes) &&
-              (_estado == null || orden.estado == _estado),
+              (_estado == null || orden.estado == _estado) &&
+              (_intervencionOrdenes == null ||
+                  orden.intervencion == _intervencionOrdenes),
         )
         .toList();
 
@@ -530,7 +564,7 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
           final orden = ordenes.where((o) => o.id == id).firstOrNull;
           return orden == null
               ? null
-              : _detalleOrden(orden, nombres, inventario);
+              : _detalleOrden(orden, centros, nombres, inventario);
         case _Seccion.informe:
         case _Seccion.resumen:
           return null;
@@ -616,34 +650,106 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
             _seleccion = null;
           }),
         ),
-        DropdownButtonFormField<EstadoOrden>(
-          initialValue: _estado,
-          isExpanded: true,
-          decoration: _decoracionFiltro('Estado'),
-          hint: const Text(
-            'Todos los estados',
-            overflow: TextOverflow.ellipsis,
+        TextFormField(
+          initialValue: _busquedaOrdenes,
+          decoration: _decoracionFiltro(
+            'Buscar orden, diagnóstico o estructura',
           ),
-          items: [
-            const DropdownMenuItem(
-              child: Text('Todos los estados', overflow: TextOverflow.ellipsis),
-            ),
-            for (final estado in EstadoOrden.values)
-              DropdownMenuItem(
-                value: estado,
-                child: Text(estado.label, overflow: TextOverflow.ellipsis),
+          onChanged: (valor) =>
+              setState(() => _busquedaOrdenes = valor.trim().toLowerCase()),
+        ),
+        ExpansionTile(
+          maintainState: true,
+          tilePadding: EdgeInsets.zero,
+          title: const Text('Más filtros'),
+          subtitle: Text(
+            [
+              _estado?.label,
+              _intervencionOrdenes?.label,
+              if (_grupoOrdenes.isNotEmpty) _grupoOrdenes,
+              if (_conHallazgo != null)
+                _conHallazgo! ? 'Con hallazgo' : 'Sin hallazgo',
+            ].whereType<String>().join(' · '),
+          ),
+          children: [
+            if (grupos.isNotEmpty)
+              DropdownButtonFormField<String>(
+                initialValue: _grupoOrdenes,
+                isExpanded: true,
+                decoration: _decoracionFiltro('Grupo de establecimientos'),
+                items: [
+                  opcionMantenimiento('', 'Todos los grupos'),
+                  for (final grupo in grupos) opcionMantenimiento(grupo, grupo),
+                ],
+                onChanged: (valor) => setState(() {
+                  _grupoOrdenes = valor!;
+                  _seleccion = null;
+                }),
               ),
+            DropdownButtonFormField<bool>(
+              initialValue: _conHallazgo,
+              isExpanded: true,
+              decoration: _decoracionFiltro('Origen'),
+              items: const [
+                DropdownMenuItem(child: Text('Todas las órdenes')),
+                DropdownMenuItem(value: true, child: Text('Con hallazgo')),
+                DropdownMenuItem(value: false, child: Text('Sin hallazgo')),
+              ],
+              onChanged: (valor) => setState(() {
+                _conHallazgo = valor;
+                _seleccion = null;
+              }),
+            ),
+            DropdownButtonFormField<EstadoOrden>(
+              initialValue: _estado,
+              isExpanded: true,
+              decoration: _decoracionFiltro('Estado'),
+              hint: const Text(
+                'Todos los estados',
+                overflow: TextOverflow.ellipsis,
+              ),
+              items: [
+                const DropdownMenuItem(
+                  child: Text(
+                    'Todos los estados',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                for (final estado in EstadoOrden.values)
+                  DropdownMenuItem(
+                    value: estado,
+                    child: Text(estado.label, overflow: TextOverflow.ellipsis),
+                  ),
+              ],
+              onChanged: (valor) => setState(() {
+                _estado = valor;
+                _seleccion = null;
+              }),
+            ),
+            DropdownButtonFormField<IntervencionMantenimiento>(
+              initialValue: _intervencionOrdenes,
+              isExpanded: true,
+              decoration: _decoracionFiltro('Intervención'),
+              items: [
+                const DropdownMenuItem(child: Text('Todas las intervenciones')),
+                for (final tipo in IntervencionMantenimiento.values)
+                  DropdownMenuItem(value: tipo, child: Text(tipo.label)),
+              ],
+              onChanged: (valor) => setState(() {
+                _intervencionOrdenes = valor;
+                _seleccion = null;
+              }),
+            ),
           ],
-          onChanged: (valor) => setState(() {
-            _estado = valor;
-            _seleccion = null;
-          }),
         ),
         ..._historial(
           ordenesVisibles,
           (orden) => abrir(orden.id),
           seleccionado: dividido ? _seleccion : null,
-          subtitulo: (o) => nombres[o.centroDocId] ?? o.centroDocId,
+          subtitulo: (o) => nombreEstablecimiento(
+            nombres[o.centroDocId] ?? o.centroDocId,
+            o.subcentroNombre,
+          ),
         ),
       ],
     ], key: ValueKey(_seccion));
@@ -674,14 +780,22 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
 
   List<Widget> _detalleOrden(
     OrdenMantenimiento orden,
+    List<EstablecimientoMantenimiento> establecimientos,
     Map<String, String> centros,
     Map<String, EquipoMantenimiento> equipos,
   ) {
     final equipo = equipos[orden.equipoId];
     final cerrada = orden.estado == EstadoOrden.cerrada;
     final datos = [
-      SelectableText('Orden ${orden.id}'),
-      Text(centros[orden.centroDocId] ?? orden.centroDocId),
+      SelectableText('Orden ${orden.referencia}'),
+      if (orden.titulo.isNotEmpty) _titulo(orden.titulo),
+      Text(
+        nombreEstablecimiento(
+          centros[orden.centroDocId] ?? orden.centroDocId,
+          orden.subcentroNombre,
+        ),
+      ),
+      if (orden.intervencion case final intervencion?) Text(intervencion.label),
       if (equipo != null) Text('${equipo.codigo} · ${equipo.nombre}'),
       Text('Apertura ${_fecha(orden.creada)}'),
       if (orden.cerrada != null) Text('Cierre ${_fecha(orden.cerrada)}'),
@@ -708,6 +822,13 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
       ],
       ..._bloqueDetalle('Trabajo solicitado', [
         Text(orden.detalle),
+        if (orden.hallazgoExterno.isNotEmpty) ...[
+          Text('Hallazgo de ${orden.hallazgoExterno['entidad']}'),
+          Text(orden.hallazgoExterno['descripcion'] ?? ''),
+          Text(
+            'Reportado ${orden.hallazgoExterno['fecha']} · Fecha límite ${orden.hallazgoExterno['limite']}',
+          ),
+        ],
         if (orden.hallazgoId.isNotEmpty)
           OutlinedButton.icon(
             onPressed: () => _verHallazgo(orden.hallazgoId),
@@ -715,52 +836,122 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
             label: const Text('Ver hallazgo de Interventoría'),
           ),
       ]),
-      if (orden.resultado.isNotEmpty)
+      if (orden.cierre case final cierre?)
+        ..._bloqueDetalle(cerrada ? 'Trabajo realizado' : 'Borrador de cierre', [
+          if (cierre.trabajo.isNotEmpty) Text(cierre.trabajo),
+          if (cierre.materiales.isNotEmpty)
+            Text('Materiales: ${cierre.materiales}'),
+          if (cierre.sugerencias.isNotEmpty)
+            Text('Sugerencias: ${cierre.sugerencias}'),
+          if (cierre.tecnico.isNotEmpty) Text('Técnico: ${cierre.tecnico}'),
+          if (cierre.receptor.isNotEmpty)
+            Text(
+              'Recibió: ${cierre.receptor}${cierre.cargoReceptor.isEmpty ? '' : ' · ${cierre.cargoReceptor}'}',
+            ),
+        ])
+      else if (orden.resultado.isNotEmpty)
         ..._bloqueDetalle('Trabajo realizado', [Text(orden.resultado)]),
+      for (final clase in ClaseArchivoOrden.values)
+        if (orden.archivos.any((a) => a.clase == clase))
+          ..._bloqueDetalle(clase.label, [
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final archivo in orden.archivos.where(
+                  (a) => a.clase == clase,
+                ))
+                  ArchivoOrdenBoton(
+                    key: ValueKey(archivo.id),
+                    archivo: archivo,
+                    service: _service,
+                    ordenId: orden.id,
+                  ),
+              ],
+            ),
+          ]),
       Text(
         orden.factura.isEmpty
             ? 'Factura sin registrar'
             : 'Factura ${orden.factura}',
       ),
-      _accion(
-        switch (orden.estado) {
-          EstadoOrden.abierta => 'Iniciar trabajo',
-          EstadoOrden.enCurso => 'Cerrar orden',
-          EstadoOrden.cerrada => 'Registrar factura',
-        },
-        cerrada ? Icons.receipt_long_outlined : Icons.check_circle_outline,
-        () => _editarOrden(orden),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          if (orden.estado == EstadoOrden.abierta)
+            _accion(
+              'Iniciar trabajo',
+              Icons.play_arrow,
+              () => _avanzarOrden(orden),
+            ),
+          if (!cerrada) ...[
+            _accion(
+              orden.cierre == null ? 'Registrar cierre' : 'Continuar cierre',
+              Icons.check_circle_outline,
+              () => _abrir(
+                CierreMantenimientoForm(
+                  orden: orden,
+                  service: _service,
+                  vistaWeb: widget.vistaWeb,
+                ),
+              ),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => _abrir(
+                OrdenMantenimientoForm(
+                  service: _service,
+                  centros: establecimientos,
+                  equipos: const [],
+                  orden: orden,
+                  vistaWeb: widget.vistaWeb,
+                ),
+              ),
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text('Editar orden'),
+            ),
+          ],
+          if (cerrada && orden.esquema == 1)
+            _accion(
+              'Registrar factura',
+              Icons.receipt_long_outlined,
+              () => _avanzarOrden(orden),
+            ),
+          OutlinedButton.icon(
+            onPressed: _exportando
+                ? null
+                : () => _exportar(
+                    nombreEstablecimiento(
+                      centros[orden.centroDocId] ?? orden.centroDocId,
+                      orden.subcentroNombre,
+                    ),
+                    [orden],
+                    centros,
+                    equipos,
+                    ordenIndividual: orden,
+                  ),
+            icon: const Icon(Icons.picture_as_pdf_outlined),
+            label: const Text('PDF de la orden'),
+          ),
+        ],
       ),
     ];
   }
 
-  void _editarOrden(OrdenMantenimiento orden) {
+  void _avanzarOrden(OrdenMantenimiento orden) {
     String factura = orden.factura;
-    String resultado = '';
     _abrir(
       EditorMantenimiento(
         vistaWeb: widget.vistaWeb,
         titulo: switch (orden.estado) {
           EstadoOrden.abierta => 'Iniciar trabajo',
-          EstadoOrden.enCurso => 'Cerrar orden',
+          EstadoOrden.enCurso => 'Orden en curso',
           EstadoOrden.cerrada => 'Referencia de factura',
         },
-        guardar: () => _service.avanzar(
-          orden,
-          resultado: resultado.trim(),
-          factura: factura.trim(),
-        ),
+        guardar: () => _service.avanzar(orden, factura: factura.trim()),
         campos: [
           if (orden.estado == EstadoOrden.abierta)
             const Text('La orden quedará en curso.'),
-          if (orden.estado == EstadoOrden.enCurso)
-            campoMantenimiento(
-              'Trabajo realizado',
-              1200,
-              requerido: true,
-              lineas: 3,
-              onChanged: (v) => resultado = v,
-            ),
           if (orden.estado != EstadoOrden.abierta)
             campoMantenimiento(
               'Referencia de factura',
@@ -911,8 +1102,9 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
     String alcance,
     List<OrdenMantenimiento> ordenes,
     Map<String, String> centros,
-    Map<String, EquipoMantenimiento> equipos,
-  ) async {
+    Map<String, EquipoMantenimiento> equipos, {
+    OrdenMantenimiento? ordenIndividual,
+  }) async {
     setState(() => _exportando = true);
     try {
       final bytes = await generarInformeMantenimiento(
@@ -921,11 +1113,17 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
         ordenes: ordenes,
         centros: centros,
         equipos: equipos,
+        ordenIndividual: ordenIndividual != null,
+        fotos: ordenIndividual == null
+            ? null
+            : (archivo) => _service.leerArchivo(ordenIndividual.id, archivo.id),
       );
       if (mounted) {
         await Printing.sharePdf(
           bytes: bytes,
-          filename: 'informe_mantenimiento.pdf',
+          filename: ordenIndividual == null
+              ? 'informe_mantenimiento.pdf'
+              : 'orden_${ordenIndividual.referencia}.pdf',
         );
       }
     } catch (_) {
@@ -974,11 +1172,7 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
         icono: iconoEstadoMantenimiento(orden.estado),
         color: colorEstadoMantenimiento(orden.estado),
         selected: seleccionado == orden.id,
-        title: Text(
-          orden.detalle,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
+        title: Text(orden.asunto, maxLines: 2, overflow: TextOverflow.ellipsis),
         subtitle: widget.vistaWeb
             ? Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -991,6 +1185,11 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
                     children: [
                       _selloEstado(orden.estado),
                       Text('${orden.tipo.label} · ${_fecha(orden.creada)}'),
+                      if (orden.numero != null)
+                        Text('Orden ${orden.referencia}'),
+                      if (orden.hallazgoId.isNotEmpty ||
+                          orden.hallazgoExterno.isNotEmpty)
+                        const Text('Con hallazgo'),
                     ],
                   ),
                   Text(subtitulo(orden)),

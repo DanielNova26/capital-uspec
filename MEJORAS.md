@@ -1,5 +1,37 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-12 — Órdenes de trabajo de Mantenimiento (Codex)
+
+- Reactivado Mantenimiento en Capital USPEC, Servir USPEC, FYC y ALFA.
+  El parte diario de PPL y el aviso de las 5 p. m. siguen pendientes de
+  implementación y quedan fuera de esta puesta en marcha.
+- Adaptado el flujo del prototipo V0.25 a los centros y subcentros de la
+  empresa activa. La orden tiene consecutivo por empresa, título, tipo de
+  intervención, diagnóstico, fotos y cotizaciones. Conserva el vínculo a
+  Interventoría y permite registrar un hallazgo manual con fecha y plazo.
+- El técnico puede continuar un borrador de cierre, registrar trabajo,
+  materiales, sugerencias, receptor y soportes, y compartir el PDF de la
+  orden con sus fotografías. El cierre definitivo exige trabajo, técnico,
+  receptor y una foto final para órdenes preventivas y correctivas.
+- Los borradores locales se cifran por usuario, empresa y formulario.
+  Los adjuntos confirmados se cifran en Storage y se descargan por el
+  servidor con el permiso de operación vigente. El mismo acceso a la app
+  cubre las órdenes. Los maestros y su copia conservan el catálogo común.
+- Publicada Web 2.8.33+87. Coinciden por SHA-256 los seis archivos de
+  arranque y versión. Función `mantenimientoOrden` activa y reglas
+  verificadas en el ruleset `b5c6442c-699b-441e-b3fb-14ec2e501ea7`.
+  Las escrituras de órdenes requieren esta versión o una posterior.
+- Pasaron 44 pruebas Flutter, 338 de Functions (una omitida) y 5 con
+  Firestore y Storage. El cierre se probó en Web a 390, 768, 1024 y 1366
+  píxeles lógicos con texto al 160 %, y en Android e iOS simulados con
+  áreas seguras y teclado. Pendiente el recorrido autenticado en Web y
+  la prueba en dispositivos físicos, incluidos cámara, selector de archivos,
+  recuperación del borrador y compartir el PDF.
+- AAB Android 2.8.33+87 generado en
+  `outputs/android/to-do-gestion-2.8.33-87.aab`. Bundletool validó el
+  manifiesto y Jarsigner verificó la firma del mismo certificado del AAB 84.
+  Pendientes las publicaciones en tiendas y la compilación de iOS en Mac.
+
 ## 2026-11-12 — Visitas descargadas, recepciones y fechas de actas (Codex)
 
 - Las visitas descargadas de Android e iOS abren el formulario con una marca

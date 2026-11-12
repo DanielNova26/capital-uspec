@@ -1,6 +1,9 @@
 const test = require("node:test");
+const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const admin = require("firebase-admin");
+const {mantenimientoOrden} = require("../lib/mantenimiento_ordenes");
 const {
   assertFails, assertSucceeds, initializeTestEnvironment,
 } = require("@firebase/rules-unit-testing");
@@ -13,6 +16,10 @@ const app = "mantenimientodashboard";
 const equipos = "TBL_MANTENIMIENTO_EQUIPOS";
 const ordenes = "TBL_MANTENIMIENTO_ORDENES";
 const accesos = "TBL_MANTENIMIENTO_ACCESOS";
+const projectId = "demo-mantenimiento";
+assert.ok(process.env.FIRESTORE_EMULATOR_HOST, "Solo emulador.");
+admin.initializeApp({projectId, storageBucket: `${projectId}.appspot.com`});
+const dbAdmin = admin.firestore();
 let env;
 
 const cuenta = (id) => env.authenticatedContext(id, {
@@ -37,7 +44,7 @@ const sembrar = (datos) => env.withSecurityRulesDisabled(async (context) => {
 
 test.before(async () => {
   env = await initializeTestEnvironment({
-    projectId: "demo-mantenimiento",
+    projectId,
     firestore: {rules: fs.readFileSync(path.resolve(__dirname, "../../firestore.rules"), "utf8")},
   });
   await sembrar({
@@ -67,7 +74,10 @@ test.before(async () => {
     },
   });
 });
-test.after(async () => env?.cleanup());
+test.after(async () => {
+  await env?.cleanup();
+  await admin.app().delete();
+});
 
 test("opera en la empresa secundaria con app y edita una ficha base copiada", async () => {
   const db = cuenta("operario");
@@ -85,24 +95,25 @@ test("opera en la empresa secundaria con app y edita una ficha base copiada", as
   }));
 });
 
-test("la orden conserva sus vínculos y solo se cierra tras registrar el trabajo", async () => {
+test("el cliente consulta órdenes y deja todas las escrituras al servidor", async () => {
   const db = cuenta("operario");
   const ref = doc(db, ordenes, "orden-A");
   await assertFails(setDoc(ref, orden({equipoId: "equipo-B"})));
   await assertFails(setDoc(ref, orden({hallazgoId: "hallazgo-B"})));
   await assertFails(setDoc(ref, orden({centroDocId: "otro-A", hallazgoId: "hallazgo-A"})));
-  await assertSucceeds(setDoc(ref, orden({equipoId: "equipo-A", hallazgoId: "hallazgo-A"})));
-  await assertSucceeds(setDoc(doc(db, ordenes, "orden-sede"), orden({tipo: "preventivo"})));
+  await assertFails(setDoc(ref, orden({equipoId: "equipo-A", hallazgoId: "hallazgo-A"})));
+  await sembrar({[`${ordenes}/orden-A`]: orden()});
+  await assertSucceeds(getDoc(ref));
   const cerrar = {
     estado: "cerrada", resultado: "Se corrigió la fuga", factura: "F-12",
     updatedAt: serverTimestamp(), cerradaAt: serverTimestamp(),
   };
   await assertFails(updateDoc(ref, cerrar));
-  await assertSucceeds(updateDoc(ref, {estado: "en_curso", updatedAt: serverTimestamp()}));
+  await assertFails(updateDoc(ref, {estado: "en_curso", updatedAt: serverTimestamp()}));
   await assertFails(updateDoc(ref, {...cerrar, centroDocId: "otro-A"}));
   await assertFails(updateDoc(ref, {...cerrar, resultado: "   "}));
-  await assertSucceeds(updateDoc(ref, cerrar));
-  await assertSucceeds(updateDoc(ref, {factura: "F-13", updatedAt: serverTimestamp()}));
+  await assertFails(updateDoc(ref, cerrar));
+  await assertFails(updateDoc(ref, {factura: "F-13", updatedAt: serverTimestamp()}));
   await assertFails(deleteDoc(ref));
 });
 
@@ -147,4 +158,67 @@ test("una ficha alterada no concede acceso ni permite habilitar la app", async (
   await assertFails(setDoc(doc(admin, `${accesos}/B_operario`), {
     empresaId: "B", userId: "operario", operador: true, updatedAt: serverTimestamp(),
   }));
+});
+
+test("consecutivos por empresa, estructura y cierre con evidencia en el servidor", {
+  skip: !process.env.FIREBASE_STORAGE_EMULATOR_HOST,
+}, async () => {
+  const datos = {
+    tipo: "preventivo", intervencion: "coccion", titulo: "Revisar estufa",
+    detalle: "Inspección", centroDocId: "centro-A", subcentroId: "rancho",
+    hallazgoId: "hallazgo-A",
+  };
+  await sembrar({
+    "TBL_CENTROS_COSTOS/centro-A": {
+      empresaId: "A", centroId: "sede-A", subcentros: [{id: "rancho", nombre: "Rancho"}],
+    },
+    "TBL_INTERVENTORIA_HALLAZGOS/hallazgo-A": {
+      empresaId: "A", centroCostoId: "sede-A", subcentroId: "rancho",
+    },
+  });
+  const call = (accion, input = {}, userDocId = "operario") => mantenimientoOrden.run(
+    {empresaId: "A", ordenId: "nueva", accion, ...input},
+    {auth: {uid: userDocId, token: {authVersion: 2, userDocId}}},
+  );
+  const ref = dbAdmin.doc(`${ordenes}/nueva`);
+  const version = async () => {
+    const {updatedAt} = (await ref.get()).data();
+    return {segundos: updatedAt.seconds, nanosegundos: updatedAt.nanoseconds};
+  };
+  await assert.rejects(call("crear", {...datos, subcentroId: ""}), {code: "invalid-argument"});
+  await assert.rejects(call("crear", datos, "sinapp"), {code: "permission-denied"});
+  const nuevas = await Promise.all([
+    call("crear", datos), call("crear", {...datos, ordenId: "segunda"}),
+  ]);
+  assert.deepEqual(nuevas.map(x => x.numero).sort(), [1, 2]);
+  assert.deepEqual(await call("crear", datos), nuevas[0]);
+  assert.equal((await ref.get()).data().subcentroNombre, "Rancho");
+  await assertSucceeds(getDoc(doc(cuenta("operario"), ordenes, "nueva")));
+  await assertFails(updateDoc(doc(cuenta("operario"), ordenes, "nueva"), {
+    estado: "en_curso", updatedAt: serverTimestamp(),
+  }));
+  const previo = await version();
+  await call("borrador", {...previo, materiales: "Empaque"});
+  await assert.rejects(call("editar", {...previo, ...datos}), {code: "aborted"});
+  assert.equal((await ref.get()).data().estado, "abierta");
+  const cierre = {...await version(), trabajo: "Ajuste final", tecnico: "Técnico", receptor: "Responsable"};
+  await assert.rejects(call("cerrar", cierre), {code: "failed-precondition"});
+  const base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aT2QAAAAASUVORK5CYII=";
+  const adjunto = {archivoId: "foto", clase: "evidencia", mime: "image/png", nombre: "cierre.png", base64};
+  await call("adjuntar", adjunto);
+  await call("adjuntar", adjunto);
+  assert.equal((await ref.get()).data().archivos.length, 1);
+  const secreto = dbAdmin.doc("TBL_MANTENIMIENTO_ARCHIVOS/foto");
+  const [cifrado] = await admin.storage().bucket().file((await secreto.get()).data().path).download();
+  assert.notEqual(cifrado.toString("base64"), base64);
+  await assertFails(getDoc(doc(cuenta("operario"), secreto.path)));
+  await assertFails(getDoc(doc(cuenta("operario"), "TBL_MANTENIMIENTO_CONTADORES/A")));
+  assert.deepEqual(await call("leerArchivo", {archivoId: "foto"}), {base64});
+  await assert.rejects(call("leerArchivo", {archivoId: "foto", ordenId: "segunda"}), {code: "not-found"});
+  await call("cerrar", cierre);
+  assert.equal((await ref.get()).data().estado, "cerrada");
+  await assert.rejects(call("quitarArchivo", {archivoId: "foto"}), {code: "failed-precondition"});
+  await assert.rejects(call("editar", {...datos, ...await version()}), {code: "failed-precondition"});
+  await sembrar({[`${accesos}/A_operario`]: {empresaId: "A", userId: "operario", operador: false}});
+  await assert.rejects(call("leerArchivo", {archivoId: "foto"}), {code: "permission-denied"});
 });

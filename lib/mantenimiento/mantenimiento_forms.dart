@@ -1,6 +1,11 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../interventoria/interventoria_models.dart';
+import 'mantenimiento_archivos.dart';
+import 'mantenimiento_borradores.dart';
 import 'mantenimiento_service.dart';
 import 'mantenimiento_web_widgets.dart';
 
@@ -38,12 +43,20 @@ class EditorMantenimiento extends StatefulWidget {
     required this.guardar,
     required this.campos,
     this.vistaWeb = false,
+    this.etiqueta = 'Guardar',
+    this.guardarBorrador,
+    this.onChanged,
+    this.estadoBorrador,
   });
 
   final String titulo;
   final Future<void> Function() guardar;
   final List<Widget> campos;
   final bool vistaWeb;
+  final String etiqueta;
+  final Future<void> Function()? guardarBorrador;
+  final VoidCallback? onChanged;
+  final String? estadoBorrador;
 
   @override
   State<EditorMantenimiento> createState() => _EditorMantenimientoState();
@@ -54,16 +67,18 @@ class _EditorMantenimientoState extends State<EditorMantenimiento> {
   bool _guardando = false;
   String? _error;
 
-  Future<void> _guardar() async {
-    if (_guardando || !_form.currentState!.validate()) return;
+  Future<void> _guardar({bool borrador = false}) async {
+    if (_guardando || (!borrador && !_form.currentState!.validate())) return;
     FocusScope.of(context).unfocus();
     setState(() {
       _guardando = true;
       _error = null;
     });
     try {
-      await widget.guardar();
+      await (borrador ? widget.guardarBorrador! : widget.guardar)();
       if (mounted) Navigator.pop(context);
+    } on _GuardadoCancelado {
+      if (mounted) setState(() => _guardando = false);
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -90,13 +105,19 @@ class _EditorMantenimientoState extends State<EditorMantenimiento> {
             _error!,
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
+        if (widget.estadoBorrador != null) Text(widget.estadoBorrador!),
         FilledButton(
           style: widget.vistaWeb
               ? FilledButton.styleFrom(backgroundColor: mantenimientoAcento)
               : null,
-          onPressed: _guardando ? null : _guardar,
-          child: Text(_guardando ? 'Guardando…' : 'Guardar'),
+          onPressed: _guardando ? null : () => _guardar(),
+          child: Text(_guardando ? 'Guardando…' : widget.etiqueta),
         ),
+        if (widget.guardarBorrador != null)
+          OutlinedButton(
+            onPressed: _guardando ? null : () => _guardar(borrador: true),
+            child: const Text('Guardar borrador'),
+          ),
       ],
     );
     return PopScope(
@@ -111,6 +132,7 @@ class _EditorMantenimientoState extends State<EditorMantenimiento> {
         body: SafeArea(
           child: Form(
             key: _form,
+            onChanged: widget.onChanged,
             child: ListView(
               padding: const EdgeInsets.all(16),
               children: [
@@ -232,6 +254,7 @@ class OrdenMantenimientoForm extends StatefulWidget {
     this.centroId,
     this.equipoId,
     this.vistaWeb = false,
+    this.orden,
   });
 
   final MantenimientoService service;
@@ -239,23 +262,119 @@ class OrdenMantenimientoForm extends StatefulWidget {
   final List<EquipoMantenimiento> equipos;
   final String? centroId, equipoId;
   final bool vistaWeb;
+  final OrdenMantenimiento? orden;
 
   @override
   State<OrdenMantenimientoForm> createState() => _OrdenMantenimientoFormState();
 }
 
-class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm> {
-  late String? _centroId = widget.centroId;
+class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
+    with _BorradorFormulario<OrdenMantenimientoForm> {
+  late String? _centroId = widget.orden?.centroDocId ?? widget.centroId;
   late String _equipoId = widget.equipoId ?? '';
-  TipoMantenimiento _tipo = TipoMantenimiento.correctivo;
-  final _detalle = TextEditingController();
+  late String _subcentroId = widget.orden?.subcentroId ?? '';
+  late TipoMantenimiento _tipo =
+      widget.orden?.tipo ?? TipoMantenimiento.correctivo;
+  late IntervencionMantenimiento _intervencion =
+      widget.orden?.intervencion ?? IntervencionMantenimiento.infraestructura;
+  late final _detalle = TextEditingController(text: widget.orden?.detalle);
+  late final _titulo = TextEditingController(text: widget.orden?.asunto);
+  late String _ordenId = widget.orden?.id ?? nuevoIdMantenimiento();
+  final _pendientes = <ArchivoPendienteOrden>[];
+  final _retirados = <String>{};
+  bool _creada = false;
+  OrdenMantenimiento? _creadaGuardada;
   InterventoriaHallazgo? _hallazgo;
+  bool _hallazgoManual = false;
+  String _entidad = 'Secretaría de Salud';
+  String _fechaHallazgo = '', _limiteHallazgo = '', _descripcionHallazgo = '';
   String _textoVinculado = '';
-  String _factura = '';
+  late String _factura = widget.orden?.factura ?? '';
+
+  @override
+  BorradorMantenimiento get almacenBorrador => _almacenBorrador;
+  late final _almacenBorrador = BorradorMantenimiento(
+    widget.service.empresaId,
+    'apertura-${widget.orden?.id ?? 'nueva'}',
+  );
+
+  @override
+  Map<String, dynamic> datosBorrador() => {
+    'ordenId': _ordenId,
+    'centroId': _centroId,
+    'equipoId': _equipoId,
+    'subcentroId': _subcentroId,
+    'tipo': _tipo.name,
+    'intervencion': _intervencion.name,
+    'titulo': _titulo.text,
+    'detalle': _detalle.text,
+    'factura': _factura,
+    'hallazgoId': _hallazgo?.id,
+    'hallazgoManual': _hallazgoManual,
+    'entidad': _entidad,
+    'fecha': _fechaHallazgo,
+    'limite': _limiteHallazgo,
+    'descripcion': _descripcionHallazgo,
+    'creada': _creada,
+    'version': widget.orden?.updatedAt?.toString(),
+    'pendientes': _serializarPendientes(_pendientes),
+    'retirados': _retirados.toList(),
+  };
+
+  @override
+  Future<void> recuperarBorrador(Map<String, dynamic> data) async {
+    if (data['version'] != widget.orden?.updatedAt?.toString()) {
+      throw StateError(
+        'La orden cambió. El borrador anterior se conserva en este dispositivo.',
+      );
+    }
+    final centroId = data['centroId'] as String?;
+    final centro = widget.centros
+        .where((c) => c.id == centroId && c.activo)
+        .firstOrNull;
+    _centroId = centro?.id;
+    _equipoId =
+        widget.equipos.any(
+          (e) => e.id == data['equipoId'] && e.centroDocId == _centroId,
+        )
+        ? data['equipoId'] as String
+        : '';
+    final subcentroId = data['subcentroId'] as String? ?? '';
+    _subcentroId =
+        centro?.centro.subcentrosActivos.any((s) => s.id == subcentroId) == true
+        ? subcentroId
+        : '';
+    _ordenId = data['ordenId'] as String;
+    _creada = data['creada'] == true;
+    _tipo = TipoMantenimiento.values.byName(data['tipo'] as String);
+    _intervencion = IntervencionMantenimiento.values.byName(
+      data['intervencion'] as String,
+    );
+    _titulo.text = data['titulo'] as String;
+    _detalle.text = data['detalle'] as String;
+    _factura = data['factura'] as String;
+    _hallazgoManual = data['hallazgoManual'] == true;
+    _entidad = data['entidad'] as String;
+    _fechaHallazgo = data['fecha'] as String;
+    _limiteHallazgo = data['limite'] as String;
+    _descripcionHallazgo = data['descripcion'] as String;
+    _pendientes.addAll(_leerPendientes(data['pendientes']));
+    _retirados.addAll(List<String>.from(data['retirados'] as List));
+    final hallazgoId = data['hallazgoId'] as String?;
+    if (hallazgoId != null) {
+      final hallazgo = await widget.service.hallazgo(hallazgoId);
+      if (hallazgo?.centroCostoId == centro?.id ||
+          hallazgo?.centroCostoId == centro?.centro.centroId) {
+        _hallazgo = hallazgo;
+      }
+    }
+  }
 
   @override
   void dispose() {
+    guardarBorradorAlSalir();
     _detalle.dispose();
+    _titulo.dispose();
     super.dispose();
   }
 
@@ -263,17 +382,39 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm> {
     final centro = widget.centros.firstWhere((c) => c.id == _centroId);
     final elegido = await Navigator.of(context).push<InterventoriaHallazgo>(
       MaterialPageRoute(
-        builder: (_) =>
-            _SelectorHallazgo(hallazgos: widget.service.hallazgos(centro)),
+        builder: (_) => _SelectorHallazgo(
+          hallazgos: widget.service
+              .hallazgos(centro)
+              .map(
+                (hallazgos) => hallazgos
+                    .where(
+                      (h) =>
+                          h.subcentroId.isEmpty ||
+                          centro.centro.subcentrosActivos.any(
+                            (s) => s.id == h.subcentroId,
+                          ),
+                    )
+                    .toList(),
+              ),
+        ),
       ),
     );
     if (!mounted || elegido == null) return;
-    setState(() => _cambiarHallazgo(elegido));
+    setState(() {
+      _hallazgoManual = false;
+      if (elegido.subcentroId.isNotEmpty) _subcentroId = elegido.subcentroId;
+      _cambiarHallazgo(elegido);
+    });
   }
 
   void _cambiarHallazgo(InterventoriaHallazgo? hallazgo) {
     final anterior = _textoVinculado;
     _hallazgo = hallazgo;
+    if (hallazgo != null && _titulo.text.trim().isEmpty) {
+      _titulo.text = String.fromCharCodes(
+        hallazgo.descripcion.trim().runes.take(100),
+      );
+    }
     final texto = [
       hallazgo?.descripcion,
       hallazgo?.observaciones,
@@ -284,105 +425,618 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm> {
     }
   }
 
+  Future<void> _guardar() async {
+    final service = widget.service;
+    final orden = widget.orden;
+    final titulo = _titulo.text.trim();
+    final detalle = _detalle.text.trim();
+    if (orden == null && !_creada) {
+      await service.crearOrden(
+        ordenId: _ordenId,
+        centroDocId: _centroId!,
+        equipoId: _equipoId,
+        hallazgoId: _hallazgo?.id ?? '',
+        subcentroId: _subcentroId,
+        tipo: _tipo,
+        intervencion: _intervencion,
+        titulo: titulo,
+        detalle: detalle,
+        factura: _factura.trim(),
+        hallazgoExterno: _hallazgoManual
+            ? {
+                'entidad': _entidad,
+                'fecha': _fechaHallazgo.trim(),
+                'limite': _limiteHallazgo.trim(),
+                'descripcion': _descripcionHallazgo.trim(),
+              }
+            : null,
+      );
+      _creada = true;
+      await _guardarLocal();
+    }
+    if (_creada && _creadaGuardada == null) {
+      _creadaGuardada = await service.orden(_ordenId);
+    }
+    await _guardarArchivos(service, _ordenId, _pendientes, _retirados);
+    final editable = orden ?? _creadaGuardada;
+    if (editable != null) {
+      await service.editarOrden(
+        editable,
+        tipo: _tipo,
+        intervencion: _intervencion,
+        titulo: titulo,
+        detalle: detalle,
+        factura: _factura.trim(),
+      );
+    }
+    await completarBorrador();
+  }
+
+  Widget _fechaHallazgoCampo(
+    String label,
+    String valor,
+    ValueChanged<String> cambiar,
+  ) => TextFormField(
+    key: ValueKey((label, valor)),
+    initialValue: valor.isEmpty ? '' : valor.split('-').reversed.join('/'),
+    readOnly: true,
+    decoration: InputDecoration(
+      labelText: label,
+      suffixIcon: const Icon(Icons.calendar_today_outlined),
+    ),
+    validator: (_) => valor.isEmpty ? 'Selecciona una fecha' : null,
+    onTap: () async {
+      final seleccion = await showDatePicker(
+        context: context,
+        firstDate: DateTime(2000),
+        lastDate: DateTime(2100, 12, 31),
+        initialDate: DateTime.tryParse(valor) ?? DateTime.now(),
+      );
+      if (!mounted || seleccion == null) return;
+      setState(() => cambiar(seleccion.toIso8601String().substring(0, 10)));
+    },
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final orden = widget.orden;
+    final centro = widget.centros.where((c) => c.id == _centroId).firstOrNull;
+    final subcentros = centro?.centro.subcentrosActivos ?? [];
+    return EditorMantenimiento(
+      key: ValueKey(revisionBorrador),
+      titulo: orden == null
+          ? 'Nueva orden de trabajo'
+          : 'Editar orden de trabajo',
+      vistaWeb: widget.vistaWeb,
+      guardar: _guardar,
+      onChanged: cambiarBorrador,
+      estadoBorrador: estadoBorrador,
+      campos: [
+        if (widget.vistaWeb)
+          const EncabezadoMantenimiento(
+            titulo: 'Datos del trabajo',
+            descripcion:
+                'Elige el establecimiento y describe el trabajo. Puedes asociar un equipo o un hallazgo de Interventoría.',
+            icono: Icons.assignment_outlined,
+          ),
+        if (orden == null)
+          DropdownButtonFormField<String>(
+            initialValue: _centroId,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Establecimiento'),
+            items: [
+              for (final centro in widget.centros)
+                opcionMantenimiento(centro.id, centro.centro.nombre),
+            ],
+            validator: (valor) =>
+                valor == null ? 'Elige un establecimiento' : null,
+            onChanged: (valor) => setState(() {
+              if (valor == _centroId) return;
+              _centroId = valor;
+              _equipoId = '';
+              _subcentroId = '';
+              _cambiarHallazgo(null);
+            }),
+          ),
+        if (orden == null && subcentros.isNotEmpty)
+          DropdownButtonFormField<String>(
+            key: ValueKey((centro?.id, _subcentroId)),
+            initialValue: _subcentroId,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Estructura'),
+            items: [
+              opcionMantenimiento('', 'Todo el establecimiento'),
+              for (final subcentro in subcentros)
+                opcionMantenimiento(subcentro.id, subcentro.nombre),
+            ],
+            onChanged: (valor) => setState(() {
+              _subcentroId = valor!;
+              if (_hallazgo?.subcentroId.isNotEmpty == true &&
+                  _hallazgo!.subcentroId != _subcentroId) {
+                _cambiarHallazgo(null);
+              }
+            }),
+          ),
+        if (orden != null)
+          Text(
+            [
+              centro?.centro.nombre ?? orden.centroDocId,
+              orden.subcentroNombre,
+            ].where((s) => s.isNotEmpty).join(' · '),
+          ),
+        if (orden == null && _centroId != null)
+          DropdownButtonFormField<String>(
+            key: ValueKey(_centroId),
+            initialValue: _equipoId,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Equipo'),
+            items: [
+              opcionMantenimiento('', 'Intervención del establecimiento'),
+              for (final equipo in widget.equipos.where(
+                (e) => e.centroDocId == _centroId,
+              ))
+                opcionMantenimiento(
+                  equipo.id,
+                  '${equipo.codigo} · ${equipo.nombre}',
+                ),
+            ],
+            onChanged: (valor) => _equipoId = valor!,
+          ),
+        DropdownButtonFormField<TipoMantenimiento>(
+          initialValue: _tipo,
+          decoration: const InputDecoration(labelText: 'Tipo de mantenimiento'),
+          items: [
+            for (final tipo in TipoMantenimiento.values)
+              DropdownMenuItem(value: tipo, child: Text(tipo.label)),
+          ],
+          onChanged: (valor) => _tipo = valor!,
+        ),
+        if (orden == null && _centroId != null)
+          Wrap(
+            spacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              OutlinedButton(
+                onPressed: _vincular,
+                child: Text(
+                  _hallazgo == null
+                      ? 'Vincular hallazgo de Interventoría'
+                      : 'Cambiar hallazgo',
+                ),
+              ),
+              if (_hallazgo != null)
+                TextButton(
+                  onPressed: () => setState(() => _cambiarHallazgo(null)),
+                  child: const Text('Quitar vínculo'),
+                ),
+            ],
+          ),
+        if (_hallazgo case final hallazgo?)
+          Text('${hallazgo.establecimiento} · ${hallazgo.descripcion}'),
+        if (orden == null) ...[
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Registrar hallazgo manual'),
+            value: _hallazgoManual,
+            onChanged: (valor) => setState(() {
+              _hallazgoManual = valor;
+              if (valor) _cambiarHallazgo(null);
+            }),
+          ),
+          if (_hallazgoManual) ...[
+            DropdownButtonFormField<String>(
+              initialValue: _entidad,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Entidad del hallazgo',
+              ),
+              items: [
+                opcionMantenimiento('Interventoría', 'Interventoría'),
+                opcionMantenimiento(
+                  'Secretaría de Salud',
+                  'Secretaría de Salud',
+                ),
+              ],
+              onChanged: (valor) => _entidad = valor!,
+            ),
+            campoMantenimiento(
+              'Hallazgo reportado',
+              1200,
+              requerido: true,
+              lineas: 3,
+              onChanged: (valor) => _descripcionHallazgo = valor,
+            ),
+            _fechaHallazgoCampo(
+              'Fecha del hallazgo',
+              _fechaHallazgo,
+              (valor) => _fechaHallazgo = valor,
+            ),
+            _fechaHallazgoCampo(
+              'Fecha límite',
+              _limiteHallazgo,
+              (valor) => _limiteHallazgo = valor,
+            ),
+          ],
+        ],
+        campoMantenimiento(
+          'Título de la orden',
+          120,
+          controller: _titulo,
+          requerido: true,
+        ),
+        DropdownButtonFormField<IntervencionMantenimiento>(
+          initialValue: _intervencion,
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: 'Tipo de intervención'),
+          items: [
+            for (final tipo in IntervencionMantenimiento.values)
+              DropdownMenuItem(value: tipo, child: Text(tipo.label)),
+          ],
+          onChanged: (valor) => _intervencion = valor!,
+        ),
+        campoMantenimiento(
+          'Diagnóstico inicial',
+          1200,
+          controller: _detalle,
+          lineas: 3,
+          requerido: true,
+        ),
+        campoMantenimiento(
+          'Referencia de factura',
+          160,
+          initialValue: _factura,
+          onChanged: (v) => _factura = v,
+        ),
+        for (final clase in [
+          ClaseArchivoOrden.diagnostico,
+          ClaseArchivoOrden.cotizacion,
+        ])
+          ArchivosOrdenEditor(
+            key: ValueKey(clase),
+            clase: clase,
+            pendientes: _pendientes,
+            vistaWeb: widget.vistaWeb,
+            guardados: orden?.archivos ?? const [],
+            retirados: _retirados,
+            onChanged: cambiarBorrador,
+          ),
+      ],
+    );
+  }
+}
+
+Future<void> _guardarArchivos(
+  MantenimientoService service,
+  String ordenId,
+  List<ArchivoPendienteOrden> pendientes,
+  Set<String> retirados,
+) async {
+  for (final archivo in retirados) {
+    await service.quitarArchivo(ordenId, archivo);
+  }
+  for (final archivo in pendientes) {
+    await service.adjuntar(ordenId, archivo);
+  }
+}
+
+class CierreMantenimientoForm extends StatefulWidget {
+  const CierreMantenimientoForm({
+    super.key,
+    required this.orden,
+    required this.service,
+    required this.vistaWeb,
+  });
+
+  final OrdenMantenimiento orden;
+  final MantenimientoService service;
+  final bool vistaWeb;
+
+  @override
+  State<CierreMantenimientoForm> createState() =>
+      _CierreMantenimientoFormState();
+}
+
+class _CierreMantenimientoFormState extends State<CierreMantenimientoForm>
+    with _BorradorFormulario<CierreMantenimientoForm> {
+  late final _cierre = widget.orden.cierre ?? const CierreMantenimiento();
+  late final _campos = {
+    'Trabajo realizado': TextEditingController(text: _cierre.trabajo),
+    'Materiales utilizados': TextEditingController(text: _cierre.materiales),
+    'Sugerencias de uso y manejo': TextEditingController(
+      text: _cierre.sugerencias,
+    ),
+    'Técnico que realizó el trabajo': TextEditingController(
+      text: _cierre.tecnico,
+    ),
+    'Quién recibió el trabajo': TextEditingController(text: _cierre.receptor),
+    'Cargo de quien recibió': TextEditingController(
+      text: _cierre.cargoReceptor,
+    ),
+    'Referencia de factura': TextEditingController(text: widget.orden.factura),
+  };
+  final _pendientes = <ArchivoPendienteOrden>[];
+  final _retirados = <String>{};
+
+  @override
+  BorradorMantenimiento get almacenBorrador => _almacenBorrador;
+  late final _almacenBorrador = BorradorMantenimiento(
+    widget.service.empresaId,
+    'cierre-${widget.orden.id}',
+  );
+
+  @override
+  Map<String, dynamic> datosBorrador() => {
+    'campos': {
+      for (final campo in _campos.entries) campo.key: campo.value.text,
+    },
+    'version': widget.orden.updatedAt?.toString(),
+    'pendientes': _serializarPendientes(_pendientes),
+    'retirados': _retirados.toList(),
+  };
+
+  @override
+  Future<void> recuperarBorrador(Map<String, dynamic> data) async {
+    if (data['version'] != widget.orden.updatedAt?.toString()) {
+      throw StateError(
+        'La orden cambió. El borrador anterior se conserva en este dispositivo.',
+      );
+    }
+    final campos = Map<String, String>.from(data['campos'] as Map);
+    for (final campo in _campos.entries) {
+      campo.value.text = campos[campo.key] ?? '';
+    }
+    _pendientes.addAll(_leerPendientes(data['pendientes']));
+    _retirados.addAll(List<String>.from(data['retirados'] as List));
+  }
+
+  @override
+  void dispose() {
+    guardarBorradorAlSalir();
+    for (final controller in _campos.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _guardar({required bool cerrar}) async {
+    final orden = widget.orden;
+    if (cerrar) {
+      final tieneFoto =
+          orden.archivos.any(
+            (a) =>
+                a.clase == ClaseArchivoOrden.evidencia &&
+                !_retirados.contains(a.id),
+          ) ||
+          _pendientes.any(
+            (a) => a.archivo.clase == ClaseArchivoOrden.evidencia,
+          );
+      if (!tieneFoto) {
+        throw StateError('Adjunta al menos una foto del trabajo realizado.');
+      }
+      final confirmado = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('¿Cerrar la orden?'),
+          content: const Text(
+            'El cierre es definitivo. Revisa el trabajo y sus evidencias.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Volver'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Confirmar cierre'),
+            ),
+          ],
+        ),
+      );
+      if (confirmado != true || !mounted) throw const _GuardadoCancelado();
+    }
+    await _guardarArchivos(widget.service, orden.id, _pendientes, _retirados);
+    await widget.service.guardarCierre(
+      orden,
+      CierreMantenimiento(
+        trabajo: _campos['Trabajo realizado']!.text.trim(),
+        materiales: _campos['Materiales utilizados']!.text.trim(),
+        sugerencias: _campos['Sugerencias de uso y manejo']!.text.trim(),
+        tecnico: _campos['Técnico que realizó el trabajo']!.text.trim(),
+        receptor: _campos['Quién recibió el trabajo']!.text.trim(),
+        cargoReceptor: _campos['Cargo de quien recibió']!.text.trim(),
+      ),
+      factura: _campos['Referencia de factura']!.text.trim(),
+      cerrar: cerrar,
+    );
+    await completarBorrador();
+  }
+
   @override
   Widget build(BuildContext context) => EditorMantenimiento(
-    titulo: 'Nueva orden de trabajo',
+    key: ValueKey(revisionBorrador),
+    titulo: 'Cierre de la orden',
+    etiqueta: 'Cerrar orden',
     vistaWeb: widget.vistaWeb,
-    guardar: () => widget.service.crearOrden(
-      centroDocId: _centroId!,
-      equipoId: _equipoId,
-      hallazgoId: _hallazgo?.id ?? '',
-      tipo: _tipo,
-      detalle: _detalle.text.trim(),
-      factura: _factura.trim(),
-    ),
+    guardar: () => _guardar(cerrar: true),
+    guardarBorrador: () => _guardar(cerrar: false),
+    onChanged: cambiarBorrador,
+    estadoBorrador: estadoBorrador,
     campos: [
-      if (widget.vistaWeb)
-        const EncabezadoMantenimiento(
-          titulo: 'Datos del trabajo',
-          descripcion:
-              'Elige el establecimiento y describe el trabajo. Puedes asociar un equipo o un hallazgo de Interventoría.',
-          icono: Icons.assignment_outlined,
+      Text('Orden ${widget.orden.referencia} · ${widget.orden.asunto}'),
+      for (final (i, campo) in _campos.entries.indexed)
+        campoMantenimiento(
+          campo.key,
+          i < 3 ? 1200 : (i == 6 ? 160 : 120),
+          controller: campo.value,
+          lineas: i < 3 ? 3 : 1,
+          requerido: i == 0 || i == 3 || i == 4,
         ),
-      DropdownButtonFormField<String>(
-        initialValue: _centroId,
-        isExpanded: true,
-        decoration: const InputDecoration(labelText: 'Establecimiento'),
-        items: [
-          for (final centro in widget.centros)
-            opcionMantenimiento(centro.id, centro.centro.nombre),
-        ],
-        validator: (valor) => valor == null ? 'Elige un establecimiento' : null,
-        onChanged: (valor) => setState(() {
-          if (valor == _centroId) return;
-          _centroId = valor;
-          _equipoId = '';
-          _cambiarHallazgo(null);
-        }),
-      ),
-      if (_centroId != null)
-        DropdownButtonFormField<String>(
-          key: ValueKey(_centroId),
-          initialValue: _equipoId,
-          isExpanded: true,
-          decoration: const InputDecoration(labelText: 'Equipo'),
-          items: [
-            opcionMantenimiento('', 'Intervención del establecimiento'),
-            for (final equipo in widget.equipos.where(
-              (e) => e.centroDocId == _centroId,
-            ))
-              opcionMantenimiento(
-                equipo.id,
-                '${equipo.codigo} · ${equipo.nombre}',
-              ),
-          ],
-          onChanged: (valor) => _equipoId = valor!,
+      for (final clase in [
+        ClaseArchivoOrden.evidencia,
+        ClaseArchivoOrden.recibo,
+      ])
+        ArchivosOrdenEditor(
+          key: ValueKey(clase),
+          clase: clase,
+          pendientes: _pendientes,
+          vistaWeb: widget.vistaWeb,
+          guardados: widget.orden.archivos,
+          retirados: _retirados,
+          onChanged: cambiarBorrador,
         ),
-      DropdownButtonFormField<TipoMantenimiento>(
-        initialValue: _tipo,
-        decoration: const InputDecoration(labelText: 'Tipo de mantenimiento'),
-        items: [
-          for (final tipo in TipoMantenimiento.values)
-            DropdownMenuItem(value: tipo, child: Text(tipo.label)),
-        ],
-        onChanged: (valor) => _tipo = valor!,
-      ),
-      if (_centroId != null)
-        Wrap(
-          spacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            OutlinedButton(
-              onPressed: _vincular,
-              child: Text(
-                _hallazgo == null
-                    ? 'Vincular hallazgo de Interventoría'
-                    : 'Cambiar hallazgo',
-              ),
-            ),
-            if (_hallazgo != null)
-              TextButton(
-                onPressed: () => setState(() => _cambiarHallazgo(null)),
-                child: const Text('Quitar vínculo'),
-              ),
-          ],
-        ),
-      if (_hallazgo case final hallazgo?)
-        Text('${hallazgo.establecimiento} · ${hallazgo.descripcion}'),
-      campoMantenimiento(
-        'Trabajo solicitado',
-        1200,
-        controller: _detalle,
-        lineas: 3,
-        requerido: true,
-      ),
-      campoMantenimiento(
-        'Referencia de factura',
-        160,
-        onChanged: (v) => _factura = v,
-      ),
     ],
   );
+}
+
+class _GuardadoCancelado implements Exception {
+  const _GuardadoCancelado();
+}
+
+List<Map<String, dynamic>> _serializarPendientes(
+  List<ArchivoPendienteOrden> archivos,
+) => [
+  for (final a in archivos)
+    {
+      'id': a.archivo.id,
+      'nombre': a.archivo.nombre,
+      'mime': a.archivo.mime,
+      'clase': a.archivo.clase.name,
+      'bytes': base64Encode(a.bytes),
+    },
+];
+
+List<ArchivoPendienteOrden> _leerPendientes(Object? data) => [
+  for (final a in (data as List? ?? []).whereType<Map>())
+    (
+      archivo: (
+        id: a['id'] as String,
+        nombre: a['nombre'] as String,
+        mime: a['mime'] as String,
+        clase: ClaseArchivoOrden.values.byName(a['clase'] as String),
+      ),
+      bytes: base64Decode(a['bytes'] as String),
+    ),
+];
+
+mixin _BorradorFormulario<T extends StatefulWidget> on State<T> {
+  BorradorMantenimiento get almacenBorrador;
+  Map<String, dynamic> datosBorrador();
+  Future<void> recuperarBorrador(Map<String, dynamic> data);
+  Timer? _temporizador;
+  bool _listo = false, _completo = false;
+  String? estadoBorrador;
+  int revisionBorrador = 0;
+  late final _observador = _ObservadorBorrador(guardarBorradorAlSalir);
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(_observador);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _recuperar());
+  }
+
+  Future<void> _recuperar() async {
+    try {
+      final data = await almacenBorrador.leer();
+      if (!mounted) return;
+      if (data != null) {
+        final continuar = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            title: const Text('Hay un borrador guardado'),
+            content: const Text(
+              'Puedes continuar el formulario de este dispositivo o descartarlo.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Descartar'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Continuar'),
+              ),
+            ],
+          ),
+        );
+        if (!mounted) return;
+        if (continuar == true) {
+          await recuperarBorrador(data);
+          revisionBorrador++;
+        } else {
+          await almacenBorrador.guardar(null);
+        }
+      }
+      if (mounted) super.setState(() => _listo = true);
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          estadoBorrador =
+              'No se pudo recuperar el borrador local. Conserva esta pantalla mientras guardas.';
+        });
+      }
+    }
+  }
+
+  void cambiarBorrador() {
+    if (!_listo || _completo) return;
+    _temporizador?.cancel();
+    _temporizador = Timer(const Duration(milliseconds: 800), _guardarLocal);
+  }
+
+  Future<void> _guardarLocal() async {
+    if (!_listo || _completo) return;
+    final data = datosBorrador();
+    try {
+      await almacenBorrador.guardar(data);
+    } catch (_) {
+      if (mounted) {
+        super.setState(() {
+          estadoBorrador =
+              'No se pudo guardar el borrador local. Guarda los cambios antes de salir.';
+        });
+      }
+    }
+  }
+
+  void guardarBorradorAlSalir() {
+    _temporizador?.cancel();
+    unawaited(_guardarLocal());
+  }
+
+  Future<void> completarBorrador() async {
+    _completo = true;
+    _temporizador?.cancel();
+    try {
+      await almacenBorrador.guardar(null);
+    } catch (_) {
+      // El registro ya se confirmó en el servidor.
+    }
+  }
+
+  @override
+  void setState(VoidCallback fn) {
+    super.setState(fn);
+    cambiarBorrador();
+  }
+
+  @override
+  void dispose() {
+    _temporizador?.cancel();
+    WidgetsBinding.instance.removeObserver(_observador);
+    super.dispose();
+  }
+}
+
+class _ObservadorBorrador extends WidgetsBindingObserver {
+  _ObservadorBorrador(this.guardar);
+  final VoidCallback guardar;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) guardar();
+  }
 }
 
 class _SelectorHallazgo extends StatefulWidget {

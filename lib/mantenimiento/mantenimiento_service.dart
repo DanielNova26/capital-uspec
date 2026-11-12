@@ -1,4 +1,8 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 import '../core/transaccion_legible.dart';
 import '../interventoria/interventoria_models.dart';
@@ -12,6 +16,81 @@ enum TipoMantenimiento {
 
   const TipoMantenimiento(this.label);
   final String label;
+}
+
+enum IntervencionMantenimiento {
+  procesamiento('Procesamiento'),
+  coccion('Cocción'),
+  refrigeracion('Refrigeración'),
+  infraestructura('Infraestructura'),
+  medicion('Medición'),
+  otros('Otros');
+
+  const IntervencionMantenimiento(this.label);
+  final String label;
+
+  static IntervencionMantenimiento? leer(String valor) {
+    for (final tipo in values) {
+      if (tipo.name == valor) return tipo;
+    }
+    return null;
+  }
+}
+
+enum ClaseArchivoOrden {
+  diagnostico('Fotos iniciales', true),
+  cotizacion('Cotizaciones', false),
+  evidencia('Fotos del trabajo realizado', true),
+  recibo('Recibos y soportes de pago', false);
+
+  const ClaseArchivoOrden(this.label, this.soloFotos);
+  final String label;
+  final bool soloFotos;
+}
+
+typedef ArchivoOrden = ({
+  String id,
+  String nombre,
+  String mime,
+  ClaseArchivoOrden clase,
+});
+typedef ArchivoPendienteOrden = ({ArchivoOrden archivo, Uint8List bytes});
+
+class CierreMantenimiento {
+  const CierreMantenimiento({
+    this.trabajo = '',
+    this.materiales = '',
+    this.sugerencias = '',
+    this.tecnico = '',
+    this.receptor = '',
+    this.cargoReceptor = '',
+  });
+
+  factory CierreMantenimiento.fromMap(Map<String, dynamic> data) =>
+      CierreMantenimiento(
+        trabajo: _texto(data, 'trabajo'),
+        materiales: _texto(data, 'materiales'),
+        sugerencias: _texto(data, 'sugerencias'),
+        tecnico: _texto(data, 'tecnico'),
+        receptor: _texto(data, 'receptor'),
+        cargoReceptor: _texto(data, 'cargoReceptor'),
+      );
+
+  final String trabajo,
+      materiales,
+      sugerencias,
+      tecnico,
+      receptor,
+      cargoReceptor;
+
+  Map<String, String> toMap() => {
+    'trabajo': trabajo,
+    'materiales': materiales,
+    'sugerencias': sugerencias,
+    'tecnico': tecnico,
+    'receptor': receptor,
+    'cargoReceptor': cargoReceptor,
+  };
 }
 
 enum EstadoOrden {
@@ -55,6 +134,30 @@ class OrdenMantenimiento {
       detalle = _texto(data, 'detalle'),
       resultado = _texto(data, 'resultado'),
       factura = _texto(data, 'factura'),
+      titulo = _texto(data, 'titulo'),
+      subcentroId = _texto(data, 'subcentroId'),
+      subcentroNombre = _texto(data, 'subcentroNombre'),
+      intervencion = IntervencionMantenimiento.leer(
+        _texto(data, 'intervencion'),
+      ),
+      numero = data['numero'] as int?,
+      esquema = (data['esquema'] as int?) ?? 1,
+      cierre = data['cierre'] is Map<String, dynamic>
+          ? CierreMantenimiento.fromMap(data['cierre'] as Map<String, dynamic>)
+          : null,
+      archivos = [
+        for (final archivo
+            in (data['archivos'] as List? ?? []).whereType<Map>())
+          (
+            id: archivo['id'] as String,
+            nombre: archivo['nombre'] as String,
+            mime: archivo['mime'] as String,
+            clase: ClaseArchivoOrden.values.byName(archivo['clase'] as String),
+          ),
+      ],
+      hallazgoExterno = data['hallazgoExterno'] is Map
+          ? Map<String, String>.from(data['hallazgoExterno'] as Map)
+          : const {},
       tipo = TipoMantenimiento.values.byName(data['tipo'] as String),
       estado = EstadoOrden.values.firstWhere((e) => e.valor == data['estado']),
       creada = (data['createdAt'] as Timestamp?)?.toDate(),
@@ -70,8 +173,18 @@ class OrdenMantenimiento {
       factura;
   final TipoMantenimiento tipo;
   final EstadoOrden estado;
+  final String titulo, subcentroId, subcentroNombre;
+  final IntervencionMantenimiento? intervencion;
+  final int? numero;
+  final int esquema;
+  final CierreMantenimiento? cierre;
+  final List<ArchivoOrden> archivos;
+  final Map<String, String> hallazgoExterno;
   final DateTime? creada, cerrada;
   final Timestamp? updatedAt;
+
+  String get referencia => numero?.toString().padLeft(3, '0') ?? id;
+  String get asunto => titulo.isEmpty ? detalle : titulo;
 }
 
 class MantenimientoService {
@@ -176,44 +289,127 @@ class MantenimientoService {
   }
 
   Future<void> crearOrden({
+    required String ordenId,
     required String centroDocId,
     required String equipoId,
     required String hallazgoId,
+    required String subcentroId,
     required TipoMantenimiento tipo,
+    required IntervencionMantenimiento intervencion,
+    required String titulo,
     required String detalle,
     required String factura,
+    Map<String, String>? hallazgoExterno,
   }) async {
-    await _db.collection(_ordenes).add({
-      'empresaId': empresaId,
+    await _operar('crear', ordenId, {
       'centroDocId': centroDocId,
       'equipoId': equipoId,
       'hallazgoId': hallazgoId,
+      'subcentroId': subcentroId,
       'tipo': tipo.name,
+      'intervencion': intervencion.name,
+      'titulo': titulo,
       'detalle': detalle,
       'factura': factura,
-      'estado': EstadoOrden.abierta.valor,
-      'resultado': '',
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-      'cerradaAt': null,
+      'hallazgoExterno': hallazgoExterno,
     });
   }
 
-  Future<void> avanzar(
+  Future<OrdenMantenimiento> orden(String ordenId) async {
+    final documento = await _db.collection(_ordenes).doc(ordenId).get();
+    final data = documento.data();
+    if (data == null || data['empresaId'] != empresaId) {
+      throw StateError('La orden no está disponible.');
+    }
+    return OrdenMantenimiento(documento.id, data);
+  }
+
+  Future<void> editarOrden(
     OrdenMantenimiento orden, {
-    String? resultado,
-    String? factura,
-  }) => _actualizar(_db.collection(_ordenes).doc(orden.id), orden.updatedAt, {
-    'factura': ?factura,
-    'updatedAt': FieldValue.serverTimestamp(),
-    if (orden.estado == EstadoOrden.abierta)
-      'estado': EstadoOrden.enCurso.valor,
-    if (orden.estado == EstadoOrden.enCurso) ...{
-      'estado': EstadoOrden.cerrada.valor,
-      'resultado': resultado,
-      'cerradaAt': FieldValue.serverTimestamp(),
-    },
+    required TipoMantenimiento tipo,
+    required IntervencionMantenimiento intervencion,
+    required String titulo,
+    required String detalle,
+    required String factura,
+  }) => _mutar('editar', orden, {
+    'tipo': tipo.name,
+    'intervencion': intervencion.name,
+    'titulo': titulo,
+    'detalle': detalle,
+    'factura': factura,
   });
+
+  Future<void> avanzar(OrdenMantenimiento orden, {String factura = ''}) =>
+      _mutar(
+        orden.estado == EstadoOrden.cerrada ? 'factura' : 'iniciar',
+        orden,
+        {'factura': factura},
+      );
+
+  Future<void> guardarCierre(
+    OrdenMantenimiento orden,
+    CierreMantenimiento datos, {
+    required String factura,
+    required bool cerrar,
+  }) => _mutar(cerrar ? 'cerrar' : 'borrador', orden, {
+    ...datos.toMap(),
+    'factura': factura,
+  });
+
+  Future<void> adjuntar(String ordenId, ArchivoPendienteOrden pendiente) async {
+    final archivo = pendiente.archivo;
+    await _operar('adjuntar', ordenId, {
+      'archivoId': archivo.id,
+      'clase': archivo.clase.name,
+      'nombre': archivo.nombre,
+      'mime': archivo.mime,
+      'base64': base64Encode(pendiente.bytes),
+    });
+  }
+
+  Future<void> quitarArchivo(String ordenId, String archivoId) async {
+    await _operar('quitarArchivo', ordenId, {'archivoId': archivoId});
+  }
+
+  Future<Uint8List> leerArchivo(String ordenId, String archivoId) async {
+    final resultado = await _operar('leerArchivo', ordenId, {
+      'archivoId': archivoId,
+    });
+    return base64Decode(resultado['base64'] as String);
+  }
+
+  Future<void> _mutar(
+    String accion,
+    OrdenMantenimiento orden,
+    Map<String, dynamic> datos,
+  ) async {
+    await _operar(accion, orden.id, {
+      ...datos,
+      'segundos': orden.updatedAt?.seconds,
+      'nanosegundos': orden.updatedAt?.nanoseconds,
+    });
+  }
+
+  Future<Map<String, dynamic>> _operar(
+    String accion,
+    String ordenId,
+    Map<String, dynamic> datos,
+  ) async {
+    try {
+      final resultado =
+          await FirebaseFunctions.instanceFor(
+            region: 'us-central1',
+          ).httpsCallable('mantenimientoOrden').call<Map<String, dynamic>>({
+            ...datos,
+            'empresaId': empresaId,
+            'accion': accion,
+            'ordenId': ordenId,
+          });
+      return resultado.data;
+    } on FirebaseFunctionsException catch (error) {
+      throw StateError(error.message ?? 'No se pudo procesar la orden.');
+    }
+  }
 
   Future<void> _actualizar(
     DocumentReference<Map<String, dynamic>> ref,
