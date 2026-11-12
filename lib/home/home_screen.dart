@@ -868,7 +868,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   title: const Text('Tienes un acta pendiente por corregir.'),
                   content: Text(
                     '${visita.centroCostoNombre} · '
-                    '${DateFormat('dd/MM/yyyy').format(visita.fechaVisita.toDate())}\n\n'
+                    '${DateFormat('dd/MM/yyyy').format(visita.diaActa)}\n\n'
                     '${visita.devolucionMotivo.trim().isEmpty ? 'Revisa la devolución y carga la corrección.' : visita.devolucionMotivo.trim()}'
                     '${_correccionesActa.length > 1 ? '\n\nQuedan ${_correccionesActa.length} actas pendientes.' : ''}',
                   ),

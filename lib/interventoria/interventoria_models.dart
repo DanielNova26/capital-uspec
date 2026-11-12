@@ -7,6 +7,19 @@ import 'interventoria_numerales_catalogo.dart';
 
 const String kInterventoriaAppId = 'interventoriadashboard';
 
+/// Componentes de hora colombiana para presentar un instante de Firestore.
+DateTime horaInterventoria(DateTime instante) =>
+    instante.toUtc().subtract(const Duration(hours: 5));
+
+DateTime diaInterventoria(DateTime instante) {
+  final hora = horaInterventoria(instante);
+  return DateTime(hora.year, hora.month, hora.day);
+}
+
+/// Guarda un día elegido en el calendario como medianoche en Colombia.
+Timestamp timestampDiaInterventoria(DateTime dia) =>
+    Timestamp.fromDate(DateTime.utc(dia.year, dia.month, dia.day, 5));
+
 const String kRolInterventoriaAdmin = 'admin_interventoria';
 const String kRolInterventoriaRegistrador = 'registrador_interventoria';
 const String kRolInterventoriaRevisor = 'revisor_interventoria';
@@ -1224,7 +1237,14 @@ class InterventoriaVisita {
   final String subcentroNombre;
 
   final Timestamp fechaVisita;
-  final Timestamp fechaRegistro;
+  final Timestamp? fechaRegistro;
+
+  DateTime get diaActa => diaInterventoria(fechaVisita.toDate());
+  DateTime? get horaCargue {
+    final fecha = fechaRegistro;
+    return fecha == null ? null : horaInterventoria(fecha.toDate());
+  }
+
   final String creadoPor;
   final String estado;
   final String? tipoActa;
@@ -1273,7 +1293,7 @@ class InterventoriaVisita {
       path: '',
       contentType: 'application/pdf',
       origen: 'historico',
-      fechaSubida: fechaRegistro,
+      fechaSubida: fechaRegistro ?? fechaVisita,
     );
   }
 
@@ -1359,7 +1379,7 @@ class InterventoriaVisita {
       subcentroId: (data['subcentroId'] ?? '').toString(),
       subcentroNombre: (data['subcentroNombre'] ?? '').toString(),
       fechaVisita: data['fechaVisita'] as Timestamp? ?? Timestamp.now(),
-      fechaRegistro: data['fechaRegistro'] as Timestamp? ?? Timestamp.now(),
+      fechaRegistro: (data['fechaRegistro'] ?? data['createdAt']) as Timestamp?,
       creadoPor: (data['creadoPor'] ?? '').toString(),
       estado: (data['estado'] ?? 'registrada').toString(),
       tipoActa: data['tipoActa']?.toString(),
@@ -1402,7 +1422,7 @@ class InterventoriaVisita {
     'subcentroId': subcentroId,
     'subcentroNombre': subcentroNombre,
     'fechaVisita': fechaVisita,
-    'fechaRegistro': fechaRegistro,
+    if (fechaRegistro != null) 'fechaRegistro': fechaRegistro,
     'creadoPor': creadoPor,
     'estado': estado,
     'tipoActa': tipoActa,
@@ -1533,7 +1553,7 @@ List<InterventoriaComparativoActa> compararUltimaActaPorEstablecimiento(
     if (key.isEmpty) continue;
     final actual = ultimas[key];
     if (actual == null ||
-        visita.fechaVisita.toDate().isAfter(actual.fechaVisita.toDate())) {
+        visita.fechaVisita.compareTo(actual.fechaVisita) > 0) {
       ultimas[key] = visita;
     }
   }
@@ -1553,7 +1573,7 @@ List<InterventoriaComparativoActa> compararUltimaActaPorEstablecimiento(
       centroCostoId: visita.centroCostoId,
       centroCostoCodigo: visita.centroCostoCodigo,
       centroCostoNombre: nombreComparativo(visita),
-      fecha: visita.fechaVisita.toDate(),
+      fecha: visita.diaActa,
       valor: valor,
       detalle: detalleSeccionesDeVisita(visita),
       tipoActa: visita.tipoActa,
@@ -1704,6 +1724,7 @@ class InterventoriaHallazgo {
   final String numeralActa;
   final String descripcion;
   final Timestamp fechaHallazgo;
+  DateTime get diaHallazgo => diaInterventoria(fechaHallazgo.toDate());
   final bool persiste;
   final String dptoEncargado; // nombre del área para mostrar
   final String areaId; // doc ID en TBL_AREAS (para buscar director)

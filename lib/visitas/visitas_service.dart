@@ -1556,6 +1556,8 @@ class VisitasService {
     );
   }
 
+  bool requiereGpsInicio(VisitaProfesional v) => !v.esPrueba;
+
   /// Inicia la visita en el sitio. Exige GPS, referencia en el maestro y
   /// estar dentro del radio; si algo falla lanza [VisitasException] con el
   /// motivo y no escribe nada. Guarda también el encabezado del formato
@@ -1909,36 +1911,55 @@ class VisitasService {
       conMarca: p.conMarca,
       tomadaEn: DateTime.fromMillisecondsSinceEpoch(p.creadaMs),
     );
-    final ref = _visitas.doc(p.visitaId);
-    switch (p.destino) {
+    await adjuntarEvidencia(
+      visitaId: p.visitaId,
+      destino: p.destino,
+      itemId: p.itemId,
+      tablaId: p.tablaId,
+      filaId: p.filaId,
+      ev: ev,
+    );
+  }
+
+  Future<void> adjuntarEvidencia({
+    required String visitaId,
+    required String destino,
+    required String itemId,
+    required String tablaId,
+    required String filaId,
+    required VisitaEvidencia ev,
+    VisitaFilaTabla? fila,
+  }) async {
+    final ref = _visitas.doc(visitaId);
+    switch (destino) {
       case kFotoDestinoAdicional:
         await ref.update({
           'evidenciasAdicionales': FieldValue.arrayUnion([ev.toMap()]),
           'updatedAt': FieldValue.serverTimestamp(),
         });
       case kFotoDestinoFila:
-        final snap = await ref.get();
-        final v = VisitaProfesional.fromMap(snap.id, snap.data() ?? const {});
-        final filas = v.filasDe(p.tablaId);
-        final nuevas = [
-          for (final f in filas)
-            f.id == p.filaId
-                ? f.copyWith(evidencias: [...f.evidencias, ev])
-                : f,
-        ];
-        if (!filas.any((f) => f.id == p.filaId)) {
-          nuevas.add(VisitaFilaTabla(id: p.filaId, evidencias: [ev]));
-        }
-        await ref.update({
-          'tablas.${p.tablaId}': nuevas.map((f) => f.toMap()).toList(),
-          'updatedAt': FieldValue.serverTimestamp(),
+        await _db.runTransaction((tx) async {
+          final snap = await tx.get(ref);
+          final v = VisitaProfesional.fromMap(snap.id, snap.data() ?? const {});
+          final actuales = v.filasDe(tablaId);
+          final filas = actuales.any((f) => f.id == filaId)
+              ? actuales
+              : [...actuales, fila ?? VisitaFilaTabla(id: filaId)];
+          tx.update(ref, {
+            'tablas.$tablaId': [
+              for (final f in filas)
+                (f.id == filaId
+                        ? f.copyWith(evidencias: [...f.evidencias, ev])
+                        : f)
+                    .toMap(),
+            ],
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
         });
       default:
         await ref.update({
-          'respuestas.${p.itemId}.evidencias': FieldValue.arrayUnion([
-            ev.toMap(),
-          ]),
-          'respuestas.${p.itemId}.sinFotoMotivo': FieldValue.delete(),
+          'respuestas.$itemId.evidencias': FieldValue.arrayUnion([ev.toMap()]),
+          'respuestas.$itemId.sinFotoMotivo': FieldValue.delete(),
           'updatedAt': FieldValue.serverTimestamp(),
         });
     }

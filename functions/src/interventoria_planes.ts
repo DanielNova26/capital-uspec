@@ -27,10 +27,18 @@ function id(v: unknown): string {
   if (!value || value.length > 200 || value.includes("/")) err("Identificador inválido.", "invalid-argument");
   return value;
 }
+function diaActa(v: unknown): string {
+  if (v instanceof admin.firestore.Timestamp) return hoyColombia(v.toDate());
+  const valor = s(v);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(valor)) return valor;
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(valor)) return "";
+  const fecha = new Date(valor);
+  return Number.isFinite(fecha.getTime()) ? hoyColombia(fecha) : "";
+}
 function plain(v: any): any {
   if (v instanceof admin.firestore.Timestamp) return v.toDate().toISOString();
   if (Array.isArray(v)) return v.map(plain);
-  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).filter(([k]) => !k.startsWith("_crypto")).map(([k, x]) => [k, plain(x)]));
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).filter(([k]) => !k.startsWith("_crypto")).map(([k, x]) => [k, k === "fechaActa" ? diaActa(x) : plain(x)]));
   return v;
 }
 type Actor = {id: string; empresaId: string; nombre: string; calidad: boolean; opera: boolean; desarrollo: boolean; director: boolean};
@@ -243,7 +251,7 @@ export async function consultarPlanes(input: DatosPlan, a: Actor): Promise<Datos
     const actas = docs.filter((d) => d.data().eliminado !== true && visitasConHallazgos.has(d.id)).map((d) => ({id: d.id, idVisitaK2: s(d.data().idVisitaK2),
       establecimiento: s(d.data().subcentroNombre || d.data().centroCostoNombre),
       establecimientoId: s(d.data().subcentroId || d.data().centroCostoId) || s(d.data().subcentroNombre || d.data().centroCostoNombre),
-      fechaActa: plain(d.data().fechaVisita) || ""})).filter((d) => d.idVisitaK2);
+      fechaActa: diaActa(d.data().fechaVisita)})).filter((d) => d.idVisitaK2);
     return {actas, cursor: snap.size > 500 ? docs[499].id : null};
   }
   const grupo = a.calidad ? await gruposDeEstablecimientos(a) : async (_d: DatosPlan) => "";
@@ -257,7 +265,7 @@ export async function consultarPlanes(input: DatosPlan, a: Actor): Promise<Datos
       const items = await db().collection(ITEMS_COL).where("planId", "==", d.id).get();
       const own = items.docs.map((i) => i.data()).filter((i) => i.empresaId === a.empresaId);
       return {id: d.id, ...plain(p), estadoGestion: p.eliminado === true ? "inactivo" : estadoGestionAutomatico(p.estadoGestion || "recibido", own), establecimientos: [...new Set(own.map((i) => s(i.establecimiento)))],
-        fechasActa: [...new Set(own.map((i) => s(plain(i.fechaActa)).slice(0, 10)).filter((f) => f))].sort(),
+        fechasActa: [...new Set(own.map((i) => diaActa(i.fechaActa)).filter((f) => f))].sort(),
         grupos: [...new Set(await Promise.all(own.map(grupo)))]};
     }));
     return {planes, cursor: snap.size > 50 ? docs[49].id : null};
@@ -287,7 +295,7 @@ export async function consultarPlanes(input: DatosPlan, a: Actor): Promise<Datos
         responsable: tareaValida ? s(tarea.asignado_nombre || tarea.assignedToName) : "Sin tarea asignada vigente",
         tareaId: tareaValida ? s(d.tareaId) : "", visitaId: s(d.visitaId),
         idVisitaK2: visita?.empresaId === a.empresaId ? s(visita.idVisitaK2) : "",
-        grupo: await grupo(d), fechaActa: plain(visita?.fechaVisita || d.fechaHallazgo)};
+        grupo: await grupo(d), fechaActa: diaActa(visita?.fechaVisita || d.fechaHallazgo)};
     }));
     // Preserve the raw cursor even when this page has no identified visits.
     return {candidatos: candidatos.filter((c) => c.idVisitaK2), cursor: snap.size > 100 ? docs[99].id : null};
@@ -371,7 +379,7 @@ export async function vincularHallazgos(input: DatosPlan, a: Actor) {
         hallazgoId: hid, tareaId: h.tareaId, visitaId: h.visitaId, idVisitaK2: s(v.idVisitaK2),
         establecimiento: s(h.subcentroNombre || h.centroCostoNombre),
         numeral: s(h.numeralActa || h.numeroHallazgo), descripcion: s(h.descripcion), observacionInterventoria: s(h.observaciones),
-        fechaActa: v.fechaVisita, centroCostoId: s(h.centroCostoId || v.centroCostoId), grupo: await grupo(h), categoria: s(h.grupoId), numeroTarea: tarea.data.numero ?? tarea.data.numeroTarea ?? "",
+        fechaActa: diaActa(v.fechaVisita), centroCostoId: s(h.centroCostoId || v.centroCostoId), grupo: await grupo(h), categoria: s(h.grupoId), numeroTarea: tarea.data.numero ?? tarea.data.numeroTarea ?? "",
         respuestaVersion: 0, soportesVersion: 0, evidencias: [],
         respuestaRevision: {estado: "pendiente"}, soportesRevision: {estado: "pendiente"},
         createdAt: admin.firestore.Timestamp.now()}});

@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:gal/gal.dart';
 
-/// Saves the unmodified capture before producing the stamped visit evidence.
+/// Saves a copy of the captured photo without the visit watermark.
 /// Existing gallery images are excluded by the caller to avoid duplicates.
 Future<void> guardarOriginalFotoVisita(Uint8List bytes) async {
   if (kIsWeb ||

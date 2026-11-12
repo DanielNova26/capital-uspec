@@ -278,11 +278,13 @@ bool comprasRolRecibeAgendaAbastecimiento(String? raw) {
   return rol == kRolCompras || rol == kRolBodega;
 }
 
-/// Solo Bodega completa una recepción ya cerrada; Admin conserva el acceso de
-/// soporte. Compras y Calidad no alteran la captura durante la revisión.
-bool comprasRolPuedeCompletarRecepcion(String? raw) {
+/// Los perfiles que registran recepciones pueden corregirlas en revisión.
+/// Las finalizadas tienen el acceso de corrección de Bodega y Admin Documental.
+bool comprasRolPuedeCompletarRecepcion(String? raw, {bool finalizada = false}) {
   final rol = normalizeComprasRol(raw);
-  return rol == kRolBodega || rol == kRolAdmin;
+  return rol == kRolBodega ||
+      rol == kRolAdmin ||
+      (!finalizada && (rol == kRolCompras || rol == kRolCalidad));
 }
 
 /// Quién puede borrar lo que él mismo registró mientras Calidad no lo haya

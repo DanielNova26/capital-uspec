@@ -16,9 +16,9 @@ import 'package:todo/visitas/visitas_local_store.dart';
 import 'package:todo/visitas/visitas_models.dart';
 import 'package:todo/visitas/visitas_service.dart';
 
-Map<String, dynamic> package() {
+Map<String, dynamic> package({int cantidadItems = 1}) {
   final now = DateTime.now();
-  final formato = const VisitaFormato(
+  final formato = VisitaFormato(
     id: 'f',
     empresaId: 'e',
     areaId: 'a',
@@ -26,12 +26,13 @@ Map<String, dynamic> package() {
     nombre: 'Inspección',
     estado: kFormatoVigente,
     items: [
-      VisitaFormatoItem(
-        id: 'q',
-        orden: 1,
-        texto: 'Cumple',
-        requiereEvidencia: true,
-      ),
+      for (var i = 0; i < cantidadItems; i++)
+        VisitaFormatoItem(
+          id: i == 0 ? 'q' : 'q$i',
+          orden: i + 1,
+          texto: 'Cumple',
+          requiereEvidencia: true,
+        ),
     ],
   );
   final v = VisitaProfesional(
@@ -506,9 +507,9 @@ void main() {
   );
 
   test(
-    'complete local visit with photos and signatures, then restart',
+    'siete hallazgos y fotos sobreviven al cierre y reinicio local',
     () async {
-      final p = package();
+      final p = package(cantidadItems: 7);
       await store.guardar(p);
       await store.autorizar(p);
       final svc = VisitasLocalService(p, store: store, currentUid: () => null);
@@ -518,22 +519,40 @@ void main() {
         ciudad: 'Tunja',
         cargoProfesional: 'Inspector',
       );
-      final photo = await svc.subirEvidencia(
-        empresaId: 'e',
-        visitaId: 'v',
-        itemId: 'q',
-        bytes: Uint8List.fromList([1, 2, 3]),
-        nombre: 'foto.jpg',
+      const base = VisitaRespuesta();
+      final hallazgo = base.copyWith(
+        resultado: kItemNoCumple,
+        observacion: 'Falta mantenimiento',
       );
-      await svc.guardarRespuesta(
-        'v',
-        'q',
-        VisitaRespuesta(
-          resultado: kItemNoCumple,
-          observacion: 'Falta mantenimiento',
-          evidencias: [photo],
-        ),
-      );
+      final items = svc.formato.items;
+      final tomadaEn = DateTime.now().subtract(const Duration(minutes: 1));
+      for (final item in items) {
+        final foto = await svc.subirEvidencia(
+          empresaId: 'e',
+          visitaId: 'v',
+          itemId: item.id,
+          bytes: Uint8List.fromList([item.orden, 2, 3]),
+          nombre: 'foto-${item.id}.jpg',
+          tomadaEn: tomadaEn,
+        );
+        await Future.wait([
+          svc.editarRespuesta('v', item.id, base, hallazgo),
+          svc.adjuntarEvidencia(
+            visitaId: 'v',
+            destino: 'item',
+            itemId: item.id,
+            tablaId: '',
+            filaId: '',
+            ev: foto,
+          ),
+          svc.editarRespuesta(
+            'v',
+            item.id,
+            hallazgo,
+            hallazgo.copyWith(accion: 'Programar mantenimiento'),
+          ),
+        ]);
+      }
       for (final who in ['profesional', 'establecimiento']) {
         await svc.firmar(
           empresaId: 'e',
@@ -563,6 +582,19 @@ void main() {
         currentUid: () => 'auth-u',
       );
       expect(restarted.visita.estado, kVisitaTerminada);
+      for (final item in items) {
+        final respuesta = restarted.visita.respuestas[item.id]!;
+        expect(respuesta.resultado, kItemNoCumple);
+        expect(respuesta.observacion, 'Falta mantenimiento');
+        expect(respuesta.accion, 'Programar mantenimiento');
+        final foto = respuesta.evidencias.single;
+        expect(foto.conMarca, isFalse);
+        expect(
+          foto.tomadaEn!.millisecondsSinceEpoch,
+          tomadaEn.millisecondsSinceEpoch,
+        );
+        expect(await restarted.bytesEvidencia(foto), [item.orden, 2, 3]);
+      }
       expect(
         restarted.visita.fin!.at.millisecondsSinceEpoch,
         closedAt.millisecondsSinceEpoch,
@@ -577,12 +609,6 @@ void main() {
         26,
         10,
       ]);
-      expect(
-        await restarted.bytesEvidencia(
-          restarted.visita.respuestas['q']!.evidencias.single,
-        ),
-        [1, 2, 3],
-      );
       await expectLater(
         restarted.guardarRespuesta('v', 'q', const VisitaRespuesta()),
         throwsA(isA<VisitasException>()),
@@ -747,81 +773,31 @@ void main() {
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     for (final width in [390.0, 768.0, 1024.0, 1366.0]) {
       testWidgets(
-        'inicio descargado comprueba ubicación en $platform a $width',
+        'inicio descargado abre el formulario sin pedir GPS en $platform a $width',
         (tester) async {
           debugDefaultTargetPlatformOverride = platform;
           await tester.binding.setSurfaceSize(Size(width, 900));
           addTearDown(() => tester.binding.setSurfaceSize(null));
-          final android = platform == TargetPlatform.android;
           final messenger = tester.binding.defaultBinaryMessenger;
-          const geo = MethodChannel('flutter.baseflow.com/geolocator');
-          const gps = MethodChannel('com.todogestion.app/visitas_gps');
-          var habilitada = false;
-          var permiso = !android;
-          var precisa = false;
-          var senal = false;
-          var dentro = false;
-          var ajustes = 0;
-          var lecturas = 0;
-          Map<String, Object> posicion() {
-            lecturas++;
-            return {
-              'latitude': dentro ? 4.0 : 5.0,
-              'longitude': -74.0,
-              'accuracy': 10.0,
-              'timestamp': DateTime.now().millisecondsSinceEpoch,
-            };
+          const canales = [
+            MethodChannel('flutter.baseflow.com/geolocator'),
+            MethodChannel('com.todogestion.app/visitas_gps'),
+          ];
+          final llamadas = <String>[];
+          for (final canal in canales) {
+            messenger.setMockMethodCallHandler(canal, (call) async {
+              llamadas.add(call.method);
+              return null;
+            });
+            addTearDown(() => messenger.setMockMethodCallHandler(canal, null));
           }
-
-          messenger.setMockMethodCallHandler(geo, (call) async {
-            switch (call.method) {
-              case 'checkPermission':
-                return permiso ? 2 : 0; // whileInUse / denied
-              case 'requestPermission':
-                return 1; // deniedForever
-              case 'isLocationServiceEnabled':
-                expect(android, isFalse);
-                return habilitada;
-              case 'getLocationAccuracy':
-                expect(android, isFalse);
-                return precisa ? 1 : 0;
-              case 'openLocationSettings':
-              case 'openAppSettings':
-                ajustes++;
-                return true;
-              case 'getCurrentPosition':
-                expect(android, isFalse);
-                return posicion();
-              default:
-                fail('Llamada de geolocalización inesperada: ${call.method}');
-            }
-          });
-          messenger.setMockMethodCallHandler(gps, (call) async {
-            expect(android, isTrue);
-            expect(call.method, 'leer');
-            expect(call.arguments, {'esperaMs': 120000});
-            if (!habilitada) throw PlatformException(code: 'desactivada');
-            if (!precisa) throw PlatformException(code: 'aproximada');
-            if (!senal) throw PlatformException(code: 'sin_senal');
-            return posicion();
-          });
-          addTearDown(() {
-            messenger.setMockMethodCallHandler(geo, null);
-            messenger.setMockMethodCallHandler(gps, null);
-          });
 
           final p = package();
           p['visita']['esPrueba'] = false;
           p['visita']['responsableEstablecimiento'] = const VisitaResponsable(
             nombre: 'Responsable',
           ).toMap();
-          p['ubicacion'] = const VisitaUbicacion(
-            empresaId: 'e',
-            centroId: 'c',
-            centroNombre: 'Establecimiento',
-            lat: 4,
-            lng: -74,
-          ).toMap();
+          p['ubicacion'] = null;
           final panel = PanelStore();
           await panel.autorizar(p);
           final svc = VisitasLocalService(
@@ -859,54 +835,10 @@ void main() {
             await tester.pumpAndSettle();
           }
 
-          if (android) {
-            await iniciar();
-            expect(find.textContaining('Family Link'), findsOneWidget);
-            expect(svc.visita.estado, kVisitaProgramada);
-            await tester.tap(find.text('Entendido'));
-            await tester.pumpAndSettle();
-            permiso = true;
-          }
-          await iniciar();
-          expect(find.textContaining('Activa la ubicación'), findsOneWidget);
-          expect(svc.visita.estado, kVisitaProgramada);
-          await tester.tap(find.text('Abrir ajustes'));
-          await tester.pumpAndSettle();
-          expect(ajustes, 1);
-
-          habilitada = true;
-          await iniciar();
-          expect(find.textContaining('ubicación aproximada'), findsOneWidget);
-          expect(find.textContaining('Activa la ubicación'), findsNothing);
-          expect(svc.visita.estado, kVisitaProgramada);
-          await tester.tap(find.text('Abrir ajustes'));
-          await tester.pumpAndSettle();
-          expect(ajustes, 2);
-
-          precisa = true;
-          if (android) {
-            await iniciar();
-            expect(
-              find.textContaining('No se obtuvo una posición'),
-              findsOneWidget,
-            );
-            expect(find.text('Abrir ajustes'), findsNothing);
-            expect(svc.visita.estado, kVisitaProgramada);
-            await tester.tap(find.text('Entendido'));
-            await tester.pumpAndSettle();
-          }
-          senal = true;
-          await iniciar();
-          expect(find.textContaining('radio permitido'), findsWidgets);
-          expect(svc.visita.estado, kVisitaProgramada);
-          await tester.tap(find.text('Entendido'));
-          await tester.pumpAndSettle();
-
-          dentro = true;
           await iniciar();
           expect(svc.visita.estado, kVisitaEnCurso);
-          expect(svc.visita.inicio!.lat, 4);
-          expect(lecturas, 2);
+          expect(svc.visita.inicio!.tieneUbicacion, isFalse);
+          expect(llamadas, isEmpty);
           expect(tester.takeException(), isNull);
           await tester.pumpWidget(const SizedBox());
           await svc.disposeLocal();

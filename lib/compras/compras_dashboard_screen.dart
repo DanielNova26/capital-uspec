@@ -1075,6 +1075,10 @@ class _ComprasDashboardBody extends StatelessWidget {
                 puedeEditarPendientes: comprasRolPuedeCompletarRecepcion(
                   _rolNormalizado,
                 ),
+                puedeEditarFinalizadas: comprasRolPuedeCompletarRecepcion(
+                  _rolNormalizado,
+                  finalizada: true,
+                ),
               ),
             ),
           ),
@@ -9368,6 +9372,7 @@ class _RecepcionesScreen extends StatefulWidget {
   /// mientras Calidad no haya revisado nada (estado pendiente).
   final bool puedeEliminarPropiasPendientes;
   final bool puedeEditarPendientes;
+  final bool puedeEditarFinalizadas;
 
   const _RecepcionesScreen({
     required this.empresaId,
@@ -9376,6 +9381,7 @@ class _RecepcionesScreen extends StatefulWidget {
     this.puedeEliminar = false,
     this.puedeEliminarPropiasPendientes = false,
     this.puedeEditarPendientes = false,
+    this.puedeEditarFinalizadas = false,
   });
 
   @override
@@ -9709,6 +9715,11 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
     RecepcionDoc recepcion,
     EstadoRecepcionCompras estado,
   ) {
+    final editable = switch (estado) {
+      EstadoRecepcionCompras.pendiente => widget.puedeEditarPendientes,
+      EstadoRecepcionCompras.historico => widget.puedeEditarFinalizadas,
+      EstadoRecepcionCompras.rechazada => false,
+    };
     final (estadoLabel, estadoColor) = switch (estado) {
       EstadoRecepcionCompras.pendiente => (
         'Pendiente',
@@ -9734,7 +9745,7 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
               svc: widget.svc,
               existing: recepcion,
               userId: widget.userId,
-              puedeEditarPendiente: widget.puedeEditarPendientes,
+              puedeEditarRecepcion: editable,
             ),
           ),
         ),
@@ -9839,7 +9850,7 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
                     Icon(
                       estado == EstadoRecepcionCompras.rechazada
                           ? Icons.build_circle_outlined
-                          : widget.puedeEditarPendientes
+                          : editable
                           ? Icons.edit_note_rounded
                           : Icons.lock_outline,
                       size: 16,
@@ -9850,10 +9861,10 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
                       estado == EstadoRecepcionCompras.rechazada
                           ? 'Corregir documentos'
                           : estado == EstadoRecepcionCompras.pendiente &&
-                                widget.puedeEditarPendientes
-                          ? 'Completar recepción'
+                                editable
+                          ? 'Editar recepción'
                           : estado == EstadoRecepcionCompras.historico &&
-                                widget.puedeEditarPendientes
+                                editable
                           ? 'Corregir recepción'
                           : 'Ver detalle',
                       style: TextStyle(
@@ -9960,7 +9971,7 @@ class _NuevaRecepcionScreen extends StatefulWidget {
   final String? correccionTaskId;
   final String? correccionDocKey;
   final String? correccionProductoId;
-  final bool puedeEditarPendiente;
+  final bool puedeEditarRecepcion;
   final List<AbastecimientoDoc> abastecimientosIniciales;
 
   const _NuevaRecepcionScreen({
@@ -9971,7 +9982,7 @@ class _NuevaRecepcionScreen extends StatefulWidget {
     this.correccionTaskId,
     this.correccionDocKey,
     this.correccionProductoId,
-    this.puedeEditarPendiente = false,
+    this.puedeEditarRecepcion = false,
     this.abastecimientosIniciales = const [],
   });
 
@@ -10034,19 +10045,16 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
       estadoRecepcionCompras(widget.existing!) ==
           EstadoRecepcionCompras.historico;
 
-  /// Bodega (o Admin Documental) completa o corrige lo que registró, con
-  /// motivo: en revisión de Calidad y, desde el 6 oct 2026, también
-  /// finalizada. Una fecha de vencimiento mal registrada no se podía
-  /// cambiar. Las rechazadas siguen su propio flujo de corrección.
-  bool get _modoEdicionBodega =>
+  /// Completa o corrige los datos de una recepción según su estado.
+  bool get _modoEdicionRecepcion =>
       !isNew &&
       !_esCorreccionDirigida &&
-      widget.puedeEditarPendiente &&
+      widget.puedeEditarRecepcion &&
       (_esRecepcionPendiente || _esRecepcionFinalizada);
-  bool get _modoLectura => !isNew && !_modoCorreccion && !_modoEdicionBodega;
+  bool get _modoLectura => !isNew && !_modoCorreccion && !_modoEdicionRecepcion;
   bool get _mostrarAccionGuardar =>
       isNew ||
-      _modoEdicionBodega ||
+      _modoEdicionRecepcion ||
       (!_esCorreccionDirigida && _modoCorreccion);
 
   bool _esDocumentoCorreccion(int idx, String key) {
@@ -10059,7 +10067,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
 
   bool _puedeEditarDocumento(int idx, String key) {
     if (isNew) return true;
-    if (_modoEdicionBodega) return true;
+    if (_modoEdicionRecepcion) return true;
     if (!_modoCorreccion || idx < 0 || idx >= _entries.length) return false;
     final productoId =
         _entries[idx].producto?.id ??
@@ -10083,7 +10091,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
   /// su revisión. Sí se puede deshacer ese reemplazo.
   bool _esAprobadoGuardado(int idx, String key) {
     final guardado = _docGuardado(idx, key);
-    return _modoEdicionBodega &&
+    return _modoEdicionRecepcion &&
         guardado != null &&
         guardado.tieneDoc &&
         guardado.aprobado;
@@ -10462,12 +10470,12 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
       );
       return;
     }
-    if (_modoEdicionBodega && _motivoEdicionCtrl.text.trim().isEmpty) {
+    if (_modoEdicionRecepcion && _motivoEdicionCtrl.text.trim().isEmpty) {
       // El campo está arriba del formulario y el botón abajo, después de
       // todos los productos: el aviso decía "indica el motivo" y nadie veía
       // dónde. Se pide aquí mismo y se sigue guardando.
       final motivo = await _pedirMotivoEdicion(context);
-      if (motivo == null) return;
+      if (motivo == null || !mounted) return;
       _motivoEdicionCtrl.text = motivo;
     }
     if (_modoCorreccion && !_correccionModificada) {
@@ -10602,7 +10610,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
       );
       if (isNew) {
         await widget.svc.guardarRecepcion(r);
-      } else if (_modoEdicionBodega) {
+      } else if (_modoEdicionRecepcion) {
         await widget.svc.completarRecepcionEnRevision(
           recepcion: r,
           userId: widget.userId,
@@ -10640,10 +10648,10 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
           SnackBar(
             content: Text(
               isNew
-                  ? 'Recepción guardada y cerrada. Quedó enviada a Calidad.'
-                  : _modoEdicionBodega && _esRecepcionFinalizada
+                  ? 'Recepción enviada a Calidad. Puedes editarla en Recepciones → Pendientes.'
+                  : _modoEdicionRecepcion && _esRecepcionFinalizada
                   ? 'Recepción corregida. Lo que reemplazaste volvió a revisión de Calidad.'
-                  : _modoEdicionBodega
+                  : _modoEdicionRecepcion
                   ? 'Recepción completada. Los cambios quedaron en revisión de Calidad.'
                   : 'Correcciones disponibles enviadas. Los documentos pendientes conservan su rechazo.',
             ),
@@ -11124,7 +11132,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
         activeStep: 1,
       );
     }
-    if (_modoEdicionBodega && _esRecepcionFinalizada) {
+    if (_modoEdicionRecepcion && _esRecepcionFinalizada) {
       return _RecepcionFlowBanner(
         icon: Icons.edit_note_rounded,
         color: kComprasPrimary,
@@ -11135,7 +11143,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
         activeStep: 2,
       );
     }
-    if (_modoEdicionBodega) {
+    if (_modoEdicionRecepcion) {
       return _RecepcionFlowBanner(
         icon: Icons.playlist_add_rounded,
         color: const Color(0xFFB45309),
@@ -11274,9 +11282,9 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
         title: Text(
           isNew
               ? 'Nueva recepción'
-              : _modoEdicionBodega && _esRecepcionFinalizada
+              : _modoEdicionRecepcion && _esRecepcionFinalizada
               ? 'Corregir recepción'
-              : _modoEdicionBodega
+              : _modoEdicionRecepcion
               ? 'Completar recepción'
               : _modoCorreccion
               ? 'Corregir recepción'
@@ -11307,7 +11315,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
               child: Text(
                 isNew
                     ? 'Guardar y cerrar'
-                    : _modoEdicionBodega
+                    : _modoEdicionRecepcion
                     ? 'Guardar cambios'
                     : 'Enviar disponibles',
                 style: const TextStyle(
@@ -11565,7 +11573,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                     final idx = entry.key;
                     final e = entry.value;
                     final esProductoAgregado =
-                        _modoEdicionBodega &&
+                        _modoEdicionRecepcion &&
                         idx >= (widget.existing?.productos.length ?? 0);
                     return _ProductoEntryCard(
                       idx: idx,
@@ -11705,22 +11713,23 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                           isNew ||
                               esProductoAgregado ||
                               _modoCorreccion ||
-                              _modoEdicionBodega
+                              _modoEdicionRecepcion
                           ? (key) => _eliminarDocProducto(idx, key)
                           : null,
                       onDateChangedDoc: (key, date) =>
                           _onDateChangedDoc(idx, key, date),
                       readOnlyStructure: !isNew && !esProductoAgregado,
-                      // Producto y marca quedan fijos, pero Bodega corrige
-                      // los lotes y su fecha (6 oct 2026).
+                      // El producto y la marca identifican la fila guardada.
                       readOnlyLotes:
-                          !isNew && !esProductoAgregado && !_modoEdicionBodega,
+                          !isNew &&
+                          !esProductoAgregado &&
+                          !_modoEdicionRecepcion,
                       canEditDocument: (key) => _puedeEditarDocumento(idx, key),
                       canDeleteDocument: (key) =>
                           _puedeEliminarDocumento(idx, key),
                     );
                   }),
-                  if (isNew || _modoEdicionBodega) ...[
+                  if (isNew || _modoEdicionRecepcion) ...[
                     const SizedBox(height: 10),
                     SizedBox(
                       width: double.infinity,
@@ -11745,7 +11754,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                   // arriba del formulario: la persona baja por todos los
                   // productos, guarda, y el aviso le decía "indica el motivo"
                   // sin que viera dónde (14 sep 2026).
-                  if (_modoEdicionBodega) ...[
+                  if (_modoEdicionRecepcion) ...[
                     const SizedBox(height: 24),
                     TextField(
                       controller: _motivoEdicionCtrl,
@@ -11784,9 +11793,9 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                               ? 'Procesando...'
                               : isNew
                               ? 'Guardar, cerrar y enviar a Calidad'
-                              : _modoEdicionBodega && _esRecepcionFinalizada
+                              : _modoEdicionRecepcion && _esRecepcionFinalizada
                               ? 'Guardar corrección'
-                              : _modoEdicionBodega
+                              : _modoEdicionRecepcion
                               ? 'Guardar cambios y mantener en revisión'
                               : 'Enviar correcciones disponibles a Calidad',
                           style: const TextStyle(fontFamily: _kFont),

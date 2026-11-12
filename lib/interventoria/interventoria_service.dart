@@ -43,14 +43,13 @@ String claveUnicaActaInterventoria({
   String? tipoActa,
   String? tiempoComida,
 }) {
-  final local = fechaVisita.toLocal();
   final tipoNormalizado = (tipoActa ?? '').trim().isEmpty
       ? kActaRegular
       : tipoActa;
   final fecha =
-      '${local.year.toString().padLeft(4, '0')}-'
-      '${local.month.toString().padLeft(2, '0')}-'
-      '${local.day.toString().padLeft(2, '0')}';
+      '${fechaVisita.year.toString().padLeft(4, '0')}-'
+      '${fechaVisita.month.toString().padLeft(2, '0')}-'
+      '${fechaVisita.day.toString().padLeft(2, '0')}';
   return [
     _normalizarParteClaveActa(empresaId),
     _normalizarParteClaveActa(centroCostoId),
@@ -74,7 +73,7 @@ bool esLaMismaActaInterventoria(
       empresaId: visita.empresaId,
       centroCostoId: visita.centroCostoId,
       subcentroId: visita.subcentroId,
-      fechaVisita: visita.fechaVisita.toDate(),
+      fechaVisita: visita.diaActa,
       tipoActa: visita.tipoActa,
       tiempoComida: visita.tiempoComida,
     ) ==
@@ -1199,7 +1198,7 @@ class InterventoriaService {
       descripcion: descripcionTareaDevolucionActa(
         motivo: motivoLimpio,
         devueltoPorNombre: devueltoPorNombre,
-        fechaVisita: visita.fechaVisita.toDate(),
+        fechaVisita: visita.diaActa,
       ),
       estado: 'pendiente',
       prioridad: 'alta',
@@ -1453,6 +1452,7 @@ class InterventoriaService {
               'puntajeSeccion': item.valor,
               'numeroHallazgo': '$secNum.${i + 1}',
               'numeralActa': numeralActa,
+              'fechaHallazgo': visita.fechaVisita,
               'updatedAt': FieldValue.serverTimestamp(),
             },
           );
@@ -1880,7 +1880,7 @@ class InterventoriaService {
       empresaId: visita.empresaId,
       centroCostoId: visita.centroCostoId,
       subcentroId: visita.subcentroId,
-      fechaVisita: visita.fechaVisita.toDate(),
+      fechaVisita: visita.diaActa,
       tipoActa: visita.tipoActa,
       tiempoComida: visita.tiempoComida,
       excludeId: ref.id,
@@ -1897,7 +1897,10 @@ class InterventoriaService {
           'Esta acta ya fue registrada. Actualiza el histórico antes de intentarlo de nuevo.',
         );
       }
-      transaction.set(ref, visita.toMap());
+      transaction.set(ref, {
+        ...visita.toMap(),
+        'fechaRegistro': FieldValue.serverTimestamp(),
+      });
     });
     return ref.id;
   }
@@ -2626,7 +2629,7 @@ class InterventoriaService {
         xl.TextCellValue(h.tipoActa ?? ''),
         xl.TextCellValue(h.numeroHallazgo),
         xl.TextCellValue(h.descripcion),
-        xl.TextCellValue(fmt.format(h.fechaHallazgo.toDate())),
+        xl.TextCellValue(fmt.format(h.diaHallazgo)),
         xl.TextCellValue(h.persiste ? 'SI' : ''),
         xl.TextCellValue(h.dptoEncargado),
         xl.TextCellValue(h.observaciones),
@@ -2657,7 +2660,7 @@ class InterventoriaService {
       xl.TextCellValue('SECCIÓN'),
       ...visitas.map(
         (v) => xl.TextCellValue(
-          '${v.centroCostoNombre.isNotEmpty ? v.centroCostoNombre : v.centroCostoCodigo}\n${fmt.format(v.fechaVisita.toDate())}',
+          '${v.centroCostoNombre.isNotEmpty ? v.centroCostoNombre : v.centroCostoCodigo}\n${fmt.format(v.diaActa)}',
         ),
       ),
     ];
@@ -3736,7 +3739,7 @@ class InterventoriaService {
         empresaId: empresaId,
         numeral: hallazgo.numeralParaMatriz,
         centroCostoId: hallazgo.centroCostoId,
-        desde: hallazgo.fechaHallazgo.toDate(),
+        desde: hallazgo.diaHallazgo,
         tipoActa: hallazgo.tipoActa,
       );
       final decision = decidirReasignacionPorGrupo(
@@ -4518,7 +4521,7 @@ class InterventoriaService {
       empresaId: hallazgo.empresaId,
       numeral: hallazgo.numeralParaMatriz,
       centroCostoId: hallazgo.centroCostoId,
-      desde: hallazgo.fechaHallazgo.toDate(),
+      desde: hallazgo.diaHallazgo,
       tipoActa: hallazgo.tipoActa,
     );
     if (exigirResponsableEnCentro &&
@@ -4611,7 +4614,7 @@ class InterventoriaService {
     final fechaLimite =
         asignacion?.fechaLimite ??
         sumarDiasHabiles(
-          hallazgo.fechaHallazgo.toDate(),
+          hallazgo.diaHallazgo,
           await plazoSubsanacionDias(hallazgo.empresaId, hallazgo.seccion),
         );
 
@@ -4634,7 +4637,7 @@ class InterventoriaService {
       '${cargoAprobador.isEmpty ? '' : ' · $cargoAprobador'}',
     );
     sb.writeln(
-      'Fecha: ${DateFormat('dd/MM/yyyy').format(hallazgo.fechaHallazgo.toDate())}',
+      'Fecha: ${DateFormat('dd/MM/yyyy').format(hallazgo.diaHallazgo)}',
     );
     sb.writeln(
       'Fecha límite para subsanar: ${DateFormat('dd/MM/yyyy').format(fechaLimite)}',

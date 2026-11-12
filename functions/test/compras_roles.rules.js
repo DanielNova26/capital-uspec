@@ -19,6 +19,8 @@ test.before(async () => {
       setDoc(doc(db, 'TBL_USUARIOS/admin'), person(['admindashboard'])),
       setDoc(doc(db, 'TBL_USUARIOS/comprasAdmin'), person(['comprasdashboard'])),
       setDoc(doc(db, 'TBL_USUARIOS/comprador'), person(['comprasdashboard'])),
+      setDoc(doc(db, 'TBL_USUARIOS/bodega'), person(['comprasdashboard'])),
+      setDoc(doc(db, 'TBL_USUARIOS/calidad'), person(['comprasdashboard'])),
       setDoc(doc(db, 'TBL_USUARIOS/consultas'), person(['comprasdashboard'])),
       setDoc(doc(db, 'TBL_USUARIOS/sinApp'), person([])),
       setDoc(doc(db, 'TBL_USUARIOS/sinAppHistorico'), person([])),
@@ -27,11 +29,14 @@ test.before(async () => {
         empresasDetalle: {A: {apps: []}, B: {apps: ['admindashboard']}}}),
       setDoc(doc(db, 'TBL_COMPRAS_ROLES/A_comprasAdmin'), assignment('comprasAdmin', 'admin')),
       setDoc(doc(db, 'TBL_COMPRAS_ROLES/A_comprador'), assignment('comprador', 'compras')),
+      setDoc(doc(db, 'TBL_COMPRAS_ROLES/A_bodega'), assignment('bodega', 'bodega')),
+      setDoc(doc(db, 'TBL_COMPRAS_ROLES/A_calidad'), assignment('calidad', 'calidad')),
       setDoc(doc(db, 'TBL_COMPRAS_ROLES/A_consultas'), assignment('consultas', 'consultas')),
       setDoc(doc(db, 'TBL_COMPRAS_ROLES/A_sinApp'), assignment('sinApp', 'admin')),
       setDoc(doc(db, 'TBL_COMPRAS_ROLES/A_inactivo'), assignment('inactivo', 'admin')),
       setDoc(doc(db, 'TBL_COMPRAS_APROBACIONES/a'), {empresaId: 'A', entidadId: 'ficha'}),
       setDoc(doc(db, 'TBL_COMPRAS_APROBACIONES/b'), {empresaId: 'B', entidadId: 'ficha'}),
+      setDoc(doc(db, 'TBL_COMPRAS_RECEPCIONES/pendiente'), {empresaId: 'A', productos: []}),
     ]);
   });
 });
@@ -69,6 +74,18 @@ test('historial requiere filtro de empresa aunque la entidad tenga el mismo id',
   const db = auth('comprador');
   await assertSucceeds(getDocs(query(collection(db, 'TBL_COMPRAS_APROBACIONES'), where('empresaId', '==', 'A'), where('entidadId', '==', 'ficha'))));
   await assertFails(getDocs(query(collection(db, 'TBL_COMPRAS_APROBACIONES'), where('entidadId', '==', 'ficha'))));
+});
+test('los perfiles operativos pueden editar una recepción de su empresa', async () => {
+  const editar = (user) => updateDoc(doc(auth(user), 'TBL_COMPRAS_RECEPCIONES/pendiente'), {
+    productos: [{productoId: 'p', lotes: [{lote: 'lote corregido'}]}],
+    ultimaEdicionPor: user,
+  });
+  for (const user of ['comprasAdmin', 'comprador', 'bodega', 'calidad']) {
+    await assertSucceeds(editar(user));
+  }
+  for (const user of ['consultas', 'sinApp', 'inactivo', 'adminB']) {
+    await assertFails(editar(user));
+  }
 });
 test('contador de marcas funciona para Compras sin conceder configuración administrativa', async () => {
   const db = auth('comprador');

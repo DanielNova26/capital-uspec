@@ -11,8 +11,8 @@ import '../services/auth_prefs.dart';
 import '../services/company_branding_service.dart';
 import 'visitas_local_store.dart';
 import 'visitas_models.dart';
+import 'visitas_offline.dart';
 import 'visitas_service.dart';
-import 'visitas_ubicacion_dispositivo.dart';
 
 /// A downloaded visit always writes locally, even when connectivity fluctuates.
 /// Only an explicit sync publishes the frozen final report.
@@ -159,29 +159,7 @@ class VisitasLocalService extends VisitasService {
         );
 
   @override
-  Future<Position> posicionActual() => leerPosicionVisita(descargada: true);
-
-  Future<VisitaMarca> _marca({Position? posicion}) async {
-    final v = visita;
-    if (v.esPrueba) return VisitaMarca(at: Timestamp.now());
-    final ref = await ubicacionPara(empresaId: empresaId, centroId: v.centroId);
-    final p = posicion ?? await posicionActual();
-    final check = verificarUbicacionInicio(
-      referencia: ref,
-      lat: p.latitude,
-      lng: p.longitude,
-      precisionMetros: p.accuracy,
-    );
-    if (!check.permitido) throw VisitasException(check.motivo);
-    return VisitaMarca(
-      at: Timestamp.now(),
-      lat: p.latitude,
-      lng: p.longitude,
-      precisionMetros: p.accuracy,
-      distanciaMetros: check.distancia,
-      dentroDelRadio: true,
-    );
-  }
+  bool requiereGpsInicio(VisitaProfesional v) => false;
 
   @override
   Future<void> iniciar(
@@ -195,7 +173,7 @@ class VisitasLocalService extends VisitasService {
     _id(v.id);
     final motivo = motivoNoIniciaHoy(v, DateTime.now());
     if (motivo != null) throw VisitasException(motivo);
-    final marca = await _marca(posicion: posicion);
+    final marca = VisitaMarca(at: Timestamp.now());
     await _mutar((current) {
       if (current.estado != kVisitaProgramada) {
         throw const VisitasException('La visita ya fue iniciada.');
@@ -247,6 +225,88 @@ class VisitasLocalService extends VisitasService {
     );
   }
 
+  Future<void> editarRespuesta(
+    String visitaId,
+    String itemId,
+    VisitaRespuesta anterior,
+    VisitaRespuesta editada,
+  ) {
+    _id(visitaId);
+    final base = anterior.toMap();
+    final datos = editada.toMap();
+    final cambios = {
+      for (final campo in {...base.keys, ...datos.keys})
+        if (campo != 'evidencias' && datos[campo] != base[campo])
+          campo: datos[campo],
+    };
+    if (cambios.isEmpty) return Future.value();
+    return _mutar(
+      (v) => {
+        'respuestas': {
+          for (final e in v.respuestas.entries) e.key: e.value.toMap(),
+          itemId: {...?v.respuestas[itemId]?.toMap(), ...cambios},
+        },
+      },
+    );
+  }
+
+  @override
+  Future<void> adjuntarEvidencia({
+    required String visitaId,
+    required String destino,
+    required String itemId,
+    required String tablaId,
+    required String filaId,
+    required VisitaEvidencia ev,
+    VisitaFilaTabla? fila,
+  }) {
+    _id(visitaId);
+    return _mutar((v) {
+      switch (destino) {
+        case kFotoDestinoAdicional:
+          return {
+            'evidenciasAdicionales': [
+              for (final e in v.evidenciasAdicionales) e.toMap(),
+              ev.toMap(),
+            ],
+          };
+        case kFotoDestinoFila:
+          final actuales = v.filasDe(tablaId);
+          final filas = actuales.any((f) => f.id == filaId)
+              ? actuales
+              : [...actuales, fila ?? VisitaFilaTabla(id: filaId)];
+          return {
+            'tablas': {
+              for (final e in v.tablas.entries)
+                if (e.key != tablaId)
+                  e.key: e.value.map((f) => f.toMap()).toList(),
+              tablaId: [
+                for (final f in filas)
+                  (f.id == filaId
+                          ? f.copyWith(evidencias: [...f.evidencias, ev])
+                          : f)
+                      .toMap(),
+              ],
+            },
+          };
+        default:
+          final respuesta = v.respuestas[itemId] ?? const VisitaRespuesta();
+          return {
+            'respuestas': {
+              for (final e in v.respuestas.entries)
+                if (e.key != itemId) e.key: e.value.toMap(),
+              itemId: respuesta
+                  .copyWith(
+                    evidencias: [...respuesta.evidencias, ev],
+                    sinFotoMotivo: '',
+                  )
+                  .toMap(),
+            },
+          };
+      }
+    });
+  }
+
   @override
   Future<void> guardarFilas(
     String visitaId,
@@ -254,15 +314,19 @@ class VisitasLocalService extends VisitasService {
     List<VisitaFilaTabla> filas,
   ) {
     _id(visitaId);
-    return _mutar(
-      (v) => {
+    return _mutar((v) {
+      final actuales = {for (final fila in v.filasDe(tablaId)) fila.id: fila};
+      return {
         'tablas': {
           for (final e in v.tablas.entries)
-            e.key: e.value.map((f) => f.toMap()).toList(),
-          tablaId: filas.map((f) => f.toMap()).toList(),
+            if (e.key != tablaId) e.key: e.value.map((f) => f.toMap()).toList(),
+          tablaId: [
+            for (final fila in filas)
+              fila.copyWith(evidencias: actuales[fila.id]?.evidencias).toMap(),
+          ],
         },
-      },
-    );
+      };
+    });
   }
 
   @override
@@ -305,7 +369,9 @@ class VisitasLocalService extends VisitasService {
       nombre: nombre,
       descripcion: descripcion,
       conMarca: conMarca,
-      tomadaEn: Timestamp.now(),
+      tomadaEn: tomadaEn == null
+          ? Timestamp.now()
+          : Timestamp.fromDate(tomadaEn),
     );
   }
 

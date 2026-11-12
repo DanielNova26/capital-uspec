@@ -35,11 +35,14 @@ void main() {
       expect(comprasRolRecibeAgendaAbastecimiento(null), isFalse);
     });
 
-    test('solo Bodega y Admin pueden completar una recepción cerrada', () {
-      expect(comprasRolPuedeCompletarRecepcion(kRolBodega), isTrue);
-      expect(comprasRolPuedeCompletarRecepcion(kRolAdmin), isTrue);
-      expect(comprasRolPuedeCompletarRecepcion(kRolCompras), isFalse);
-      expect(comprasRolPuedeCompletarRecepcion(kRolCalidad), isFalse);
+    test('los cuatro perfiles operativos editan recepciones en revisión', () {
+      for (final rol in [kRolAdmin, kRolBodega, kRolCompras, kRolCalidad]) {
+        expect(comprasRolPuedeCompletarRecepcion(rol), isTrue);
+        expect(
+          comprasRolPuedeCompletarRecepcion(rol, finalizada: true),
+          rol == kRolBodega || rol == kRolAdmin,
+        );
+      }
       expect(comprasRolPuedeCompletarRecepcion(kRolConsultas), isFalse);
       expect(comprasRolPuedeCompletarRecepcion(null), isFalse);
     });

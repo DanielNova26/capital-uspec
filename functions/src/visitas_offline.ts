@@ -99,8 +99,9 @@ function marca(m: D, p: D, now: number, cierre = false): D {
       (!cierre && (at >= p.venceMs || at < dia || at >= dia + DAY))) {
     fail("La hora capturada no corresponde al día autorizado de la visita.");
   }
-  // El cierre administrativo puede hacerse otro día y sin GPS.
-  if (cierre) return {at: m.at};
+  // El inicio descargado y el cierre administrativo admiten una marca horaria.
+  if (cierre || [m.lat, m.lng, m.precisionMetros, m.distanciaMetros,
+    m.dentroDelRadio].every((v) => v == null)) return {at: m.at};
   if (!p.base.esPrueba) {
     if (!p.ubicacion || !Number.isFinite(m.lat) || !Number.isFinite(m.lng) ||
         Math.abs(m.lat) > 90 || Math.abs(m.lng) > 180 ||
@@ -228,7 +229,6 @@ export const visitasPrepararOffline = functions.region("us-central1").https.onCa
         !Number.isFinite(ubicacion.lat) || !Number.isFinite(ubicacion.lng)) {
       ubicacion = undefined;
     }
-    if (!v.esPrueba && !ubicacion) fail("El establecimiento no tiene ubicación configurada.");
     const empresa = (await tx.get(db.collection("TBL_EMPRESAS").doc(empresaId))).data() || {};
     const p = {userId, uid: context.auth!.uid, empresaId, visitaId, formatoId, formato,
       empresaNombre: text(empresa.nombre) || text(empresa.razonSocial) || empresaId,
@@ -274,11 +274,14 @@ export const visitasSubirFotoOffline = functions.region("us-central1")
     const asset = ref.collection("fotos").doc(hash);
     const prior = await asset.get();
     if (prior.exists) return prior.data();
-    const path = `visitas/${p.empresaId}/${p.visitaId}/offline/${ref.id}/${hash}.jpg`;
+    const extension = bytes.subarray(0, 8).toString("hex") === "89504e470d0a1a0a" ? "png" :
+      bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP" ? "webp" : "jpg";
+    const contentType = `image/${extension === "jpg" ? "jpeg" : extension}`;
+    const path = `visitas/${p.empresaId}/${p.visitaId}/offline/${ref.id}/${hash}.${extension}`;
     const file = admin.storage().bucket().file(path);
     const token = randomUUID();
     try {
-      await file.save(bytes, {resumable: false, contentType: "image/jpeg",
+      await file.save(bytes, {resumable: false, contentType,
         preconditionOpts: {ifGenerationMatch: 0},
         metadata: {metadata: {firebaseStorageDownloadTokens: token}}});
     } catch (e: any) {

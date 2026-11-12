@@ -1,7 +1,29 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:todo/interventoria/interventoria_models.dart';
 import 'package:todo/interventoria/interventoria_service.dart';
 
 void main() {
+  test(
+    'acta y cargue conservan sus días de Colombia alrededor de medianoche',
+    () {
+      final timestamp = timestampDiaInterventoria(DateTime(2026, 11, 11));
+      final acta = InterventoriaVisita.fromMap('acta', {
+        'fechaVisita': timestamp,
+        'fechaRegistro': Timestamp.fromDate(DateTime.utc(2026, 11, 12, 3, 15)),
+      });
+      expect(timestamp.toDate().toUtc(), DateTime.utc(2026, 11, 11, 5));
+      expect(acta.diaActa, DateTime(2026, 11, 11));
+      expect(acta.horaCargue, DateTime.utc(2026, 11, 11, 22, 15));
+      expect(
+        InterventoriaVisita.fromMap('legado', {
+          'fechaVisita': timestamp,
+        }).horaCargue,
+        isNull,
+      );
+    },
+  );
+
   group('claveUnicaActaInterventoria', () {
     test('la misma acta conserva la clave aunque cambie hora o espacios', () {
       final first = claveUnicaActaInterventoria(

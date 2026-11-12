@@ -71,7 +71,7 @@ List<String> filaSubsanacion(
     (h.tipoActa ?? '').trim(),
     h.numeroVisible,
     h.descripcion.trim(),
-    fecha(h.fechaHallazgo.toDate()),
+    fecha(h.diaHallazgo),
     h.observaciones.trim(),
     h.seguimiento.trim(),
     fecha(h.fechaSubsanacion?.toDate()),

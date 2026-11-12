@@ -649,7 +649,7 @@ class _InterventoriaDashboardScreenState
         _fechaDesde!.month,
         _fechaDesde!.day,
       );
-      r = r.where((h) => !h.fechaHallazgo.toDate().isBefore(desde)).toList();
+      r = r.where((h) => !h.diaHallazgo.isBefore(desde)).toList();
     }
     if (_fechaHasta != null) {
       final hasta = DateTime(
@@ -660,7 +660,7 @@ class _InterventoriaDashboardScreenState
         59,
         59,
       );
-      r = r.where((h) => !h.fechaHallazgo.toDate().isAfter(hasta)).toList();
+      r = r.where((h) => !h.diaHallazgo.isAfter(hasta)).toList();
     }
     return r;
   }
@@ -1476,9 +1476,7 @@ class _HallazgosTableState extends State<_HallazgosTable> {
                       ),
                     ),
                     DataCell(
-                      Text(
-                        DateFormat('dd/MM/yy').format(h.fechaHallazgo.toDate()),
-                      ),
+                      Text(DateFormat('dd/MM/yy').format(h.diaHallazgo)),
                     ),
                     DataCell(_ResponsableHallazgoCell(hallazgo: h)),
                     DataCell(_VenceHallazgoCell(hallazgo: h)),
@@ -1601,7 +1599,7 @@ class _HallazgoCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  'Acta ${DateFormat('dd/MM/yyyy').format(h.fechaHallazgo.toDate())}',
+                  'Acta ${DateFormat('dd/MM/yyyy').format(h.diaHallazgo)}',
                   style: const TextStyle(
                     fontSize: 12,
                     color: Color(0xFF64748B),
@@ -3097,7 +3095,7 @@ class _SeguimientoMatrizState extends State<_SeguimientoMatriz> {
                           ),
                         ),
                       ),
-                      DataCell(Text(fmt.format(h.fechaHallazgo.toDate()))),
+                      DataCell(Text(fmt.format(h.diaHallazgo))),
                       // Observaciones: lo que el revisor escribió en el acta
                       DataCell(
                         SizedBox(
@@ -3423,7 +3421,7 @@ class _SeguimientoGraficasState extends State<_SeguimientoGraficas> {
             value = calculado;
           }
           return _TimelinePoint(
-            label: DateFormat('dd/MM/yy').format(v.fechaVisita.toDate()),
+            label: DateFormat('dd/MM/yy').format(v.diaActa),
             value: value,
             caption: v.establecimiento,
           );
@@ -3764,7 +3762,7 @@ class _HallazgosTimeline extends StatelessWidget {
     final fmt = DateFormat('dd/MM/yy');
     final Map<String, _FechaStats> porFecha = {};
     for (final h in hallazgos) {
-      final key = fmt.format(h.fechaHallazgo.toDate());
+      final key = fmt.format(h.diaHallazgo);
       final s = porFecha.putIfAbsent(key, () => _FechaStats(key));
       if (h.isSubsanado) {
         s.subsanados++;
@@ -4551,16 +4549,14 @@ class _VisitasTabState extends State<_VisitasTab> {
 
         if (_fechaDesde != null) {
           visitas = visitas
-              .where((v) => !v.fechaVisita.toDate().isBefore(_fechaDesde!))
+              .where((v) => !v.diaActa.isBefore(_fechaDesde!))
               .toList();
         }
         if (_fechaHasta != null) {
           final hasta = _fechaHasta!.add(
             const Duration(hours: 23, minutes: 59, seconds: 59),
           );
-          visitas = visitas
-              .where((v) => !v.fechaVisita.toDate().isAfter(hasta))
-              .toList();
+          visitas = visitas.where((v) => !v.diaActa.isAfter(hasta)).toList();
         }
         visitas = visitas.toList();
         switch (_orden) {
@@ -4713,9 +4709,7 @@ class _VisitaCardState extends State<_VisitaCard> {
   bool _expanded = false;
 
   String _buildSubtitle(InterventoriaVisita visita) {
-    final parts = <String>[
-      DateFormat('dd/MM/yyyy').format(visita.fechaVisita.toDate()),
-    ];
+    final parts = <String>[DateFormat('dd/MM/yyyy').format(visita.diaActa)];
     if ((visita.tipoActa ?? '').isNotEmpty) {
       parts.add(visita.tipoActa!);
     }
@@ -4762,12 +4756,12 @@ class _VisitaCardState extends State<_VisitaCard> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(_buildSubtitle(v)),
-                // Cuándo se subió el acta al sistema, aparte de la fecha de
-                // la visita. `fechaRegistro` se fija en el primer guardado y
-                // se conserva en correcciones y revisiones, así que es la
-                // hora real de la subida y no la del último toque.
                 Text(
-                  'Subida el ${DateFormat('dd/MM/yyyy HH:mm').format(v.fechaRegistro.toDate())}',
+                  switch (v.horaCargue) {
+                    final hora? =>
+                      'Subida el ${DateFormat('dd/MM/yyyy HH:mm').format(hora)}',
+                    null => 'Fecha de cargue sin registro',
+                  },
                   style: const TextStyle(
                     fontSize: 11,
                     color: Color(0xFF94A3B8),
@@ -5012,7 +5006,7 @@ class _VisitaCardState extends State<_VisitaCard> {
             children: [
               Text(
                 '${v.establecimiento} · '
-                '${DateFormat('dd/MM/yyyy').format(v.fechaVisita.toDate())}',
+                '${DateFormat('dd/MM/yyyy').format(v.diaActa)}',
                 style: const TextStyle(fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 4),
@@ -5194,7 +5188,7 @@ class _VisitaCardState extends State<_VisitaCard> {
     BuildContext context,
     InterventoriaVisita v,
   ) async {
-    final fecha = DateFormat('dd/MM/yyyy').format(v.fechaVisita.toDate());
+    final fecha = DateFormat('dd/MM/yyyy').format(v.diaActa);
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogCtx) => AlertDialog(
@@ -5261,7 +5255,7 @@ class _VisitaCardState extends State<_VisitaCard> {
             children: [
               Text(
                 '${visita.centroCostoNombre} · '
-                '${DateFormat('dd/MM/yyyy').format(visita.fechaVisita.toDate())}',
+                '${DateFormat('dd/MM/yyyy').format(visita.diaActa)}',
                 style: const TextStyle(fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 4),
@@ -5361,7 +5355,7 @@ class _VisitaCardState extends State<_VisitaCard> {
         title: const Text('Reabrir acta para revisión'),
         content: Text(
           'El acta de ${visita.centroCostoNombre} '
-          '(${DateFormat('dd/MM/yyyy').format(visita.fechaVisita.toDate())}) '
+          '(${DateFormat('dd/MM/yyyy').format(visita.diaActa)}) '
           'volverá a aparecer en "Por revisar" para que la persona encargada '
           'pueda editar las observaciones. Los puntajes ya guardados no se '
           'modifican.',
@@ -5719,9 +5713,7 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
                   .toList();
         if (widget.fechaDesde != null) {
           visitasFiltradas = visitasFiltradas
-              .where(
-                (v) => !v.fechaVisita.toDate().isBefore(widget.fechaDesde!),
-              )
+              .where((v) => !v.diaActa.isBefore(widget.fechaDesde!))
               .toList();
         }
         if (widget.fechaHasta != null) {
@@ -5729,7 +5721,7 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
             const Duration(hours: 23, minutes: 59, seconds: 59),
           );
           visitasFiltradas = visitasFiltradas
-              .where((v) => !v.fechaVisita.toDate().isAfter(hasta))
+              .where((v) => !v.diaActa.isAfter(hasta))
               .toList();
         }
 
@@ -6024,7 +6016,7 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
                 overflow: TextOverflow.ellipsis,
               ),
               Text(
-                fmt.format(v.fechaVisita.toDate()),
+                fmt.format(v.diaActa),
                 style: const TextStyle(fontSize: 10, color: Color(0xFF64748B)),
               ),
               if (pdfAdj.isNotEmpty)
@@ -6033,8 +6025,8 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
                     ctx,
                     pdfAdj.first.url,
                     v.centroCostoNombre,
-                    fmt.format(v.fechaVisita.toDate()),
-                    fechaVisita: v.fechaVisita.toDate(),
+                    fmt.format(v.diaActa),
+                    fechaVisita: v.diaActa,
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -6267,7 +6259,7 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
           final value = _valueForVisit(visita);
           if (value < 0) return null;
           return _TimelinePoint(
-            label: DateFormat('dd/MM').format(visita.fechaVisita.toDate()),
+            label: DateFormat('dd/MM').format(visita.diaActa),
             value: value,
             caption: visita.establecimiento,
           );
@@ -6445,7 +6437,7 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
                           ),
                           Text(
                             '${visita.centroCostoNombre} · '
-                            '${DateFormat('dd/MM/yyyy').format(visita.fechaVisita.toDate())}'
+                            '${DateFormat('dd/MM/yyyy').format(visita.diaActa)}'
                             ' · ${etiquetaTipoActa(visita.tipoActa)}',
                             style: const TextStyle(
                               fontSize: 12,
@@ -7408,7 +7400,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
       _pctFinalCtrl.text = existente!.porcentajeFinal!.toString();
       _pctFinalMotivoCtrl.text = existente.porcentajeFinalMotivo;
     }
-    _fecha = existente?.fechaVisita.toDate() ?? DateTime.now();
+    _fecha = existente?.diaActa ?? diaInterventoria(DateTime.now());
     _tipoActa = existente?.tipoActa;
     _tiempoComida = existente?.tiempoComida;
     _items = existente == null
@@ -8745,7 +8737,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
             tipoActa: _tipoActa,
             numeroHallazgo: '${categoryIndex + 1}.${noteIndex + 1}',
             descripcion: aspecto.isEmpty ? cat.label : aspecto,
-            fechaHallazgo: Timestamp.fromDate(_fecha),
+            fechaHallazgo: timestampDiaInterventoria(_fecha),
             observaciones: texto,
             puntajeSeccion: item.noEvaluado
                 ? 100.0
@@ -9042,9 +9034,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
           tiempoComida: _tiempoComida,
         );
         if (duplicada != null) {
-          final fecha = DateFormat(
-            'dd/MM/yyyy',
-          ).format(duplicada.fechaVisita.toDate());
+          final fecha = DateFormat('dd/MM/yyyy').format(duplicada.diaActa);
           throw StateError(
             'Ya existe esta acta en ${duplicada.establecimiento} para el $fecha. Elimina o corrige el registro existente; no la cargues otra vez.',
           );
@@ -9112,8 +9102,10 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
         centroCostoNombre: _centro!.nombre,
         subcentroId: _subcentro?.id ?? '',
         subcentroNombre: _subcentro?.nombre ?? '',
-        fechaVisita: Timestamp.fromDate(_fecha),
-        fechaRegistro: existente?.fechaRegistro ?? Timestamp.now(),
+        fechaVisita: existente?.diaActa == _fecha
+            ? existente!.fechaVisita
+            : timestampDiaInterventoria(_fecha),
+        fechaRegistro: existente?.fechaRegistro,
         creadoPor: existente?.creadoPor ?? widget.userId,
         estado: existente?.estado ?? 'registrada',
         tipoActa: _tipoActa,
@@ -11496,15 +11488,16 @@ class _PorRevisarTab extends StatelessWidget {
                   itemBuilder: (context, i) {
                     final acta = actas[i];
                     final fmt = DateFormat('dd/MM/yyyy');
-                    final cargue = acta.fechaRegistro.toDate();
-                    final dias = diasDesdeCargue(cargue, DateTime.now());
-                    // Pedido del 28 sep 2026: "Fecha de acta 10/09/2026 -
-                    // Fecha cargue 10/09/2026 (18 días)". Los días dicen
-                    // cuánto lleva el acta esperando revisión.
+                    final cargue = acta.horaCargue;
+                    final dias = cargue == null
+                        ? null
+                        : diasDesdeCargue(
+                            cargue,
+                            horaInterventoria(DateTime.now()),
+                          );
                     final fechas =
-                        'Fecha de acta ${fmt.format(acta.fechaVisita.toDate())}'
-                        '  ·  Fecha cargue ${fmt.format(cargue)} '
-                        '($dias día${dias == 1 ? '' : 's'})';
+                        'Fecha de acta ${fmt.format(acta.diaActa)} · '
+                        '${cargue == null ? 'Fecha de cargue sin registro' : 'Fecha de cargue ${fmt.format(cargue)} ($dias día${dias == 1 ? '' : 's'})'}';
                     final tipo = (acta.tipoActa ?? '').trim();
                     final pct = acta.porcentajeGeneral;
                     return Card(
@@ -11783,9 +11776,7 @@ class _RevisionActaScreenState extends State<_RevisionActaScreen> {
     final width = MediaQuery.sizeOf(context).width;
     final esEscritorio = width >= 1180;
     final appBarCompacta = width < 640;
-    final fecha = DateFormat(
-      'dd/MM/yyyy',
-    ).format(widget.visita.fechaVisita.toDate());
+    final fecha = DateFormat('dd/MM/yyyy').format(widget.visita.diaActa);
 
     return PopScope(
       canPop: !_pendiente,
@@ -12238,7 +12229,7 @@ class _FormularioRevisionState extends State<_FormularioRevision> {
   Widget build(BuildContext context) {
     final visita = widget.visita;
     final items = widget.items;
-    final fecha = DateFormat('dd/MM/yyyy').format(visita.fechaVisita.toDate());
+    final fecha = DateFormat('dd/MM/yyyy').format(visita.diaActa);
     return ListView(
       controller: _scrollCtrl,
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 100),

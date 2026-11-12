@@ -739,9 +739,8 @@ class ComprasService {
     return ref.id;
   }
 
-  /// Bodega completa o corrige una recepción en revisión de Calidad o ya
-  /// finalizada: agrega productos y corrige lotes, fechas y documentos mal
-  /// cargados (6 oct 2026).
+  /// Completa o corrige productos, lotes, vencimientos y documentos de una
+  /// recepción guardada.
   ///
   /// Conserva el encabezado y la fecha originales. La transacción impide
   /// reabrir así una recepción rechazada desde una pantalla que quedó
@@ -766,9 +765,7 @@ class ComprasService {
     }
     final actor = await resolveRolUsuario(recepcion.empresaId, userId);
     if (actor == null || !comprasRolPuedeCompletarRecepcion(actor.rol)) {
-      throw StateError(
-        'Solo el perfil de Bodega puede completar o corregir una recepción.',
-      );
+      throw StateError('Tu perfil no permite editar esta recepción.');
     }
     final ref = _db.collection('TBL_COMPRAS_RECEPCIONES').doc(recepcionId);
     late RecepcionDoc original;
@@ -781,14 +778,20 @@ class ComprasService {
       if (original.empresaId.trim() != recepcion.empresaId.trim()) {
         throw StateError('La recepción no pertenece a la empresa activa.');
       }
+      final finalizada =
+          estadoRecepcionCompras(original) == EstadoRecepcionCompras.historico;
+      if (!comprasRolPuedeCompletarRecepcion(
+        actor.rol,
+        finalizada: finalizada,
+      )) {
+        throw StateError('La recepción ya fue finalizada por Calidad.');
+      }
       final error = validarEdicionRecepcionBodega(
         original: original,
         productosActualizados: recepcion.productos,
         motivo: motivo,
       );
       if (error != null) throw StateError(error);
-      final finalizada =
-          estadoRecepcionCompras(original) == EstadoRecepcionCompras.historico;
       final productos = fusionarEdicionRecepcion(
         original: original,
         productosActualizados: recepcion.productos,

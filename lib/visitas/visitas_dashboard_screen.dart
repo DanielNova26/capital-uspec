@@ -11,6 +11,7 @@
 // La lógica (qué se puede cerrar, cómo se consolida) es una sola y está en
 // `visitas_models.dart`.
 
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -2295,7 +2296,9 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
 
   @override
   void dispose() {
-    VisitasOffline.instance.dejarDeVigilar();
+    if (widget.svc is! VisitasLocalService) {
+      VisitasOffline.instance.dejarDeVigilar();
+    }
     _obsGeneral.dispose();
     _respNombre.dispose();
     _respCargo.dispose();
@@ -2582,7 +2585,7 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
       // dónde quedó respecto de este establecimiento y, si está dentro, se
       // inicia con esa misma lectura (el servicio la vuelve a comprobar).
       Position? posicion;
-      if (!v.esPrueba) {
+      if (widget.svc.requiereGpsInicio(v)) {
         posicion = await widget.svc.posicionActual();
         final check = verificarUbicacionInicio(
           referencia: _referencia,
@@ -3372,7 +3375,7 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
                   style: TextStyle(fontFamily: _kFont, fontSize: 12),
                 ),
               )
-            else
+            else if (widget.svc.requiereGpsInicio(v))
               _estadoReferencia(),
             const Text(
               'Antes de iniciar',
@@ -3391,10 +3394,12 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
             Text(
               v.esPrueba
                   ? 'Al iniciar se registra la hora. Completa el formato antes de firmar; al finalizar podrás eliminar esta prueba desde el perfil Jefe.'
+                  : !widget.svc.requiereGpsInicio(v)
+                  ? 'Al iniciar se registra la hora. Puedes diligenciar y firmar la visita sin GPS.'
                   : 'Al iniciar, el sistema toma la hora y la ubicación del '
                         'dispositivo y comprueba que estés dentro del radio de '
                         'este establecimiento. Sin GPS o fuera del radio, no se '
-                        'inicia. La visita se cierra hoy mismo y en el sitio.',
+                        'inicia.',
               textAlign: TextAlign.center,
               style: const TextStyle(
                 fontFamily: _kFont,
@@ -3416,7 +3421,7 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
                   _ocupado ||
                       noHoy != null ||
                       faltaFormato ||
-                      (!v.esPrueba && _referencia == null)
+                      (widget.svc.requiereGpsInicio(v) && _referencia == null)
                   ? null
                   : () => _iniciar(v),
               icon: const Icon(Icons.play_arrow_rounded),
@@ -3494,7 +3499,13 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
             respuesta: v.respuestas[it.id] ?? const VisitaRespuesta(),
             onCambio: (r) =>
                 _guardarOperacion(widget.svc.guardarRespuesta(v.id, it.id, r)),
-            guardarAlEscribir: widget.svc is VisitasLocalService,
+            onCambioLocal: switch (widget.svc) {
+              VisitasLocalService local =>
+                (anterior, editada) => _guardarOperacion(
+                  local.editarRespuesta(v.id, it.id, anterior, editada),
+                ),
+              _ => null,
+            },
             onFoto: () => _tomarFoto(v, it),
             areas: _areasMapa,
             personal: _personal,
@@ -3890,8 +3901,8 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
           ],
         ),
         const Text(
-          'Fotos que no son de una pregunta (la fachada, la cocina, algo que '
-          'viste). Salen con marca de agua y van como anexos del informe.',
+          'Fotos de la fachada, la cocina u otros detalles de la visita. '
+          'Van como anexos del informe.',
           style: TextStyle(fontSize: 12, color: Colors.black54),
         ),
         const SizedBox(height: 8),
@@ -3937,7 +3948,7 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
                                   style: const TextStyle(fontSize: 11),
                                 ),
                               ),
-                              if (!bloqueado)
+                              if (!bloqueado && !_ocupado)
                                 PopupMenuButton<String>(
                                   iconSize: 18,
                                   itemBuilder: (_) => const [
@@ -4007,8 +4018,8 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
         context: context,
         showDragHandle: true,
         builder: (ctx) => SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+          child: ListView(
+            shrinkWrap: true,
             children: [
               if (!kIsWeb)
                 ListTile(
@@ -4047,33 +4058,41 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
       final r = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
-        withData: true,
+        withData: kIsWeb,
       );
-      bytes = r?.files.single.bytes;
+      final archivo = r?.xFiles.single;
+      if (archivo == null) return null;
+      if (widget.svc is VisitasLocalService &&
+          await archivo.length() > 6 * 1024 * 1024) {
+        throw const VisitasException('Elige una foto de hasta 6 MB.');
+      }
+      bytes = await archivo.readAsBytes();
     } else {
       final img = await ImagePicker().pickImage(
         source: fuente == _FuenteFoto.camara
             ? ImageSource.camera
             : ImageSource.gallery,
-        imageQuality: fuente == _FuenteFoto.camara ? null : 80,
-        maxWidth: fuente == _FuenteFoto.camara ? null : 1600,
+        imageQuality: 82,
+        maxWidth: 1600,
+        maxHeight: 1600,
       );
       bytes = await img?.readAsBytes();
     }
-    if (bytes != null && fuente != _FuenteFoto.galeria && !kIsWeb) {
-      try {
-        await guardarOriginalFotoVisita(bytes);
-      } catch (_) {
-        if (mounted) {
-          _snack(
-            context,
-            'No se pudo guardar la copia sin marca en la galería. Revisa el permiso para añadir fotos y el espacio del equipo. Puedes continuar adjuntando la evidencia.',
-            error: true,
-          );
-        }
+    return bytes;
+  }
+
+  Future<void> _copiarFotoAGaleria(Uint8List bytes) async {
+    try {
+      await guardarOriginalFotoVisita(bytes);
+    } catch (_) {
+      if (mounted) {
+        _snack(
+          context,
+          'Revisa el permiso o el espacio del equipo para guardar una copia en la galería.',
+          error: true,
+        );
       }
     }
-    return bytes;
   }
 
   /// «No se pudo cargar foto»: el profesional escribe por qué (por ejemplo,
@@ -4122,84 +4141,133 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
       return;
     }
     try {
-      await widget.svc.guardarRespuesta(
-        v.id,
-        it.id,
-        actual.copyWith(sinFotoMotivo: motivo),
-      );
+      final editada = actual.copyWith(sinFotoMotivo: motivo);
+      if (widget.svc case final VisitasLocalService local) {
+        await local.editarRespuesta(v.id, it.id, actual, editada);
+      } else {
+        await widget.svc.guardarRespuesta(v.id, it.id, editada);
+      }
     } catch (e) {
       if (mounted) _snack(context, 'No se pudo guardar: $e', error: true);
     }
   }
 
-  /// Sube la foto; sin internet (o si se cae la red al subirla) la guarda en
-  /// el equipo, ya con su marca de agua, y devuelve null: queda en «Cargar
-  /// visita» (ver `visitas_offline.dart`).
-  Future<VisitaEvidencia?> _subirOGuardarLocal({
-    required VisitaProfesional v,
+  Future<void> _capturarEvidencia(
+    VisitaProfesional v, {
     required String destino,
     required String carpeta,
-    required Uint8List bytes,
-    required String nombre,
-    String itemId = '',
+    required String nombreBase,
+    required String detalle,
+    VisitaFormatoItem? item,
     String tablaId = '',
-    String filaId = '',
-    String descripcion = '',
-    bool conMarca = false,
+    VisitaFilaTabla? fila,
   }) async {
-    if (widget.svc is VisitasLocalService) {
-      return widget.svc.subirEvidencia(
-        empresaId: v.empresaId,
-        visitaId: v.id,
-        itemId: carpeta,
-        bytes: bytes,
-        nombre: nombre,
-        descripcion: descripcion,
-        conMarca: conMarca,
-      );
-    }
-    final off = VisitasOffline.instance;
-    Future<VisitaEvidencia?> aLocal() async {
-      await off.guardar(
-        visitaId: v.id,
-        empresaId: widget.empresaId,
-        destino: destino,
-        bytes: bytes,
-        nombre: nombre,
-        itemId: itemId,
-        tablaId: tablaId,
-        filaId: filaId,
-        descripcion: descripcion,
-        conMarca: conMarca,
-      );
-      if (mounted) {
-        _snack(
-          context,
-          'Sin conexión: la foto quedó guardada en este equipo. Cuando '
-          'tengas internet toca «Cargar visita».',
-        );
-      }
-      return null;
-    }
-
-    if (VisitasOffline.disponible && !await off.hayConexion()) return aLocal();
+    if (_ocupado) return;
+    setState(() => _ocupado = true);
+    Uint8List? copiaGaleria;
     try {
-      return await widget.svc.subirEvidencia(
-        empresaId: widget.empresaId,
-        visitaId: v.id,
-        itemId: carpeta,
-        bytes: bytes,
-        nombre: nombre,
-        descripcion: descripcion,
-        conMarca: conMarca,
-      );
-    } catch (e) {
-      if (VisitasOffline.disponible &&
-          VisitasOffline.esErrorDeRed(e) &&
-          !await off.hayConexion()) {
-        return aLocal();
+      final fuente = await _preguntarFuenteFoto(permitirSinFoto: item != null);
+      if (fuente == null || !mounted) return;
+      if (fuente == _FuenteFoto.sinFoto) {
+        await _registrarSinFoto(v, item!);
+        return;
       }
-      rethrow;
+      final original = await _leerFoto(fuente);
+      if (original == null || !mounted) return;
+      if (fuente != _FuenteFoto.galeria && !kIsWeb) copiaGaleria = original;
+      final tomadaEn = DateTime.now();
+      final descripcion = destino == kFotoDestinoAdicional
+          ? await _pedirDescripcion() ?? ''
+          : '';
+      if (!mounted) return;
+      final local = widget.svc is VisitasLocalService;
+      final off = VisitasOffline.instance;
+      final enCola =
+          !local &&
+          VisitasOffline.disponible &&
+          (!off.conectado || !await off.hayConexion());
+      final nombre = '${nombreBase}_${tomadaEn.microsecondsSinceEpoch}.jpg';
+      final itemId = item?.id ?? '';
+      final filaId = fila?.id ?? '';
+
+      Future<void> encolar() async {
+        await off.guardar(
+          visitaId: v.id,
+          empresaId: v.empresaId,
+          destino: destino,
+          bytes: original,
+          nombre: nombre,
+          itemId: itemId,
+          tablaId: tablaId,
+          filaId: filaId,
+          descripcion: descripcion,
+          tomadaEn: tomadaEn,
+        );
+        if (mounted) {
+          _snack(
+            context,
+            'Foto guardada en el equipo. Cuando tengas internet, toca «Cargar visita».',
+          );
+        }
+      }
+
+      if (enCola) {
+        await encolar();
+      } else {
+        final foto = local
+            ? (bytes: original, conMarca: false)
+            : await fotoConMarcaVisita(
+                foto: original,
+                v: v,
+                detalle: descripcion.isEmpty ? detalle : descripcion,
+                logo: await _logoEmpresa().timeout(
+                  const Duration(seconds: 3),
+                  onTimeout: () => null,
+                ),
+                ahora: tomadaEn,
+              );
+        VisitaEvidencia? ev;
+        try {
+          final subida = widget.svc.subirEvidencia(
+            empresaId: v.empresaId,
+            visitaId: v.id,
+            itemId: carpeta,
+            bytes: foto.bytes,
+            nombre: nombre,
+            descripcion: descripcion,
+            conMarca: foto.conMarca,
+            tomadaEn: tomadaEn,
+          );
+          ev = local || !VisitasOffline.disponible
+              ? await subida
+              : await subida.timeout(const Duration(seconds: 25));
+        } catch (e) {
+          if (local ||
+              !VisitasOffline.disponible ||
+              (e is! TimeoutException && !VisitasOffline.esErrorDeRed(e))) {
+            rethrow;
+          }
+          await encolar();
+        }
+        if (ev != null) {
+          await widget.svc.adjuntarEvidencia(
+            visitaId: v.id,
+            destino: destino,
+            itemId: itemId,
+            tablaId: tablaId,
+            filaId: filaId,
+            ev: ev,
+            fila: fila,
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        _snack(context, 'No se pudo adjuntar la foto: $e', error: true);
+      }
+    } finally {
+      if (mounted) setState(() => _ocupado = false);
+      if (copiaGaleria != null) unawaited(_copiarFotoAGaleria(copiaGaleria));
     }
   }
 
@@ -4318,40 +4386,14 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
           },
         );
 
-  Future<void> _agregarEvidenciaAdicional(VisitaProfesional v) async {
-    final fuente = await _preguntarFuenteFoto();
-    if (fuente == null || !mounted) return;
-    final original = await _leerFoto(fuente);
-    if (original == null || !mounted) return;
-    final descripcion = await _pedirDescripcion() ?? '';
-    setState(() => _ocupado = true);
-    try {
-      final marcada = await fotoConMarcaVisita(
-        foto: original,
-        v: v,
-        detalle: descripcion.isEmpty ? 'Evidencia adicional' : descripcion,
-        logo: await _logoEmpresa(),
-      );
-      final ev = await _subirOGuardarLocal(
-        v: v,
+  Future<void> _agregarEvidenciaAdicional(VisitaProfesional v) =>
+      _capturarEvidencia(
+        v,
         destino: kFotoDestinoAdicional,
         carpeta: 'adicionales',
-        bytes: marcada.bytes,
-        nombre: 'adicional_${DateTime.now().millisecondsSinceEpoch}.jpg',
-        descripcion: descripcion,
-        conMarca: marcada.conMarca,
+        nombreBase: 'adicional',
+        detalle: 'Evidencia adicional',
       );
-      if (ev == null) return;
-      await widget.svc.guardarEvidenciasAdicionales(v.id, [
-        ...v.evidenciasAdicionales,
-        ev,
-      ]);
-    } catch (e) {
-      if (mounted) _snack(context, 'No se pudo subir la foto: $e', error: true);
-    } finally {
-      if (mounted) setState(() => _ocupado = false);
-    }
-  }
 
   Future<void> _describirEvidencia(VisitaProfesional v, int i) async {
     final d = await _pedirDescripcion(
@@ -4499,97 +4541,30 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
     VisitaProfesional v,
     VisitaFormatoTabla t,
     VisitaFilaTabla fila,
-  ) async {
-    final fuente = await _preguntarFuenteFoto();
-    if (fuente == null || !mounted) return;
-    final Uint8List? original = await _leerFoto(fuente);
-    if (original == null || !mounted) return;
-    setState(() => _ocupado = true);
-    try {
-      final marcada = await fotoConMarcaVisita(
-        foto: original,
-        v: v,
-        detalle: '${t.nombre} · ${fila.titulo(t)}',
-        logo: await _logoEmpresa(),
-      );
-      final ev = await _subirOGuardarLocal(
-        v: v,
-        destino: kFotoDestinoFila,
-        carpeta: '${t.id}_${fila.id}',
-        tablaId: t.id,
-        filaId: fila.id,
-        bytes: marcada.bytes,
-        nombre: '${t.id}_${DateTime.now().millisecondsSinceEpoch}.jpg',
-        conMarca: marcada.conMarca,
-      );
-      if (ev == null) return;
-      final actuales = v.filasDe(t.id);
-      // Una fila fija que todavía no se había guardado entra con su foto.
-      final filas = actuales.any((f) => f.id == fila.id)
-          ? [
-              for (final f in actuales)
-                f.id == fila.id
-                    ? f.copyWith(evidencias: [...f.evidencias, ev])
-                    : f,
-            ]
-          : [
-              ...actuales,
-              fila.copyWith(evidencias: [...fila.evidencias, ev]),
-            ];
-      await widget.svc.guardarFilas(v.id, t.id, filas);
-    } catch (e) {
-      if (mounted) _snack(context, 'No se pudo subir la foto: $e', error: true);
-    } finally {
-      if (mounted) setState(() => _ocupado = false);
-    }
-  }
+  ) => _capturarEvidencia(
+    v,
+    destino: kFotoDestinoFila,
+    carpeta: '${t.id}_${fila.id}',
+    nombreBase: t.id,
+    detalle: '${t.nombre} · ${fila.titulo(t)}',
+    tablaId: t.id,
+    fila: fila,
+  );
 
   String _horaDe(VisitaMarca m) {
     final t = m.at.toDate().toLocal();
     return '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
   }
 
-  Future<void> _tomarFoto(VisitaProfesional v, VisitaFormatoItem it) async {
-    // Cámara, galería o archivos; y, si el lugar no deja tomarla, «no se pudo
-    // cargar foto» con su motivo.
-    final fuente = await _preguntarFuenteFoto(permitirSinFoto: true);
-    if (fuente == null || !mounted) return;
-    if (fuente == _FuenteFoto.sinFoto) return _registrarSinFoto(v, it);
-    final Uint8List? original = await _leerFoto(fuente);
-    if (original == null || !mounted) return;
-    setState(() => _ocupado = true);
-    try {
-      final marcada = await fotoConMarcaVisita(
-        foto: original,
-        v: v,
-        detalle: 'Ítem ${it.orden}',
-        logo: await _logoEmpresa(),
-      );
-      final ev = await _subirOGuardarLocal(
-        v: v,
+  Future<void> _tomarFoto(VisitaProfesional v, VisitaFormatoItem it) =>
+      _capturarEvidencia(
+        v,
         destino: kFotoDestinoItem,
         carpeta: it.id,
-        itemId: it.id,
-        bytes: marcada.bytes,
-        nombre: 'item_${it.orden}_${DateTime.now().millisecondsSinceEpoch}.jpg',
-        conMarca: marcada.conMarca,
+        nombreBase: 'item_${it.orden}',
+        detalle: 'Ítem ${it.orden}',
+        item: it,
       );
-      if (ev == null) return;
-      final actual = v.respuestas[it.id] ?? const VisitaRespuesta();
-      await widget.svc.guardarRespuesta(
-        v.id,
-        it.id,
-        actual.copyWith(
-          evidencias: [...actual.evidencias, ev],
-          sinFotoMotivo: '',
-        ),
-      );
-    } catch (e) {
-      if (mounted) _snack(context, 'No se pudo subir la foto: $e', error: true);
-    } finally {
-      if (mounted) setState(() => _ocupado = false);
-    }
-  }
 }
 
 enum _FuenteFoto { camara, galeria, archivos, sinFoto }
@@ -4607,7 +4582,7 @@ String _labelResultado(String tipo, String resultado) =>
     };
 
 class _ItemCard extends StatefulWidget {
-  final bool guardarAlEscribir;
+  final void Function(VisitaRespuesta, VisitaRespuesta)? onCambioLocal;
   final VisitaFormatoItem item;
   final VisitaRespuesta respuesta;
   final ValueChanged<VisitaRespuesta> onCambio;
@@ -4627,7 +4602,7 @@ class _ItemCard extends StatefulWidget {
     this.areas = const {},
     this.personal = const [],
     this.establecimiento = '',
-    this.guardarAlEscribir = false,
+    this.onCambioLocal,
   });
 
   @override
@@ -4635,6 +4610,7 @@ class _ItemCard extends StatefulWidget {
 }
 
 class _ItemCardState extends State<_ItemCard> {
+  VisitaRespuesta? _borrador;
   late final TextEditingController _obs;
   late final TextEditingController _cantidad;
   late final TextEditingController _vencimiento;
@@ -4655,7 +4631,7 @@ class _ItemCardState extends State<_ItemCard> {
     _vencimiento = TextEditingController(text: r.vencimiento);
     _accion = TextEditingController(text: r.accion);
     _valor = TextEditingController(text: r.valor);
-    if (widget.guardarAlEscribir) {
+    if (widget.onCambioLocal != null) {
       for (final pair in [
         (_obs, _focus),
         (_cantidad, _focusCantidad),
@@ -4664,51 +4640,47 @@ class _ItemCardState extends State<_ItemCard> {
         (_valor, _focusValor),
       ]) {
         pair.$1.addListener(() {
-          if (pair.$2.hasFocus) widget.onCambio(_actual);
+          if (pair.$2.hasFocus) _cambiar(_actual);
         });
       }
     }
     _focusValor.addListener(() {
-      if (widget.guardarAlEscribir) return;
+      if (widget.onCambioLocal != null) return;
       if (!_focusValor.hasFocus &&
           _valor.text.trim() != widget.respuesta.valor) {
-        widget.onCambio(widget.respuesta.copyWith(valor: _valor.text.trim()));
+        _cambiar(widget.respuesta.copyWith(valor: _valor.text.trim()));
       }
     });
     // Se guarda al salir del campo, no en cada tecla: cada tecla sería una
     // escritura a Firestore.
     _focus.addListener(() {
-      if (widget.guardarAlEscribir) return;
+      if (widget.onCambioLocal != null) return;
       if (!_focus.hasFocus &&
           _obs.text.trim() != widget.respuesta.observacion) {
-        widget.onCambio(
-          widget.respuesta.copyWith(observacion: _obs.text.trim()),
-        );
+        _cambiar(widget.respuesta.copyWith(observacion: _obs.text.trim()));
       }
     });
     _focusCantidad.addListener(() {
-      if (widget.guardarAlEscribir) return;
+      if (widget.onCambioLocal != null) return;
       if (!_focusCantidad.hasFocus &&
           _cantidad.text.trim() != widget.respuesta.cantidad) {
-        widget.onCambio(
-          widget.respuesta.copyWith(cantidad: _cantidad.text.trim()),
-        );
+        _cambiar(widget.respuesta.copyWith(cantidad: _cantidad.text.trim()));
       }
     });
     _focusVenc.addListener(() {
-      if (widget.guardarAlEscribir) return;
+      if (widget.onCambioLocal != null) return;
       if (!_focusVenc.hasFocus &&
           _vencimiento.text.trim() != widget.respuesta.vencimiento) {
-        widget.onCambio(
+        _cambiar(
           widget.respuesta.copyWith(vencimiento: _vencimiento.text.trim()),
         );
       }
     });
     _focusAccion.addListener(() {
-      if (widget.guardarAlEscribir) return;
+      if (widget.onCambioLocal != null) return;
       if (!_focusAccion.hasFocus &&
           _accion.text.trim() != widget.respuesta.accion) {
-        widget.onCambio(widget.respuesta.copyWith(accion: _accion.text.trim()));
+        _cambiar(widget.respuesta.copyWith(accion: _accion.text.trim()));
       }
     });
   }
@@ -4717,7 +4689,7 @@ class _ItemCardState extends State<_ItemCard> {
   void didUpdateWidget(_ItemCard old) {
     super.didUpdateWidget(old);
     // Local writes are queued; earlier confirmations must not replace newer typing.
-    if (widget.guardarAlEscribir) return;
+    if (widget.onCambioLocal != null) return;
     final r = widget.respuesta;
     if (!_focus.hasFocus && old.respuesta.observacion != r.observacion) {
       _obs.text = r.observacion;
@@ -4755,13 +4727,24 @@ class _ItemCardState extends State<_ItemCard> {
   /// se haya guardado: al tocar un chip o elegir el responsable del plan, el
   /// campo pierde el foco y se guarda; sin esto la segunda escritura llevaba
   /// la respuesta vieja y pisaba el texto recién escrito.
-  VisitaRespuesta get _actual => widget.respuesta.copyWith(
+  VisitaRespuesta get _actual => (_borrador ?? widget.respuesta).copyWith(
     observacion: _obs.text.trim(),
     cantidad: _cantidad.text.trim(),
     vencimiento: _vencimiento.text.trim(),
     accion: _accion.text.trim(),
     valor: _valor.text.trim(),
   );
+
+  void _cambiar(VisitaRespuesta editada) {
+    final guardar = widget.onCambioLocal;
+    if (guardar == null) {
+      widget.onCambio(editada);
+      return;
+    }
+    final anterior = _borrador ?? widget.respuesta;
+    setState(() => _borrador = editada);
+    guardar(anterior, editada);
+  }
 
   Future<void> _elegirFecha() async {
     final hoy = DateTime.now();
@@ -4780,7 +4763,7 @@ class _ItemCardState extends State<_ItemCard> {
     );
     if (d == null) return;
     _valor.text = _dd(d);
-    widget.onCambio(_actual.copyWith(valor: _dd(d)));
+    _cambiar(_actual.copyWith(valor: _dd(d)));
   }
 
   /// Plan de acción por micrófono (1 oct 2026), igual que la observación.
@@ -4792,7 +4775,7 @@ class _ItemCardState extends State<_ItemCard> {
     );
     if (texto == null) return;
     _accion.text = texto.trim();
-    widget.onCambio(_actual.copyWith(accion: texto.trim()));
+    _cambiar(_actual.copyWith(accion: texto.trim()));
   }
 
   Future<void> _dictarValor() async {
@@ -4803,7 +4786,7 @@ class _ItemCardState extends State<_ItemCard> {
     );
     if (texto == null) return;
     _valor.text = texto.trim();
-    widget.onCambio(_actual.copyWith(valor: texto.trim()));
+    _cambiar(_actual.copyWith(valor: texto.trim()));
   }
 
   /// La respuesta de las preguntas que no califican (26 sep 2026).
@@ -4841,7 +4824,7 @@ class _ItemCardState extends State<_ItemCard> {
                       if (seleccion.contains(opcion)) opcion,
                   ]);
                   _valor.text = valor;
-                  widget.onCambio(_actual.copyWith(valor: valor));
+                  _cambiar(_actual.copyWith(valor: valor));
                 },
               ),
             if (invalido)
@@ -4863,7 +4846,7 @@ class _ItemCardState extends State<_ItemCard> {
                 selectedColor: kVisitasColor.withValues(alpha: .18),
                 onSelected: (sel) {
                   _valor.text = sel ? o : '';
-                  widget.onCambio(_actual.copyWith(valor: sel ? o : ''));
+                  _cambiar(_actual.copyWith(valor: sel ? o : ''));
                 },
               ),
           ],
@@ -4924,7 +4907,7 @@ class _ItemCardState extends State<_ItemCard> {
     );
     if (texto == null) return;
     _obs.text = texto;
-    widget.onCambio(_actual.copyWith(observacion: texto.trim()));
+    _cambiar(_actual.copyWith(observacion: texto.trim()));
   }
 
   Future<void> _elegirResponsablePlan() async {
@@ -4939,7 +4922,7 @@ class _ItemCardState extends State<_ItemCard> {
           : 'De ${widget.areas[area] ?? widget.respuesta.accionAreaNombre}',
     );
     if (p == null) return;
-    widget.onCambio(
+    _cambiar(
       _actual.copyWith(
         accionResponsableId: p.id,
         accionResponsableNombre: p.nombre,
@@ -5016,7 +4999,7 @@ class _ItemCardState extends State<_ItemCard> {
             // Si el responsable elegido es de otra área, se suelta.
             final sigue =
                 responsable != null && mismaAreaVisitas(responsable.areaId, id);
-            widget.onCambio(
+            _cambiar(
               _actual.copyWith(
                 accionAreaId: id,
                 accionAreaNombre: widget.areas[id] ?? '',
@@ -5053,7 +5036,12 @@ class _ItemCardState extends State<_ItemCard> {
 
   @override
   Widget build(BuildContext context) {
-    final r = widget.respuesta;
+    final r =
+        _borrador?.copyWith(
+          evidencias: widget.respuesta.evidencias,
+          sinFotoMotivo: widget.respuesta.sinFotoMotivo,
+        ) ??
+        widget.respuesta;
     final it = widget.item;
     final noCumple = r.resultado == kItemNoCumple;
     // Rojo mientras a la pregunta le falta algo; negro cuando está completa
@@ -5151,7 +5139,7 @@ class _ItemCardState extends State<_ItemCard> {
                         _ => const Color(0xFFE5E7EB),
                       },
                       onSelected: (_) =>
-                          widget.onCambio(_actual.copyWith(resultado: res)),
+                          _cambiar(_actual.copyWith(resultado: res)),
                     ),
                 ],
               ),
@@ -5214,7 +5202,10 @@ class _ItemCardState extends State<_ItemCard> {
               ),
               if (noCumple) _planDeAccion(r),
               const SizedBox(height: 6),
-              Row(
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   OutlinedButton.icon(
                     onPressed: widget.onFoto,
@@ -5229,7 +5220,6 @@ class _ItemCardState extends State<_ItemCard> {
                           : 'Foto (${r.evidencias.length})',
                     ),
                   ),
-                  const SizedBox(width: 8),
                   for (final ev in r.evidencias.take(4))
                     Padding(
                       padding: const EdgeInsets.only(right: 4),

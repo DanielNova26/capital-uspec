@@ -42,8 +42,7 @@ List<SemanaVisitas> contarVisitasPorSemana(
 }) {
   final conteo = <DateTime, int>{};
   for (final visita in visitas) {
-    final fecha = visita.fechaVisita.toDate();
-    final dia = DateTime(fecha.year, fecha.month, fecha.day);
+    final dia = visita.diaActa;
     if (desde != null &&
         dia.isBefore(DateTime(desde.year, desde.month, desde.day))) {
       continue;
@@ -75,7 +74,7 @@ String claveVisitaHallazgo(InterventoriaHallazgo h) {
   final visita = h.visitaId.trim();
   if (visita.isNotEmpty) return visita;
   return '${h.centroCostoId}|'
-      '${DateFormat('yyyyMMdd').format(h.fechaHallazgo.toDate())}';
+      '${DateFormat('yyyyMMdd').format(h.diaHallazgo)}';
 }
 
 /// Cuántas visitas distintas produjeron estos hallazgos.
@@ -223,7 +222,7 @@ Uint8List generarExcelVisitasGerencia(
     ..sort((a, b) => b.fechaVisita.compareTo(a.fechaVisita));
   for (final v in ordenadas) {
     hoja.appendRow([
-      TextCellValue(DateFormat('dd/MM/yyyy').format(v.fechaVisita.toDate())),
+      TextCellValue(DateFormat('dd/MM/yyyy').format(v.diaActa)),
       TextCellValue(v.centroCostoNombre),
       TextCellValue(v.subcentroNombre),
       TextCellValue(v.tipoActa ?? ''),
@@ -325,7 +324,7 @@ Future<Uint8List> generarPdfVisitasGerencia(
           data: [
             for (final v in ordenadas)
               [
-                fmt.format(v.fechaVisita.toDate()),
+                fmt.format(v.diaActa),
                 v.centroCostoNombre,
                 v.subcentroNombre,
                 v.tipoActa ?? '',
@@ -628,7 +627,7 @@ Future<Uint8List> generarPdfHallazgosGerencia(
                                   '${h.cargoResponsable.trim().isEmpty ? '' : '\n${h.cargoResponsable.trim()}'}'),
                   ),
                   celda(estado(h)),
-                  celda(fmt.format(h.fechaHallazgo.toDate())),
+                  celda(fmt.format(h.diaHallazgo)),
                   celda(
                     h.fechaLimite == null
                         ? ''

@@ -521,7 +521,7 @@ class _InterventoriaTableroAsignacionState
                   Tooltip(
                     message: 'Fecha del acta',
                     child: Text(
-                      'Acta ${DateFormat('dd/MM/yy').format(h.fechaHallazgo.toDate())}',
+                      'Acta ${DateFormat('dd/MM/yy').format(h.diaHallazgo)}',
                       style: const TextStyle(fontSize: 11, color: _muted),
                     ),
                   ),

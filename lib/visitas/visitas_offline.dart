@@ -6,8 +6,7 @@
 //    en Android e iOS guarda en el equipo lo que no puede enviar y lo sube solo
 //    cuando vuelve la conexión (`VisitasService._local` evita que la pantalla
 //    se quede esperando la confirmación del servidor).
-//  - Storage no hace eso: las fotos se guardan aquí, en el equipo, con la marca
-//    de agua ya puesta (hora y lugar del momento), y se suben al tocar
+//  - Storage no hace eso: las fotos se guardan aquí, en el equipo, y se suben al tocar
 //    «Cargar visita» cuando hay internet.
 //  - Cerrar la visita exige conexión y que no queden fotos pendientes.
 //
@@ -44,7 +43,7 @@ class FotoPendiente {
   final bool conMarca;
   final int creadaMs;
 
-  /// Archivo con los bytes de la foto, ya con marca de agua.
+  /// Archivo con los bytes de la foto.
   final String archivo;
 
   const FotoPendiente({
@@ -204,13 +203,14 @@ class VisitasOffline extends ChangeNotifier {
     String filaId = '',
     String descripcion = '',
     bool conMarca = false,
+    DateTime? tomadaEn,
   }) async {
     await cargar();
     final dir = await getApplicationDocumentsDirectory();
     final carpeta = Directory('${dir.path}/visitas_pendientes');
     if (!await carpeta.exists()) await carpeta.create(recursive: true);
-    final ms = DateTime.now().millisecondsSinceEpoch;
-    final id = '${visitaId}_$ms';
+    final fecha = tomadaEn ?? DateTime.now();
+    final id = '${visitaId}_${fecha.microsecondsSinceEpoch}';
     final archivo = File('${carpeta.path}/$id.jpg');
     await archivo.writeAsBytes(bytes, flush: true);
     final p = FotoPendiente(
@@ -224,7 +224,7 @@ class VisitasOffline extends ChangeNotifier {
       nombre: nombre,
       descripcion: descripcion,
       conMarca: conMarca,
-      creadaMs: ms,
+      creadaMs: fecha.millisecondsSinceEpoch,
       archivo: archivo.path,
     );
     _pendientes = [..._pendientes, p];

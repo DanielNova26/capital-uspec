@@ -627,28 +627,72 @@ Widget imagenVisita(
       errorBuilder: errorBuilder,
     );
   }
-  return FutureBuilder<Uint8List>(
-    future: () async {
-      final store = VisitasLocalStore.instance;
-      final grant = await store.acceso();
-      if (grant == null || !grant.vigente(DateTime.now())) {
-        throw StateError('Acceso local no disponible.');
-      }
-      return store.foto(grant.userId, grant.empresaId, url.substring(6));
-    }(),
+  return _ImagenVisitaLocal(
+    key: ValueKey(url),
+    hash: url.substring(6),
+    width: width,
+    height: height,
+    fit: fit,
+    errorBuilder: errorBuilder,
+  );
+}
+
+class _ImagenVisitaLocal extends StatefulWidget {
+  const _ImagenVisitaLocal({
+    required super.key,
+    required this.hash,
+    this.width,
+    this.height,
+    this.fit,
+    this.errorBuilder,
+  });
+
+  final String hash;
+  final double? width;
+  final double? height;
+  final BoxFit? fit;
+  final ImageErrorWidgetBuilder? errorBuilder;
+
+  @override
+  State<_ImagenVisitaLocal> createState() => _ImagenVisitaLocalState();
+}
+
+class _ImagenVisitaLocalState extends State<_ImagenVisitaLocal> {
+  late final _foto = _leer();
+
+  Future<Uint8List> _leer() async {
+    final store = VisitasLocalStore.instance;
+    final grant = await store.acceso();
+    if (grant == null || !grant.vigente(DateTime.now())) {
+      throw StateError('Acceso local no disponible.');
+    }
+    return store.foto(grant.userId, grant.empresaId, widget.hash);
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<Uint8List>(
+    future: _foto,
     builder: (context, snapshot) {
       if (snapshot.hasData) {
+        final ancho = widget.width ?? 160;
+        final escala = MediaQuery.devicePixelRatioOf(context);
         return Image.memory(
           snapshot.data!,
-          width: width,
-          height: height,
-          fit: fit,
+          width: widget.width,
+          height: widget.height,
+          fit: widget.fit,
+          cacheWidth: (ancho * escala).round().clamp(1, 640),
+          errorBuilder: widget.errorBuilder,
         );
       }
       return SizedBox(
-        width: width,
-        height: height,
-        child: const Icon(Icons.image_outlined),
+        width: widget.width,
+        height: widget.height,
+        child: Icon(
+          snapshot.hasError
+              ? Icons.broken_image_outlined
+              : Icons.image_outlined,
+        ),
       );
     },
   );

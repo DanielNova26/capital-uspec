@@ -49,6 +49,15 @@ test('capture date is preserved when syncing days later, with server-calculated 
   assert.equal(result.inicio.dentroDelRadio, true);
   assert.equal(result.cumplimiento, 100);
 });
+test('downloaded visit may start without a GPS fix or location master', () => {
+  const p = {...receipt(), ubicacion: null};
+  const v = input();
+  v.inicio = {at: v.inicio.at, lat: null, lng: null, precisionMetros: null};
+  const result = validarEntregaOffline(p, v, time + day);
+  assert.deepEqual(result.inicio, {at: v.inicio.at});
+  v.inicio.at = ts(time - 1);
+  assert.throws(() => validarEntregaOffline(p, v, time + day), /día autorizado/);
+});
 test('client cannot replace assignment, format, company or task IDs', () => {
   const result = validarEntregaOffline(receipt(), {...input(), empresaId: 'otra', profesionalId: 'otro',
     formatoAsignado: {nombre: 'inventado'}, tareasCreadas: ['fake']}, time + day);

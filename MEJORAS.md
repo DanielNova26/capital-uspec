@@ -1,5 +1,37 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-12 — Visitas descargadas, recepciones y fechas de actas (Codex)
+
+- Las visitas descargadas de Android e iOS abren el formulario con una marca
+  horaria, incluso sin GPS o coordenadas configuradas. El servidor acepta esa
+  marca en la sincronización de la descarga autorizada. El inicio en línea
+  sigue comprobando la ubicación.
+- Las fotos de la descarga se adjuntan sin aplicar la marca de agua. La cámara
+  entrega imágenes acotadas a 1600 píxeles y el permiso de galería se solicita
+  fuera del guardado de la evidencia. La copia local cifrada conserva el
+  destino y la hora de la foto. **Sincronizar** envía las evidencias con la
+  visita finalizada al recuperar conexión. Adjuntar una foto y editar el
+  hallazgo usan el estado guardado más reciente.
+- Compras, Calidad, Bodega y Admin Documental pueden corregir las recepciones
+  guardadas en **Recepciones → Pendientes**, con el motivo registrado. El
+  editor permite corregir lotes, vencimientos y documentos, y agregar
+  productos. Consultas conserva el acceso de lectura. Las finalizadas siguen
+  la autorización anterior de Bodega y Admin Documental.
+- Interventoría interpreta el día del acta y los hallazgos en hora de Colombia.
+  El cargue nuevo toma la hora del servidor en el primer guardado. Los
+  históricos sin fecha de cargue verificable muestran que falta ese dato.
+  Las correcciones actualizan la fecha de los hallazgos del acta que siguen
+  sin tarea. No se ejecutó una actualización masiva de datos históricos.
+- Pasaron 947 pruebas Flutter de las tres áreas. Las ocho fallas de selección
+  de día del cronograma se reprodujeron en el commit base `2c195cc`. Pasaron
+  también 19 pruebas de exportación de Gerencia, 32 de Functions y 15 de
+  Firestore y Storage en emulador, incluido
+  el envío y reintento de una visita sin GPS. El inicio descargado se verificó
+  en variantes Android e iOS a 390, 768, 1024 y 1366 píxeles lógicos, con
+  texto al 180 %. La regresión local conservó siete hallazgos y sus siete
+  fotos al cerrar y reabrir. Quedan pendientes cámara, permisos y rendimiento
+  en dispositivos físicos Android e iOS, y la validación en producción.
+
 ## 2026-11-11 — Corrección de actas de Interventoría sin recargar el PDF (Codex)
 
 - Al guardar una corrección se conserva el PDF principal y los adjuntos

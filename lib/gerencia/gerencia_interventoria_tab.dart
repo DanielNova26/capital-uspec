@@ -522,7 +522,7 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
       const Duration(hours: 23, minutes: 59, seconds: 59),
     );
     return todos.where((h) {
-      final fecha = h.fechaHallazgo.toDate();
+      final fecha = h.diaHallazgo;
       if (_desde != null && fecha.isBefore(_desde!)) return false;
       if (hasta != null && fecha.isAfter(hasta)) return false;
       if (_estado != 'todos' && h.estado != _estado) return false;
@@ -579,8 +579,7 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
           // establecimiento y fecha de la visita, que es como las nombra
           // el histórico del módulo.
           clave = claveVisitaHallazgo(h);
-          etiqueta =
-              '${h.establecimiento} · ${fmt.format(h.fechaHallazgo.toDate())}';
+          etiqueta = '${h.establecimiento} · ${fmt.format(h.diaHallazgo)}';
         case _Agrupacion.responsable:
           final c = _responsableClave(h);
           final r = _responsableDe(h);
@@ -865,7 +864,7 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
   List<InterventoriaVisita> _visitasDelPeriodo(
     List<InterventoriaVisita> todas,
   ) => todas.where((v) {
-    final dia = v.fechaVisita.toDate();
+    final dia = v.diaActa;
     if (_desde != null &&
         dia.isBefore(DateTime(_desde!.year, _desde!.month, _desde!.day))) {
       return false;
@@ -1585,7 +1584,7 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
             hallazgo: visibles[i],
             area: _etiquetaArea(visibles[i]),
             responsable: _responsableDe(visibles[i]),
-            fecha: fmt.format(visibles[i].fechaHallazgo.toDate()),
+            fecha: fmt.format(visibles[i].diaHallazgo),
             administrador: _administradorDe(visibles[i]),
             director: _directorDe(visibles[i]),
             onTap: () => mostrarPanelHallazgo(

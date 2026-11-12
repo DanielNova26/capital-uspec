@@ -54,23 +54,24 @@ test('clients cannot read or forge preparation receipts or photo records', async
   await assertFails(setDoc(doc(client, `TBL_VISITAS_OFFLINE/forged`), offlineWire(p)));
   await assertFails(setDoc(doc(client, `TBL_VISITAS_OFFLINE/${p.reservaId}/fotos/fake`), {url: 'fake'}));
 });
-test('offline subcenters require their own coordinates or an explicit shared reference', async () => {
+test('offline preparation allows subcenters without coordinates and respects their reference', async () => {
   await fixture('subcentro');
   await db.doc('TBL_VISITAS/subcentro').update({subcentroId: 's'});
   const preparar = () => prepare.run({empresaId: 'e', visitaId: 'subcentro', formatoId: 'f'}, context());
   const sub = db.doc('TBL_VISITAS_UBICACIONES/e_c__s');
-  await assert.rejects(preparar(), /no tiene ubicación/);
+  assert.equal(offlineDecode(await preparar()).ubicacion, null);
   await sub.set({empresaId: 'e', usarUbicacionCentro: false});
-  await assert.rejects(preparar(), /no tiene ubicación/);
+  assert.equal(offlineDecode(await preparar()).ubicacion, null);
   await sub.update({lat: 5, lng: -74});
   assert.equal(offlineDecode(await preparar()).ubicacion.lat, 5);
   await sub.update({usarUbicacionCentro: true});
   assert.equal(offlineDecode(await preparar()).ubicacion.lat, 4.6);
   await sub.update({empresaId: 'otra'});
-  await assert.rejects(preparar(), /no tiene ubicación/);
+  assert.equal(offlineDecode(await preparar()).ubicacion, null);
 });
 test('final report, tasks and receipt commit atomically and retries do not duplicate', async () => {
   const {p, v, payload} = await fixture('idempotent');
+  v.inicio = {at: v.inicio.at};
   const one = await sync.run(payload(), context());
   const two = await sync.run(payload(), context());
   assert.deepEqual(two, one);
@@ -78,6 +79,7 @@ test('final report, tasks and receipt commit atomically and retries do not dupli
   const stored = (await db.doc('TBL_VISITAS/idempotent').get()).data();
   assert.equal(stored.estado, 'terminada');
   assert.equal(stored.fin.at.toMillis(), v.fin.at.toMillis());
+  assert.deepEqual(stored.inicio, {at: v.inicio.at});
   assert.equal(stored.offlineReservaId, p.reservaId);
   assert.equal((await db.collection('TBL_TAREAS').where('visitaId', '==', 'idempotent').get()).size, 1);
   v.observacionGeneral = 'changed after submission';
