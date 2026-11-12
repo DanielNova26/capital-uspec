@@ -1,5 +1,22 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-12 — Diseño de los formularios de Mantenimiento (Codex)
+
+- Revisados el boceto de órdenes e inventario de `TABLAS_MANTENIMIENTO.xlsx`
+  y la separación por secciones de `App_Mantenimiento_V025.zip`.
+  Apertura y cierre presentan tarjetas por tema, con evidencias en una
+  columna lateral desde 920 píxeles lógicos en Web. En móvil y Web estrecha
+  se recorren en vertical, con las acciones de guardado siempre visibles.
+- Pasaron 15 pruebas de Mantenimiento. Verificadas las dos composiciones Web
+  a 390, 768, 1024 y 1366 píxeles lógicos, y el cierre en vistas simuladas
+  de Android e iOS con áreas seguras y teclado, con texto al 160 %. Revisadas
+  capturas de inicio y cierre del formulario a 390 y 1366 píxeles.
+- Del Excel quedan pendientes la bandeja de tareas de las tres fuentes y
+  su conversión a orden, la consulta de inventario por bodega y cantidad,
+  los traslados con acta, las bajas y los faltantes por establecimiento.
+  La prueba en dispositivos físicos y con sesión autenticada en Web sigue
+  pendiente.
+
 ## 2026-11-12 — Órdenes de trabajo de Mantenimiento (Codex)
 
 - Reactivado Mantenimiento en Capital USPEC, Servir USPEC, FYC y ALFA.

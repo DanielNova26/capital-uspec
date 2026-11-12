@@ -166,6 +166,9 @@ void main() {
         ..addFont(rootBundle.load('assets/arial.ttf'));
       await loader.load();
     }
+    final iconos = FontLoader('MaterialIcons')
+      ..addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'));
+    await iconos.load();
   });
   for (final ancho in [390.0, 768.0, 1024.0, 1366.0]) {
     testWidgets('Web muestra el historial con ancho $ancho y texto ampliado', (
@@ -230,7 +233,7 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.text('Ajustar puerta'));
         await tester.pumpAndSettle();
-        await _desplazarHasta(tester, find.text('Guardar'));
+        expect(find.text('Guardar').hitTestable(), findsOneWidget);
         await tester.tap(find.text('Guardar'));
         await tester.pumpAndSettle();
         expect(servicio.vinculoGuardado, 'h-1');
@@ -291,7 +294,38 @@ void main() {
         final boundary = GlobalKey();
         await tester.pumpWidget(
           MaterialApp(
-            theme: ThemeData(platform: plataforma),
+            theme: ThemeData(
+              platform: plataforma,
+              colorSchemeSeed: const Color(0xFF0078D7),
+              filledButtonTheme: const FilledButtonThemeData(
+                style: ButtonStyle(
+                  padding: WidgetStatePropertyAll(
+                    EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                  ),
+                  textStyle: WidgetStatePropertyAll(
+                    TextStyle(
+                      fontFamily: 'Arial',
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                    ),
+                  ),
+                ),
+              ),
+              outlinedButtonTheme: const OutlinedButtonThemeData(
+                style: ButtonStyle(
+                  padding: WidgetStatePropertyAll(
+                    EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                  ),
+                  textStyle: WidgetStatePropertyAll(
+                    TextStyle(
+                      fontFamily: 'Arial',
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                    ),
+                  ),
+                ),
+              ),
+            ),
             builder: (context, child) => MediaQuery(
               data: MediaQuery.of(context).copyWith(
                 textScaler: TextScaler.linear(1.6),
@@ -315,6 +349,9 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
+        if (web && Platform.environment['MANTENIMIENTO_CAPTURAS'] == '1') {
+          await _capturar(tester, boundary, 'cierre_inicio_$ancho');
+        }
         final campos = find.byType(TextFormField);
         await tester.enterText(
           campos.at(0),
@@ -328,23 +365,19 @@ void main() {
           await tester.enterText(campos.at(index), texto);
         }
         final boton = find.text(web ? 'Guardar borrador' : 'Cerrar orden');
-        await _desplazarHasta(tester, boton);
+        expect(boton.hitTestable(), findsOneWidget);
+        final datos = tester.getTopLeft(find.text('Intervención realizada'));
+        final soportes = tester.getTopLeft(find.text('Evidencias y soportes'));
+        if (web && ancho >= 920) {
+          expect(soportes.dx, greaterThan(datos.dx));
+          expect(soportes.dy, closeTo(datos.dy, 1));
+        } else {
+          expect(soportes.dx, closeTo(datos.dx, 1));
+          expect(soportes.dy, greaterThan(datos.dy));
+        }
         expect(tester.takeException(), isNull);
         if (web && Platform.environment['MANTENIMIENTO_CAPTURAS'] == '1') {
-          await tester.runAsync(() async {
-            final render =
-                boundary.currentContext!.findRenderObject()
-                    as RenderRepaintBoundary;
-            final image = await render.toImage(pixelRatio: 1);
-            final png = await image.toByteData(format: ui.ImageByteFormat.png);
-            await Directory(
-              'build/mantenimiento_revision',
-            ).create(recursive: true);
-            await File(
-              'build/mantenimiento_revision/cierre_$ancho.png',
-            ).writeAsBytes(png!.buffer.asUint8List());
-            image.dispose();
-          });
+          await _capturar(tester, boundary, 'cierre_diseno_$ancho');
         }
         await tester.tap(boton);
         await tester.pumpAndSettle();
@@ -397,6 +430,24 @@ void main() {
     expect(fotos, 1);
     expect(ascii.decode(bytes.take(5).toList()), '%PDF-');
     expect(orden.referencia, '1001');
+  });
+}
+
+Future<void> _capturar(
+  WidgetTester tester,
+  GlobalKey boundary,
+  String nombre,
+) async {
+  await tester.runAsync(() async {
+    final render =
+        boundary.currentContext!.findRenderObject() as RenderRepaintBoundary;
+    final image = await render.toImage(pixelRatio: 1);
+    final png = await image.toByteData(format: ui.ImageByteFormat.png);
+    await Directory('build/mantenimiento_revision').create(recursive: true);
+    await File(
+      'build/mantenimiento_revision/$nombre.png',
+    ).writeAsBytes(png!.buffer.asUint8List());
+    image.dispose();
   });
 }
 

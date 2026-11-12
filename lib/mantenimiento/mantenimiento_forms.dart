@@ -29,7 +29,11 @@ Widget campoMantenimiento(
   maxLength: maxLength,
   minLines: lineas,
   maxLines: lineas == 1 ? 1 : lineas + 2,
-  decoration: InputDecoration(labelText: label),
+  decoration: InputDecoration(
+    labelText: label,
+    counterText: '',
+    floatingLabelBehavior: FloatingLabelBehavior.always,
+  ),
   validator: requerido
       ? (valor) => (valor ?? '').trim().isEmpty ? 'Campo obligatorio' : null
       : null,
@@ -42,6 +46,8 @@ class EditorMantenimiento extends StatefulWidget {
     required this.titulo,
     required this.guardar,
     required this.campos,
+    this.soportes = const [],
+    this.cabecera,
     this.vistaWeb = false,
     this.etiqueta = 'Guardar',
     this.guardarBorrador,
@@ -52,6 +58,8 @@ class EditorMantenimiento extends StatefulWidget {
   final String titulo;
   final Future<void> Function() guardar;
   final List<Widget> campos;
+  final List<Widget> soportes;
+  final Widget? cabecera;
   final bool vistaWeb;
   final String etiqueta;
   final Future<void> Function()? guardarBorrador;
@@ -68,7 +76,18 @@ class _EditorMantenimientoState extends State<EditorMantenimiento> {
   String? _error;
 
   Future<void> _guardar({bool borrador = false}) async {
-    if (_guardando || (!borrador && !_form.currentState!.validate())) return;
+    if (_guardando) return;
+    if (!borrador) {
+      final errores = _form.currentState!.validateGranularly();
+      if (errores.isNotEmpty) {
+        await Scrollable.ensureVisible(
+          errores.first.context,
+          alignment: .25,
+          duration: const Duration(milliseconds: 180),
+        );
+        return;
+      }
+    }
     FocusScope.of(context).unfocus();
     setState(() {
       _guardando = true;
@@ -92,34 +111,28 @@ class _EditorMantenimientoState extends State<EditorMantenimiento> {
 
   @override
   Widget build(BuildContext context) {
-    final contenido = Column(
+    Widget columna(List<Widget> campos) => Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (final campo in widget.campos)
+        for (final campo in campos)
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: IgnorePointer(ignoring: _guardando, child: campo),
           ),
-        if (_error != null)
-          Text(
-            _error!,
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
-          ),
-        if (widget.estadoBorrador != null) Text(widget.estadoBorrador!),
-        FilledButton(
-          style: widget.vistaWeb
-              ? FilledButton.styleFrom(backgroundColor: mantenimientoAcento)
-              : null,
-          onPressed: _guardando ? null : () => _guardar(),
-          child: Text(_guardando ? 'Guardando…' : widget.etiqueta),
-        ),
-        if (widget.guardarBorrador != null)
-          OutlinedButton(
-            onPressed: _guardando ? null : () => _guardar(borrador: true),
-            child: const Text('Guardar borrador'),
-          ),
       ],
     );
+    final acciones = [
+      if (widget.guardarBorrador != null)
+        OutlinedButton(
+          onPressed: _guardando ? null : () => _guardar(borrador: true),
+          child: const Text('Guardar borrador'),
+        ),
+      FilledButton(
+        style: FilledButton.styleFrom(backgroundColor: mantenimientoAcento),
+        onPressed: _guardando ? null : () => _guardar(),
+        child: Text(_guardando ? 'Guardando…' : widget.etiqueta),
+      ),
+    ];
     return PopScope(
       canPop: !_guardando,
       child: Scaffold(
@@ -130,27 +143,169 @@ class _EditorMantenimientoState extends State<EditorMantenimiento> {
           foregroundColor: widget.vistaWeb ? mantenimientoTinta : null,
         ),
         body: SafeArea(
-          child: Form(
-            key: _form,
-            onChanged: widget.onChanged,
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 600),
-                    child: widget.vistaWeb
-                        ? PanelMantenimiento(child: contenido)
-                        : contenido,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final porSecciones = widget.soportes.isNotEmpty;
+              final ancho =
+                  widget.vistaWeb &&
+                  porSecciones &&
+                  constraints.maxWidth >= 920;
+              final limite = ancho ? 1120.0 : 620.0;
+              final aviso = _error ?? widget.estadoBorrador;
+              return Column(
+                children: [
+                  Expanded(
+                    child: Form(
+                      key: _form,
+                      onChanged: widget.onChanged,
+                      child: ListView(
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
+                        padding: EdgeInsets.all(ancho ? 24 : 16),
+                        children: [
+                          Center(
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(maxWidth: limite),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  if (widget.cabecera case final cabecera?)
+                                    Padding(
+                                      padding: const EdgeInsets.only(
+                                        bottom: 16,
+                                      ),
+                                      child: cabecera,
+                                    ),
+                                  if (ancho)
+                                    Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Expanded(
+                                          flex: 5,
+                                          child: columna(widget.campos),
+                                        ),
+                                        const SizedBox(width: 20),
+                                        Expanded(
+                                          flex: 3,
+                                          child: columna(widget.soportes),
+                                        ),
+                                      ],
+                                    )
+                                  else if (porSecciones)
+                                    columna([
+                                      ...widget.campos,
+                                      ...widget.soportes,
+                                    ])
+                                  else if (widget.vistaWeb)
+                                    PanelMantenimiento(
+                                      child: columna(widget.campos),
+                                    )
+                                  else
+                                    columna(widget.campos),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                ),
-              ],
-            ),
+                  Material(
+                    color: Theme.of(context).colorScheme.surface,
+                    child: DecoratedBox(
+                      decoration: const BoxDecoration(
+                        border: Border(
+                          top: BorderSide(color: mantenimientoBorde),
+                        ),
+                      ),
+                      child: Align(
+                        heightFactor: 1,
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(maxWidth: limite),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                if (aviso != null)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: Text(
+                                      aviso,
+                                      style: TextStyle(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.error,
+                                      ),
+                                    ),
+                                  ),
+                                if (ancho)
+                                  Wrap(
+                                    alignment: WrapAlignment.end,
+                                    spacing: 12,
+                                    runSpacing: 8,
+                                    children: acciones,
+                                  )
+                                else
+                                  ...acciones.reversed,
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),
     );
   }
+}
+
+class _SeccionOrdenForm extends StatelessWidget {
+  const _SeccionOrdenForm({
+    required this.titulo,
+    required this.icono,
+    required this.campos,
+  });
+
+  final String titulo;
+  final IconData icono;
+  final List<Widget> campos;
+
+  @override
+  Widget build(BuildContext context) => PanelMantenimiento(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            IconoMantenimiento(icono: icono),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                titulo,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: mantenimientoTinta,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        for (final campo in campos)
+          Padding(padding: const EdgeInsets.only(bottom: 10), child: campo),
+      ],
+    ),
+  );
 }
 
 class EquipoMantenimientoForm extends StatefulWidget {
@@ -512,194 +667,218 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
       onChanged: cambiarBorrador,
       estadoBorrador: estadoBorrador,
       campos: [
-        if (widget.vistaWeb)
-          const EncabezadoMantenimiento(
-            titulo: 'Datos del trabajo',
-            descripcion:
-                'Elige el establecimiento y describe el trabajo. Puedes asociar un equipo o un hallazgo de Interventoría.',
-            icono: Icons.assignment_outlined,
-          ),
-        if (orden == null)
-          DropdownButtonFormField<String>(
-            initialValue: _centroId,
-            isExpanded: true,
-            decoration: const InputDecoration(labelText: 'Establecimiento'),
-            items: [
-              for (final centro in widget.centros)
-                opcionMantenimiento(centro.id, centro.centro.nombre),
-            ],
-            validator: (valor) =>
-                valor == null ? 'Elige un establecimiento' : null,
-            onChanged: (valor) => setState(() {
-              if (valor == _centroId) return;
-              _centroId = valor;
-              _equipoId = '';
-              _subcentroId = '';
-              _cambiarHallazgo(null);
-            }),
-          ),
-        if (orden == null && subcentros.isNotEmpty)
-          DropdownButtonFormField<String>(
-            key: ValueKey((centro?.id, _subcentroId)),
-            initialValue: _subcentroId,
-            isExpanded: true,
-            decoration: const InputDecoration(labelText: 'Estructura'),
-            items: [
-              opcionMantenimiento('', 'Todo el establecimiento'),
-              for (final subcentro in subcentros)
-                opcionMantenimiento(subcentro.id, subcentro.nombre),
-            ],
-            onChanged: (valor) => setState(() {
-              _subcentroId = valor!;
-              if (_hallazgo?.subcentroId.isNotEmpty == true &&
-                  _hallazgo!.subcentroId != _subcentroId) {
-                _cambiarHallazgo(null);
-              }
-            }),
-          ),
-        if (orden != null)
-          Text(
-            [
-              centro?.centro.nombre ?? orden.centroDocId,
-              orden.subcentroNombre,
-            ].where((s) => s.isNotEmpty).join(' · '),
-          ),
-        if (orden == null && _centroId != null)
-          DropdownButtonFormField<String>(
-            key: ValueKey(_centroId),
-            initialValue: _equipoId,
-            isExpanded: true,
-            decoration: const InputDecoration(labelText: 'Equipo'),
-            items: [
-              opcionMantenimiento('', 'Intervención del establecimiento'),
-              for (final equipo in widget.equipos.where(
-                (e) => e.centroDocId == _centroId,
-              ))
-                opcionMantenimiento(
-                  equipo.id,
-                  '${equipo.codigo} · ${equipo.nombre}',
-                ),
-            ],
-            onChanged: (valor) => _equipoId = valor!,
-          ),
-        DropdownButtonFormField<TipoMantenimiento>(
-          initialValue: _tipo,
-          decoration: const InputDecoration(labelText: 'Tipo de mantenimiento'),
-          items: [
-            for (final tipo in TipoMantenimiento.values)
-              DropdownMenuItem(value: tipo, child: Text(tipo.label)),
-          ],
-          onChanged: (valor) => _tipo = valor!,
-        ),
-        if (orden == null && _centroId != null)
-          Wrap(
-            spacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              OutlinedButton(
-                onPressed: _vincular,
-                child: Text(
-                  _hallazgo == null
-                      ? 'Vincular hallazgo de Interventoría'
-                      : 'Cambiar hallazgo',
-                ),
-              ),
-              if (_hallazgo != null)
-                TextButton(
-                  onPressed: () => setState(() => _cambiarHallazgo(null)),
-                  child: const Text('Quitar vínculo'),
-                ),
-            ],
-          ),
-        if (_hallazgo case final hallazgo?)
-          Text('${hallazgo.establecimiento} · ${hallazgo.descripcion}'),
-        if (orden == null) ...[
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Registrar hallazgo manual'),
-            value: _hallazgoManual,
-            onChanged: (valor) => setState(() {
-              _hallazgoManual = valor;
-              if (valor) _cambiarHallazgo(null);
-            }),
-          ),
-          if (_hallazgoManual) ...[
-            DropdownButtonFormField<String>(
-              initialValue: _entidad,
+        _SeccionOrdenForm(
+          titulo: 'Datos generales',
+          icono: Icons.assignment_outlined,
+          campos: [
+            campoMantenimiento(
+              'Título de la orden',
+              120,
+              controller: _titulo,
+              requerido: true,
+            ),
+            DropdownButtonFormField<IntervencionMantenimiento>(
+              initialValue: _intervencion,
               isExpanded: true,
               decoration: const InputDecoration(
-                labelText: 'Entidad del hallazgo',
+                labelText: 'Tipo de intervención',
               ),
               items: [
-                opcionMantenimiento('Interventoría', 'Interventoría'),
-                opcionMantenimiento(
-                  'Secretaría de Salud',
-                  'Secretaría de Salud',
-                ),
+                for (final tipo in IntervencionMantenimiento.values)
+                  DropdownMenuItem(value: tipo, child: Text(tipo.label)),
               ],
-              onChanged: (valor) => _entidad = valor!,
+              onChanged: (valor) => _intervencion = valor!,
             ),
+            if (orden == null)
+              DropdownButtonFormField<String>(
+                initialValue: _centroId,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Establecimiento'),
+                items: [
+                  for (final centro in widget.centros)
+                    opcionMantenimiento(centro.id, centro.centro.nombre),
+                ],
+                validator: (valor) =>
+                    valor == null ? 'Elige un establecimiento' : null,
+                onChanged: (valor) => setState(() {
+                  if (valor == _centroId) return;
+                  _centroId = valor;
+                  _equipoId = '';
+                  _subcentroId = '';
+                  _cambiarHallazgo(null);
+                }),
+              ),
+            if (orden == null && subcentros.isNotEmpty)
+              DropdownButtonFormField<String>(
+                key: ValueKey((centro?.id, _subcentroId)),
+                initialValue: _subcentroId,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Estructura'),
+                items: [
+                  opcionMantenimiento('', 'Todo el establecimiento'),
+                  for (final subcentro in subcentros)
+                    opcionMantenimiento(subcentro.id, subcentro.nombre),
+                ],
+                onChanged: (valor) => setState(() {
+                  _subcentroId = valor!;
+                  if (_hallazgo?.subcentroId.isNotEmpty == true &&
+                      _hallazgo!.subcentroId != _subcentroId) {
+                    _cambiarHallazgo(null);
+                  }
+                }),
+              ),
+            if (orden != null)
+              Text(
+                [
+                  centro?.centro.nombre ?? orden.centroDocId,
+                  orden.subcentroNombre,
+                ].where((s) => s.isNotEmpty).join(' · '),
+              ),
+            if (orden == null && _centroId != null)
+              DropdownButtonFormField<String>(
+                key: ValueKey(_centroId),
+                initialValue: _equipoId,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Equipo'),
+                items: [
+                  opcionMantenimiento('', 'Intervención del establecimiento'),
+                  for (final equipo in widget.equipos.where(
+                    (e) => e.centroDocId == _centroId,
+                  ))
+                    opcionMantenimiento(
+                      equipo.id,
+                      '${equipo.codigo} · ${equipo.nombre}',
+                    ),
+                ],
+                onChanged: (valor) => _equipoId = valor!,
+              ),
+            DropdownButtonFormField<TipoMantenimiento>(
+              initialValue: _tipo,
+              decoration: const InputDecoration(
+                labelText: 'Tipo de mantenimiento',
+              ),
+              items: [
+                for (final tipo in TipoMantenimiento.values)
+                  DropdownMenuItem(value: tipo, child: Text(tipo.label)),
+              ],
+              onChanged: (valor) => _tipo = valor!,
+            ),
+          ],
+        ),
+        _SeccionOrdenForm(
+          titulo: 'Diagnóstico',
+          icono: Icons.search_outlined,
+          campos: [
             campoMantenimiento(
-              'Hallazgo reportado',
+              'Diagnóstico inicial',
               1200,
-              requerido: true,
+              controller: _detalle,
               lineas: 3,
-              onChanged: (valor) => _descripcionHallazgo = valor,
-            ),
-            _fechaHallazgoCampo(
-              'Fecha del hallazgo',
-              _fechaHallazgo,
-              (valor) => _fechaHallazgo = valor,
-            ),
-            _fechaHallazgoCampo(
-              'Fecha límite',
-              _limiteHallazgo,
-              (valor) => _limiteHallazgo = valor,
+              requerido: true,
             ),
           ],
-        ],
-        campoMantenimiento(
-          'Título de la orden',
-          120,
-          controller: _titulo,
-          requerido: true,
         ),
-        DropdownButtonFormField<IntervencionMantenimiento>(
-          initialValue: _intervencion,
-          isExpanded: true,
-          decoration: const InputDecoration(labelText: 'Tipo de intervención'),
-          items: [
-            for (final tipo in IntervencionMantenimiento.values)
-              DropdownMenuItem(value: tipo, child: Text(tipo.label)),
-          ],
-          onChanged: (valor) => _intervencion = valor!,
-        ),
-        campoMantenimiento(
-          'Diagnóstico inicial',
-          1200,
-          controller: _detalle,
-          lineas: 3,
-          requerido: true,
-        ),
-        campoMantenimiento(
-          'Referencia de factura',
-          160,
-          initialValue: _factura,
-          onChanged: (v) => _factura = v,
-        ),
-        for (final clase in [
-          ClaseArchivoOrden.diagnostico,
-          ClaseArchivoOrden.cotizacion,
-        ])
-          ArchivosOrdenEditor(
-            key: ValueKey(clase),
-            clase: clase,
-            pendientes: _pendientes,
-            vistaWeb: widget.vistaWeb,
-            guardados: orden?.archivos ?? const [],
-            retirados: _retirados,
-            onChanged: cambiarBorrador,
+      ],
+      soportes: [
+        if (orden == null)
+          _SeccionOrdenForm(
+            titulo: 'Origen de la orden',
+            icono: Icons.link_outlined,
+            campos: [
+              if (orden == null && _centroId != null)
+                Wrap(
+                  spacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    OutlinedButton(
+                      onPressed: _vincular,
+                      child: Text(
+                        _hallazgo == null
+                            ? 'Vincular hallazgo de Interventoría'
+                            : 'Cambiar hallazgo',
+                      ),
+                    ),
+                    if (_hallazgo != null)
+                      TextButton(
+                        onPressed: () => setState(() => _cambiarHallazgo(null)),
+                        child: const Text('Quitar vínculo'),
+                      ),
+                  ],
+                ),
+              if (_hallazgo case final hallazgo?)
+                Text('${hallazgo.establecimiento} · ${hallazgo.descripcion}'),
+              if (orden == null) ...[
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Registrar hallazgo manual'),
+                  value: _hallazgoManual,
+                  onChanged: (valor) => setState(() {
+                    _hallazgoManual = valor;
+                    if (valor) _cambiarHallazgo(null);
+                  }),
+                ),
+                if (_hallazgoManual) ...[
+                  DropdownButtonFormField<String>(
+                    initialValue: _entidad,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Entidad del hallazgo',
+                    ),
+                    items: [
+                      opcionMantenimiento('Interventoría', 'Interventoría'),
+                      opcionMantenimiento(
+                        'Secretaría de Salud',
+                        'Secretaría de Salud',
+                      ),
+                    ],
+                    onChanged: (valor) => _entidad = valor!,
+                  ),
+                  campoMantenimiento(
+                    'Hallazgo reportado',
+                    1200,
+                    requerido: true,
+                    lineas: 3,
+                    onChanged: (valor) => _descripcionHallazgo = valor,
+                  ),
+                  _fechaHallazgoCampo(
+                    'Fecha del hallazgo',
+                    _fechaHallazgo,
+                    (valor) => _fechaHallazgo = valor,
+                  ),
+                  _fechaHallazgoCampo(
+                    'Fecha límite',
+                    _limiteHallazgo,
+                    (valor) => _limiteHallazgo = valor,
+                  ),
+                ],
+              ],
+            ],
           ),
+        _SeccionOrdenForm(
+          titulo: 'Evidencias y soportes',
+          icono: Icons.attach_file,
+          campos: [
+            for (final clase in [
+              ClaseArchivoOrden.diagnostico,
+              ClaseArchivoOrden.cotizacion,
+            ])
+              ArchivosOrdenEditor(
+                key: ValueKey(clase),
+                clase: clase,
+                pendientes: _pendientes,
+                vistaWeb: widget.vistaWeb,
+                guardados: orden?.archivos ?? const [],
+                retirados: _retirados,
+                onChanged: cambiarBorrador,
+              ),
+            campoMantenimiento(
+              'Referencia de factura',
+              160,
+              initialValue: _factura,
+              onChanged: (v) => _factura = v,
+            ),
+          ],
+        ),
       ],
     );
   }
@@ -861,29 +1040,97 @@ class _CierreMantenimientoFormState extends State<CierreMantenimientoForm>
     guardarBorrador: () => _guardar(cerrar: false),
     onChanged: cambiarBorrador,
     estadoBorrador: estadoBorrador,
+    cabecera: PanelMantenimiento(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SelloMantenimiento(
+            texto: 'Orden ${widget.orden.referencia}',
+            color: mantenimientoAcento,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            widget.orden.asunto,
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+        ],
+      ),
+    ),
     campos: [
-      Text('Orden ${widget.orden.referencia} · ${widget.orden.asunto}'),
-      for (final (i, campo) in _campos.entries.indexed)
-        campoMantenimiento(
-          campo.key,
-          i < 3 ? 1200 : (i == 6 ? 160 : 120),
-          controller: campo.value,
-          lineas: i < 3 ? 3 : 1,
-          requerido: i == 0 || i == 3 || i == 4,
-        ),
-      for (final clase in [
-        ClaseArchivoOrden.evidencia,
-        ClaseArchivoOrden.recibo,
-      ])
-        ArchivosOrdenEditor(
-          key: ValueKey(clase),
-          clase: clase,
-          pendientes: _pendientes,
-          vistaWeb: widget.vistaWeb,
-          guardados: widget.orden.archivos,
-          retirados: _retirados,
-          onChanged: cambiarBorrador,
-        ),
+      _SeccionOrdenForm(
+        titulo: 'Intervención realizada',
+        icono: Icons.build_outlined,
+        campos: [
+          campoMantenimiento(
+            'Trabajo realizado',
+            1200,
+            controller: _campos['Trabajo realizado'],
+            lineas: 3,
+            requerido: true,
+          ),
+          campoMantenimiento(
+            'Materiales utilizados',
+            1200,
+            controller: _campos['Materiales utilizados'],
+            lineas: 2,
+          ),
+          campoMantenimiento(
+            'Sugerencias de uso',
+            1200,
+            controller: _campos['Sugerencias de uso y manejo'],
+            lineas: 2,
+          ),
+        ],
+      ),
+      _SeccionOrdenForm(
+        titulo: 'Entrega del trabajo',
+        icono: Icons.people_alt_outlined,
+        campos: [
+          campoMantenimiento(
+            'Técnico que realizó el trabajo',
+            120,
+            controller: _campos['Técnico que realizó el trabajo'],
+            requerido: true,
+          ),
+          campoMantenimiento(
+            'Quién recibió el trabajo',
+            120,
+            controller: _campos['Quién recibió el trabajo'],
+            requerido: true,
+          ),
+          campoMantenimiento(
+            'Cargo de quien recibió',
+            120,
+            controller: _campos['Cargo de quien recibió'],
+          ),
+        ],
+      ),
+    ],
+    soportes: [
+      _SeccionOrdenForm(
+        titulo: 'Evidencias y soportes',
+        icono: Icons.attach_file,
+        campos: [
+          for (final clase in [
+            ClaseArchivoOrden.evidencia,
+            ClaseArchivoOrden.recibo,
+          ])
+            ArchivosOrdenEditor(
+              key: ValueKey(clase),
+              clase: clase,
+              pendientes: _pendientes,
+              vistaWeb: widget.vistaWeb,
+              guardados: widget.orden.archivos,
+              retirados: _retirados,
+              onChanged: cambiarBorrador,
+            ),
+          campoMantenimiento(
+            'Referencia de factura',
+            160,
+            controller: _campos['Referencia de factura'],
+          ),
+        ],
+      ),
     ],
   );
 }
