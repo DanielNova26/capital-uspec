@@ -11,6 +11,10 @@
   a 390, 768, 1024 y 1366 píxeles lógicos, y el cierre en vistas simuladas
   de Android e iOS con áreas seguras y teclado, con texto al 160 %. Revisadas
   capturas de inicio y cierre del formulario a 390 y 1366 píxeles.
+- Publicada Web 2.8.34+88. Los seis archivos públicos de arranque y versión
+  coinciden por SHA-256 con la compilación local.
+- AAB Android 2.8.34+88 validado y firmado con el mismo certificado de la
+  versión 87. Pendiente cargarlo en Play Console y compilar iOS en Mac.
 - Del Excel quedan pendientes la bandeja de tareas de las tres fuentes y
   su conversión a orden, la consulta de inventario por bodega y cantidad,
   los traslados con acta, las bajas y los faltantes por establecimiento.
