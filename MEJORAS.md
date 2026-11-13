@@ -16,6 +16,10 @@
   apertura desde tareas y validación de sede. Las consultas del área
   respondieron en las cuatro empresas de producción. Pendiente recorrer
   la bandeja con sesión real y probar en celulares físicos.
+- Publicada Web 2.8.35+89 y actualizada la función `mantenimientoOrden`.
+  Los seis archivos de arranque coinciden por SHA-256. AAB Android 89
+  validado y firmado. Quedan pendientes la compilación de iOS en Mac y
+  la publicación en tiendas.
 
 ## 2026-11-12 — Diseño de los formularios de Mantenimiento (Codex)
 
