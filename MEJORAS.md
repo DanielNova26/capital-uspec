@@ -1,5 +1,15 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-13 — Actualización web de la Demo local (Codex)
+
+- La ruta antigua de finalización reproduce el rechazo del JPEG de la tarea
+  138 de Interventoría. Con el mismo responsable, el emulador acepta la carga
+  y entrega el enlace en la ruta vigente vinculada a esa tarea.
+- Hosting local sirve la Demo con `Cache-Control: no-store`, incluidos el HTML,
+  el arranque de Flutter y el JavaScript de la app. Se reinició el emulador con
+  exportación e importación de Firestore, Auth y Storage. La prueba de carga
+  usó un archivo temporal. Queda pendiente enviar el formulario en el navegador.
+
 ## 2026-11-13 — Acceso de Mantenimiento en la Demo local (Codex)
 
 - La carga de la Demo asignaba la app en la ficha y omitía la autorización

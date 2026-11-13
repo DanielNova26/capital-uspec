@@ -5,7 +5,15 @@
   },
   "storage": { "rules": "tool/demo/storage.rules" },
   "functions": { "source": "functions" },
-  "hosting": { "public": "outputs/demo/web" },
+  "hosting": {
+    "public": "outputs/demo/web",
+    "headers": [
+      {
+        "regex": ".*",
+        "headers": [{ "key": "Cache-Control", "value": "no-store" }]
+      }
+    ]
+  },
   "emulators": {
     "auth": { "host": "127.0.0.1", "port": 9099 },
     "firestore": { "host": "127.0.0.1", "port": 8080 },
