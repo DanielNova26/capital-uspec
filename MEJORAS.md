@@ -1,5 +1,17 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-13 — Acceso de Mantenimiento en la Demo local (Codex)
+
+- La carga de la Demo asignaba la app en la ficha y omitía la autorización
+  operativa que consultan Inicio, Firestore y las funciones de Mantenimiento.
+  Se completaron cuatro autorizaciones faltantes para el director, coordinador,
+  analista y Gerencia General. Al repetir la carga se conservan las autorizaciones
+  existentes y se comprueba que cada persona siga habilitada y tenga la app.
+- Con sesiones de la Demo se verificaron la lectura del permiso, las órdenes,
+  la bandeja de pendientes y los catálogos de inventario. Se confirmó el rechazo
+  para una cuenta sin asignación y para otra empresa. La comprobación usó el
+  emulador y no recorrió la interfaz en navegador, Android ni iOS.
+
 ## 2026-11-13 — Evidencias y cierre de tareas en la Demo local (Codex)
 
 - Storage local permite al responsable activo adjuntar archivos a avances,

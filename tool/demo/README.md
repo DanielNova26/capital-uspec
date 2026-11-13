@@ -29,6 +29,8 @@ Interventoría incluye las cuatro plantillas PEC USPEC habilitadas en Capital y 
 
 En Tareas, el responsable puede reportar avances, comunicar novedades y solicitar la finalización con evidencias. Si la tarea viene de un hallazgo de Interventoría, su aprobador puede revisar las evidencias y cerrar la tarea desde el hallazgo.
 
+El director, coordinador y analista de Mantenimiento y Gerencia General tienen acceso operativo a Mantenimiento. La carga completa la autorización de quienes conservan la app asignada en la Demo y respeta los permisos que ya estén guardados.
+
 ## Reiniciar el entorno local
 
 Desde la raíz del repositorio, con Java, Firebase CLI, Flutter y las dependencias de Functions instaladas, ejecuta en PowerShell:
@@ -44,4 +46,4 @@ $env:FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080'
 node tool/demo/poblar.cjs
 ```
 
-La carga puede repetirse y agrega las reglas de Interventoría que falten, conservando las configuradas. Para guardar tus pruebas al terminar, detén el emulador con `Ctrl+C` y espera a que exporte los datos. El siguiente arranque recupera esa exportación. Usa `-Recompilar` para actualizar la web local después de cambiar el código de la app.
+La carga puede repetirse y agrega las reglas de Interventoría y los accesos de Mantenimiento que falten. Para guardar tus pruebas al terminar, detén el emulador con `Ctrl+C` y espera a que exporte los datos. El siguiente arranque recupera esa exportación. Usa `-Recompilar` para actualizar la web local después de cambiar el código de la app.

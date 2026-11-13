@@ -128,6 +128,38 @@ async function cargarMaestroInterventoria(db) {
   });
 }
 
+async function cargarAccesosMantenimiento(db, listado) {
+  const [appId] = modulos.mantenimiento;
+  const usuarios = db.collection('TBL_USUARIOS');
+  const accesos = db.collection('TBL_MANTENIMIENTO_ACCESOS');
+  const asignaciones = listado.filter((persona) => Object.hasOwn(persona.roles, 'mantenimiento'));
+  return db.runTransaction(async (tx) => {
+    const [empresa, ...docs] = await tx.getAll(db.collection('TBL_EMPRESAS').doc(empresaId),
+      ...asignaciones.flatMap(({id}) => [usuarios.doc(id), accesos.doc(`${empresaId}_${id}`)]));
+    if (empresa.get('esDemo') !== true) throw new Error('La empresa de pruebas no está disponible.');
+
+    let creados = 0;
+    for (const [index, persona] of asignaciones.entries()) {
+      const usuario = docs[index * 2].data();
+      const acceso = docs[index * 2 + 1];
+      const ficha = usuario?.empresasDetalle?.[empresaId];
+      if (acceso.exists || usuario?.empresas?.length !== 1 || usuario.empresas[0] !== empresaId ||
+          usuario.estado !== 'activo' || usuario.activo === false || ficha?.activo === false ||
+          ficha?.estadoLaboral !== 'activo' || ficha.soloTalentoHumano === true ||
+          !ficha.apps?.includes(appId)) continue;
+      tx.create(acceso.ref, {empresaId, userId: persona.id, operador: true, updatedAt: FieldValue.serverTimestamp()});
+      creados++;
+    }
+    return creados;
+  });
+}
+
+async function cargarConfiguracionDemo(db, listado) {
+  const reglas = await cargarMaestroInterventoria(db);
+  const accesos = await cargarAccesosMantenimiento(db, listado);
+  return `Reglas de Interventoría agregadas: ${reglas}. Accesos de Mantenimiento agregados: ${accesos}.`;
+}
+
 async function poblar() {
   if (process.env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:8080') {
     throw new Error('Ejecuta la carga con FIRESTORE_EMULATOR_HOST=127.0.0.1:8080.');
@@ -137,8 +169,7 @@ async function poblar() {
   const listado = personas();
   const marca = db.collection('demo_setup').doc('capital_servir');
   if ((await marca.get()).exists) {
-    const reglas = await cargarMaestroInterventoria(db);
-    return `La estructura de pruebas ya está cargada. Reglas de Interventoría agregadas: ${reglas}.`;
+    return `La estructura de pruebas ya está cargada. ${await cargarConfiguracionDemo(db, listado)}`;
   }
   const fecha = FieldValue.serverTimestamp();
   function crear(coleccion, id, campos) {
@@ -211,9 +242,8 @@ async function poblar() {
   }
   lote.create(marca, {empresaId, cuentas: listado.length, createdAt: fecha});
   await lote.commit();
-  const reglas = await cargarMaestroInterventoria(db);
   return `${listado.length} cuentas creadas en ${areas.length} áreas para ${Object.keys(modulos).length} módulos. ` +
-    `Reglas de Interventoría agregadas: ${reglas}.`;
+    await cargarConfiguracionDemo(db, listado);
 }
 
 poblar().then(console.log).catch((error) => {
