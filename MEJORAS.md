@@ -1,5 +1,24 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-13 — Cuentas de prueba para Capital y Servir (Codex)
+
+- La Demo local reproduce las 13 áreas comunes de Capital y Servir e incluye
+  Gestión de Proyectos, que ya existía en la Demo. La carga crea 43 cuentas
+  ficticias, sus cargos y jefaturas, una sede de prueba y asignaciones para los
+  17 módulos del catálogo. Gerencia general tiene alcance en todas las áreas
+  de la Demo. El director de Desarrollo usa el acceso de Administración.
+- El proyecto de emuladores usa el mismo identificador de empresa de la Demo
+  con almacenamiento separado de producción. El directorio y el arranque están
+  en `tool/demo/README.md`. Las reglas activas de Firestore dejan `TBL_USUARIOS`
+  bajo el permiso general de lectura y escritura de cualquier sesión autenticada.
+  El aislamiento de las fichas y de las colecciones que comparten ese permiso
+  queda pendiente antes de activar estas cuentas en la web pública.
+- Se verificaron la compilación web, el inicio de sesión de las 43 cuentas y
+  los permisos de Gerencia, los tres cargos de Calidad, Tesorería y Operaciones.
+  Quedan pendientes la navegación visual,
+  las pruebas en Android e iOS y el recorrido de los flujos operativos. El
+  entorno local carece de conexiones reales de correo, DIAN y WhatsApp.
+
 ## 2026-11-13 — Inventario y órdenes agrupadas de Mantenimiento (Codex)
 
 - Equipos permite registrar un rótulo individual o un lote en la bodega
