@@ -18,6 +18,7 @@ class BandejaTareasMantenimiento extends StatefulWidget {
     required this.cambiarCentro,
     required this.actualizar,
     required this.abrir,
+    this.procesarVarias,
     required this.vistaWeb,
   });
 
@@ -30,6 +31,7 @@ class BandejaTareasMantenimiento extends StatefulWidget {
   final ValueChanged<String> cambiarCentro;
   final VoidCallback actualizar;
   final void Function(TareaMantenimiento, OrdenMantenimiento?) abrir;
+  final ValueChanged<List<TareaMantenimiento>>? procesarVarias;
   final bool vistaWeb;
 
   @override
@@ -42,6 +44,7 @@ class _BandejaTareasMantenimientoState
   static const _porPagina = 15;
   int _pagina = 0;
   final _scroll = ScrollController();
+  final _seleccion = <String>{};
 
   @override
   void dispose() {
@@ -67,19 +70,28 @@ class _BandejaTareasMantenimientoState
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      final tabla = widget.vistaWeb && constraints.maxWidth >= 900;
+      final tabla =
+          widget.vistaWeb &&
+          constraints.maxWidth >= 900 &&
+          MediaQuery.textScalerOf(context).scale(16) <= 26;
       final centros = {
         for (final centro in widget.centros) centro.id: centro.centro.nombre,
       };
       final ordenes = {
         for (final orden in widget.ordenes)
-          if (orden.tareaId.isNotEmpty) orden.tareaId: orden,
+          for (final id in orden.tareaIds) id: orden,
       };
       return FutureBuilder(
         future: widget.tareas,
         builder: (context, snapshot) {
           final cargando = snapshot.connectionState != ConnectionState.done;
-          final pendientes = (snapshot.data ?? const <TareaMantenimiento>[])
+          final todas = snapshot.data ?? const <TareaMantenimiento>[];
+          final elegidas = todas
+              .where(
+                (t) => _seleccion.contains(t.id) && !ordenes.containsKey(t.id),
+              )
+              .toList();
+          final pendientes = todas
               .where(
                 (tarea) =>
                     (widget.origen == null || tarea.origen == widget.origen) &&
@@ -164,6 +176,20 @@ class _BandejaTareasMantenimientoState
                       icon: const Icon(Icons.refresh),
                       label: const Text('Actualizar'),
                     ),
+                    if (elegidas.isNotEmpty) ...[
+                      FilledButton.icon(
+                        onPressed: () {
+                          widget.procesarVarias?.call(elegidas);
+                          setState(_seleccion.clear);
+                        },
+                        icon: const Icon(Icons.playlist_add_check),
+                        label: Text('Procesar ${elegidas.length}'),
+                      ),
+                      TextButton(
+                        onPressed: () => setState(_seleccion.clear),
+                        child: const Text('Limpiar selección'),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -242,7 +268,9 @@ class _BandejaTareasMantenimientoState
                                       : tarea.responsable,
                                 ),
                               ),
-                              _celda(_accion(tarea, ordenes[tarea.id])),
+                              _celda(
+                                _accion(tarea, ordenes[tarea.id], elegidas),
+                              ),
                             ],
                           ),
                       ],
@@ -265,7 +293,7 @@ class _BandejaTareasMantenimientoState
                               Text(tarea.responsable),
                             _plazo(tarea),
                             const SizedBox(height: 8),
-                            _accion(tarea, ordenes[tarea.id]),
+                            _accion(tarea, ordenes[tarea.id], elegidas),
                           ],
                         ),
                       ),
@@ -342,11 +370,80 @@ class _BandejaTareasMantenimientoState
     ],
   );
 
-  Widget _accion(TareaMantenimiento tarea, OrdenMantenimiento? orden) =>
+  Widget _accion(
+    TareaMantenimiento tarea,
+    OrdenMantenimiento? orden,
+    List<TareaMantenimiento> elegidas,
+  ) => Wrap(
+    children: [
+      if (orden == null &&
+          widget.procesarVarias != null &&
+          widget.centros.any((c) => c.activo && c.id == tarea.centroDocId))
+        IconButton(
+          tooltip: _seleccion.contains(tarea.id)
+              ? 'Quitar tarea'
+              : 'Agregar a la selección',
+          onPressed:
+              _seleccion.contains(tarea.id) ||
+                  (elegidas.length < 20 &&
+                      (elegidas.isEmpty ||
+                          elegidas.first.centroDocId == tarea.centroDocId))
+              ? () => setState(() {
+                  if (!_seleccion.remove(tarea.id)) _seleccion.add(tarea.id);
+                })
+              : null,
+          icon: Icon(
+            _seleccion.contains(tarea.id)
+                ? Icons.check_circle
+                : Icons.add_circle_outline,
+          ),
+        ),
       OutlinedButton(
         onPressed: () => widget.abrir(tarea, orden),
         child: Text(
           orden == null ? 'Iniciar orden' : 'Ver orden ${orden.referencia}',
         ),
-      );
+      ),
+      if (orden == null)
+        IconButton(
+          tooltip: 'Ver tarea',
+          icon: const Icon(Icons.visibility_outlined),
+          onPressed: () => showDialog<void>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: Text(
+                tarea.numero == null
+                    ? tarea.titulo
+                    : '${tarea.numero} · ${tarea.titulo}',
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(tarea.origen.label),
+                    _plazo(tarea),
+                    if (tarea.responsable.isNotEmpty) Text(tarea.responsable),
+                    if (tarea.descripcion.isNotEmpty) Text(tarea.descripcion),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cerrar'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    widget.abrir(tarea, null);
+                  },
+                  child: const Text('Procesar'),
+                ),
+              ],
+            ),
+          ),
+        ),
+    ],
+  );
 }

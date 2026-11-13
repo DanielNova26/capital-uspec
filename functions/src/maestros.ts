@@ -101,7 +101,11 @@ export const MODULOS_MAESTROS: ModuloMaestros[] = [
     maestros: [
       {id: "TBL_MANTENIMIENTO_EQUIPOS", nombre: "Fichas base de equipos",
         tipo: "coleccion", clave: ["codigo"],
-        omitir: ["centroDocId", "serie", "factura"]},
+        omitir: ["centroDocId", "serie", "factura", "inventario", "existencias", "cantidadInicial",
+          "proveedorId", "proveedorNombre", "fechaCompra", "fechaIngreso", "archivos", "creadoPor", "solicitudId"]},
+      {id: "TBL_MANTENIMIENTO_MINIMOS", nombre: "Mínimos por establecimiento",
+        tipo: "coleccion", clave: ["centroDocId"], soloSi: "centroDocId",
+        omitir: ["validadoPor", "validadoAt", "responsableId", "coordinadorId", "ppl"]},
     ],
   },
   {

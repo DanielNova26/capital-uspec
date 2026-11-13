@@ -417,6 +417,7 @@ class OrdenMantenimientoForm extends StatefulWidget {
     this.vistaWeb = false,
     this.orden,
     this.tarea,
+    this.tareasAdicionales = const [],
     this.alCrearDesdeTarea,
   });
 
@@ -427,6 +428,7 @@ class OrdenMantenimientoForm extends StatefulWidget {
   final bool vistaWeb;
   final OrdenMantenimiento? orden;
   final TareaMantenimiento? tarea;
+  final List<TareaMantenimiento> tareasAdicionales;
   final ValueChanged<String>? alCrearDesdeTarea;
 
   @override
@@ -439,7 +441,9 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
   late String _equipoId = widget.equipoId ?? '';
   late String _subcentroId =
       widget.orden?.subcentroId ??
-      (widget.centroId == null ? '' : widget.tarea?.subcentroId ?? '');
+      (widget.centroId == null || widget.tareasAdicionales.isNotEmpty
+          ? ''
+          : widget.tarea?.subcentroId ?? '');
   late TipoMantenimiento _tipo =
       widget.orden?.tipo ?? TipoMantenimiento.correctivo;
   late IntervencionMantenimiento _intervencion =
@@ -465,12 +469,13 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
   String _fechaHallazgo = '', _limiteHallazgo = '', _descripcionHallazgo = '';
   String _textoVinculado = '';
   late String _factura = widget.orden?.factura ?? '';
+  late String _actividades = widget.orden?.actividades ?? '';
 
   @override
   BorradorMantenimiento get almacenBorrador => _almacenBorrador;
   late final _almacenBorrador = BorradorMantenimiento(
     widget.service.empresaId,
-    'apertura-${widget.orden?.id ?? widget.tarea?.id ?? 'nueva'}',
+    'apertura-${widget.orden?.id ?? [widget.tarea?.id ?? 'nueva', ...widget.tareasAdicionales.map((t) => t.id)].join('-')}',
   );
 
   @override
@@ -484,6 +489,7 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
     'titulo': _titulo.text,
     'detalle': _detalle.text,
     'factura': _factura,
+    'actividades': _actividades,
     'hallazgoId': _hallazgo?.id,
     'hallazgoManual': _hallazgoManual,
     'entidad': _entidad,
@@ -512,13 +518,15 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
         : centro?.id;
     _equipoId =
         widget.equipos.any(
-          (e) => e.id == data['equipoId'] && e.centroDocId == _centroId,
+          (e) =>
+              e.id == data['equipoId'] && e.existencias.containsKey(_centroId),
         )
         ? data['equipoId'] as String
         : '';
     final subcentroId = data['subcentroId'] as String? ?? '';
     _subcentroId =
-        widget.tarea != null &&
+        widget.tareasAdicionales.isEmpty &&
+            widget.tarea != null &&
             widget.centroId != null &&
             widget.tarea!.subcentroId.isNotEmpty
         ? widget.tarea!.subcentroId
@@ -535,6 +543,7 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
     _titulo.text = data['titulo'] as String;
     _detalle.text = data['detalle'] as String;
     _factura = data['factura'] as String;
+    _actividades = data['actividades'] as String? ?? '';
     _hallazgoManual = data['hallazgoManual'] == true;
     _entidad = data['entidad'] as String;
     _fechaHallazgo = data['fecha'] as String;
@@ -626,6 +635,8 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
         detalle: detalle,
         factura: _factura.trim(),
         tareaId: widget.tarea?.id ?? '',
+        actividades: _actividades.trim(),
+        tareasAdicionales: widget.tareasAdicionales.map((t) => t.id).toList(),
         hallazgoExterno: _hallazgoManual
             ? {
                 'entidad': _entidad,
@@ -656,6 +667,7 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
         titulo: titulo,
         detalle: detalle,
         factura: _factura.trim(),
+        actividades: _actividades.trim(),
       );
     }
     await completarBorrador();
@@ -693,7 +705,10 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
     final subcentros = centro?.centro.subcentrosActivos ?? [];
     final tarea = widget.tarea;
     final sedeFija = tarea != null && widget.centroId != null;
-    final estructuraFija = sedeFija && tarea.subcentroId.isNotEmpty;
+    final estructuraFija =
+        sedeFija &&
+        widget.tareasAdicionales.isEmpty &&
+        tarea.subcentroId.isNotEmpty;
     return EditorMantenimiento(
       key: ValueKey(revisionBorrador),
       titulo: orden == null
@@ -755,7 +770,10 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
                     ? tarea.subcentroId
                     : tarea.subcentroNombre,
               ),
-            if (orden == null && !estructuraFija && subcentros.isNotEmpty)
+            if (orden == null &&
+                !estructuraFija &&
+                widget.tareasAdicionales.isEmpty &&
+                subcentros.isNotEmpty)
               DropdownButtonFormField<String>(
                 key: ValueKey((centro?.id, _subcentroId)),
                 initialValue: _subcentroId,
@@ -790,7 +808,7 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
                 items: [
                   opcionMantenimiento('', 'Intervención del establecimiento'),
                   for (final equipo in widget.equipos.where(
-                    (e) => e.centroDocId == _centroId,
+                    (e) => e.existencias.containsKey(_centroId),
                   ))
                     opcionMantenimiento(
                       equipo.id,
@@ -823,20 +841,29 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
               lineas: 3,
               requerido: true,
             ),
+            campoMantenimiento(
+              'Actividades a realizar',
+              1200,
+              lineas: 3,
+              initialValue: _actividades,
+              onChanged: (v) => _actividades = v,
+            ),
           ],
         ),
       ],
       soportes: [
         if (tarea != null)
           _SeccionOrdenForm(
-            titulo: 'Tarea de origen',
+            titulo: 'Tareas de origen',
             icono: Icons.link_outlined,
             campos: [
-              Text(
-                '${tarea.origen.label}${tarea.numero == null ? '' : ' · Tarea ${tarea.numero}'}',
-              ),
-              Text(tarea.titulo),
-              if (tarea.responsable.isNotEmpty) Text(tarea.responsable),
+              for (final t in [tarea, ...widget.tareasAdicionales]) ...[
+                Text(
+                  '${t.origen.label}${t.numero == null ? '' : ' · Tarea ${t.numero}'}',
+                ),
+                Text(t.titulo),
+                if (t.responsable.isNotEmpty) Text(t.responsable),
+              ],
             ],
           )
         else if (orden == null)

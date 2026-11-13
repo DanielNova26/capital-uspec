@@ -1,5 +1,38 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-13 — Inventario y órdenes agrupadas de Mantenimiento (Codex)
+
+- Equipos permite registrar un rótulo individual o un lote en la bodega
+  temporal, seleccionar un proveedor activo de Compras y adjuntar la ficha
+  técnica y la imagen. La consulta muestra los saldos por ubicación.
+  Traslados y bajas se registran por movimiento, con reintentos idempotentes,
+  evidencias cifradas y acta PDF de traslado. Las fichas históricas ubicadas
+  representan una unidad y las fichas base copiadas se pueden ingresar al
+  inventario sin duplicar el rótulo.
+- Mínimos por sede usa los rangos de 1 a 10.000 PPL del Anexo 5, tabla de
+  la versión 02. El gestor asigna al responsable de validar y al coordinador.
+  El responsable confirma cantidades según infraestructura y preparaciones,
+  incluida la discrepancia sobre hidrolavadoras. Una baja de un tipo
+  obligatorio con mínimo validado genera una tarea de reemplazo para el
+  coordinador. Los mínimos copiados requieren PPL y validación local.
+- La bandeja muestra Interventoría, Visitas, Manual e Inventario. Admite
+  hasta 20 tareas de una misma sede por orden, conserva el vínculo con
+  cada una y permite consultar la orden desde cualquiera de ellas.
+- El informe PDF se puede ver y compartir. Las órdenes cerradas se pueden
+  enviar a un listado activo desde Admin › WhatsApp cuando Mantenimiento
+  está habilitado en WhatsApp Cloud. El envío directo depende de la ventana
+  de conversación de Meta y el archivo admite hasta 5 MB. Las evidencias de
+  inventario admiten hasta 5 MB por archivo. Quedan pendientes el envío a
+  destinatarios reales y la prueba de cámara, archivos, navegación y
+  accesibilidad en teléfonos físicos Android e iOS.
+- Se comprobaron 58 pruebas Flutter y 8 de Firestore y Storage, incluidas
+  Web a 390, 768, 1024 y 1366 píxeles con texto al 160 %, Android e iOS
+  simulados, concurrencia de traslados, inventario por empresa secundaria y
+  enlace de varias tareas a una orden.
+- Web 2.8.36+90 en Firebase Hosting. Se desplegaron las funciones de
+  Mantenimiento, copia de maestros y administración de listados WhatsApp.
+  Firestore ejecuta las reglas verificadas del mismo cambio.
+
 ## 2026-11-12 — Entrega 2.8.35+89 para tiendas y pruebas Web (Codex)
 
 - El código de la compilación 89 está en `main`, commit `48f6c03`.

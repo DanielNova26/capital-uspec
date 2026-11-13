@@ -9,10 +9,12 @@ import {
   fechaLimiteTarea, listarTareasMantenimiento, tareaParaMantenimiento,
 } from "./mantenimiento_tareas";
 import {numeroDeTarea} from "./tareas_numero";
+import {enviarPdfWhatsApp, listadosPdfWhatsApp} from "./whatsapp";
 
 type Data = FirebaseFirestore.DocumentData;
 type Tx = FirebaseFirestore.Transaction;
-const appId = "mantenimientodashboard";
+export const appIdMantenimiento = "mantenimientodashboard";
+const appId = appIdMantenimiento;
 const ordenes = "TBL_MANTENIMIENTO_ORDENES";
 const privados = "TBL_MANTENIMIENTO_ARCHIVOS";
 const limiteArchivo = 5 * 1024 * 1024;
@@ -27,22 +29,25 @@ const tiposArchivo = {
 function error(code: functions.https.FunctionsErrorCode, message: string): never {
   throw new functions.https.HttpsError(code, message);
 }
+export {error as errorMantenimiento};
 
-function texto(value: unknown, max: number, label: string, required = false): string {
+export function textoMantenimiento(value: unknown, max: number, label: string, required = false): string {
   const result = typeof value === "string" ? value.trim() : "";
   if (result.length > max || (required && !result)) {
     error("invalid-argument", `Revisa el campo «${label}».`);
   }
   return result;
 }
+const texto = textoMantenimiento;
 
-function id(value: unknown, label: string, required = true): string {
+export function idMantenimiento(value: unknown, label: string, required = true): string {
   const result = texto(value, 200, label, required);
   if (result.includes("/") || result === "." || result === "..") {
     error("invalid-argument", `Identificador inválido de ${label}.`);
   }
   return result;
 }
+const id = idMantenimiento;
 
 export function operaOrdenMantenimiento(
   usuario: Data | undefined, acceso: Data | undefined, app: Data | undefined,
@@ -90,6 +95,7 @@ function datosTrabajo(input: Data) {
     titulo: texto(input.titulo, 120, "título", true),
     detalle: texto(input.detalle, 1200, "diagnóstico", true),
     factura: texto(input.factura, 160, "factura"),
+    ...(input.actividades == null ? {} : {actividades: texto(input.actividades, 1200, "actividades previstas")}),
   };
 }
 
@@ -172,15 +178,25 @@ export const mantenimientoOrden = functions.region("us-central1").https.onCall(a
       error("permission-denied", "No tienes acceso a Mantenimiento en esta empresa.");
     }
   };
-  if (accion === "tareas" || (accion === "crear" && input.tareaId)) {
+  if (accion === "tareas" || accion === "listadosPdf" ||
+      (accion === "crear" && (input.tareaId || input.tareaIds))) {
     const [usuario, acceso, app] = await db.getAll(usuarioRef, accesoRef, appRef);
     autorizar(usuario.data(), acceso.data(), app.data());
     if (accion === "tareas") return {tareas: await listarTareasMantenimiento(db, empresaId)};
+    if (accion === "listadosPdf") return listadosPdfWhatsApp(empresaId, appId);
+  }
+  const adicionales: unknown = accion === "crear" ? input.tareaIds ?? [] : [];
+  if (!Array.isArray(adicionales) || adicionales.length > 19) {
+    error("invalid-argument", "Puedes procesar hasta 20 tareas en una orden.");
   }
   const tareaId = accion === "crear" ? id(input.tareaId, "tarea", false) : "";
+  if (!tareaId && adicionales.length) error("invalid-argument", "Selecciona la primera tarea.");
+  const tareaIds = [...new Set([tareaId, ...adicionales.map((v) => id(v, "tarea"))].filter(Boolean))];
   const solicitudId = accion === "crear" ? id(input.ordenId, "solicitud") : "";
+  const claveTarea = (valor: string) =>
+    "tarea_" + createHash("sha256").update(JSON.stringify([empresaId, valor])).digest("hex");
   const ordenId = tareaId
-    ? "tarea_" + createHash("sha256").update(JSON.stringify([empresaId, tareaId])).digest("hex")
+    ? claveTarea(tareaId)
     : id(input.ordenId, "orden");
   const ref = coleccion.doc(ordenId);
 
@@ -192,6 +208,20 @@ export const mantenimientoOrden = functions.region("us-central1").https.onCall(a
       error("not-found", "La orden no está disponible.");
     }
     return data;
+  }
+
+  if (accion === "enviarPdf") {
+    const orden = await db.runTransaction(async (tx) => (await leer(tx))!, {readOnly: true});
+    if (orden.estado !== "cerrada") error("failed-precondition", "Cierra la orden antes de enviar el informe.");
+    const listadoId = id(input.listadoId, "listado de WhatsApp");
+    const {bytes} = await validarArchivo({
+      clase: "recibo", mime: "application/pdf", nombre: "orden.pdf", base64: input.base64,
+    });
+    return enviarPdfWhatsApp({
+      empresaId, moduleId: appId, listadoId, actorId: userId, bytes,
+      nombre: `orden_${orden.numero ?? ref.id}.pdf`, mensaje: `Informe de orden de trabajo ${orden.numero ?? ref.id}`,
+      historial: ref.collection("enviosPdf"),
+    });
   }
 
   if (accion === "crear") {
@@ -206,8 +236,24 @@ export const mantenimientoOrden = functions.region("us-central1").https.onCall(a
     const catalogo = tareaId ? await catalogoTareasMantenimiento(db, empresaId) : null;
     return db.runTransaction(async (tx) => {
       const existente = await leer(tx);
+      const refsTareas = tareaIds.map((valor) => coleccion.doc(claveTarea(valor)));
+      const refsVinculos = refsTareas.map((t) => t.collection("vinculos").doc("orden"));
+      const vinculos = refsVinculos.length ? await tx.getAll(...refsVinculos) : [];
+      const vinculada = vinculos[0]?.data();
+      if (vinculada) {
+        const original = (await tx.get(coleccion.doc(vinculada.ordenId))).data();
+        if (original?.empresaId !== empresaId ||
+            (tareaIds.length > 1 && JSON.stringify(original.tareaIds) !== JSON.stringify(tareaIds))) {
+          error("already-exists", "Una tarea ya tiene orden. Actualiza la bandeja.");
+        }
+        return {
+          numero: original.numero, ordenId: vinculada.ordenId, existente: true,
+          mismaSolicitud: original.creadaPor === userId && original.solicitudId === solicitudId,
+        };
+      }
       if (existente) {
         if (tareaId && existente.tareaId === tareaId) {
+          if (tareaIds.length > 1) error("already-exists", "La primera tarea ya tiene una orden.");
           return {
             numero: existente.numero, ordenId, existente: true,
             mismaSolicitud: existente.creadaPor === userId && existente.solicitudId === solicitudId,
@@ -220,8 +266,32 @@ export const mantenimientoOrden = functions.region("us-central1").https.onCall(a
       let origenTarea: string | null = null;
       let referenciaTarea: Data | null = null;
       let estructuraTarea: {subcentroId: string; subcentroNombre: string} | null = null;
+      const tareasOrigen: Data[] = [];
       if (catalogo) {
-        const tarea = (await tx.get(db.collection("TBL_TAREAS").doc(tareaId))).data();
+        if (vinculos.some((v) => v.exists) ||
+            (refsTareas.length > 1 && (await tx.getAll(...refsTareas.slice(1))).some((v) => v.exists))) {
+          error("already-exists", "Una tarea ya tiene orden. Actualiza la bandeja.");
+        }
+        const documentos = await tx.getAll(...tareaIds.map((valor) => db.collection("TBL_TAREAS").doc(valor)));
+        for (const doc of documentos) {
+          const datos = doc.data();
+          const origen = datos && tareaParaMantenimiento(datos, catalogo);
+          if (!datos || !origen) error("failed-precondition", "Una tarea ya no está pendiente en Mantenimiento.");
+          if (tareaIds.length > 1 && centroTareaMantenimiento(datos, catalogo.centros)?.id !== centroDocId) {
+            error("invalid-argument", "Las tareas seleccionadas deben pertenecer al mismo establecimiento.");
+          }
+          tareasOrigen.push({
+            id: doc.id, origen: origen.origen, estado: origen.estado,
+            numero: numeroDeTarea(datos), fechaLimite: fechaLimiteTarea(datos), centroDocId,
+            titulo: String(datos.titulo ?? datos.title ?? "").slice(0, 120),
+            descripcion: String(datos.descripcion ?? datos.description ?? "").slice(0, 1200),
+            responsable: String(datos.asignado_nombre ?? datos.assignedToName ?? "").slice(0, 120),
+            subcentroId: String(datos.subcentroId ?? "").slice(0, 200),
+            subcentroNombre: String(datos.subcentroNombre ?? "").slice(0, 200),
+            hallazgoId: String(datos.hallazgoId ?? "").slice(0, 200),
+          });
+        }
+        const tarea = documentos[0].data();
         const origen = tarea ? tareaParaMantenimiento(tarea, catalogo) : null;
         if (!tarea || !origen) {
           error("failed-precondition", "La tarea ya no está pendiente en Mantenimiento de esta empresa.");
@@ -233,7 +303,7 @@ export const mantenimientoOrden = functions.region("us-central1").https.onCall(a
             error("invalid-argument", "El establecimiento debe coincidir con el de la tarea.");
           }
         }
-        if (centroTarea?.id === centroDocId && tarea.subcentroId) {
+        if (tareaIds.length === 1 && centroTarea?.id === centroDocId && tarea.subcentroId) {
           if (tarea.subcentroId !== subcentroId) {
             error("invalid-argument", "La estructura debe coincidir con la de la tarea.");
           }
@@ -260,7 +330,9 @@ export const mantenimientoOrden = functions.region("us-central1").https.onCall(a
       if (!centro || centro.empresaId !== empresaId || centro.enabled === false) {
         error("invalid-argument", "El establecimiento no está activo en esta empresa.");
       }
-      if (equipoId && (equipo?.data()?.empresaId !== empresaId || equipo.data()?.centroDocId !== centroDocId)) {
+      const fichaEquipo = equipo?.data();
+      if (equipoId && (fichaEquipo?.empresaId !== empresaId || (fichaEquipo.inventario === true
+        ? !(fichaEquipo.existencias?.[centroDocId] > 0) : fichaEquipo.centroDocId !== centroDocId))) {
         error("invalid-argument", "El equipo no pertenece al establecimiento.");
       }
       if (hallazgoId) {
@@ -279,11 +351,12 @@ export const mantenimientoOrden = functions.region("us-central1").https.onCall(a
       const numero = (secuencia.data()?.ultimo ?? 0) + 1;
       if (!Number.isSafeInteger(numero) || numero <= 0) error("internal", "Consecutivo inválido.");
       tx.set(contador, {ultimo: numero});
+      refsVinculos.forEach((vinculo) => tx.create(vinculo, {ordenId}));
       tx.create(ref, {
         ...trabajo, ...(estructuraTarea ?? subcentroDe(centro, subcentroId)),
         empresaId, centroDocId, equipoId, hallazgoId,
         hallazgoExterno: externo,
-        ...(tareaId ? {tareaId, origenTarea, solicitudId, ...referenciaTarea} : {}),
+        ...(tareaId ? {tareaId, tareaIds, tareasOrigen, origenTarea, solicitudId, ...referenciaTarea} : {}),
         esquema: 2, numero, creadaPor: userId, estado: "abierta", resultado: "", cerradaAt: null,
         createdAt: fecha, updatedAt: fecha,
       });

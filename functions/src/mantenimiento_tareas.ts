@@ -19,11 +19,14 @@ function clave(value: unknown): string {
     .replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 }
 
-export function origenTareaMantenimiento(data: Data): "interventoria" | "visitas" | "manual" | null {
+export function origenTareaMantenimiento(data: Data): "interventoria" | "visitas" | "inventario" | "manual" | null {
   const modulo = clave(texto(data.source?.moduleId, data.sourceModule, data.destinoModulo, data.module, data.origen));
   const tipo = clave(texto(data.source?.type, data.sourceType, data.origen));
   if (["interventoria", "interventoriadashboard"].includes(modulo)) return "interventoria";
   if (["visita", "visitas", "visitasdashboard"].includes(modulo)) return "visitas";
+  if (["mantenimientodashboard", "mantenimiento"].includes(modulo) && tipo === "inventario") {
+    return "inventario";
+  }
   if (["tareas", "tareasdashboard", "manual", ""].includes(modulo)) {
     if (data.hallazgoId || tipo === "interventoria") return "interventoria";
     if (data.visitaItemId || ["visita", "visitas"].includes(tipo)) return "visitas";

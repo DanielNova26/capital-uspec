@@ -11,6 +11,7 @@ import 'package:image/image.dart' as img;
 import 'package:todo/interventoria/interventoria_models.dart';
 import 'package:todo/mantenimiento/mantenimiento_report.dart';
 import 'package:todo/mantenimiento/mantenimiento_forms.dart';
+import 'package:todo/mantenimiento/mantenimiento_inventario.dart';
 import 'package:todo/mantenimiento/mantenimiento_screen.dart';
 import 'package:todo/mantenimiento/mantenimiento_service.dart';
 
@@ -78,6 +79,7 @@ class _ServicioPrueba implements MantenimientoService {
   String? vinculoGuardado;
   String? detalleGuardado;
   String? tareaGuardada, centroGuardado;
+  List<String> tareasAgrupadas = [];
   CierreMantenimiento? cierreGuardado;
   bool? cerrada;
 
@@ -95,10 +97,13 @@ class _ServicioPrueba implements MantenimientoService {
     required String factura,
     Map<String, String>? hallazgoExterno,
     String tareaId = '',
+    List<String> tareasAdicionales = const [],
+    String? actividades,
   }) async {
     vinculoGuardado = hallazgoId;
     detalleGuardado = detalle;
     tareaGuardada = tareaId;
+    tareasAgrupadas = [tareaId, ...tareasAdicionales];
     centroGuardado = centroDocId;
     return (id: ordenId, existente: false, mismaSolicitud: false);
   }
@@ -134,6 +139,7 @@ class _ServicioPrueba implements MantenimientoService {
     required String titulo,
     required String detalle,
     required String factura,
+    String? actividades,
   }) async {}
 
   @override
@@ -353,6 +359,61 @@ void main() {
         expect(tester.takeException(), isNull);
       },
     );
+  }
+
+  testWidgets(
+    'Procesa juntas una visita y una tarea de interventoría de la misma sede',
+    (tester) async {
+      final servicio = _ServicioPrueba();
+      await _abrirModulo(tester, servicio, ancho: 1366);
+      await tester.tap(find.text('Pendientes').hitTestable().first);
+      await tester.pumpAndSettle();
+      final agregar = find.byTooltip('Agregar a la selección');
+      expect(agregar, findsNWidgets(2));
+      await tester.tap(agregar.first);
+      await tester.pumpAndSettle();
+      await tester.tap(agregar.first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Procesar 2'));
+      await tester.pumpAndSettle();
+      expect(find.text('Tareas de origen'), findsOneWidget);
+      await tester.tap(find.text('Guardar').hitTestable());
+      await tester.pumpAndSettle();
+      expect(servicio.tareasAgrupadas, containsAll(['i', 'v']));
+    },
+  );
+
+  for (final (ancho, plataforma) in [
+    (390.0, null),
+    (768.0, null),
+    (1024.0, null),
+    (1366.0, null),
+    (390.0, TargetPlatform.android),
+    (390.0, TargetPlatform.iOS),
+  ]) {
+    testWidgets('Inventario adaptable a $ancho en ${plataforma ?? 'Web'}', (
+      tester,
+    ) async {
+      final servicio = _ServicioPrueba();
+      await _abrirModulo(
+        tester,
+        servicio,
+        ancho: ancho,
+        web: plataforma == null,
+        platform: plataforma ?? TargetPlatform.android,
+      );
+      if (plataforma != null) {
+        await tester.tap(find.byTooltip('Secciones de Mantenimiento'));
+        await tester.pumpAndSettle();
+      }
+      await tester.tap(find.text('Equipos').hitTestable().first);
+      await tester.pumpAndSettle();
+      expect(find.byType(InventarioMantenimiento), findsOneWidget);
+      await _desplazarHasta(tester, find.text('Nevera industrial'));
+      expect(find.text('Nevera industrial'), findsOneWidget);
+      expect(find.byType(Table), ancho >= 1024 ? findsOneWidget : findsNothing);
+      expect(tester.takeException(), isNull);
+    });
   }
 
   testWidgets('Una tarea manual sin sede exige elegir un establecimiento', (

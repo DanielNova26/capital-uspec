@@ -287,3 +287,95 @@ test("la bandeja reúne los tres orígenes y enlaza cada tarea a una sola orden"
   const visita = await call("crear", {...datos, tareaId: "v"});
   assert.equal((await dbAdmin.doc(`${ordenes}/${visita.ordenId}`).get()).data().origenTarea, "visitas");
 });
+
+test("varias tareas de una sede comparten una sola orden sin duplicación", async () => {
+  const datos = {empresaId: "A", areaId: "area-m", estado: "pendiente", centroId: "sede-A", titulo: "Trabajo"};
+  await sembrar({
+    "TBL_TAREAS/grupo-i": {...datos, sourceModule: "interventoria", subcentroId: "rancho"},
+    "TBL_TAREAS/grupo-v": {...datos, sourceModule: "visitas"},
+    "TBL_TAREAS/grupo-otro": {...datos, centroId: "otra-sede-A"},
+  });
+  const call = (data) => mantenimientoOrden.run({
+    empresaId: "A", accion: "crear", ordenId: "grupo", tipo: "correctivo", intervencion: "otros",
+    titulo: "Orden agrupada", detalle: "Trabajos de la sede", centroDocId: "centro-A",
+    tareaId: "grupo-i", ...data,
+  }, {auth: {uid: "operario", token: {authVersion: 2, userDocId: "operario"}}});
+  await assert.rejects(call({tareaIds: ["grupo-otro"]}), {code: "invalid-argument"});
+  const primera = await call({tareaIds: ["grupo-v"]});
+  const agrupada = (await dbAdmin.doc(`${ordenes}/${primera.ordenId}`).get()).data();
+  assert.deepEqual(agrupada.tareaIds, ["grupo-i", "grupo-v"]);
+  assert.equal(agrupada.tareasOrigen[0].subcentroId, "rancho");
+  const [reintento, segunda] = await Promise.all([
+    call({tareaIds: ["grupo-v"]}),
+    call({tareaId: "grupo-v", ordenId: "individual"}),
+  ]);
+  assert.equal(reintento.mismaSolicitud, true);
+  assert.equal(segunda.ordenId, primera.ordenId);
+  await assert.rejects(call({tareaId: "grupo-v", tareaIds: ["grupo-otro"]}), {code: "already-exists"});
+});
+
+test("alta en temporal, traslado parcial y baja obligatoria quedan registrados una vez", {
+  skip: !process.env.FIREBASE_STORAGE_EMULATOR_HOST,
+}, async () => {
+  const {PDFDocument} = require("pdf-lib");
+  const {mantenimientoInventario} = require("../lib/mantenimiento_inventario");
+  const {minimosAnexo} = require("../lib/mantenimiento_anexo");
+  assert.equal(minimosAnexo(1000)[0], 10);
+  assert.equal(minimosAnexo(1001)[0], 12);
+  assert.equal(minimosAnexo(10001).length, 0);
+
+  const call = (accion, input = {}, userDocId = "operario") => mantenimientoInventario.run(
+    {empresaId: "A", accion, ...input},
+    {auth: {uid: userDocId, token: {authVersion: 2, userDocId}}},
+  );
+  await sembrar({
+    [`${accesos}/A_operario`]: {empresaId: "A", userId: "operario", operador: true, gestor: true},
+    "TBL_COMPRAS_PROVEEDORES/pa": {empresaId: "A", razonSocial: "Proveedor A"},
+    "TBL_COMPRAS_PROVEEDORES/pb": {empresaId: "B", razonSocial: "Proveedor B"},
+    "TBL_CENTROS_COSTOS/centro-A": {empresaId: "A", centroId: "sede-A", nombre: "Establecimiento A"},
+  });
+  const catalogo = await call("catalogos");
+  assert.deepEqual(catalogo.proveedores.map((p) => p.id), ["pa"]);
+  await assert.rejects(call("catalogos", {empresaId: "B"}), {code: "permission-denied"});
+  const pdf = await PDFDocument.create();
+  pdf.addPage();
+  const base64 = Buffer.from(await pdf.save()).toString("base64");
+  const foto = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aT2QAAAAASUVORK5CYII=";
+  await call("subirArchivo", {clase: "ficha", mime: "application/pdf", nombre: "ficha.pdf", archivoId: "ficha", base64});
+  await call("subirArchivo", {clase: "foto", mime: "image/png", nombre: "baja.png", archivoId: "evidencia", base64: foto});
+  const datos = {codigo: "LOTE-50", nombre: "Marmitas", categoria: "equipo", propiedad: "propio",
+    familia: "anexo_2", grupo: true, cantidad: 50, fechaIngreso: "2026-11-13", archivos: ["ficha"],
+    solicitudId: "alta"};
+  await assert.rejects(call("alta", {...datos, proveedorId: "pb"}), {code: "invalid-argument"});
+  const alta = await call("alta", {...datos, proveedorId: "pa"});
+  assert.deepEqual(await call("alta", {...datos, proveedorId: "pa"}), alta);
+  const equipoId = alta.id;
+  const ref = dbAdmin.doc(`${equipos}/${equipoId}`);
+  assert.deepEqual((await ref.get()).data().existencias, {_bodega_temporal: 50});
+  await assertFails(updateDoc(doc(cuenta("operario"), ref.path), {centroDocId: "centro-A", updatedAt: serverTimestamp()}));
+  const plan = {centroDocId: "centro-A", ppl: 2300, cantidades: {anexo_2: 4},
+    responsableId: "operario", coordinadorId: "operario", validar: true};
+  await call("minimos", plan);
+  await assertFails(getDoc(doc(cuenta("operario"), "TBL_MANTENIMIENTO_MINIMOS/A_centro-A")));
+  const traslado = {equipoId, origen: "_bodega_temporal", destino: "centro-A",
+    cantidad: 5, solicitudId: "traslado", entrega: "Bodega", recibe: "Establecimiento"};
+  await assert.rejects(call("traslado", {...traslado, destino: "centro-B"}), {code: "invalid-argument"});
+  const movimientos = await Promise.all([call("traslado", traslado), call("traslado", traslado)]);
+  assert.deepEqual(movimientos[0], movimientos[1]);
+  assert.deepEqual((await ref.get()).data().existencias, {_bodega_temporal: 45, "centro-A": 5});
+  await assert.rejects(call("baja", {equipoId, origen: "centro-A", cantidad: 1, observaciones: "Daño",
+    solicitudId: "sin-evidencia"}), {code: "invalid-argument"});
+  const baja = {equipoId, origen: "centro-A", cantidad: 5, observaciones: "Daño",
+    solicitudId: "baja", archivos: ["evidencia"]};
+  const reemplazo = await call("baja", baja);
+  assert.ok(reemplazo.tareaId);
+  assert.deepEqual(await call("baja", baja), reemplazo);
+  assert.deepEqual((await ref.get()).data().existencias, {_bodega_temporal: 45});
+  assert.equal((await dbAdmin.doc(`TBL_TAREAS/${reemplazo.tareaId}`).get()).get("asignado_uid"), "operario");
+  assert.equal((await call("historial", {equipoId})).movimientos.length, 2);
+  assert.deepEqual(await call("leerArchivo", {archivoId: "evidencia"}), {base64: foto});
+  await assertFails(getDoc(doc(cuenta("operario"), `${ref.path}/movimientos/baja`)));
+  const tareas = await mantenimientoOrden.run({empresaId: "A", accion: "tareas"},
+    {auth: {uid: "operario", token: {authVersion: 2, userDocId: "operario"}}});
+  assert.ok(tareas.tareas.some((t) => t.id === reemplazo.tareaId && t.origen === "inventario"));
+});

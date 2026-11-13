@@ -87,6 +87,7 @@ const kModulosMaestros = <ModuloMaestrosInfo>[
     color: Color(0xFF0E7490),
     maestros: [
       MaestroInfo('TBL_MANTENIMIENTO_EQUIPOS', 'Fichas base de equipos'),
+      MaestroInfo('TBL_MANTENIMIENTO_MINIMOS', 'Mínimos por establecimiento'),
     ],
   ),
   ModuloMaestrosInfo(

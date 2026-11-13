@@ -32,6 +32,8 @@ exports.sendWhatsAppRoute = sendWhatsAppRoute;
 exports.sendWhatsAppDirect = sendWhatsAppDirect;
 exports.adminControlledTestMetadata = adminControlledTestMetadata;
 exports.normalizeStoredRecipients = normalizeStoredRecipients;
+exports.listadosPdfWhatsApp = listadosPdfWhatsApp;
+exports.enviarPdfWhatsApp = enviarPdfWhatsApp;
 /**
  * Servicio central de WhatsApp.
  *
@@ -59,6 +61,7 @@ const SUPPORTED_LIST_MODULES = new Set([
     "planillas_pago",
     "interventoria",
     "facturacion",
+    "mantenimientodashboard",
 ]);
 const SUPPORTED_ROUTES = new Map([
     [PURCHASE_NEW_SUPPLIER_ROUTE, "compras"],
@@ -500,6 +503,7 @@ function envConfig(empresaId) {
             planillas_pago: false,
             interventoria: false,
             facturacion: true,
+            mantenimientodashboard: false,
         },
         routes: {},
         branding: { showEmoji: true, showCompanyName: false },
@@ -518,6 +522,7 @@ function normalizedModuleSwitches(value) {
         planillas_pago: modules.planillas_pago === true,
         interventoria: modules.interventoria === true,
         facturacion: modules.facturacion !== false,
+        mantenimientodashboard: modules.mantenimientodashboard === true,
     };
 }
 async function loadRuntimeConfig(empresaId) {
@@ -693,6 +698,27 @@ class WhatsAppCloudProvider {
         this.config = config;
         this.name = "whatsapp_cloud";
     }
+    async subirPdf(bytes, nombre) {
+        const url = new URL(this.config.baseUrl);
+        if (url.origin !== "https://graph.facebook.com" || !/\/messages\/?$/.test(url.pathname)) {
+            throw new Error("WHATSAPP_CLOUD_MEDIA_URL_INVALID");
+        }
+        url.pathname = url.pathname.replace(/\/messages\/?$/, "/media");
+        const datos = new FormData();
+        datos.set("messaging_product", "whatsapp");
+        datos.set("type", "application/pdf");
+        datos.set("file", new Blob([Uint8Array.from(bytes)], { type: "application/pdf" }), nombre);
+        const respuesta = await fetch(url, {
+            method: "POST", headers: { Authorization: `Bearer ${this.config.apiKey}` },
+            body: datos, signal: AbortSignal.timeout(20000),
+        });
+        if (!respuesta.ok)
+            throw new Error(`WHATSAPP_CLOUD_MEDIA_${respuesta.status}`);
+        const archivo = await respuesta.json();
+        if (!archivo.id)
+            throw new Error("WHATSAPP_CLOUD_MEDIA_ID_MISSING");
+        return archivo.id;
+    }
     async send(input) {
         const destination = normalizePhone(input.telefono, this.config.defaultCountryCode);
         if (destination.length < 8 || destination.length > 15) {
@@ -717,7 +743,12 @@ class WhatsAppCloudProvider {
             : templateVariablesFromMetadata(input.metadata?.templateVariables, approvedTemplate?.variableOrder?.length
                 ? approvedTemplate.variableOrder
                 : definition?.placeholders || []);
-        const body = useTemplate
+        const body = input.documento ? {
+            messaging_product: "whatsapp",
+            to: destination,
+            type: "document",
+            document: { id: input.documento.id, filename: input.documento.nombre, caption: input.mensaje.trim() },
+        } : useTemplate
             ? {
                 messaging_product: "whatsapp",
                 to: destination,
@@ -743,6 +774,7 @@ class WhatsAppCloudProvider {
                 "Authorization": `Bearer ${this.config.apiKey}`,
             },
             body: JSON.stringify(body),
+            ...(input.documento ? { signal: AbortSignal.timeout(12000) } : {}),
         });
         const rawText = await response.text();
         if (!response.ok) {
@@ -782,6 +814,11 @@ class AuditedWhatsAppProvider {
             return Promise.resolve({ registered: true });
         }
         return this.delegate.checkRecipient(telefono);
+    }
+    async subirPdf(bytes, nombre) {
+        if (!this.delegate.subirPdf)
+            throw new Error("WHATSAPP_PDF_NO_SOPORTADO");
+        return this.delegate.subirPdf(bytes, nombre);
     }
     async send(input) {
         const destination = text(input.telefono).replace(/\D/g, "");
@@ -1325,6 +1362,9 @@ exports.whatsappAdminGuardar = functions
         throw new functions.https.HttpsError("invalid-argument", "La API key es obligatoria en la primera configuración.");
     }
     const modules = normalizedModuleSwitches(data?.modules);
+    if (!Object.prototype.hasOwnProperty.call(data?.modules ?? {}, "mantenimientodashboard")) {
+        modules.mantenimientodashboard = current.get("modules.mantenimientodashboard") === true;
+    }
     const brandingRaw = data?.branding &&
         typeof data.branding === "object" && !Array.isArray(data.branding)
         ? data.branding
@@ -1669,6 +1709,84 @@ function normalizedListModules(value) {
     return [
         ...new Set(value.map(normalize).filter((item) => SUPPORTED_LIST_MODULES.has(item))),
     ];
+}
+async function listadosPdfWhatsApp(empresaId, moduleId) {
+    const config = await loadRuntimeConfig(empresaId);
+    const cloud = isCloudProvider(config.provider) && config.enabled &&
+        config.modules[moduleId] === true && !!config.baseUrl && !!config.apiKey;
+    if (!cloud)
+        return { disponible: false, listados: [] };
+    const snap = await db().collection(LIST_COLLECTION).where("empresaId", "==", empresaId).get();
+    return { disponible: true, listados: snap.docs.flatMap((doc) => {
+            const destinatarios = destinatariosPdf(doc.data(), empresaId, moduleId, config.defaultCountryCode);
+            return destinatarios.length ? [{ id: doc.id, nombre: text(doc.get("nombre")), cantidad: destinatarios.length }] : [];
+        }) };
+}
+function destinatariosPdf(data, empresaId, moduleId, indicativo) {
+    const modulos = normalizedListModules(data.modulos);
+    if (data.empresaId !== empresaId || data.activo === false || (modulos.length && !modulos.includes(moduleId)))
+        return [];
+    return normalizedRecipients(data.destinatarios, indicativo).filter((d) => d.activo);
+}
+async function enviarPdfWhatsApp(input) {
+    const config = await loadRuntimeConfig(input.empresaId);
+    const doc = await db().collection(LIST_COLLECTION).doc(input.listadoId).get();
+    const personas = doc.exists ? destinatariosPdf(doc.data(), input.empresaId, input.moduleId, config.defaultCountryCode) : [];
+    if (!personas.length)
+        throw new functions.https.HttpsError("invalid-argument", "El listado ya no está disponible.");
+    const provider = await createWhatsAppProvider(input.empresaId, input.moduleId).catch(() => null);
+    if (!provider?.subirPdf || provider.name !== "whatsapp_cloud") {
+        throw new functions.https.HttpsError("failed-precondition", "Activa WhatsApp Cloud para Mantenimiento en Admin.");
+    }
+    const nombre = input.nombre;
+    const mediaId = await provider.subirPdf(input.bytes, nombre).catch(() => {
+        throw new functions.https.HttpsError("unavailable", "WhatsApp no pudo recibir el PDF.");
+    });
+    let enviados = 0;
+    let fallidos = 0;
+    let porConfirmar = 0;
+    for (let i = 0; i < personas.length; i += 15) {
+        await Promise.all(personas.slice(i, i + 15).map(async (persona) => {
+            const identidad = (0, crypto_1.createHash)("sha256").update(JSON.stringify([input.listadoId, persona.telefono])).digest("hex");
+            const ref = input.historial.doc(identidad);
+            const estado = await db().runTransaction(async (tx) => {
+                const previo = (await tx.get(ref)).get("estado");
+                if (previo === "enviado" || previo === "enviando")
+                    return previo;
+                tx.set(ref, { estado: "enviando", listadoId: input.listadoId, actorId: input.actorId,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+                return "nuevo";
+            });
+            if (estado === "enviado") {
+                enviados++;
+                return;
+            }
+            if (estado === "enviando") {
+                porConfirmar++;
+                return;
+            }
+            let resultado;
+            try {
+                resultado = await provider.send({
+                    telefono: persona.telefono, empresaId: input.empresaId, prioridad: "normal",
+                    mensaje: input.mensaje, documento: { id: mediaId, nombre },
+                });
+            }
+            catch (error) {
+                if (error instanceof Error && /^WHATSAPP_CLOUD_(400|401|403|404|429):/.test(error.message)) {
+                    await ref.update({ estado: "fallido" });
+                    fallidos++;
+                }
+                else {
+                    porConfirmar++;
+                }
+                return;
+            }
+            await ref.update({ estado: "enviado", providerMessageId: resultado.providerMessageId ?? null });
+            enviados++;
+        }));
+    }
+    return { enviados, fallidos, porConfirmar };
 }
 exports.whatsappAdminGuardarListado = functions
     .region(REGION)

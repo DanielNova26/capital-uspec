@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../core/subcentros_costo.dart';
 import '../interventoria/interventoria_models.dart'
@@ -8,6 +9,7 @@ import '../interventoria/interventoria_models.dart'
 import '../widgets/empresa_activa_chip.dart';
 import 'mantenimiento_archivos.dart';
 import 'mantenimiento_forms.dart';
+import 'mantenimiento_inventario.dart';
 import 'mantenimiento_report.dart';
 import 'mantenimiento_service.dart';
 import 'mantenimiento_tareas.dart';
@@ -31,6 +33,18 @@ enum _Seccion {
     'Equipos',
     Icons.inventory_2_outlined,
     'Registra equipos y consulta su hoja de vida.',
+    mantenimientoAcento,
+  ),
+  bajas(
+    'Bajas',
+    Icons.remove_circle_outline,
+    'Registra bajas de inventario.',
+    Color(0xFF9A4B0E),
+  ),
+  minimos(
+    'Mínimos por sede',
+    Icons.fact_check_outlined,
+    'Valida el Anexo 5 por establecimiento.',
     mantenimientoAcento,
   ),
   ordenes(
@@ -176,9 +190,33 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
           actualizar: () =>
               setState(() => _tareas = _service.tareasPendientes()),
           abrir: (tarea, orden) => _desdeTarea(tarea, orden, centros, equipos),
+          procesarVarias: (tareas) => _desdeTarea(
+            tareas.first,
+            null,
+            centros,
+            equipos,
+            adicionales: tareas.skip(1).toList(),
+          ),
           vistaWeb: widget.vistaWeb,
         ),
         _Seccion.informe => _informe(centros, equipos, ordenes),
+        _Seccion.equipos when widget._detalleId == null =>
+          InventarioMantenimiento(
+            key: const ValueKey(_Seccion.equipos),
+            service: _service,
+            equipos: equipos,
+            centros: centros,
+            vistaWeb: widget.vistaWeb,
+          ),
+        _Seccion.bajas || _Seccion.minimos => InventarioMantenimiento(
+          key: ValueKey(_seccion),
+          service: _service,
+          equipos: equipos,
+          centros: centros,
+          vistaWeb: widget.vistaWeb,
+          bajas: _seccion == _Seccion.bajas,
+          minimos: _seccion == _Seccion.minimos,
+        ),
         _ => _operacion(
           centros,
           equipos,
@@ -317,6 +355,8 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
         for (final seccion in [
           _Seccion.pendientes,
           _Seccion.equipos,
+          _Seccion.bajas,
+          _Seccion.minimos,
           _Seccion.ordenes,
           _Seccion.hojas,
           _Seccion.informe,
@@ -475,8 +515,9 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
     TareaMantenimiento tarea,
     OrdenMantenimiento? orden,
     List<EstablecimientoMantenimiento> centros,
-    List<EquipoMantenimiento> equipos,
-  ) {
+    List<EquipoMantenimiento> equipos, {
+    List<TareaMantenimiento> adicionales = const [],
+  }) {
     if (orden != null) {
       _abrirDetalleVivo(_Seccion.ordenes, orden.id);
       return;
@@ -502,6 +543,7 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
         equipos: equipos,
         centroId: asignado?.id,
         tarea: tarea,
+        tareasAdicionales: adicionales,
         vistaWeb: widget.vistaWeb,
         alCrearDesdeTarea: (id) {
           if (mounted) _abrirDetalleVivo(_Seccion.ordenes, id);
@@ -574,7 +616,9 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
         case _Seccion.hojas:
           final nombre = nombres[id];
           if (nombre == null) return null;
-          final ubicados = equipos.where((equipo) => equipo.centroDocId == id);
+          final ubicados = equipos.where(
+            (equipo) => equipo.existencias.containsKey(id),
+          );
           return [
             _titulo(nombre),
             if (disponibles.any((c) => c.id == id))
@@ -631,6 +675,8 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
               : _detalleOrden(orden, centros, nombres, inventario);
         case _Seccion.informe:
         case _Seccion.pendientes:
+        case _Seccion.bajas:
+        case _Seccion.minimos:
         case _Seccion.resumen:
           return null;
       }
@@ -887,9 +933,25 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
       ],
       ..._bloqueDetalle('Trabajo solicitado', [
         Text(orden.detalle),
-        if (orden.origenTarea case final origen?) ...[
+        if (orden.actividades.isNotEmpty) ...[
+          const Text(
+            'Actividades a realizar',
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
+          Text(orden.actividades),
+        ],
+        for (final tarea in orden.tareasOrigen) ...[
           Text(
-            'Tarea de origen: ${origen.label}${orden.numeroTarea == null ? '' : ' · ${orden.numeroTarea}'}',
+            '${tarea.numero ?? tarea.id} · ${tarea.origen.label} · ${tarea.titulo}',
+          ),
+          if (tarea.responsable.isNotEmpty) Text(tarea.responsable),
+          if (tarea.descripcion.isNotEmpty) Text(tarea.descripcion),
+          if (tarea.fechaLimite != null)
+            Text('Fecha límite ${_fecha(tarea.fechaLimite)}'),
+        ],
+        if (orden.tareasOrigen.isEmpty && orden.origenTarea != null) ...[
+          Text(
+            'Tarea de origen: ${orden.origenTarea!.label}${orden.numeroTarea == null ? '' : ' · ${orden.numeroTarea}'}',
           ),
           if (orden.responsableTarea.isNotEmpty)
             Text('Responsable de la tarea: ${orden.responsableTarea}'),
@@ -1192,14 +1254,19 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
             ? null
             : (archivo) => _service.leerArchivo(ordenIndividual.id, archivo.id),
       );
-      if (mounted) {
-        await Printing.sharePdf(
+      if (!mounted) return;
+      _abrir(
+        _VistaInformeMantenimiento(
           bytes: bytes,
-          filename: ordenIndividual == null
+          nombre: ordenIndividual == null
               ? 'informe_mantenimiento.pdf'
               : 'orden_${ordenIndividual.referencia}.pdf',
-        );
-      }
+          service: _service,
+          ordenId: ordenIndividual?.estado == EstadoOrden.cerrada
+              ? ordenIndividual!.id
+              : null,
+        ),
+      );
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1403,6 +1470,172 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
       vistaWeb: widget.vistaWeb,
       id: id,
       seccion: seccion,
+    ),
+  );
+}
+
+class _VistaInformeMantenimiento extends StatefulWidget {
+  const _VistaInformeMantenimiento({
+    required this.bytes,
+    required this.nombre,
+    required this.service,
+    this.ordenId,
+  });
+
+  final Uint8List bytes;
+  final String nombre;
+  final String? ordenId;
+  final MantenimientoService service;
+
+  @override
+  State<_VistaInformeMantenimiento> createState() =>
+      _VistaInformeMantenimientoState();
+}
+
+class _VistaInformeMantenimientoState
+    extends State<_VistaInformeMantenimiento> {
+  bool _enviando = false;
+
+  Future<void> _enviar() async {
+    setState(() => _enviando = true);
+    try {
+      if (widget.bytes.length > 5 * 1024 * 1024) {
+        throw StateError(
+          'El PDF supera 5 MB. Puedes compartirlo desde tu dispositivo.',
+        );
+      }
+      final datos = await widget.service.listadosPdf();
+      if (!mounted) return;
+      final listados = (datos['listados'] as List? ?? const [])
+          .whereType<Map>()
+          .toList();
+      if (listados.isEmpty) {
+        throw StateError(
+          datos['disponible'] == true
+              ? 'Admin debe habilitar un listado de WhatsApp para Mantenimiento.'
+              : 'Activa WhatsApp Cloud para Mantenimiento en Admin o comparte el archivo desde tu dispositivo.',
+        );
+      }
+      Map? elegido;
+      final confirmado = await showDialog<bool>(
+        context: context,
+        builder: (context) => StatefulBuilder(
+          builder: (_, actualizar) => AlertDialog(
+            title: const Text('Enviar PDF a un listado'),
+            content: SingleChildScrollView(
+              child: DropdownButtonFormField<String>(
+                decoration: const InputDecoration(
+                  labelText: 'Listado de WhatsApp',
+                ),
+                isExpanded: true,
+                items: [
+                  for (final lista in listados)
+                    opcionMantenimiento(
+                      lista['id'] as String,
+                      '${lista['nombre']} · ${lista['cantidad']} destinatarios',
+                    ),
+                ],
+                onChanged: (id) => actualizar(
+                  () => elegido = listados.firstWhere((l) => l['id'] == id),
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: elegido == null
+                    ? null
+                    : () => Navigator.pop(context, true),
+                child: const Text('Enviar PDF'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (confirmado != true || elegido == null || !mounted) return;
+      final resultado = await widget.service.enviarPdf(
+        widget.ordenId!,
+        elegido!['id'] as String,
+        widget.bytes,
+      );
+      if (!mounted) return;
+      _aviso(
+        'Enviados ${resultado['enviados']} · Fallidos ${resultado['fallidos']} · Por confirmar ${resultado['porConfirmar']}',
+      );
+    } catch (e) {
+      if (mounted) {
+        _aviso(e is StateError ? e.message : 'No se pudo enviar el PDF.');
+      }
+    } finally {
+      if (mounted) setState(() => _enviando = false);
+    }
+  }
+
+  void _aviso(String mensaje) => ScaffoldMessenger.of(
+    context,
+  ).showSnackBar(SnackBar(content: Text(mensaje)));
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Informe PDF')),
+    body: SafeArea(
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final caja = context.findRenderObject() as RenderBox?;
+                    await SharePlus.instance.share(
+                      ShareParams(
+                        files: [
+                          XFile.fromData(
+                            widget.bytes,
+                            mimeType: 'application/pdf',
+                          ),
+                        ],
+                        fileNameOverrides: [widget.nombre],
+                        sharePositionOrigin: caja == null
+                            ? null
+                            : caja.localToGlobal(Offset.zero) & caja.size,
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.share_outlined),
+                  label: const Text('Compartir PDF'),
+                ),
+                if (widget.ordenId != null)
+                  FilledButton.icon(
+                    onPressed: _enviando ? null : _enviar,
+                    icon: const Icon(Icons.send_outlined),
+                    label: Text(
+                      _enviando
+                          ? 'Procesando…'
+                          : 'Enviar a listado de WhatsApp',
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: PdfPreview(
+              build: (_) => widget.bytes,
+              pdfFileName: widget.nombre,
+              canChangeOrientation: false,
+              canChangePageFormat: false,
+              canDebug: false,
+              allowSharing: false,
+            ),
+          ),
+        ],
+      ),
     ),
   );
 }

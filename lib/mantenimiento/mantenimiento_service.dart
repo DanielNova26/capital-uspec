@@ -107,6 +107,7 @@ enum EstadoOrden {
 enum OrigenTareaMantenimiento {
   interventoria('Interventoría'),
   visitas('Visitas'),
+  inventario('Inventario'),
   manual('Manual');
 
   const OrigenTareaMantenimiento(this.label);
@@ -171,9 +172,18 @@ class EquipoMantenimiento {
       serie = _texto(data, 'serie'),
       factura = _texto(data, 'factura'),
       centroDocId = _texto(data, 'centroDocId'),
+      datos = data,
+      existencias = data['inventario'] == true
+          ? Map<String, int>.from(data['existencias'] as Map? ?? const {})
+          : _texto(data, 'centroDocId').isNotEmpty
+          ? {_texto(data, 'centroDocId'): 1}
+          : const {},
       updatedAt = data['updatedAt'] as Timestamp?;
 
   final String id, codigo, nombre, serie, factura, centroDocId;
+  final Map<String, dynamic> datos;
+  final Map<String, int> existencias;
+  String get familia => _texto(datos, 'familia');
   final Timestamp? updatedAt;
 }
 
@@ -183,11 +193,17 @@ class OrdenMantenimiento {
       equipoId = _texto(data, 'equipoId'),
       hallazgoId = _texto(data, 'hallazgoId'),
       tareaId = _texto(data, 'tareaId'),
+      tareasOrigen = [
+        for (final tarea
+            in (data['tareasOrigen'] as List? ?? []).whereType<Map>())
+          TareaMantenimiento(Map<String, dynamic>.from(tarea)),
+      ],
       origenTarea = OrigenTareaMantenimiento.leer(data['origenTarea']),
       numeroTarea = (data['numeroTarea'] as num?)?.toInt(),
       responsableTarea = _texto(data, 'responsableTarea'),
       limiteTarea = (data['limiteTarea'] as Timestamp?)?.toDate(),
       detalle = _texto(data, 'detalle'),
+      actividades = _texto(data, 'actividades'),
       resultado = _texto(data, 'resultado'),
       factura = _texto(data, 'factura'),
       titulo = _texto(data, 'titulo'),
@@ -225,6 +241,7 @@ class OrdenMantenimiento {
       equipoId,
       hallazgoId,
       detalle,
+      actividades,
       resultado,
       factura;
   final TipoMantenimiento tipo;
@@ -236,6 +253,10 @@ class OrdenMantenimiento {
   final CierreMantenimiento? cierre;
   final List<ArchivoOrden> archivos;
   final String tareaId;
+  final List<TareaMantenimiento> tareasOrigen;
+  Iterable<String> get tareaIds => tareasOrigen.isEmpty
+      ? [if (tareaId.isNotEmpty) tareaId]
+      : tareasOrigen.map((tarea) => tarea.id);
   final OrigenTareaMantenimiento? origenTarea;
   final int? numeroTarea;
   final String responsableTarea;
@@ -362,6 +383,8 @@ class MantenimientoService {
     required String factura,
     Map<String, String>? hallazgoExterno,
     String tareaId = '',
+    List<String> tareasAdicionales = const [],
+    String? actividades,
   }) async {
     final respuesta = await _operar('crear', ordenId, {
       'centroDocId': centroDocId,
@@ -372,9 +395,11 @@ class MantenimientoService {
       'intervencion': intervencion.name,
       'titulo': titulo,
       'detalle': detalle,
+      'actividades': ?actividades,
       'factura': factura,
       'hallazgoExterno': hallazgoExterno,
       if (tareaId.isNotEmpty) 'tareaId': tareaId,
+      if (tareasAdicionales.isNotEmpty) 'tareaIds': tareasAdicionales,
     });
     return (
       id: (respuesta['ordenId'] as String?) ?? ordenId,
@@ -407,11 +432,13 @@ class MantenimientoService {
     required String titulo,
     required String detalle,
     required String factura,
+    String? actividades,
   }) => _mutar('editar', orden, {
     'tipo': tipo.name,
     'intervencion': intervencion.name,
     'titulo': titulo,
     'detalle': detalle,
+    'actividades': ?actividades,
     'factura': factura,
   });
 
@@ -486,6 +513,34 @@ class MantenimientoService {
       throw StateError(error.message ?? 'No se pudo procesar la orden.');
     }
   }
+
+  Future<Map<String, dynamic>> inventario(
+    String accion, [
+    Map<String, dynamic> datos = const {},
+  ]) async {
+    try {
+      final resultado =
+          await FirebaseFunctions.instanceFor(
+            region: 'us-central1',
+          ).httpsCallable('mantenimientoInventario').call<Map<String, dynamic>>(
+            {...datos, 'empresaId': empresaId, 'accion': accion},
+          );
+      return resultado.data;
+    } on FirebaseFunctionsException catch (error) {
+      throw StateError(error.message ?? 'No se pudo procesar el inventario.');
+    }
+  }
+
+  Future<Map<String, dynamic>> listadosPdf() => _operar('listadosPdf', '', {});
+
+  Future<Map<String, dynamic>> enviarPdf(
+    String ordenId,
+    String listadoId,
+    Uint8List bytes,
+  ) => _operar('enviarPdf', ordenId, {
+    'listadoId': listadoId,
+    'base64': base64Encode(bytes),
+  });
 
   Future<void> _actualizar(
     DocumentReference<Map<String, dynamic>> ref,

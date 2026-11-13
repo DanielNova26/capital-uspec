@@ -97,6 +97,7 @@ class WhatsAppAdminService {
     required bool planillasEnabled,
     required bool interventoriaEnabled,
     required bool facturacionEnabled,
+    bool? mantenimientoEnabled,
     required bool showCompanyEmoji,
     required bool showCompanyName,
     required String companyEmoji,
@@ -118,6 +119,7 @@ class WhatsAppAdminService {
         'planillas_pago': planillasEnabled,
         'interventoria': interventoriaEnabled,
         'facturacion': facturacionEnabled,
+        'mantenimientodashboard': ?mantenimientoEnabled,
       },
       'branding': {
         'showEmoji': showCompanyEmoji,

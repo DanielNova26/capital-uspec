@@ -23,7 +23,10 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.mantenimientoOrden = void 0;
+exports.mantenimientoOrden = exports.appIdMantenimiento = void 0;
+exports.errorMantenimiento = error;
+exports.textoMantenimiento = textoMantenimiento;
+exports.idMantenimiento = idMantenimiento;
 exports.operaOrdenMantenimiento = operaOrdenMantenimiento;
 exports.cierreMantenimientoValido = cierreMantenimientoValido;
 const admin = __importStar(require("firebase-admin"));
@@ -34,7 +37,9 @@ const apps_por_empresa_1 = require("./apps_por_empresa");
 const acceso_1 = require("./acceso");
 const mantenimiento_tareas_1 = require("./mantenimiento_tareas");
 const tareas_numero_1 = require("./tareas_numero");
-const appId = "mantenimientodashboard";
+const whatsapp_1 = require("./whatsapp");
+exports.appIdMantenimiento = "mantenimientodashboard";
+const appId = exports.appIdMantenimiento;
 const ordenes = "TBL_MANTENIMIENTO_ORDENES";
 const privados = "TBL_MANTENIMIENTO_ARCHIVOS";
 const limiteArchivo = 5 * 1024 * 1024;
@@ -48,20 +53,22 @@ const tiposArchivo = {
 function error(code, message) {
     throw new functions.https.HttpsError(code, message);
 }
-function texto(value, max, label, required = false) {
+function textoMantenimiento(value, max, label, required = false) {
     const result = typeof value === "string" ? value.trim() : "";
     if (result.length > max || (required && !result)) {
         error("invalid-argument", `Revisa el campo «${label}».`);
     }
     return result;
 }
-function id(value, label, required = true) {
+const texto = textoMantenimiento;
+function idMantenimiento(value, label, required = true) {
     const result = texto(value, 200, label, required);
     if (result.includes("/") || result === "." || result === "..") {
         error("invalid-argument", `Identificador inválido de ${label}.`);
     }
     return result;
 }
+const id = idMantenimiento;
 function operaOrdenMantenimiento(usuario, acceso, app, empresaId, userId) {
     if (!usuario || (0, acceso_1.cuentaInhabilitada)(usuario) || (0, acceso_1.inhabilitadaEn)(usuario, empresaId))
         return false;
@@ -104,6 +111,7 @@ function datosTrabajo(input) {
         titulo: texto(input.titulo, 120, "título", true),
         detalle: texto(input.detalle, 1200, "diagnóstico", true),
         factura: texto(input.factura, 160, "factura"),
+        ...(input.actividades == null ? {} : { actividades: texto(input.actividades, 1200, "actividades previstas") }),
     };
 }
 function hallazgoExterno(input) {
@@ -186,16 +194,27 @@ exports.mantenimientoOrden = functions.region("us-central1").https.onCall(async 
             error("permission-denied", "No tienes acceso a Mantenimiento en esta empresa.");
         }
     };
-    if (accion === "tareas" || (accion === "crear" && input.tareaId)) {
+    if (accion === "tareas" || accion === "listadosPdf" ||
+        (accion === "crear" && (input.tareaId || input.tareaIds))) {
         const [usuario, acceso, app] = await db.getAll(usuarioRef, accesoRef, appRef);
         autorizar(usuario.data(), acceso.data(), app.data());
         if (accion === "tareas")
             return { tareas: await (0, mantenimiento_tareas_1.listarTareasMantenimiento)(db, empresaId) };
+        if (accion === "listadosPdf")
+            return (0, whatsapp_1.listadosPdfWhatsApp)(empresaId, appId);
+    }
+    const adicionales = accion === "crear" ? input.tareaIds ?? [] : [];
+    if (!Array.isArray(adicionales) || adicionales.length > 19) {
+        error("invalid-argument", "Puedes procesar hasta 20 tareas en una orden.");
     }
     const tareaId = accion === "crear" ? id(input.tareaId, "tarea", false) : "";
+    if (!tareaId && adicionales.length)
+        error("invalid-argument", "Selecciona la primera tarea.");
+    const tareaIds = [...new Set([tareaId, ...adicionales.map((v) => id(v, "tarea"))].filter(Boolean))];
     const solicitudId = accion === "crear" ? id(input.ordenId, "solicitud") : "";
+    const claveTarea = (valor) => "tarea_" + (0, crypto_1.createHash)("sha256").update(JSON.stringify([empresaId, valor])).digest("hex");
     const ordenId = tareaId
-        ? "tarea_" + (0, crypto_1.createHash)("sha256").update(JSON.stringify([empresaId, tareaId])).digest("hex")
+        ? claveTarea(tareaId)
         : id(input.ordenId, "orden");
     const ref = coleccion.doc(ordenId);
     async function leer(tx) {
@@ -206,6 +225,20 @@ exports.mantenimientoOrden = functions.region("us-central1").https.onCall(async 
             error("not-found", "La orden no está disponible.");
         }
         return data;
+    }
+    if (accion === "enviarPdf") {
+        const orden = await db.runTransaction(async (tx) => (await leer(tx)), { readOnly: true });
+        if (orden.estado !== "cerrada")
+            error("failed-precondition", "Cierra la orden antes de enviar el informe.");
+        const listadoId = id(input.listadoId, "listado de WhatsApp");
+        const { bytes } = await validarArchivo({
+            clase: "recibo", mime: "application/pdf", nombre: "orden.pdf", base64: input.base64,
+        });
+        return (0, whatsapp_1.enviarPdfWhatsApp)({
+            empresaId, moduleId: appId, listadoId, actorId: userId, bytes,
+            nombre: `orden_${orden.numero ?? ref.id}.pdf`, mensaje: `Informe de orden de trabajo ${orden.numero ?? ref.id}`,
+            historial: ref.collection("enviosPdf"),
+        });
     }
     if (accion === "crear") {
         const trabajo = datosTrabajo(input);
@@ -221,8 +254,25 @@ exports.mantenimientoOrden = functions.region("us-central1").https.onCall(async 
         const catalogo = tareaId ? await (0, mantenimiento_tareas_1.catalogoTareasMantenimiento)(db, empresaId) : null;
         return db.runTransaction(async (tx) => {
             const existente = await leer(tx);
+            const refsTareas = tareaIds.map((valor) => coleccion.doc(claveTarea(valor)));
+            const refsVinculos = refsTareas.map((t) => t.collection("vinculos").doc("orden"));
+            const vinculos = refsVinculos.length ? await tx.getAll(...refsVinculos) : [];
+            const vinculada = vinculos[0]?.data();
+            if (vinculada) {
+                const original = (await tx.get(coleccion.doc(vinculada.ordenId))).data();
+                if (original?.empresaId !== empresaId ||
+                    (tareaIds.length > 1 && JSON.stringify(original.tareaIds) !== JSON.stringify(tareaIds))) {
+                    error("already-exists", "Una tarea ya tiene orden. Actualiza la bandeja.");
+                }
+                return {
+                    numero: original.numero, ordenId: vinculada.ordenId, existente: true,
+                    mismaSolicitud: original.creadaPor === userId && original.solicitudId === solicitudId,
+                };
+            }
             if (existente) {
                 if (tareaId && existente.tareaId === tareaId) {
+                    if (tareaIds.length > 1)
+                        error("already-exists", "La primera tarea ya tiene una orden.");
                     return {
                         numero: existente.numero, ordenId, existente: true,
                         mismaSolicitud: existente.creadaPor === userId && existente.solicitudId === solicitudId,
@@ -236,8 +286,33 @@ exports.mantenimientoOrden = functions.region("us-central1").https.onCall(async 
             let origenTarea = null;
             let referenciaTarea = null;
             let estructuraTarea = null;
+            const tareasOrigen = [];
             if (catalogo) {
-                const tarea = (await tx.get(db.collection("TBL_TAREAS").doc(tareaId))).data();
+                if (vinculos.some((v) => v.exists) ||
+                    (refsTareas.length > 1 && (await tx.getAll(...refsTareas.slice(1))).some((v) => v.exists))) {
+                    error("already-exists", "Una tarea ya tiene orden. Actualiza la bandeja.");
+                }
+                const documentos = await tx.getAll(...tareaIds.map((valor) => db.collection("TBL_TAREAS").doc(valor)));
+                for (const doc of documentos) {
+                    const datos = doc.data();
+                    const origen = datos && (0, mantenimiento_tareas_1.tareaParaMantenimiento)(datos, catalogo);
+                    if (!datos || !origen)
+                        error("failed-precondition", "Una tarea ya no está pendiente en Mantenimiento.");
+                    if (tareaIds.length > 1 && (0, mantenimiento_tareas_1.centroTareaMantenimiento)(datos, catalogo.centros)?.id !== centroDocId) {
+                        error("invalid-argument", "Las tareas seleccionadas deben pertenecer al mismo establecimiento.");
+                    }
+                    tareasOrigen.push({
+                        id: doc.id, origen: origen.origen, estado: origen.estado,
+                        numero: (0, tareas_numero_1.numeroDeTarea)(datos), fechaLimite: (0, mantenimiento_tareas_1.fechaLimiteTarea)(datos), centroDocId,
+                        titulo: String(datos.titulo ?? datos.title ?? "").slice(0, 120),
+                        descripcion: String(datos.descripcion ?? datos.description ?? "").slice(0, 1200),
+                        responsable: String(datos.asignado_nombre ?? datos.assignedToName ?? "").slice(0, 120),
+                        subcentroId: String(datos.subcentroId ?? "").slice(0, 200),
+                        subcentroNombre: String(datos.subcentroNombre ?? "").slice(0, 200),
+                        hallazgoId: String(datos.hallazgoId ?? "").slice(0, 200),
+                    });
+                }
+                const tarea = documentos[0].data();
                 const origen = tarea ? (0, mantenimiento_tareas_1.tareaParaMantenimiento)(tarea, catalogo) : null;
                 if (!tarea || !origen) {
                     error("failed-precondition", "La tarea ya no está pendiente en Mantenimiento de esta empresa.");
@@ -249,7 +324,7 @@ exports.mantenimientoOrden = functions.region("us-central1").https.onCall(async 
                         error("invalid-argument", "El establecimiento debe coincidir con el de la tarea.");
                     }
                 }
-                if (centroTarea?.id === centroDocId && tarea.subcentroId) {
+                if (tareaIds.length === 1 && centroTarea?.id === centroDocId && tarea.subcentroId) {
                     if (tarea.subcentroId !== subcentroId) {
                         error("invalid-argument", "La estructura debe coincidir con la de la tarea.");
                     }
@@ -276,7 +351,9 @@ exports.mantenimientoOrden = functions.region("us-central1").https.onCall(async 
             if (!centro || centro.empresaId !== empresaId || centro.enabled === false) {
                 error("invalid-argument", "El establecimiento no está activo en esta empresa.");
             }
-            if (equipoId && (equipo?.data()?.empresaId !== empresaId || equipo.data()?.centroDocId !== centroDocId)) {
+            const fichaEquipo = equipo?.data();
+            if (equipoId && (fichaEquipo?.empresaId !== empresaId || (fichaEquipo.inventario === true
+                ? !(fichaEquipo.existencias?.[centroDocId] > 0) : fichaEquipo.centroDocId !== centroDocId))) {
                 error("invalid-argument", "El equipo no pertenece al establecimiento.");
             }
             if (hallazgoId) {
@@ -297,11 +374,12 @@ exports.mantenimientoOrden = functions.region("us-central1").https.onCall(async 
             if (!Number.isSafeInteger(numero) || numero <= 0)
                 error("internal", "Consecutivo inválido.");
             tx.set(contador, { ultimo: numero });
+            refsVinculos.forEach((vinculo) => tx.create(vinculo, { ordenId }));
             tx.create(ref, {
                 ...trabajo, ...(estructuraTarea ?? subcentroDe(centro, subcentroId)),
                 empresaId, centroDocId, equipoId, hallazgoId,
                 hallazgoExterno: externo,
-                ...(tareaId ? { tareaId, origenTarea, solicitudId, ...referenciaTarea } : {}),
+                ...(tareaId ? { tareaId, tareaIds, tareasOrigen, origenTarea, solicitudId, ...referenciaTarea } : {}),
                 esquema: 2, numero, creadaPor: userId, estado: "abierta", resultado: "", cerradaAt: null,
                 createdAt: fecha, updatedAt: fecha,
             });

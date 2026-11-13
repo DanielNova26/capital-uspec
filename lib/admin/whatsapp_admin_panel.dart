@@ -128,6 +128,7 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
   bool _comprasEnabled = true;
   bool _planillasEnabled = false;
   bool _interventoriaEnabled = false;
+  bool _mantenimientoEnabled = false;
   bool _facturacionEnabled = true;
   bool _showCompanyEmoji = true;
   bool _showCompanyName = false;
@@ -155,6 +156,7 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
     'compras' => _comprasEnabled,
     'planillas_pago' => _planillasEnabled,
     'interventoria' => _interventoriaEnabled,
+    'mantenimientodashboard' => _mantenimientoEnabled,
     'facturacion' => _facturacionEnabled,
     _ => false,
   };
@@ -234,6 +236,7 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
         _comprasEnabled = modules['compras'] != false;
         _planillasEnabled = modules['planillas_pago'] == true;
         _interventoriaEnabled = modules['interventoria'] == true;
+        _mantenimientoEnabled = modules['mantenimientodashboard'] == true;
         _facturacionEnabled = modules['facturacion'] != false;
         _showCompanyEmoji = branding['showEmoji'] != false;
         _showCompanyName = branding['showCompanyName'] == true;
@@ -304,6 +307,7 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
         comprasEnabled: _comprasEnabled,
         planillasEnabled: _planillasEnabled,
         interventoriaEnabled: _interventoriaEnabled,
+        mantenimientoEnabled: _mantenimientoEnabled,
         facturacionEnabled: _facturacionEnabled,
         showCompanyEmoji: _showCompanyEmoji,
         showCompanyName: _showCompanyName,
@@ -693,6 +697,18 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
           title: const Text('Interventoría'),
           subtitle: const Text('Avisos cuando se carga una nueva acta.'),
           secondary: const Icon(Icons.fact_check_outlined),
+          contentPadding: EdgeInsets.zero,
+        ),
+        SwitchListTile(
+          value: _mantenimientoEnabled,
+          onChanged: _enabled
+              ? (value) => setState(() => _mantenimientoEnabled = value)
+              : null,
+          title: const Text('Mantenimiento'),
+          subtitle: const Text(
+            'Envío de informes PDF a listados con WhatsApp Cloud.',
+          ),
+          secondary: const Icon(Icons.build_outlined),
           contentPadding: EdgeInsets.zero,
         ),
         SwitchListTile(

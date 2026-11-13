@@ -927,6 +927,7 @@ service cloud.firestore {
           ['empresaId', 'codigo', 'nombre', 'serie', 'factura', 'centroDocId', 'updatedAt'])
         && fichaValida(request.resource.data) && centroValido(request.resource.data);
       allow update: if empresaSeConserva() && operaMantenimiento(resource.data.empresaId)
+        && resource.data.get('inventario', false) != true
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
           ['codigo', 'nombre', 'serie', 'factura', 'centroDocId', 'updatedAt'])
         && fichaValida(request.resource.data)
@@ -2891,7 +2892,7 @@ service cloud.firestore {
           + '|RUTAS|RUTAS_ROLES|RUTAS_ESTABLECIMIENTOS|RUTAS_PLACAS|RUTAS_CONFIG|RUTAS_ASIGNACIONES|RUTAS_EVIDENCIAS|RUTAS_RESUMEN_DIARIO|RUTAS_UBICACIONES|RUTAS_MOV_CONFIG|RUTAS_MOV_HORARIOS|RUTAS_MOV_MEDICIONES|RUTAS_MOV_RUNS'
           + '|CITAS_NUTRICION|HISTORIAL_NUTRICION'
           + '|FAC_CONFIG'
-          + '|APPS|MANTENIMIENTO_(ACCESOS|EQUIPOS|ORDENES|ARCHIVOS|CONTADORES)'
+          + '|APPS|MANTENIMIENTO_(ACCESOS|EQUIPOS|ORDENES|ARCHIVOS|CONTADORES|MINIMOS)'
           + ')');
     }
   }

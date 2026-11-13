@@ -16,6 +16,7 @@ const List<String> kWhatsAppListModules = <String>[
   'planillas_pago',
   'interventoria',
   'facturacion',
+  'mantenimientodashboard',
 ];
 
 List<String> normalizeWhatsAppListModules(Iterable<Object?> values) {
@@ -33,6 +34,7 @@ String whatsappModuleLabel(String moduleId) =>
       'planillas_pago' => 'Planillas de Pago',
       'interventoria' => 'Interventoría',
       'facturacion' => 'Facturación',
+      'mantenimientodashboard' => 'Mantenimiento',
       final value => value,
     };
 

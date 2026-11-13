@@ -27,6 +27,9 @@ function origenTareaMantenimiento(data) {
         return "interventoria";
     if (["visita", "visitas", "visitasdashboard"].includes(modulo))
         return "visitas";
+    if (["mantenimientodashboard", "mantenimiento"].includes(modulo) && tipo === "inventario") {
+        return "inventario";
+    }
     if (["tareas", "tareasdashboard", "manual", ""].includes(modulo)) {
         if (data.hallazgoId || tipo === "interventoria")
             return "interventoria";

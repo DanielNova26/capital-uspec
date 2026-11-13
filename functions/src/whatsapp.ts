@@ -34,6 +34,7 @@ const SUPPORTED_LIST_MODULES = new Set([
   "planillas_pago",
   "interventoria",
   "facturacion",
+  "mantenimientodashboard",
 ]);
 const SUPPORTED_ROUTES = new Map<string, string>([
   [PURCHASE_NEW_SUPPLIER_ROUTE, "compras"],
@@ -220,6 +221,7 @@ export interface WhatsAppSendInput {
   empresaId: string;
   prioridad: string;
   metadata?: Record<string, unknown>;
+  documento?: {id: string; nombre: string};
 }
 
 export interface WhatsAppSendResult {
@@ -237,6 +239,7 @@ export interface WhatsAppProvider {
   readonly name: string;
   send(input: WhatsAppSendInput): Promise<WhatsAppSendResult>;
   checkRecipient?(telefono: string): Promise<WhatsAppRecipientCheck>;
+  subirPdf?(bytes: Uint8Array, nombre: string): Promise<string>;
 }
 
 interface WhatsAppRuntimeConfig {
@@ -602,6 +605,7 @@ function envConfig(empresaId: string): WhatsAppRuntimeConfig {
       planillas_pago: false,
       interventoria: false,
       facturacion: true,
+      mantenimientodashboard: false,
     },
     routes: {},
     branding: { showEmoji: true, showCompanyName: false },
@@ -621,6 +625,7 @@ function normalizedModuleSwitches(value: unknown): Record<string, boolean> {
     planillas_pago: modules.planillas_pago === true,
     interventoria: modules.interventoria === true,
     facturacion: modules.facturacion !== false,
+    mantenimientodashboard: modules.mantenimientodashboard === true,
   };
 }
 
@@ -843,6 +848,26 @@ export class WhatsAppCloudProvider implements WhatsAppProvider {
 
   constructor(private readonly config: WhatsAppRuntimeConfig) {}
 
+  async subirPdf(bytes: Uint8Array, nombre: string): Promise<string> {
+    const url = new URL(this.config.baseUrl);
+    if (url.origin !== "https://graph.facebook.com" || !/\/messages\/?$/.test(url.pathname)) {
+      throw new Error("WHATSAPP_CLOUD_MEDIA_URL_INVALID");
+    }
+    url.pathname = url.pathname.replace(/\/messages\/?$/, "/media");
+    const datos = new FormData();
+    datos.set("messaging_product", "whatsapp");
+    datos.set("type", "application/pdf");
+    datos.set("file", new Blob([Uint8Array.from(bytes)], {type: "application/pdf"}), nombre);
+    const respuesta = await fetch(url, {
+      method: "POST", headers: {Authorization: `Bearer ${this.config.apiKey}`},
+      body: datos, signal: AbortSignal.timeout(20000),
+    });
+    if (!respuesta.ok) throw new Error(`WHATSAPP_CLOUD_MEDIA_${respuesta.status}`);
+    const archivo = await respuesta.json() as {id?: string};
+    if (!archivo.id) throw new Error("WHATSAPP_CLOUD_MEDIA_ID_MISSING");
+    return archivo.id;
+  }
+
   async send(input: WhatsAppSendInput): Promise<WhatsAppSendResult> {
     const destination = normalizePhone(
       input.telefono,
@@ -873,7 +898,12 @@ export class WhatsAppCloudProvider implements WhatsAppProvider {
           ? approvedTemplate.variableOrder
           : definition?.placeholders || []
       );
-    const body: Record<string, unknown> = useTemplate
+    const body: Record<string, unknown> = input.documento ? {
+      messaging_product: "whatsapp",
+      to: destination,
+      type: "document",
+      document: {id: input.documento.id, filename: input.documento.nombre, caption: input.mensaje.trim()},
+    } : useTemplate
       ? {
         messaging_product: "whatsapp",
         to: destination,
@@ -899,6 +929,7 @@ export class WhatsAppCloudProvider implements WhatsAppProvider {
         "Authorization": `Bearer ${this.config.apiKey}`,
       },
       body: JSON.stringify(body),
+      ...(input.documento ? {signal: AbortSignal.timeout(12000)} : {}),
     });
     const rawText = await response.text();
     if (!response.ok) {
@@ -944,6 +975,11 @@ class AuditedWhatsAppProvider implements WhatsAppProvider {
       return Promise.resolve({ registered: true });
     }
     return this.delegate.checkRecipient(telefono);
+  }
+
+  async subirPdf(bytes: Uint8Array, nombre: string): Promise<string> {
+    if (!this.delegate.subirPdf) throw new Error("WHATSAPP_PDF_NO_SOPORTADO");
+    return this.delegate.subirPdf(bytes, nombre);
   }
 
   async send(input: WhatsAppSendInput): Promise<WhatsAppSendResult> {
@@ -1654,6 +1690,9 @@ export const whatsappAdminGuardar = functions
       );
     }
     const modules = normalizedModuleSwitches(data?.modules);
+    if (!Object.prototype.hasOwnProperty.call(data?.modules ?? {}, "mantenimientodashboard")) {
+      modules.mantenimientodashboard = current.get("modules.mantenimientodashboard") === true;
+    }
     const brandingRaw: Record<string, unknown> | null = data?.branding &&
         typeof data.branding === "object" && !Array.isArray(data.branding)
       ? data.branding as Record<string, unknown>
@@ -2081,6 +2120,82 @@ function normalizedListModules(value: unknown): string[] {
       value.map(normalize).filter((item) => SUPPORTED_LIST_MODULES.has(item))
     ),
   ];
+}
+
+export async function listadosPdfWhatsApp(empresaId: string, moduleId: string) {
+  const config = await loadRuntimeConfig(empresaId);
+  const cloud = isCloudProvider(config.provider) && config.enabled &&
+    config.modules[moduleId] === true && !!config.baseUrl && !!config.apiKey;
+  if (!cloud) return {disponible: false, listados: []};
+  const snap = await db().collection(LIST_COLLECTION).where("empresaId", "==", empresaId).get();
+  return {disponible: true, listados: snap.docs.flatMap((doc) => {
+    const destinatarios = destinatariosPdf(doc.data(), empresaId, moduleId, config.defaultCountryCode);
+    return destinatarios.length ? [{id: doc.id, nombre: text(doc.get("nombre")), cantidad: destinatarios.length}] : [];
+  })};
+}
+
+function destinatariosPdf(data: FirebaseFirestore.DocumentData, empresaId: string, moduleId: string, indicativo: string) {
+  const modulos = normalizedListModules(data.modulos);
+  if (data.empresaId !== empresaId || data.activo === false || (modulos.length && !modulos.includes(moduleId))) return [];
+  return normalizedRecipients(data.destinatarios, indicativo).filter((d) => d.activo);
+}
+
+export async function enviarPdfWhatsApp(input: {
+  empresaId: string; moduleId: string; listadoId: string; actorId: string; bytes: Uint8Array;
+  nombre: string; mensaje: string; historial: FirebaseFirestore.CollectionReference;
+}) {
+  const config = await loadRuntimeConfig(input.empresaId);
+  const doc = await db().collection(LIST_COLLECTION).doc(input.listadoId).get();
+  const personas = doc.exists ? destinatariosPdf(doc.data()!, input.empresaId, input.moduleId, config.defaultCountryCode) : [];
+  if (!personas.length) throw new functions.https.HttpsError("invalid-argument", "El listado ya no está disponible.");
+  const provider = await createWhatsAppProvider(input.empresaId, input.moduleId).catch(() => null);
+  if (!provider?.subirPdf || provider.name !== "whatsapp_cloud") {
+    throw new functions.https.HttpsError("failed-precondition", "Activa WhatsApp Cloud para Mantenimiento en Admin.");
+  }
+  const nombre = input.nombre;
+  const mediaId = await provider.subirPdf(input.bytes, nombre).catch(() => {
+    throw new functions.https.HttpsError("unavailable", "WhatsApp no pudo recibir el PDF.");
+  });
+  let enviados = 0;
+  let fallidos = 0;
+  let porConfirmar = 0;
+  for (let i = 0; i < personas.length; i += 15) {
+    await Promise.all(personas.slice(i, i + 15).map(async (persona) => {
+      const identidad = createHash("sha256").update(JSON.stringify([input.listadoId, persona.telefono])).digest("hex");
+      const ref = input.historial.doc(identidad);
+      const estado = await db().runTransaction(async (tx) => {
+        const previo = (await tx.get(ref)).get("estado");
+        if (previo === "enviado" || previo === "enviando") return previo;
+        tx.set(ref, {estado: "enviando", listadoId: input.listadoId, actorId: input.actorId,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()});
+        return "nuevo";
+      });
+      if (estado === "enviado") {
+        enviados++; return;
+      }
+      if (estado === "enviando") {
+        porConfirmar++; return;
+      }
+      let resultado: WhatsAppSendResult;
+      try {
+        resultado = await provider.send({
+          telefono: persona.telefono, empresaId: input.empresaId, prioridad: "normal",
+          mensaje: input.mensaje, documento: {id: mediaId, nombre},
+        });
+      } catch (error) {
+        if (error instanceof Error && /^WHATSAPP_CLOUD_(400|401|403|404|429):/.test(error.message)) {
+          await ref.update({estado: "fallido"});
+          fallidos++;
+        } else {
+          porConfirmar++;
+        }
+        return;
+      }
+      await ref.update({estado: "enviado", providerMessageId: resultado.providerMessageId ?? null});
+      enviados++;
+    }));
+  }
+  return {enviados, fallidos, porConfirmar};
 }
 
 export const whatsappAdminGuardarListado = functions
