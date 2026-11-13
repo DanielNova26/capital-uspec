@@ -1,5 +1,18 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-12 — Entrega 2.8.35+89 para tiendas y pruebas Web (Codex)
+
+- El código de la compilación 89 está en `main`, commit `48f6c03`.
+  Se adjuntó el AAB firmado a un borrador de entrega de GitHub con
+  las instrucciones de compilación en Mac y carga a App Store Connect.
+  El SHA-256 del AAB coincide entre GitHub y el archivo local.
+- Compilación Web 2.8.35+89 regenerada y empaquetada en
+  `outputs/web/to-do-gestion-web-2.8.35-89.zip`. Se verificaron los
+  53 archivos del ZIP. La Web pública sirve el mismo código de la app
+  y su propio identificador de caché generado al compilar.
+- El IPA de iPhone se compila y firma en macOS con Xcode. Las cargas
+  en Play Console y App Store Connect quedan pendientes.
+
 ## 2026-11-12 — Tareas pendientes de Mantenimiento (Codex)
 
 - Mantenimiento → Pendientes reúne las tareas operativas del área de
