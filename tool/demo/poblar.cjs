@@ -3,6 +3,7 @@ const {createRequire} = require('node:module');
 const requireFunctions = createRequire(require.resolve('../../functions/package.json'));
 const {initializeApp} = requireFunctions('firebase-admin/app');
 const {getFirestore, FieldValue} = requireFunctions('firebase-admin/firestore');
+const maestroInterventoria = require('./interventoria.json');
 
 const proyecto = 'demo-capital-servir';
 const empresaId = 'DEMO_EMPRESA_APP_REVIEW';
@@ -104,6 +105,29 @@ function personas() {
   ];
 }
 
+async function cargarMaestroInterventoria(db) {
+  const ref = db.collection('TBL_INTERVENTORIA_CONFIG').doc(empresaId);
+  const {reglasSubsanacion, ...configuracion} = maestroInterventoria;
+  return db.runTransaction(async (tx) => {
+    const actual = (await tx.get(ref)).data() ?? {};
+    const tiposActivos = Array.isArray(actual.tiposActaHabilitados)
+      ? actual.tiposActaHabilitados : configuracion.tiposActaHabilitados;
+    const familias = new Set(tiposActivos.map((tipo) => tipo === 'SEGUIMIENTO' ? 'REGULAR' : tipo));
+    const reglasExistentes = actual.reglasSubsanacion ?? {};
+    const reglasNuevas = Object.fromEntries(Object.entries(reglasSubsanacion).filter(([clave, regla]) =>
+      familias.has(regla.tipoActa) && !Object.hasOwn(reglasExistentes, clave) &&
+      !(regla.tipoActa === 'REGULAR' && Object.hasOwn(reglasExistentes, regla.numeral))));
+    const camposNuevos = Object.fromEntries(Object.entries(configuracion)
+      .filter(([campo]) => !Object.hasOwn(actual, campo)));
+    const cantidad = Object.keys(reglasNuevas).length;
+    if (cantidad || Object.keys(camposNuevos).length) {
+      tx.set(ref, {...camposNuevos, empresaId, updatedAt: FieldValue.serverTimestamp(),
+        ...(cantidad ? {reglasSubsanacion: reglasNuevas} : {})}, {merge: true});
+    }
+    return cantidad;
+  });
+}
+
 async function poblar() {
   if (process.env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:8080') {
     throw new Error('Ejecuta la carga con FIRESTORE_EMULATOR_HOST=127.0.0.1:8080.');
@@ -112,7 +136,10 @@ async function poblar() {
   const lote = db.batch();
   const listado = personas();
   const marca = db.collection('demo_setup').doc('capital_servir');
-  if ((await marca.get()).exists) return 'La estructura de pruebas ya está cargada.';
+  if ((await marca.get()).exists) {
+    const reglas = await cargarMaestroInterventoria(db);
+    return `La estructura de pruebas ya está cargada. Reglas de Interventoría agregadas: ${reglas}.`;
+  }
   const fecha = FieldValue.serverTimestamp();
   function crear(coleccion, id, campos) {
     lote.create(db.collection(coleccion).doc(id), {...campos, createdAt: fecha, updatedAt: fecha});
@@ -184,7 +211,9 @@ async function poblar() {
   }
   lote.create(marca, {empresaId, cuentas: listado.length, createdAt: fecha});
   await lote.commit();
-  return `${listado.length} cuentas creadas en ${areas.length} áreas para ${Object.keys(modulos).length} módulos.`;
+  const reglas = await cargarMaestroInterventoria(db);
+  return `${listado.length} cuentas creadas en ${areas.length} áreas para ${Object.keys(modulos).length} módulos. ` +
+    `Reglas de Interventoría agregadas: ${reglas}.`;
 }
 
 poblar().then(console.log).catch((error) => {

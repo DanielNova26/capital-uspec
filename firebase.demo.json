@@ -3,7 +3,7 @@
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
-  "storage": { "rules": "functions/test/planes-storage.rules" },
+  "storage": { "rules": "tool/demo/storage.rules" },
   "functions": { "source": "functions" },
   "hosting": { "public": "outputs/demo/web" },
   "emulators": {

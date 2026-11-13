@@ -1,0 +1,42 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function esSesionDemo(empresa) {
+      return bucket == 'demo-capital-servir.appspot.com'
+        && empresa == 'DEMO_EMPRESA_APP_REVIEW'
+        && request.auth != null
+        && request.auth.token.authVersion == 2
+        && request.auth.token.userDocId is string;
+    }
+
+    function nivelInterventoria(empresa) {
+      let id = request.auth.token.userDocId;
+      let persona = firestore.get(/databases/(default)/documents/TBL_USUARIOS/$(id)).data;
+      let ficha = persona.empresasDetalle[empresa];
+      let asignacion = firestore.get(/databases/(default)/documents/TBL_INTERVENTORIA_ROLES/$(empresa + '_' + id)).data;
+      return empresa in persona.empresas && persona.estado == 'activo'
+        && persona.get('activo', true) && ficha.get('activo', true)
+        && ficha.estadoLaboral == 'activo' && 'interventoriadashboard' in ficha.apps
+        && asignacion.empresaId == empresa && asignacion.userId == id ? asignacion.rol : '';
+    }
+
+    function adjuntaInterventoria(empresa) {
+      return esSesionDemo(empresa) && nivelInterventoria(empresa) in [
+        'registrador_interventoria', 'revisor_interventoria', 'calidad_interventoria',
+        'gerente_interventoria', 'admin_interventoria'
+      ];
+    }
+
+    match /interventoria/{empresa}/{tipo}/{registro}/{archivo} {
+      allow get: if tipo in ['visitas', 'conceptos_sanitarios'] && esSesionDemo(empresa)
+        && nivelInterventoria(empresa) in [
+          'registrador_interventoria', 'revisor_interventoria', 'calidad_interventoria',
+          'gerente_interventoria', 'admin_interventoria', 'directivo_interventoria',
+          'consulta_interventoria'
+        ];
+      allow create: if tipo in ['visitas', 'conceptos_sanitarios'] && adjuntaInterventoria(empresa)
+        && request.resource.contentType.matches('application/pdf|image/.*');
+      allow delete: if tipo in ['visitas', 'conceptos_sanitarios'] && adjuntaInterventoria(empresa);
+    }
+  }
+}

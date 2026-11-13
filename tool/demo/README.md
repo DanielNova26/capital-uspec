@@ -23,7 +23,9 @@ Abre la [Demo local](http://127.0.0.1:8787) en este computador. Usa la cédula d
 
 La jerarquía va de Gerente General a director, coordinador y analista. En Calidad se pueden comparar los permisos de Visitas e Interventoría. En Contabilidad, el analista carga las planillas, el coordinador o director audita y Gerencia firma. El analista de Operaciones tiene asignado el Establecimiento Demo en Facturación.
 
-Las 13 áreas de Capital y Servir se tomaron como referencia y se incluyó Gestión de Proyectos, que ya existía en la Demo. Los cargos, relaciones de reporte, accesos y sede se prepararon para pruebas. La carga contiene personas, estructura y permisos ficticios. Los flujos empiezan con sus registros operativos vacíos. Correo, DIAN y WhatsApp carecen de conexiones externas y el emulador de Storage restringe la carga de archivos desde la app.
+Las 13 áreas de Capital y Servir se tomaron como referencia y se incluyó Gestión de Proyectos, que ya existía en la Demo. Los cargos, relaciones de reporte, accesos y sede se prepararon para pruebas. La carga contiene personas, estructura y permisos ficticios. Los flujos empiezan con sus registros operativos vacíos. Correo, DIAN y WhatsApp carecen de conexiones externas.
+
+Interventoría incluye las cuatro plantillas PEC USPEC habilitadas en Capital y Servir y 140 reglas de subsanación adaptadas a los cargos de la Demo. Para los numerales compartidos se tomó Capital como referencia y Servir aportó los faltantes. Puedes probar el registro de un acta con PDF desde el analista de Calidad y abrirla desde el coordinador. El almacenamiento local permite PDF e imágenes para actas y conceptos sanitarios según el rol de Interventoría.
 
 ## Reiniciar el entorno local
 
@@ -40,4 +42,4 @@ $env:FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080'
 node tool/demo/poblar.cjs
 ```
 
-La carga puede repetirse. Si ya se aplicó, conserva el estado local. Para guardar tus pruebas al terminar, detén el emulador con `Ctrl+C` y espera a que exporte los datos. El siguiente arranque recupera esa exportación. Usa `-Recompilar` para actualizar la web local después de cambiar el código de la app.
+La carga puede repetirse y agrega las reglas de Interventoría que falten, conservando las configuradas. Para guardar tus pruebas al terminar, detén el emulador con `Ctrl+C` y espera a que exporte los datos. El siguiente arranque recupera esa exportación. Usa `-Recompilar` para actualizar la web local después de cambiar el código de la app.

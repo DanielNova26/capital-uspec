@@ -1,5 +1,22 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-13 — Actas y maestros de Interventoría en la Demo local (Codex)
+
+- El emulador de Storage usaba un archivo de pruebas que rechazaba toda
+  carga. La Demo usa ahora reglas locales para PDF e imágenes de actas y
+  conceptos sanitarios, con membresía y nivel de Interventoría.
+- Se cargaron los cuatro tipos de acta PEC USPEC y 140 reglas de subsanación.
+  En los numerales compartidos se tomó Capital como referencia y se agregaron
+  42 reglas de Servir. Se adaptaron los cargos a la estructura ficticia y se
+  conservaron aprobadores distintos de los responsables. La carga es repetible
+  y conserva la configuración local existente. Producción se consultó para
+  leer los maestros de Interventoría.
+- Pasaron 63 pruebas Flutter. En la Demo local se subió un PDF real de prueba,
+  se guardó el acta como registrador y se leyó como revisor. Se comprobó que
+  una sesión anónima, un usuario ajeno al módulo y un directivo carecen de
+  permiso de carga. Queda pendiente repetir el formulario en navegador,
+  Android e iOS y cargar maestros de otros módulos.
+
 ## 2026-11-13 — Cuentas de prueba para Capital y Servir (Codex)
 
 - La Demo local reproduce las 13 áreas comunes de Capital y Servir e incluye
