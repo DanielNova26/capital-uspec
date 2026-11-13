@@ -107,3 +107,30 @@ test('envíos Cloud sin clave conocida conservan el flujo de texto existente', a
   assert.equal(body.type, 'text');
   assert.equal(body.text.body, 'Texto libre de reserva');
 });
+
+test('sube el PDF como medio privado y lo envía adjunto por su identificador', async (t) => {
+  const llamadas = [];
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    llamadas.push({url: url.toString(), body: options.body});
+    const carga = url.toString().endsWith('/media');
+    return new Response(JSON.stringify(carga ? {id: 'media-id'} : {messages: [{id: 'wamid.pdf'}]}));
+  });
+  const provider = new WhatsAppCloudProvider(baseConfig);
+  const bytes = Buffer.from('%PDF-1.7');
+  const media = await provider.subirPdf(bytes, 'orden_001.pdf');
+  const respuesta = await provider.send({
+    ...input('', {}),
+    mensaje: 'Informe de orden de trabajo 001',
+    documento: {id: media, nombre: 'orden_001.pdf'},
+  });
+  assert.equal(llamadas[0].url, 'https://graph.facebook.com/v25.0/123/media');
+  assert.equal(llamadas[0].body.get('file').name, 'orden_001.pdf');
+  assert.equal(await llamadas[0].body.get('file').text(), '%PDF-1.7');
+  assert.equal(respuesta.providerMessageId, 'wamid.pdf');
+  assert.deepEqual(JSON.parse(llamadas[1].body), {
+    messaging_product: 'whatsapp',
+    to: '573001234567',
+    type: 'document',
+    document: {id: 'media-id', filename: 'orden_001.pdf', caption: 'Informe de orden de trabajo 001'},
+  });
+});

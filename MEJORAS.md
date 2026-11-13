@@ -25,13 +25,17 @@
   inventario admiten hasta 5 MB por archivo. Quedan pendientes el envío a
   destinatarios reales y la prueba de cámara, archivos, navegación y
   accesibilidad en teléfonos físicos Android e iOS.
-- Se comprobaron 58 pruebas Flutter y 8 de Firestore y Storage, incluidas
+- Se comprobaron 58 pruebas Flutter, 8 de Firestore y Storage y 26 de
+  maestros y WhatsApp con el proveedor simulado. Incluyen
   Web a 390, 768, 1024 y 1366 píxeles con texto al 160 %, Android e iOS
   simulados, concurrencia de traslados, inventario por empresa secundaria y
   enlace de varias tareas a una orden.
 - Web 2.8.36+90 en Firebase Hosting. Se desplegaron las funciones de
   Mantenimiento, copia de maestros y administración de listados WhatsApp.
   Firestore ejecuta las reglas verificadas del mismo cambio.
+- El ZIP Web y el AAB Android firmado de la compilación 90 se prepararon
+  para el borrador de entrega en GitHub. El IPA y la carga a las tiendas
+  quedan pendientes.
 
 ## 2026-11-12 — Entrega 2.8.35+89 para tiendas y pruebas Web (Codex)
 

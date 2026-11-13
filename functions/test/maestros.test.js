@@ -66,10 +66,17 @@ test('los módulos consolidados usan los mismos ids de Limpieza', () => {
 test('mantenimiento copia fichas base sin trasladar activos ni su historial', () => {
   const modulo = MODULOS_MAESTROS.find((m) => m.id === 'mantenimiento');
   assert.ok(!MODULOS_LIMPIEZA.some((m) => m.id === modulo.id));
-  assert.deepEqual(modulo.maestros.map((m) => m.id), ['TBL_MANTENIMIENTO_EQUIPOS']);
-  const [equipos] = modulo.maestros;
+  assert.deepEqual(modulo.maestros.map((m) => m.id), [
+    'TBL_MANTENIMIENTO_EQUIPOS', 'TBL_MANTENIMIENTO_MINIMOS',
+  ]);
+  const [equipos, minimos] = modulo.maestros;
   assert.deepEqual(equipos.clave, ['codigo']);
-  assert.deepEqual(equipos.omitir, ['centroDocId', 'serie', 'factura']);
+  assert.deepEqual(equipos.omitir, [
+    'centroDocId', 'serie', 'factura', 'inventario', 'existencias', 'cantidadInicial',
+    'proveedorId', 'proveedorNombre', 'fechaCompra', 'fechaIngreso', 'archivos', 'creadoPor', 'solicitudId',
+  ]);
+  assert.deepEqual(minimos.clave, ['centroDocId']);
+  assert.deepEqual(minimos.omitir, ['validadoPor', 'validadoAt', 'responsableId', 'coordinadorId', 'ppl']);
 });
 
 test('la clave ignora tildes, mayúsculas y signos', () => {
