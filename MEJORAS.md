@@ -1,5 +1,22 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-12 — Tareas pendientes de Mantenimiento (Codex)
+
+- Mantenimiento → Pendientes reúne las tareas operativas del área de
+  Mantenimiento de la empresa activa. Filtra por origen (Interventoría,
+  Visitas o manual) y por establecimiento, incluidas tareas sin sede.
+  Web amplia usa una tabla paginada. Web estrecha y móvil usan tarjetas.
+- Iniciar orden precarga título, diagnóstico y ubicación. Para tareas
+  sin sede se elige un establecimiento activo. El servidor vuelve a
+  comprobar empresa, acceso, área y estado y conserva una orden por tarea,
+  incluso ante solicitudes simultáneas. Se conserva el estado de la
+  tarea original y la orden registra su procedencia, responsable y plazo.
+- Pasaron 51 pruebas Flutter y 6 con Firestore y Storage. Se probaron
+  cuatro anchos Web y Android e iOS simulados, con texto al 160 %, filtros,
+  apertura desde tareas y validación de sede. Las consultas del área
+  respondieron en las cuatro empresas de producción. Pendiente recorrer
+  la bandeja con sesión real y probar en celulares físicos.
+
 ## 2026-11-12 — Diseño de los formularios de Mantenimiento (Codex)
 
 - Revisados el boceto de órdenes e inventario de `TABLAS_MANTENIMIENTO.xlsx`

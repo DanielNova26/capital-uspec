@@ -104,6 +104,57 @@ enum EstadoOrden {
   String get valor => _valor ?? name;
 }
 
+enum OrigenTareaMantenimiento {
+  interventoria('Interventoría'),
+  visitas('Visitas'),
+  manual('Manual');
+
+  const OrigenTareaMantenimiento(this.label);
+  final String label;
+
+  static OrigenTareaMantenimiento? leer(Object? valor) =>
+      values.where((origen) => origen.name == valor).firstOrNull;
+}
+
+class TareaMantenimiento {
+  TareaMantenimiento(Map<String, dynamic> data)
+    : id = _texto(data, 'id'),
+      titulo = _texto(data, 'titulo'),
+      descripcion = _texto(data, 'descripcion'),
+      responsable = _texto(data, 'responsable'),
+      centroDocId = _texto(data, 'centroDocId'),
+      subcentroId = _texto(data, 'subcentroId'),
+      subcentroNombre = _texto(data, 'subcentroNombre'),
+      estado = _texto(data, 'estado'),
+      numero = (data['numero'] as num?)?.toInt(),
+      fechaLimite = (data['fechaLimite'] as num?) == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(
+              (data['fechaLimite'] as num).toInt(),
+            ),
+      origen = OrigenTareaMantenimiento.values.byName(_texto(data, 'origen'));
+
+  final String id,
+      titulo,
+      descripcion,
+      responsable,
+      centroDocId,
+      subcentroId,
+      subcentroNombre,
+      estado;
+  final int? numero;
+  final DateTime? fechaLimite;
+  final OrigenTareaMantenimiento origen;
+
+  String get estadoLabel => switch (estado) {
+    'pendiente' => 'Pendiente',
+    'en_progreso' => 'En progreso',
+    'devuelta' => 'Devuelta',
+    'reasignado' => 'Reasignada',
+    _ => estado,
+  };
+}
+
 String _texto(Map<String, dynamic> data, String key) =>
     (data[key] ?? '').toString().trim();
 
@@ -131,6 +182,11 @@ class OrdenMantenimiento {
     : centroDocId = _texto(data, 'centroDocId'),
       equipoId = _texto(data, 'equipoId'),
       hallazgoId = _texto(data, 'hallazgoId'),
+      tareaId = _texto(data, 'tareaId'),
+      origenTarea = OrigenTareaMantenimiento.leer(data['origenTarea']),
+      numeroTarea = (data['numeroTarea'] as num?)?.toInt(),
+      responsableTarea = _texto(data, 'responsableTarea'),
+      limiteTarea = (data['limiteTarea'] as Timestamp?)?.toDate(),
       detalle = _texto(data, 'detalle'),
       resultado = _texto(data, 'resultado'),
       factura = _texto(data, 'factura'),
@@ -179,6 +235,11 @@ class OrdenMantenimiento {
   final int esquema;
   final CierreMantenimiento? cierre;
   final List<ArchivoOrden> archivos;
+  final String tareaId;
+  final OrigenTareaMantenimiento? origenTarea;
+  final int? numeroTarea;
+  final String responsableTarea;
+  final DateTime? limiteTarea;
   final Map<String, String> hallazgoExterno;
   final DateTime? creada, cerrada;
   final Timestamp? updatedAt;
@@ -288,7 +349,7 @@ class MantenimientoService {
     await _actualizar(collection.doc(equipo.id), equipo.updatedAt, data);
   }
 
-  Future<void> crearOrden({
+  Future<({String id, bool existente, bool mismaSolicitud})> crearOrden({
     required String ordenId,
     required String centroDocId,
     required String equipoId,
@@ -300,8 +361,9 @@ class MantenimientoService {
     required String detalle,
     required String factura,
     Map<String, String>? hallazgoExterno,
+    String tareaId = '',
   }) async {
-    await _operar('crear', ordenId, {
+    final respuesta = await _operar('crear', ordenId, {
       'centroDocId': centroDocId,
       'equipoId': equipoId,
       'hallazgoId': hallazgoId,
@@ -312,7 +374,21 @@ class MantenimientoService {
       'detalle': detalle,
       'factura': factura,
       'hallazgoExterno': hallazgoExterno,
+      if (tareaId.isNotEmpty) 'tareaId': tareaId,
     });
+    return (
+      id: (respuesta['ordenId'] as String?) ?? ordenId,
+      existente: respuesta['existente'] == true,
+      mismaSolicitud: respuesta['mismaSolicitud'] == true,
+    );
+  }
+
+  Future<List<TareaMantenimiento>> tareasPendientes() async {
+    final respuesta = await _operar('tareas', '', {});
+    return [
+      for (final tarea in (respuesta['tareas'] as List).whereType<Map>())
+        TareaMantenimiento(Map<String, dynamic>.from(tarea)),
+    ];
   }
 
   Future<OrdenMantenimiento> orden(String ordenId) async {

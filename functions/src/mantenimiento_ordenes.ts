@@ -1,9 +1,14 @@
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
-import {createCipheriv, createDecipheriv, randomBytes, randomUUID} from "crypto";
+import {createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID} from "crypto";
 import {PDFDocument} from "pdf-lib";
 import {appsDeEmpresa} from "./apps_por_empresa";
 import {cuentaInhabilitada, inhabilitadaEn} from "./acceso";
+import {
+  catalogoTareasMantenimiento, centroTareaMantenimiento,
+  fechaLimiteTarea, listarTareasMantenimiento, tareaParaMantenimiento,
+} from "./mantenimiento_tareas";
+import {numeroDeTarea} from "./tareas_numero";
 
 type Data = FirebaseFirestore.DocumentData;
 type Tx = FirebaseFirestore.Transaction;
@@ -158,17 +163,30 @@ export const mantenimientoOrden = functions.region("us-central1").https.onCall(a
   const accion = input.accion;
   const db = admin.firestore();
   const coleccion = db.collection(ordenes);
-  const ref = coleccion.doc(id(input.ordenId, "orden"));
   const usuarioRef = db.collection("TBL_USUARIOS").doc(userId);
   const accesoRef = db.collection("TBL_MANTENIMIENTO_ACCESOS").doc(`${empresaId}_${userId}`);
   const appRef = db.collection("TBL_APPS").doc(`${empresaId}_${appId}`);
   const fecha = admin.firestore.FieldValue.serverTimestamp();
+  const autorizar = (usuario: Data | undefined, acceso: Data | undefined, app: Data | undefined) => {
+    if (!operaOrdenMantenimiento(usuario, acceso, app, empresaId, userId)) {
+      error("permission-denied", "No tienes acceso a Mantenimiento en esta empresa.");
+    }
+  };
+  if (accion === "tareas" || (accion === "crear" && input.tareaId)) {
+    const [usuario, acceso, app] = await db.getAll(usuarioRef, accesoRef, appRef);
+    autorizar(usuario.data(), acceso.data(), app.data());
+    if (accion === "tareas") return {tareas: await listarTareasMantenimiento(db, empresaId)};
+  }
+  const tareaId = accion === "crear" ? id(input.tareaId, "tarea", false) : "";
+  const solicitudId = accion === "crear" ? id(input.ordenId, "solicitud") : "";
+  const ordenId = tareaId
+    ? "tarea_" + createHash("sha256").update(JSON.stringify([empresaId, tareaId])).digest("hex")
+    : id(input.ordenId, "orden");
+  const ref = coleccion.doc(ordenId);
 
   async function leer(tx: Tx) {
     const [usuario, acceso, app, orden] = await tx.getAll(usuarioRef, accesoRef, appRef, ref);
-    if (!operaOrdenMantenimiento(usuario.data(), acceso.data(), app.data(), empresaId, userId)) {
-      error("permission-denied", "No tienes acceso a Mantenimiento en esta empresa.");
-    }
+    autorizar(usuario.data(), acceso.data(), app.data());
     const data = orden.data();
     if (data?.empresaId !== empresaId && (data || accion !== "crear")) {
       error("not-found", "La orden no está disponible.");
@@ -181,14 +199,55 @@ export const mantenimientoOrden = functions.region("us-central1").https.onCall(a
     const externo = hallazgoExterno(input);
     const centroDocId = id(input.centroDocId, "establecimiento");
     const equipoId = id(input.equipoId, "equipo", false);
-    const hallazgoId = id(input.hallazgoId, "hallazgo", false);
-    if (externo && hallazgoId) error("invalid-argument", "Selecciona un solo origen del hallazgo.");
+    const vinculoHallazgo = id(input.hallazgoId, "hallazgo", false);
+    if (externo && (vinculoHallazgo || tareaId)) error("invalid-argument", "Selecciona un solo origen.");
+    if (!tareaId && ordenId.startsWith("tarea_")) error("invalid-argument", "Identificador reservado.");
     const subcentroId = id(input.subcentroId, "estructura", false);
+    const catalogo = tareaId ? await catalogoTareasMantenimiento(db, empresaId) : null;
     return db.runTransaction(async (tx) => {
       const existente = await leer(tx);
       if (existente) {
-        if (existente.creadaPor === userId) return {numero: existente.numero};
+        if (tareaId && existente.tareaId === tareaId) {
+          return {
+            numero: existente.numero, ordenId, existente: true,
+            mismaSolicitud: existente.creadaPor === userId && existente.solicitudId === solicitudId,
+          };
+        }
+        if (existente.creadaPor === userId) return {numero: existente.numero, ordenId};
         return error("already-exists", "La orden ya existe.");
+      }
+      let hallazgoId = vinculoHallazgo;
+      let origenTarea: string | null = null;
+      let referenciaTarea: Data | null = null;
+      let estructuraTarea: {subcentroId: string; subcentroNombre: string} | null = null;
+      if (catalogo) {
+        const tarea = (await tx.get(db.collection("TBL_TAREAS").doc(tareaId))).data();
+        const origen = tarea ? tareaParaMantenimiento(tarea, catalogo) : null;
+        if (!tarea || !origen) {
+          error("failed-precondition", "La tarea ya no está pendiente en Mantenimiento de esta empresa.");
+        }
+        const centroTarea = centroTareaMantenimiento(tarea, catalogo.centros);
+        if (centroTarea && centroTarea.id !== centroDocId) {
+          const original = (await tx.get(centroTarea.ref)).data();
+          if (original?.empresaId === empresaId && original.enabled !== false) {
+            error("invalid-argument", "El establecimiento debe coincidir con el de la tarea.");
+          }
+        }
+        if (centroTarea?.id === centroDocId && tarea.subcentroId) {
+          if (tarea.subcentroId !== subcentroId) {
+            error("invalid-argument", "La estructura debe coincidir con la de la tarea.");
+          }
+          estructuraTarea = {subcentroId, subcentroNombre: texto(tarea.subcentroNombre, 200, "estructura")};
+        }
+        origenTarea = origen.origen;
+        const plazo = fechaLimiteTarea(tarea);
+        referenciaTarea = {
+          numeroTarea: numeroDeTarea(tarea),
+          responsableTarea: String(tarea.asignado_nombre ?? tarea.assignedToName ?? "").trim().slice(0, 120),
+          limiteTarea: plazo == null ? null : admin.firestore.Timestamp.fromMillis(plazo),
+        };
+        hallazgoId = origenTarea === "interventoria"
+          ? id(tarea.hallazgoId ?? tarea.source?.entityId ?? tarea.sourceEntityId, "hallazgo", false) : "";
       }
       const contador = db.collection("TBL_MANTENIMIENTO_CONTADORES").doc(empresaId);
       const [centroSnap, secuencia, equipo, hallazgo] = await Promise.all([
@@ -208,19 +267,27 @@ export const mantenimientoOrden = functions.region("us-central1").https.onCall(a
         const h = hallazgo?.data();
         if (!h || h.empresaId !== empresaId || ![centroDocId, centro.centroId].includes(h.centroCostoId) ||
           (h.subcentroId && h.subcentroId !== subcentroId)) {
-          error("invalid-argument", "El hallazgo no corresponde a la ubicación seleccionada.");
+          if (tareaId) {
+            // La tarea conserva su vínculo aunque su acta histórica ya no exista
+            // o el centro original esté inactivo.
+            hallazgoId = "";
+          } else {
+            error("invalid-argument", "El hallazgo no corresponde a la ubicación seleccionada.");
+          }
         }
       }
       const numero = (secuencia.data()?.ultimo ?? 0) + 1;
       if (!Number.isSafeInteger(numero) || numero <= 0) error("internal", "Consecutivo inválido.");
       tx.set(contador, {ultimo: numero});
       tx.create(ref, {
-        ...trabajo, ...subcentroDe(centro, subcentroId), empresaId, centroDocId, equipoId, hallazgoId,
+        ...trabajo, ...(estructuraTarea ?? subcentroDe(centro, subcentroId)),
+        empresaId, centroDocId, equipoId, hallazgoId,
         hallazgoExterno: externo,
+        ...(tareaId ? {tareaId, origenTarea, solicitudId, ...referenciaTarea} : {}),
         esquema: 2, numero, creadaPor: userId, estado: "abierta", resultado: "", cerradaAt: null,
         createdAt: fecha, updatedAt: fecha,
       });
-      return {numero};
+      return {numero, ordenId};
     });
   }
 

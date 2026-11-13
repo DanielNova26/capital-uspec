@@ -10,10 +10,17 @@ import 'mantenimiento_archivos.dart';
 import 'mantenimiento_forms.dart';
 import 'mantenimiento_report.dart';
 import 'mantenimiento_service.dart';
+import 'mantenimiento_tareas.dart';
 import 'mantenimiento_web_widgets.dart';
 
 enum _Seccion {
   resumen('Resumen', Icons.dashboard_outlined, '', mantenimientoAcento),
+  pendientes(
+    'Pendientes',
+    Icons.pending_actions_outlined,
+    'Inicia órdenes a partir de las tareas asignadas a Mantenimiento.',
+    mantenimientoAcento,
+  ),
   hojas(
     'Hojas de vida',
     Icons.folder_open_outlined,
@@ -91,10 +98,14 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
   IntervencionMantenimiento? _intervencionOrdenes;
   String _busquedaOrdenes = '', _grupoOrdenes = '';
   bool? _conHallazgo;
+  Future<List<TareaMantenimiento>>? _tareas;
+  OrigenTareaMantenimiento? _origenTarea;
+  String _centroTarea = '';
 
   void _irA(_Seccion seccion) => setState(() {
     _seccion = seccion;
     _seleccion = null;
+    if (seccion == _Seccion.pendientes) _tareas = _service.tareasPendientes();
   });
 
   @override
@@ -154,6 +165,19 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
           MediaQuery.textScalerOf(context).scale(16) <= 26;
       final contenido = switch (_seccion) {
         _Seccion.resumen => _resumen(centros, equipos, ordenes),
+        _Seccion.pendientes => BandejaTareasMantenimiento(
+          tareas: _tareas ??= _service.tareasPendientes(),
+          centros: centros,
+          ordenes: ordenes,
+          origen: _origenTarea,
+          centro: _centroTarea,
+          cambiarOrigen: (origen) => setState(() => _origenTarea = origen),
+          cambiarCentro: (centro) => setState(() => _centroTarea = centro),
+          actualizar: () =>
+              setState(() => _tareas = _service.tareasPendientes()),
+          abrir: (tarea, orden) => _desdeTarea(tarea, orden, centros, equipos),
+          vistaWeb: widget.vistaWeb,
+        ),
         _Seccion.informe => _informe(centros, equipos, ordenes),
         _ => _operacion(
           centros,
@@ -291,6 +315,7 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
       _titulo('¿Qué quieres hacer?'),
       _rejilla([
         for (final seccion in [
+          _Seccion.pendientes,
           _Seccion.equipos,
           _Seccion.ordenes,
           _Seccion.hojas,
@@ -446,6 +471,45 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
     ),
   );
 
+  void _desdeTarea(
+    TareaMantenimiento tarea,
+    OrdenMantenimiento? orden,
+    List<EstablecimientoMantenimiento> centros,
+    List<EquipoMantenimiento> equipos,
+  ) {
+    if (orden != null) {
+      _abrirDetalleVivo(_Seccion.ordenes, orden.id);
+      return;
+    }
+    final activos = centros.where((centro) => centro.activo).toList();
+    if (activos.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Se requiere un establecimiento activo para abrir la orden.',
+          ),
+        ),
+      );
+      return;
+    }
+    final asignado = activos
+        .where((centro) => centro.id == tarea.centroDocId)
+        .firstOrNull;
+    _abrir(
+      OrdenMantenimientoForm(
+        service: _service,
+        centros: activos,
+        equipos: equipos,
+        centroId: asignado?.id,
+        tarea: tarea,
+        vistaWeb: widget.vistaWeb,
+        alCrearDesdeTarea: (id) {
+          if (mounted) _abrirDetalleVivo(_Seccion.ordenes, id);
+        },
+      ),
+    );
+  }
+
   Widget _operacion(
     List<EstablecimientoMantenimiento> centros,
     List<EquipoMantenimiento> equipos,
@@ -566,6 +630,7 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
               ? null
               : _detalleOrden(orden, centros, nombres, inventario);
         case _Seccion.informe:
+        case _Seccion.pendientes:
         case _Seccion.resumen:
           return null;
       }
@@ -822,6 +887,15 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
       ],
       ..._bloqueDetalle('Trabajo solicitado', [
         Text(orden.detalle),
+        if (orden.origenTarea case final origen?) ...[
+          Text(
+            'Tarea de origen: ${origen.label}${orden.numeroTarea == null ? '' : ' · ${orden.numeroTarea}'}',
+          ),
+          if (orden.responsableTarea.isNotEmpty)
+            Text('Responsable de la tarea: ${orden.responsableTarea}'),
+          if (orden.limiteTarea != null)
+            Text('Fecha límite: ${_fecha(orden.limiteTarea)}'),
+        ],
         if (orden.hallazgoExterno.isNotEmpty) ...[
           Text('Hallazgo de ${orden.hallazgoExterno['entidad']}'),
           Text(orden.hallazgoExterno['descripcion'] ?? ''),

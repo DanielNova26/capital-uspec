@@ -82,6 +82,14 @@ Future<Uint8List> generarInformeMantenimiento({
           if (orden.intervencion case final intervencion?)
             pw.Paragraph(text: 'Intervención: ${intervencion.label}'),
           pw.Paragraph(text: 'Diagnóstico: ${texto(orden.detalle)}'),
+          if (orden.origenTarea case final origen?)
+            pw.Paragraph(
+              text:
+                  'Tarea de origen: ${origen.label}'
+                  '${orden.numeroTarea == null ? '' : ' · ${orden.numeroTarea}'}'
+                  '${orden.responsableTarea.isEmpty ? '' : ' · ${orden.responsableTarea}'}'
+                  '${orden.limiteTarea == null ? '' : ' · Fecha límite ${fecha(orden.limiteTarea)}'}',
+            ),
           if (orden.hallazgoExterno.isNotEmpty)
             pw.Paragraph(
               text:

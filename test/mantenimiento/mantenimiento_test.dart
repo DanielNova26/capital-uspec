@@ -77,11 +77,12 @@ class _ServicioPrueba implements MantenimientoService {
 
   String? vinculoGuardado;
   String? detalleGuardado;
+  String? tareaGuardada, centroGuardado;
   CierreMantenimiento? cierreGuardado;
   bool? cerrada;
 
   @override
-  Future<void> crearOrden({
+  Future<({String id, bool existente, bool mismaSolicitud})> crearOrden({
     required String ordenId,
     required String centroDocId,
     required String equipoId,
@@ -93,10 +94,31 @@ class _ServicioPrueba implements MantenimientoService {
     required String detalle,
     required String factura,
     Map<String, String>? hallazgoExterno,
+    String tareaId = '',
   }) async {
     vinculoGuardado = hallazgoId;
     detalleGuardado = detalle;
+    tareaGuardada = tareaId;
+    centroGuardado = centroDocId;
+    return (id: ordenId, existente: false, mismaSolicitud: false);
   }
+
+  @override
+  Future<List<TareaMantenimiento>> tareasPendientes() async => [
+    for (final (id, titulo, origen, centro) in [
+      ('i', 'Reparar puerta', 'interventoria', 'sede'),
+      ('v', 'Ajustar cocina', 'visitas', 'sede'),
+      ('m', 'Revisar enchufe', 'manual', ''),
+    ])
+      TareaMantenimiento({
+        'id': id,
+        'titulo': titulo,
+        'origen': origen,
+        'centroDocId': centro,
+        'descripcion': titulo,
+        'estado': 'pendiente',
+      }),
+  ];
 
   @override
   Future<OrdenMantenimiento> orden(String ordenId) async => OrdenMantenimiento(
@@ -135,6 +157,7 @@ Future<void> _abrirModulo(
   required double ancho,
   bool web = true,
   TargetPlatform platform = TargetPlatform.android,
+  GlobalKey? captura,
 }) async {
   await tester.binding.setSurfaceSize(Size(ancho, 760));
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -148,10 +171,13 @@ Future<void> _abrirModulo(
         ),
         child: child!,
       ),
-      home: MantenimientoScreen(
-        empresaId: 'A',
-        service: servicio,
-        vistaWeb: web,
+      home: RepaintBoundary(
+        key: captura,
+        child: MantenimientoScreen(
+          empresaId: 'A',
+          service: servicio,
+          vistaWeb: web,
+        ),
       ),
     ),
   );
@@ -260,6 +286,111 @@ void main() {
     );
     expect(ascii.decode(bytes.take(5).toList()), '%PDF-');
     expect(bytes.length, greaterThan(1000));
+  });
+
+  for (final (ancho, plataforma) in [
+    (390.0, null),
+    (768.0, null),
+    (1024.0, null),
+    (1366.0, null),
+    (390.0, TargetPlatform.android),
+    (390.0, TargetPlatform.iOS),
+  ]) {
+    testWidgets(
+      'Bandeja de tareas filtra por origen y sede en ${plataforma ?? 'Web'} a $ancho',
+      (tester) async {
+        final servicio = _ServicioPrueba();
+        final captura = GlobalKey();
+        await _abrirModulo(
+          tester,
+          servicio,
+          ancho: ancho,
+          web: plataforma == null,
+          platform: plataforma ?? TargetPlatform.android,
+          captura: captura,
+        );
+        if (plataforma != null) {
+          await tester.tap(find.byTooltip('Secciones de Mantenimiento'));
+          await tester.pumpAndSettle();
+        }
+        await tester.tap(find.text('Pendientes').hitTestable().first);
+        await tester.pumpAndSettle();
+        if (plataforma == null &&
+            Platform.environment['MANTENIMIENTO_CAPTURAS'] == '1') {
+          await _capturar(tester, captura, 'pendientes_$ancho');
+        }
+        expect(
+          find.byType(Table),
+          ancho >= 1024 ? findsOneWidget : findsNothing,
+        );
+        final origen = find.widgetWithText(
+          DropdownButtonFormField<OrigenTareaMantenimiento?>,
+          'Todos los orígenes',
+        );
+        await tester.tap(origen);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Visitas').last);
+        await tester.pumpAndSettle();
+        expect(find.text('Ajustar cocina'), findsOneWidget);
+        expect(find.text('Reparar puerta'), findsNothing);
+        final centro = find.widgetWithText(
+          DropdownButtonFormField<String>,
+          'Todos los establecimientos',
+        );
+        await tester.tap(centro);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Sede Norte').last);
+        await tester.pumpAndSettle();
+        await _desplazarHasta(tester, find.text('Iniciar orden'));
+        await tester.tap(find.text('Iniciar orden'));
+        await tester.pumpAndSettle();
+        expect(find.text('Nueva orden de trabajo'), findsOneWidget);
+        expect(find.text('Ajustar cocina'), findsWidgets);
+        await tester.tap(find.text('Guardar').hitTestable());
+        await tester.pumpAndSettle();
+        expect(servicio.tareaGuardada, 'v');
+        expect(servicio.centroGuardado, 'sede');
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('Una tarea manual sin sede exige elegir un establecimiento', (
+    tester,
+  ) async {
+    final servicio = _ServicioPrueba();
+    await _abrirModulo(tester, servicio, ancho: 1024);
+    await tester.tap(find.text('Pendientes').hitTestable().first);
+    await tester.pumpAndSettle();
+    final filtro = find.widgetWithText(
+      DropdownButtonFormField<String>,
+      'Todos los establecimientos',
+    );
+    await tester.tap(filtro);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sin establecimiento').hitTestable().last);
+    await tester.pumpAndSettle();
+    expect(find.text('Revisar enchufe'), findsOneWidget);
+    expect(find.text('Ajustar cocina'), findsNothing);
+    await tester.tap(find.text('Iniciar orden').hitTestable());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Guardar').hitTestable());
+    await tester.pumpAndSettle();
+    expect(find.text('Elige un establecimiento'), findsOneWidget);
+    expect(servicio.tareaGuardada, isNull);
+    final selector = find.widgetWithText(
+      DropdownButtonFormField<String>,
+      'Establecimiento',
+    );
+    await tester.tap(selector.hitTestable());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sede Norte').hitTestable().last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Guardar').hitTestable());
+    await tester.pumpAndSettle();
+    expect(servicio.tareaGuardada, 'm');
+    expect(servicio.centroGuardado, 'sede');
+    expect(tester.takeException(), isNull);
   });
 
   for (final (ancho, plataforma) in [

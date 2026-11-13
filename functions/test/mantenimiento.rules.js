@@ -222,3 +222,68 @@ test("consecutivos por empresa, estructura y cierre con evidencia en el servidor
   await sembrar({[`${accesos}/A_operario`]: {empresaId: "A", userId: "operario", operador: false}});
   await assert.rejects(call("leerArchivo", {archivoId: "foto"}), {code: "permission-denied"});
 });
+
+test("la bandeja reúne los tres orígenes y enlaza cada tarea a una sola orden", async () => {
+  const tarea = {
+    empresaId: "A", areaId: "area-m", estado: "pendiente",
+    titulo: "Reparar puerta", descripcion: "Bisagra suelta",
+    asignado_nombre: "Técnico", centroId: "sede-A",
+  };
+  await sembrar({
+    "TBL_CENTROS_COSTOS/centro-A": {
+      empresaId: "A", centroId: "sede-A", subcentros: [{id: "rancho", nombre: "Rancho"}],
+    },
+    "TBL_INTERVENTORIA_HALLAZGOS/hallazgo-A": {
+      empresaId: "A", centroCostoId: "sede-A", subcentroId: "rancho",
+    },
+    "TBL_AREAS/area-m": {empresaId: "A", nombre: "Mantenimiento"},
+    "TBL_AREAS/area-calidad": {empresaId: "A", nombre: "Calidad"},
+    [`${accesos}/A_operario`]: {empresaId: "A", userId: "operario", operador: true},
+    "TBL_TAREAS/m": {...tarea, sourceModule: "tareas", centroId: "global", titulo: "Ajustar toma"},
+    "TBL_TAREAS/i": {...tarea, sourceModule: "interventoria", hallazgoId: "hallazgo-A", subcentroId: "rancho"},
+    "TBL_TAREAS/v": {...tarea, source: {moduleId: "visita"}, titulo: "Revisar refrigerador"},
+    "TBL_TAREAS/b": {...tarea, empresaId: "B"},
+    "TBL_TAREAS/cerrada": {...tarea, estado: "finalizado"},
+    "TBL_TAREAS/revision": {...tarea, estado: "por_aprobar"},
+    "TBL_TAREAS/compras": {...tarea, sourceModule: "compras"},
+    "TBL_TAREAS/calidad": {...tarea, areaId: "area-calidad", areaNombre: "Mantenimiento"},
+  });
+  const call = (accion, data = {}, userDocId = "operario") => mantenimientoOrden.run(
+    {empresaId: "A", accion, ...data},
+    {auth: {uid: userDocId, token: {authVersion: 2, userDocId}}},
+  );
+  const {tareas} = await call("tareas");
+  assert.deepEqual(tareas.map(({id, origen, centroDocId}) => [id, origen, centroDocId]), [
+    ["m", "manual", ""], ["i", "interventoria", "centro-A"], ["v", "visitas", "centro-A"],
+  ]);
+  await assert.rejects(call("tareas", {empresaId: "B"}), {code: "permission-denied"});
+  await assert.rejects(call("tareas", {}, "inhabilitado"), {code: "permission-denied"});
+  const datos = {
+    tipo: "correctivo", intervencion: "infraestructura", titulo: tarea.titulo,
+    detalle: tarea.descripcion, centroDocId: "centro-A", ordenId: "solicitud",
+  };
+  for (const tareaId of ["b", "cerrada", "revision", "compras", "calidad"]) {
+    await assert.rejects(call("crear", {...datos, tareaId}), {code: "failed-precondition"});
+  }
+  await assert.rejects(call("crear", {...datos, tareaId: "i", centroDocId: "otro-A"}), {code: "invalid-argument"});
+  await assert.rejects(call("crear", {...datos, tareaId: "i"}), {code: "invalid-argument"});
+  const conversion = {...datos, tareaId: "i", subcentroId: "rancho"};
+  const resultados = await Promise.all([
+    call("crear", conversion), call("crear", {...conversion, ordenId: "segunda-solicitud"}),
+  ]);
+  assert.equal(resultados[0].ordenId, resultados[1].ordenId);
+  assert.equal(resultados[0].numero, resultados[1].numero);
+  assert.equal(resultados.filter((resultado) => resultado.existente).length, 1);
+  const doc = (await dbAdmin.doc(`${ordenes}/${resultados[0].ordenId}`).get()).data();
+  assert.equal(doc.tareaId, "i");
+  assert.equal(doc.origenTarea, "interventoria");
+  assert.equal(doc.hallazgoId, "hallazgo-A");
+  assert.equal(doc.estado, "abierta");
+  assert.equal((await dbAdmin.doc("TBL_TAREAS/i").get()).data().estado, "pendiente");
+  const reintento = await call("crear", {...conversion, ordenId: doc.solicitudId});
+  assert.equal(reintento.mismaSolicitud, true);
+  const manual = await call("crear", {...datos, tareaId: "m"});
+  assert.equal((await dbAdmin.doc(`${ordenes}/${manual.ordenId}`).get()).data().centroDocId, "centro-A");
+  const visita = await call("crear", {...datos, tareaId: "v"});
+  assert.equal((await dbAdmin.doc(`${ordenes}/${visita.ordenId}`).get()).data().origenTarea, "visitas");
+});

@@ -53,6 +53,7 @@ class EditorMantenimiento extends StatefulWidget {
     this.guardarBorrador,
     this.onChanged,
     this.estadoBorrador,
+    this.alGuardar,
   });
 
   final String titulo;
@@ -65,6 +66,7 @@ class EditorMantenimiento extends StatefulWidget {
   final Future<void> Function()? guardarBorrador;
   final VoidCallback? onChanged;
   final String? estadoBorrador;
+  final VoidCallback? alGuardar;
 
   @override
   State<EditorMantenimiento> createState() => _EditorMantenimientoState();
@@ -95,7 +97,11 @@ class _EditorMantenimientoState extends State<EditorMantenimiento> {
     });
     try {
       await (borrador ? widget.guardarBorrador! : widget.guardar)();
-      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        final alGuardar = widget.alGuardar;
+        Navigator.pop(context);
+        alGuardar?.call();
+      }
     } on _GuardadoCancelado {
       if (mounted) setState(() => _guardando = false);
     } catch (error) {
@@ -410,6 +416,8 @@ class OrdenMantenimientoForm extends StatefulWidget {
     this.equipoId,
     this.vistaWeb = false,
     this.orden,
+    this.tarea,
+    this.alCrearDesdeTarea,
   });
 
   final MantenimientoService service;
@@ -418,6 +426,8 @@ class OrdenMantenimientoForm extends StatefulWidget {
   final String? centroId, equipoId;
   final bool vistaWeb;
   final OrdenMantenimiento? orden;
+  final TareaMantenimiento? tarea;
+  final ValueChanged<String>? alCrearDesdeTarea;
 
   @override
   State<OrdenMantenimientoForm> createState() => _OrdenMantenimientoFormState();
@@ -427,13 +437,23 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
     with _BorradorFormulario<OrdenMantenimientoForm> {
   late String? _centroId = widget.orden?.centroDocId ?? widget.centroId;
   late String _equipoId = widget.equipoId ?? '';
-  late String _subcentroId = widget.orden?.subcentroId ?? '';
+  late String _subcentroId =
+      widget.orden?.subcentroId ??
+      (widget.centroId == null ? '' : widget.tarea?.subcentroId ?? '');
   late TipoMantenimiento _tipo =
       widget.orden?.tipo ?? TipoMantenimiento.correctivo;
   late IntervencionMantenimiento _intervencion =
       widget.orden?.intervencion ?? IntervencionMantenimiento.infraestructura;
-  late final _detalle = TextEditingController(text: widget.orden?.detalle);
-  late final _titulo = TextEditingController(text: widget.orden?.asunto);
+  late final _detalle = TextEditingController(
+    text:
+        widget.orden?.detalle ??
+        (widget.tarea?.descripcion.isNotEmpty == true
+            ? widget.tarea!.descripcion
+            : widget.tarea?.titulo),
+  );
+  late final _titulo = TextEditingController(
+    text: widget.orden?.asunto ?? widget.tarea?.titulo,
+  );
   late String _ordenId = widget.orden?.id ?? nuevoIdMantenimiento();
   final _pendientes = <ArchivoPendienteOrden>[];
   final _retirados = <String>{};
@@ -450,7 +470,7 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
   BorradorMantenimiento get almacenBorrador => _almacenBorrador;
   late final _almacenBorrador = BorradorMantenimiento(
     widget.service.empresaId,
-    'apertura-${widget.orden?.id ?? 'nueva'}',
+    'apertura-${widget.orden?.id ?? widget.tarea?.id ?? 'nueva'}',
   );
 
   @override
@@ -487,7 +507,9 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
     final centro = widget.centros
         .where((c) => c.id == centroId && c.activo)
         .firstOrNull;
-    _centroId = centro?.id;
+    _centroId = widget.tarea != null && widget.centroId != null
+        ? widget.centroId
+        : centro?.id;
     _equipoId =
         widget.equipos.any(
           (e) => e.id == data['equipoId'] && e.centroDocId == _centroId,
@@ -496,7 +518,12 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
         : '';
     final subcentroId = data['subcentroId'] as String? ?? '';
     _subcentroId =
-        centro?.centro.subcentrosActivos.any((s) => s.id == subcentroId) == true
+        widget.tarea != null &&
+            widget.centroId != null &&
+            widget.tarea!.subcentroId.isNotEmpty
+        ? widget.tarea!.subcentroId
+        : centro?.centro.subcentrosActivos.any((s) => s.id == subcentroId) ==
+              true
         ? subcentroId
         : '';
     _ordenId = data['ordenId'] as String;
@@ -585,8 +612,9 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
     final orden = widget.orden;
     final titulo = _titulo.text.trim();
     final detalle = _detalle.text.trim();
+    final creadaEnEsteIntento = orden == null && !_creada;
     if (orden == null && !_creada) {
-      await service.crearOrden(
+      final creacion = await service.crearOrden(
         ordenId: _ordenId,
         centroDocId: _centroId!,
         equipoId: _equipoId,
@@ -597,6 +625,7 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
         titulo: titulo,
         detalle: detalle,
         factura: _factura.trim(),
+        tareaId: widget.tarea?.id ?? '',
         hallazgoExterno: _hallazgoManual
             ? {
                 'entidad': _entidad,
@@ -606,13 +635,18 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
               }
             : null,
       );
+      _ordenId = creacion.id;
+      if (creacion.existente && !creacion.mismaSolicitud) {
+        await completarBorrador();
+        return;
+      }
       _creada = true;
       await _guardarLocal();
     }
-    if (_creada && _creadaGuardada == null) {
+    await _guardarArchivos(service, _ordenId, _pendientes, _retirados);
+    if (_creada && !creadaEnEsteIntento && _creadaGuardada == null) {
       _creadaGuardada = await service.orden(_ordenId);
     }
-    await _guardarArchivos(service, _ordenId, _pendientes, _retirados);
     final editable = orden ?? _creadaGuardada;
     if (editable != null) {
       await service.editarOrden(
@@ -657,6 +691,9 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
     final orden = widget.orden;
     final centro = widget.centros.where((c) => c.id == _centroId).firstOrNull;
     final subcentros = centro?.centro.subcentrosActivos ?? [];
+    final tarea = widget.tarea;
+    final sedeFija = tarea != null && widget.centroId != null;
+    final estructuraFija = sedeFija && tarea.subcentroId.isNotEmpty;
     return EditorMantenimiento(
       key: ValueKey(revisionBorrador),
       titulo: orden == null
@@ -664,6 +701,9 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
           : 'Editar orden de trabajo',
       vistaWeb: widget.vistaWeb,
       guardar: _guardar,
+      alGuardar: tarea == null
+          ? null
+          : () => widget.alCrearDesdeTarea?.call(_ordenId),
       onChanged: cambiarBorrador,
       estadoBorrador: estadoBorrador,
       campos: [
@@ -689,7 +729,7 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
               ],
               onChanged: (valor) => _intervencion = valor!,
             ),
-            if (orden == null)
+            if (orden == null && !sedeFija)
               DropdownButtonFormField<String>(
                 initialValue: _centroId,
                 isExpanded: true,
@@ -708,7 +748,14 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
                   _cambiarHallazgo(null);
                 }),
               ),
-            if (orden == null && subcentros.isNotEmpty)
+            if (sedeFija) Text(centro?.centro.nombre ?? widget.centroId!),
+            if (estructuraFija)
+              Text(
+                tarea.subcentroNombre.isEmpty
+                    ? tarea.subcentroId
+                    : tarea.subcentroNombre,
+              ),
+            if (orden == null && !estructuraFija && subcentros.isNotEmpty)
               DropdownButtonFormField<String>(
                 key: ValueKey((centro?.id, _subcentroId)),
                 initialValue: _subcentroId,
@@ -780,7 +827,19 @@ class _OrdenMantenimientoFormState extends State<OrdenMantenimientoForm>
         ),
       ],
       soportes: [
-        if (orden == null)
+        if (tarea != null)
+          _SeccionOrdenForm(
+            titulo: 'Tarea de origen',
+            icono: Icons.link_outlined,
+            campos: [
+              Text(
+                '${tarea.origen.label}${tarea.numero == null ? '' : ' · Tarea ${tarea.numero}'}',
+              ),
+              Text(tarea.titulo),
+              if (tarea.responsable.isNotEmpty) Text(tarea.responsable),
+            ],
+          )
+        else if (orden == null)
           _SeccionOrdenForm(
             titulo: 'Origen de la orden',
             icono: Icons.link_outlined,
