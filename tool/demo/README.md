@@ -27,6 +27,8 @@ Las 13 áreas de Capital y Servir se tomaron como referencia y se incluyó Gesti
 
 Interventoría incluye las cuatro plantillas PEC USPEC habilitadas en Capital y Servir y 140 reglas de subsanación adaptadas a los cargos de la Demo. Para los numerales compartidos se tomó Capital como referencia y Servir aportó los faltantes. Puedes probar el registro de un acta con PDF desde el analista de Calidad y abrirla desde el coordinador. El almacenamiento local permite PDF e imágenes para actas y conceptos sanitarios según el rol de Interventoría.
 
+En Tareas, el responsable puede reportar avances, comunicar novedades y solicitar la finalización con evidencias. Si la tarea viene de un hallazgo de Interventoría, su aprobador puede revisar las evidencias y cerrar la tarea desde el hallazgo.
+
 ## Reiniciar el entorno local
 
 Desde la raíz del repositorio, con Java, Firebase CLI, Flutter y las dependencias de Functions instaladas, ejecuta en PowerShell:

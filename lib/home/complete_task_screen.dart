@@ -458,17 +458,13 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
       }
 
       // 1) Subir adjuntos
-      final now = DateTime.now();
-      final y = DateFormat('yyyy').format(now),
-          m = DateFormat('MM').format(now),
-          d = DateFormat('dd').format(now);
       final taskSlug = _slugFileSegment(_taskTitle ?? '', fallback: 'tarea');
 
       final List<Map<String, dynamic>> nuevosAdjuntos = [];
       final List<String> nuevasEvidenciasUrls = [];
       final finalizacionRef = tareaRef.collection('finalizacion').doc();
 
-      for (final f in _picked) {
+      for (final (index, f) in _picked.indexed) {
         final originalName = f.name;
         final bytes =
             f.bytes ??
@@ -482,9 +478,9 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
             lookupMimeType(originalName) ??
             (ext == 'png' ? 'image/png' : 'application/octet-stream');
         final evidenceName =
-            '${taskSlug}_${DateTime.now().millisecondsSinceEpoch}_${originalName.replaceAll('/', '_').replaceAll('\\', '_')}';
+            '${taskSlug}_${finalizacionRef.id}_${index}_${originalName.replaceAll('/', '_').replaceAll('\\', '_')}';
 
-        final path = 'tareas/$y/$m/$d/$evidenceName';
+        final path = 'tareas/${widget.taskId}/finalizacion/$evidenceName';
         final ref = FirebaseStorage.instance.ref(path);
         await ref.putData(bytes, SettableMetadata(contentType: mime));
         final url = await ref.getDownloadURL();

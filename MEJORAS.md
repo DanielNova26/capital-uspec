@@ -1,5 +1,20 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-13 — Evidencias y cierre de tareas en la Demo local (Codex)
+
+- Storage local permite al responsable activo adjuntar archivos a avances,
+  novedades y finalizaciones. La lectura sigue el acceso a la tarea y la carga
+  se bloquea si está cerrada, por aprobar o pendiente de reasignación.
+- Las nuevas evidencias de finalización se guardan bajo el ID de la tarea.
+  Los archivos históricos conservan su ruta y su enlace.
+- Se verificó con cuentas de la Demo el avance con foto, la carga de un
+  adjunto de novedad, la solicitud de finalización con foto y la aprobación
+  por Gerencia desde el hallazgo, que quedó subsanado. Se comprobaron los
+  rechazos de carga para sesiones ajenas, tareas inexistentes y tareas por
+  aprobar o cerradas. Pasaron 23 pruebas Flutter y 20 de Firestore.
+- Se publicó la compilación en el servidor local de la Demo. Queda pendiente
+  repetir el formulario en navegador y en Android e iOS.
+
 ## 2026-11-13 — Actas y maestros de Interventoría en la Demo local (Codex)
 
 - El emulador de Storage usaba un archivo de pruebas que rechazaba toda

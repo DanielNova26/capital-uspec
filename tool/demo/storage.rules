@@ -9,14 +9,23 @@ service firebase.storage {
         && request.auth.token.userDocId is string;
     }
 
-    function nivelInterventoria(empresa) {
-      let id = request.auth.token.userDocId;
-      let persona = firestore.get(/databases/(default)/documents/TBL_USUARIOS/$(id)).data;
+    function personaActual() {
+      return firestore.get(/databases/(default)/documents/TBL_USUARIOS/$(request.auth.token.userDocId)).data;
+    }
+
+    function personaActivaEn(persona, empresa) {
       let ficha = persona.empresasDetalle[empresa];
-      let asignacion = firestore.get(/databases/(default)/documents/TBL_INTERVENTORIA_ROLES/$(empresa + '_' + id)).data;
       return empresa in persona.empresas && persona.estado == 'activo'
         && persona.get('activo', true) && ficha.get('activo', true)
-        && ficha.estadoLaboral == 'activo' && 'interventoriadashboard' in ficha.apps
+        && ficha.estadoLaboral == 'activo';
+    }
+
+    function nivelInterventoria(empresa) {
+      let id = request.auth.token.userDocId;
+      let persona = personaActual();
+      let asignacion = firestore.get(/databases/(default)/documents/TBL_INTERVENTORIA_ROLES/$(empresa + '_' + id)).data;
+      return personaActivaEn(persona, empresa)
+        && 'interventoriadashboard' in persona.empresasDetalle[empresa].apps
         && asignacion.empresaId == empresa && asignacion.userId == id ? asignacion.rol : '';
     }
 
@@ -37,6 +46,51 @@ service firebase.storage {
       allow create: if tipo in ['visitas', 'conceptos_sanitarios'] && adjuntaInterventoria(empresa)
         && request.resource.contentType.matches('application/pdf|image/.*');
       allow delete: if tipo in ['visitas', 'conceptos_sanitarios'] && adjuntaInterventoria(empresa);
+    }
+
+    match /tareas/{tareaId}/{tipo}/{archivo} {
+      function esResponsable(tarea) {
+        return tarea.get('asignado_uid', tarea.get('assignedTo', '')) == request.auth.token.userDocId;
+      }
+
+      function esParticipante(tarea) {
+        let id = request.auth.token.userDocId;
+        return esResponsable(tarea)
+          || tarea.get('aprobador_uid', tarea.get('approverId', '')) == id
+          || tarea.get('jefe_uid', tarea.get('bossId', '')) == id
+          || tarea.get('creador_id', tarea.get('creatorId', '')) == id
+          || tarea.get('reasignada_desde_uid', '') == id
+          || id in tarea.get('participantes_uid', []);
+      }
+
+      function puedeAdjuntar(tarea, ficha) {
+        return esResponsable(tarea)
+          && !(tarea.get('estado', tarea.get('status', '')) in ['finalizado', 'por_aprobar'])
+          && tarea.get('solicitud_finalizacion_estado', '') != 'pendiente'
+          && tarea.get('solicitud_reasignacion_estado', '') != 'pendiente'
+          && ('tareasdashboard' in ficha.apps
+            || (tarea.get('sourceModule', '') == 'interventoria' && 'interventoriadashboard' in ficha.apps));
+      }
+
+      function puedeLeer(tarea, ficha) {
+        return 'admindashboard' in ficha.apps
+          || ('tareasdashboard' in ficha.apps && (esParticipante(tarea) || ficha.get('puedeVerEquipo', false)))
+          || (tarea.get('sourceModule', '') == 'interventoria' && 'interventoriadashboard' in ficha.apps);
+      }
+
+      function autorizaAdjunto(esCarga) {
+        let tarea = firestore.get(/databases/(default)/documents/TBL_TAREAS/$(tareaId)).data;
+        let empresa = tarea.empresaId;
+        let persona = personaActual();
+        return esSesionDemo(empresa) && personaActivaEn(persona, empresa)
+          && (esCarga ? puedeAdjuntar(tarea, persona.empresasDetalle[empresa])
+            : puedeLeer(tarea, persona.empresasDetalle[empresa]));
+      }
+
+      allow get: if tipo in ['avances', 'novedades', 'finalizacion'] && request.auth != null
+        && autorizaAdjunto(false);
+      allow create: if tipo in ['avances', 'novedades', 'finalizacion'] && request.auth != null
+        && autorizaAdjunto(true);
     }
   }
 }
