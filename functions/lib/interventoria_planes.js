@@ -105,7 +105,7 @@ async function actorPlanes(input, context) {
 }
 function calidad(a) {
     if (!a.calidad)
-        err("Solo Calidad, Gerencia Interventoría o Desarrollo gestiona planes de mejora.", "permission-denied");
+        err("La gestión de planes requiere Calidad, Gerencia, Administración de Interventoría o Desarrollo.", "permission-denied");
 }
 function empresa(d, a) {
     if (!d || d.empresaId !== a.empresaId)
@@ -681,7 +681,9 @@ async function cambiarItem(input, a) {
             }
             if (item.respuestaPresentado || item.soportesPresentado)
                 err("Reabre las entregas presentadas antes de corregirlas.");
-            Object.assign(update, (0, interventoria_planes_policy_1.validarCompromiso)(input, plan));
+            Object.assign(update, (0, interventoria_planes_policy_1.validarCompromiso)({
+                ...input, compromisoAdjunto: !!item.adjuntosCompromiso?.length,
+            }, plan));
             const textoCalidad = s(input.respuestaSoportes);
             const texto = textoCalidad || s(item.respuestaTarea);
             if (texto.length < 10 || texto.length > 12000 || !item.evidencias?.length)
@@ -705,7 +707,9 @@ async function cambiarItem(input, a) {
             if (item[`${e}Presentado`])
                 err("La entrega está presentada en Interventoría. Una persona gestora del plan debe reabrirla con motivo.");
             if (e === "respuesta") {
-                Object.assign(update, (0, interventoria_planes_policy_1.validarCompromiso)(input, plan));
+                Object.assign(update, (0, interventoria_planes_policy_1.validarCompromiso)({
+                    ...input, compromisoAdjunto: !!item.adjuntosCompromiso?.length,
+                }, plan));
                 update.soportesRevision = { estado: "pendiente", motivo: "Compromiso actualizado" };
             }
             else {
@@ -754,6 +758,29 @@ async function cambiarItem(input, a) {
                 err("La fecha de presentación no es válida.");
             update[`${etapa}Presentado`] = { fecha, comprobante, version: item[`${etapa}Version`],
                 porId: a.id, porNombre: a.nombre, registradoAt: admin.firestore.Timestamp.now() };
+            const vigentes = siblings.docs.filter((d) => d.get("eliminado") !== true);
+            if (["recibido", "en_gestion"].includes(plan.estadoGestion || "recibido") &&
+                vigentes.length && vigentes.every((d) => {
+                const datos = d.id === ref.id ? { ...item, ...update } : d.data();
+                return datos.respuestaPresentado && datos.soportesPresentado;
+            })) {
+                tx.update(pr, { estadoGestion: "enviado", updatedAt: admin.firestore.Timestamp.now() });
+                audit(tx, pr, a, "estado_automatico", { estadoGestion: "enviado" });
+            }
+        }
+        else if (accion === "corregirPresentacion") {
+            calidad(a);
+            if (!["respuesta", "soportes"].includes(etapa))
+                err("Etapa inválida.");
+            const presentado = item[`${etapa}Presentado`];
+            const constancia = (item.constancias || []).find((v) => v.path === input.constancia);
+            const motivo = s(input.motivo);
+            if (!presentado || presentado.version !== Number(input.version) ||
+                !constancia || constancia.etapa !== etapa || motivo.length < 8 || motivo.length > 1000) {
+                err("Adjunta la comunicación final e indica el motivo de la corrección.");
+            }
+            update[`${etapa}Presentado`] = { ...presentado, constancia: constancia.path,
+                correccion: motivo, corregidoPor: a.nombre, corregidoAt: admin.firestore.Timestamp.now() };
         }
         else if (accion === "reabrir") {
             calidad(a);
@@ -851,9 +878,15 @@ async function reactivarTarea(input, a) {
 }
 async function adjuntar(input, a) {
     const inicial = input._inicial === true;
-    if (inicial)
+    const compromiso = input._compromiso === true;
+    const constancia = input._constancia === true;
+    const etapa = constancia ? s(input.etapa) : "";
+    if (inicial || constancia)
         calidad(a);
-    const campo = inicial ? "evidenciasIniciales" : "evidencias";
+    if (constancia && !["respuesta", "soportes"].includes(etapa))
+        err("Etapa inválida.");
+    const campo = inicial ? "evidenciasIniciales" : compromiso ? "adjuntosCompromiso" :
+        constancia ? "constancias" : "evidencias";
     const ref = db().collection(interventoria_planes_policy_1.ITEMS_COL).doc(id(input.itemId));
     const item = (await ref.get()).data();
     empresa(item, a);
@@ -899,8 +932,9 @@ async function adjuntar(input, a) {
             if (plan.estado !== "abierto")
                 err("El plan está cerrado.");
             const siblings = await tx.get(db().collection(interventoria_planes_policy_1.ITEMS_COL).where("planId", "==", current.planId));
-            if (current.soportesPresentado)
-                err("Calidad debe reabrir los soportes ya presentados.");
+            if (!constancia && (compromiso ? current.respuestaPresentado : current.soportesPresentado)) {
+                err("Un gestor del plan debe reabrir la etapa presentada.");
+            }
             // Only usarFuente supplies this server-owned marker. Retries/concurrent
             // selections preserve the version and never attach the same source twice.
             if (input._fuenteKey && current.evidencias?.some((ev) => ev.fuenteKey === input._fuenteKey)) {
@@ -911,17 +945,20 @@ async function adjuntar(input, a) {
             if ((current[campo]?.length || 0) >= 12)
                 err("Máximo 12 archivos por hallazgo.");
             const evidencia = { path, nombre, contentType: types[ext], size: bytes.length, porId: a.id, fecha: admin.firestore.Timestamp.now(),
+                ...(constancia ? { etapa } : {}),
                 ...(input._fuenteKey ? { fuenteKey: input._fuenteKey, fuenteOrigen: input._fuenteOrigen } : {}),
                 _cryptoKey: key.toString("base64"), _cryptoIv: iv.toString("base64"), _cryptoTag: cipher.getAuthTag().toString("base64") };
-            tx.update(ref, inicial ? { evidenciasIniciales: [...(current[campo] || []), evidencia] } :
-                { evidencias: [...(current.evidencias || []), evidencia],
-                    soportesVersion: current.soportesVersion + 1, soportesRevision: { estado: "pendiente" } });
+            tx.update(ref, { [campo]: [...(current[campo] || []), evidencia],
+                ...(compromiso ? { respuestaVersion: current.respuestaVersion + 1,
+                    respuestaRevision: { estado: "pendiente" } } : {}),
+                ...(campo === "evidencias" ? { soportesVersion: current.soportesVersion + 1,
+                    soportesRevision: { estado: "pendiente" } } : {}) });
             const estadoGestion = (0, interventoria_planes_policy_1.estadoGestionAutomatico)(plan.estadoGestion || "recibido", siblings.docs.map((d) => d.id === ref.id ? { ...current, soportesVersion: current.soportesVersion + (inicial ? 0 : 1) } : d.data()));
             if (estadoGestion !== plan.estadoGestion) {
                 tx.update(pr, { estadoGestion, updatedAt: admin.firestore.Timestamp.now() });
                 audit(tx, pr, a, "estado_automatico", { estadoGestion });
             }
-            audit(tx, ref, a, inicial ? "fotografia_inicial_adjunta" : "soporte_adjunto", evidencia);
+            audit(tx, ref, a, `adjunto_${campo}`, evidencia);
         });
     }
     catch (e) {
@@ -930,7 +967,7 @@ async function adjuntar(input, a) {
     }
     if (duplicado)
         await file.delete().catch(() => undefined);
-    return { ok: true };
+    return { ok: true, path };
 }
 // URLs are used only to recover a path in OUR bucket, never fetched over HTTP.
 function rutaFuente(raw) {
@@ -1063,22 +1100,25 @@ async function verFuente(input, a) {
 }
 async function retirarSoporte(input, a) {
     const inicial = input._inicial === true;
+    const compromiso = input._compromiso === true;
     if (inicial)
         calidad(a);
-    const campo = inicial ? "evidenciasIniciales" : "evidencias";
+    const campo = inicial ? "evidenciasIniciales" : compromiso ? "adjuntosCompromiso" : "evidencias";
     const ref = db().collection(interventoria_planes_policy_1.ITEMS_COL).doc(id(input.itemId));
     await db().runTransaction(async (tx) => {
         const item = (await tx.get(ref)).data();
         empresa(item, a);
         await tareaItem(item, a, tx);
-        if (item.soportesPresentado)
-            err("Reabre la entrega antes de corregir los soportes.");
+        if (compromiso ? item.respuestaPresentado : item.soportesPresentado) {
+            err("Reabre la entrega antes de retirar el archivo.");
+        }
         const evs = (item[campo] || []).filter((v) => v.path !== input.path);
         if (evs.length === (item[campo] || []).length)
             err("El archivo ya no forma parte de la entrega.");
-        tx.update(ref, inicial ? { evidenciasIniciales: evs } :
-            { evidencias: evs, soportesVersion: item.soportesVersion + 1, soportesRevision: { estado: "pendiente" } });
-        audit(tx, ref, a, inicial ? "fotografia_inicial_retirada" : "soporte_retirado", { anterior: item, path: input.path });
+        tx.update(ref, { [campo]: evs,
+            ...(compromiso ? { respuestaVersion: item.respuestaVersion + 1, respuestaRevision: { estado: "pendiente" } } : {}),
+            ...(campo === "evidencias" ? { soportesVersion: item.soportesVersion + 1, soportesRevision: { estado: "pendiente" } } : {}) });
+        audit(tx, ref, a, `retiro_${campo}`, { anterior: item, path: input.path });
     });
     return { ok: true };
 }
@@ -1097,8 +1137,9 @@ async function editarFechas(input, a) {
         for (const item of items.docs) {
             const d = item.data();
             empresa(d, a);
-            if (d.compromiso)
-                (0, interventoria_planes_policy_1.validarCompromiso)(d, fechas);
+            if (d.compromiso || d.adjuntosCompromiso?.length) {
+                (0, interventoria_planes_policy_1.validarCompromiso)({ ...d, compromisoAdjunto: !!d.adjuntosCompromiso?.length }, fechas);
+            }
         }
         tx.update(ref, { ...fechas, ...(0, interventoria_planes_policy_1.plazosInternosPlan)(fechas), updatedAt: admin.firestore.Timestamp.now() });
         audit(tx, ref, a, "fechas_corregidas", { anterior: p, fechas, motivo: s(input.motivo).slice(0, 2000) });
@@ -1124,7 +1165,8 @@ async function evidencia(input, a) {
     const item = (await db().collection(interventoria_planes_policy_1.ITEMS_COL).doc(id(input.itemId)).get()).data();
     empresa(item, a);
     await tareaItem(item, a);
-    const ev = [...(item.evidencias || []), ...(item.evidenciasIniciales || [])].find((v) => v.path === input.path);
+    const ev = [...(item.evidencias || []), ...(item.evidenciasIniciales || []),
+        ...(item.adjuntosCompromiso || []), ...(item.constancias || [])].find((v) => v.path === input.path);
     if (!ev || !s(ev.path).startsWith(`interventoria_planes/${a.empresaId}/${id(input.itemId)}/`))
         err("Soporte inválido.");
     const bytes = await leerEvidencia(ev);
@@ -1186,7 +1228,11 @@ async function exportar(input, a) {
                 `HISTORIAL DEL PLAN\n${detail.historial.map((h) => `${h.fecha} - ${h.accion} - ${h.porNombre} - ${h.motivo || ""}`).join("\n")}` : "";
         await tareaItem(original, a);
         const pdf = await (0, interventoria_planes_pdf_1.fichaPlanPdf)(companyName, detail.plan, item, expediente, corte, (etapaPdf === "soportes" ? "" : etapa("respuesta")) + (etapaPdf === "respuesta" ? "" : etapa("soportes")), generarPdf ? "" : historialTexto, etapaPdf);
-        for (const ev of etapaPdf === "respuesta" ? [] : original.evidencias || []) {
+        for (const ev of [
+            ...(etapaPdf === "soportes" ? [] : original.adjuntosCompromiso || []),
+            ...(etapaPdf === "respuesta" ? [] : original.evidencias || []),
+            ...(input.accion === "expediente" ? original.constancias || [] : []),
+        ]) {
             if (!s(ev.path).startsWith(`interventoria_planes/${a.empresaId}/${item.id}/`))
                 err("Ruta de evidencia inválida.");
             const bytes = await leerEvidencia(ev);
@@ -1232,6 +1278,21 @@ async function exportar(input, a) {
     const safeName = s(detail.plan.numero).replace(/[^\p{L}\p{N}._-]/gu, "_");
     const resultado = consolidado ? { nombre: `${safeName}_${etapaPdf}.pdf`, bytes: Buffer.from(await consolidado.save()) } :
         input.itemId && individual && !expediente ? individual : { nombre: `${safeName}_${expediente ? "expediente" : "soportes"}.zip`, bytes };
+    if (generarPdf && input.itemId) {
+        const ref = db().collection(interventoria_planes_policy_1.ITEMS_COL).doc(id(input.itemId));
+        await db().runTransaction(async (tx) => {
+            const actual = (await tx.get(ref)).data();
+            empresa(actual, a);
+            const item = items[0];
+            if (actual.respuestaVersion !== item.respuestaVersion || actual.soportesVersion !== item.soportesVersion) {
+                err("La entrega cambió. Genera el PDF de la versión actual.", "aborted");
+            }
+            const marca = { respuestaVersion: item.respuestaVersion, soportesVersion: item.soportesVersion,
+                porId: a.id, fecha: admin.firestore.Timestamp.now() };
+            tx.update(ref, { [`pdfGenerado.${etapaPdf}`]: marca });
+            audit(tx, ref, a, "pdf_generado", { etapa: etapaPdf, ...marca });
+        });
+    }
     if (resultado.bytes.length <= 6 * 1024 * 1024)
         return { nombre: resultado.nombre, base64: resultado.bytes.toString("base64") };
     const ref = db().collection(interventoria_planes_policy_1.PLANES_COL).doc(id(input.planId)).collection("exportaciones").doc();
@@ -1309,14 +1370,18 @@ exports.interventoriaPlanes = functions.region("us-central1").runWith({ timeoutS
             case "usarTexto":
             case "revisar":
             case "presentar":
+            case "corregirPresentacion":
             case "reabrir": return await cambiarItem(input, a);
             case "adjuntarInicial": return await adjuntar({ itemId: input.itemId, nombre: input.nombre, base64: input.base64, _inicial: true }, a);
             case "adjuntar": return await adjuntar({ itemId: input.itemId, nombre: input.nombre, base64: input.base64 }, a);
+            case "adjuntarCompromiso": return await adjuntar({ itemId: input.itemId, nombre: input.nombre, base64: input.base64, _compromiso: true }, a);
+            case "adjuntarConstancia": return await adjuntar({ itemId: input.itemId, nombre: input.nombre, base64: input.base64, etapa: input.etapa, _constancia: true }, a);
             case "fuentes": return await fuentesTarea(input, a);
             case "usarFuente": return await usarFuente(input, a);
             case "verFuente": return await verFuente(input, a);
             case "retirarInicial": return await retirarSoporte({ itemId: input.itemId, path: input.path, _inicial: true }, a);
             case "retirarSoporte": return await retirarSoporte({ itemId: input.itemId, path: input.path }, a);
+            case "retirarCompromiso": return await retirarSoporte({ itemId: input.itemId, path: input.path, _compromiso: true }, a);
             case "fechas": return await editarFechas(input, a);
             case "identificarVisita": return await identificarVisita(input, a);
             case "evidencia": return await evidencia(input, a);

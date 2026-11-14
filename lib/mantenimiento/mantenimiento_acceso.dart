@@ -34,6 +34,7 @@ void sincronizarAccesoMantenimiento(
     'empresaId': empresaId,
     'userId': userId,
     'operador': despues,
+    if (!despues) 'gestorMinimos': false,
     'updatedAt': FieldValue.serverTimestamp(),
   }, SetOptions(merge: true));
 }

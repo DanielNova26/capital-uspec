@@ -168,8 +168,8 @@ const interventoriaTableRoles = TableModuleRoleConfig(
         'Ve el análisis y el histórico y aprueba eliminaciones; no revisa '
         'actas.',
     kRolInterventoriaAdmin:
-        'Administra el módulo: actas, revisión, responsables, análisis y '
-        'roles de Interventoría.',
+        'Administra actas, revisión, responsables, planes de mejora, análisis '
+        'y roles de Interventoría.',
   },
   inactiveLevel: '',
   inactiveDescription: 'Sin rol en Interventoría: no entra al módulo.',

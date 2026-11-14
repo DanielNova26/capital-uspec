@@ -149,20 +149,25 @@ exports.mantenimientoInventario = functions.region("us-central1").https.onCall(a
     const accion = input.accion;
     if (accion === "catalogos") {
         const acceso = await autorizar();
-        const [compras, empresaPlanes, operadores] = await Promise.all([
+        const [compras, empresaPlanes, operadores, principal, multiempresa] = await Promise.all([
             porEmpresa(proveedores).get(),
             porEmpresa(planes).get(),
             porEmpresa(permisos).get(),
+            porEmpresa(usuarios).get(),
+            usuarios.where("empresas", "array-contains", empresaId).get(),
         ]);
         const fichas = operadores.docs.filter((a) => a.get("operador") === true).map((a) => a.get("userId"))
             .filter((v) => typeof v === "string" && !!v && !v.includes("/"));
         const personas = fichas.length ? await db.getAll(...[...new Set(fichas)].map((v) => usuarios.doc(v))) : [];
         return {
-            actor: usuarioId, gestor: acceso.gestor === true,
+            actor: usuarioId, gestor: acceso.gestor === true || acceso.gestorMinimos === true,
             proveedores: compras.docs.filter((p) => p.get("activo") !== false && p.get("estado") !== "inactivo")
                 .map((p) => ({ id: p.id, nombre: String(p.get("razonSocial") || p.get("nombre") || p.id).slice(0, 200) })),
             personas: personas.filter((p) => p.exists && esOperador(p.data()))
                 .map((p) => ({ id: p.id, nombre: nombrePersona(p.data()) || p.id })),
+            personal: [...new Map([...principal.docs, ...multiempresa.docs].map((p) => [p.id, p])).values()]
+                .map((p) => (0, mantenimiento_ordenes_1.personaMantenimiento)(p, empresaId)).filter((p) => p !== null)
+                .sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
             familias: mantenimiento_anexo_1.familiasAnexo.map((nombre, i) => ({ id: `anexo_${i}`, nombre })),
             minimos: empresaPlanes.docs.map((m) => {
                 const d = m.data();
@@ -204,7 +209,7 @@ exports.mantenimientoInventario = functions.region("us-central1").https.onCall(a
             if (!centroActivo(centro.data()))
                 (0, mantenimiento_ordenes_1.errorMantenimiento)("invalid-argument", "El establecimiento no está activo.");
             const anterior = plan.data();
-            if (acceso.gestor !== true &&
+            if (acceso.gestor !== true && acceso.gestorMinimos !== true &&
                 (anterior?.responsableId !== usuarioId || responsableId !== usuarioId ||
                     anterior.coordinadorId !== coordinadorId)) {
                 (0, mantenimiento_ordenes_1.errorMantenimiento)("permission-denied", "El gestor de Mantenimiento debe asignar los responsables de la sede.");
@@ -289,9 +294,10 @@ exports.mantenimientoInventario = functions.region("us-central1").https.onCall(a
     }
     if (accion === "alta") {
         const solicitudId = (0, mantenimiento_ordenes_1.idMantenimiento)(input.solicitudId, "solicitud");
-        const codigo = (0, mantenimiento_ordenes_1.textoMantenimiento)(input.codigo, 60, "rótulo", true);
-        const clave = codigo.normalize("NFKC").toLocaleLowerCase("es");
         const copiaId = (0, mantenimiento_ordenes_1.idMantenimiento)(input.equipoId, "ficha base", false);
+        const codigo = (0, mantenimiento_ordenes_1.textoMantenimiento)(input.codigo, 60, "rótulo", !!copiaId) ||
+            `EQ-${hash([empresaId, usuarioId, solicitudId]).slice(0, 12).toUpperCase()}`;
+        const clave = codigo.normalize("NFKC").toLocaleLowerCase("es");
         const ref = almacen.doc(copiaId || hash([empresaId, clave]));
         const categoria = (0, mantenimiento_ordenes_1.textoMantenimiento)(input.categoria, 15, "categoría", true);
         const propiedad = (0, mantenimiento_ordenes_1.textoMantenimiento)(input.propiedad, 20, "propiedad", true);
@@ -378,8 +384,8 @@ exports.mantenimientoInventario = functions.region("us-central1").https.onCall(a
     if (origen === destino)
         (0, mantenimiento_ordenes_1.errorMantenimiento)("invalid-argument", "Elige una bodega diferente.");
     const unidades = cantidad(input.cantidad, "unidades");
-    const entrega = traslado ? (0, mantenimiento_ordenes_1.textoMantenimiento)(input.entrega, 120, "quien entrega", true) : "";
-    const recibe = traslado ? (0, mantenimiento_ordenes_1.textoMantenimiento)(input.recibe, 120, "quien recibe", true) : "";
+    const entregaId = traslado ? (0, mantenimiento_ordenes_1.idMantenimiento)(input.entregaId, "quien entrega", false) : "";
+    const recibeId = traslado ? (0, mantenimiento_ordenes_1.idMantenimiento)(input.recibeId, "quien recibe", false) : "";
     const observaciones = (0, mantenimiento_ordenes_1.textoMantenimiento)(input.observaciones, 1200, "observaciones", !traslado);
     const catalogo = !traslado ? await (0, mantenimiento_tareas_1.catalogoTareasMantenimiento)(db, empresaId) : null;
     return db.runTransaction(async (tx) => {
@@ -394,6 +400,17 @@ exports.mantenimientoInventario = functions.region("us-central1").https.onCall(a
             }
             return { id: movimiento.id, tareaId: previo.get("tareaId") ?? "" };
         }
+        const [entrega, recibe] = traslado ? await Promise.all([
+            { personaId: entregaId, nombre: input.entrega, campo: "quien entrega" },
+            { personaId: recibeId, nombre: input.recibe, campo: "quien recibe" },
+        ].map(async ({ personaId, nombre, campo }) => {
+            if (!personaId)
+                return (0, mantenimiento_ordenes_1.textoMantenimiento)(nombre, 120, campo, true);
+            const persona = (0, mantenimiento_ordenes_1.personaMantenimiento)(await tx.get(usuarios.doc(personaId)), empresaId);
+            if (!persona)
+                (0, mantenimiento_ordenes_1.errorMantenimiento)("invalid-argument", "Selecciona una persona activa de esta empresa.");
+            return persona.nombre;
+        })) : ["", ""];
         const saldo = existenciasMantenimiento(d);
         if ((saldo[origen] ?? 0) < unidades)
             (0, mantenimiento_ordenes_1.errorMantenimiento)("failed-precondition", "La bodega ya no tiene esas unidades.");
@@ -447,7 +464,8 @@ exports.mantenimientoInventario = functions.region("us-central1").https.onCall(a
         archivos?.vincular(movimiento.id);
         tx.update(ref, { inventario: true, existencias: saldo, centroDocId: sedes[0] ?? "", updatedAt: ahora });
         tx.create(movimiento, { empresaId, accion, origen, destino, origenNombre, destinoNombre, unidades,
-            codigo: d.codigo, nombre: d.nombre, referencia: d.referencia ?? "", entrega, recibe, observaciones,
+            codigo: d.codigo, nombre: d.nombre, referencia: d.referencia ?? "",
+            entregaId, recibeId, entrega, recibe, observaciones,
             obligatorio, archivos: archivos?.datos ?? [], tareaId, actorId: usuarioId, createdAt: ahora });
         return { id: movimiento.id, tareaId };
     });

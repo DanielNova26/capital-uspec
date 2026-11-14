@@ -1230,7 +1230,8 @@ class _AvanceDeTarea extends StatelessWidget {
                   ],
                   if (pendiente) ...[
                     const SizedBox(height: 12),
-                    if (puedeAprobar)
+                    if (puedeAprobar ||
+                        data['jefe_inmediato_uid'] == currentUserId)
                       Wrap(
                         spacing: 8,
                         children: [

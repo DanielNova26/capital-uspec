@@ -36,12 +36,13 @@ const String kRolInterventoriaConsulta = 'consulta_interventoria';
 /// revisar" ni mueve responsables.
 const String kRolInterventoriaCalidad = 'calidad_interventoria';
 
-/// Calidad y Gerencia operan los planes; Desarrollo conserva acceso completo.
+/// Calidad, Gerencia y Administración operan los planes.
 bool puedeGestionarPlanesInterventoria(
   String rol, {
   bool esDesarrollo = false,
 }) =>
     esDesarrollo ||
+    rol == kRolInterventoriaAdmin ||
     rol == kRolInterventoriaCalidad ||
     rol == kRolInterventoriaGerente;
 

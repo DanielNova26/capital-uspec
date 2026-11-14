@@ -66,16 +66,19 @@ class LoteGrupo {
   ].join(' · ');
 }
 
-/// Grupo normalizado de un hallazgo: el suyo o el de su establecimiento.
+/// Grupos del establecimiento. `grupoId` identifica observaciones del acta.
+const sinGrupoInterventoria = 'Sin grupo';
+
 Set<String> gruposDeHallazgo(
   InterventoriaHallazgo h,
   Map<String, Set<String>> centrosPorGrupo,
-) => {
-  if (normalizarGrupoCentroCosto(h.grupoId).isNotEmpty)
-    normalizarGrupoCentroCosto(h.grupoId),
-  for (final e in centrosPorGrupo.entries)
-    if (e.value.contains(h.centroCostoId.trim())) e.key,
-};
+) {
+  final grupos = {
+    for (final e in centrosPorGrupo.entries)
+      if (e.value.contains(h.centroCostoId.trim())) e.key,
+  };
+  return grupos.isEmpty ? {sinGrupoInterventoria} : grupos;
+}
 
 /// Lo que resuelve el maestro para cada hallazgo, con la misma lógica que la
 /// tarjeta, «Asignar por el maestro» y la sincronización de Admin.

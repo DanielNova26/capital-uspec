@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CREADOR_INTERVENTORIA = void 0;
+exports.esTareaDeHallazgo = esTareaDeHallazgo;
 exports.responsableDeTarea = responsableDeTarea;
 exports.creadorDeTarea = creadorDeTarea;
 exports.aprobadorDeTarea = aprobadorDeTarea;
@@ -25,6 +26,11 @@ exports.esperarNumeroTarea = esperarNumeroTarea;
 const tareas_numero_1 = require("./tareas_numero");
 /** Creador de las tareas que asigna la matriz de Interventoría. */
 exports.CREADOR_INTERVENTORIA = "interventoria_automatica";
+function esTareaDeHallazgo(data) {
+    return texto(data?.sourceModule ?? data?.origen).toLowerCase() === "interventoria" &&
+        (data?.sourceType === "hallazgo" || Boolean(texto(data?.hallazgoId)) ||
+            data?.sourceEntityCollection === "TBL_INTERVENTORIA_HALLAZGOS");
+}
 function texto(value) {
     return (value ?? "").toString().trim();
 }
@@ -60,7 +66,7 @@ function creadorDeTarea(data) {
 function aprobadorDeTarea(data) {
     const responsable = responsableDeTarea(data);
     const creador = creadorDeTarea(data);
-    const quienAsigno = creador === exports.CREADOR_INTERVENTORIA ? "" : creador;
+    const quienAsigno = creador === exports.CREADOR_INTERVENTORIA || esTareaDeHallazgo(data) ? "" : creador;
     const reasignando = texto(data?.solicitud_reasignacion_estado).toLowerCase() === "pendiente";
     const candidatos = [
         reasignando ? "" : quienAsigno,
@@ -84,6 +90,10 @@ function aprobadorDeTarea(data) {
  */
 function destinatariosSeguimiento(data, excluir = "", incluirJefe = false) {
     const out = new Set();
+    if (esTareaDeHallazgo(data)) {
+        return [...new Set([aprobadorDeTarea(data), texto(data?.jefe_inmediato_uid)])]
+            .filter((id) => id && id !== texto(excluir) && id !== responsableDeTarea(data));
+    }
     const creador = creadorDeTarea(data);
     if (creador && creador !== exports.CREADOR_INTERVENTORIA)
         out.add(creador);

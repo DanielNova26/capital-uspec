@@ -58,6 +58,7 @@ service firebase.storage {
         return esResponsable(tarea)
           || tarea.get('aprobador_uid', tarea.get('approverId', '')) == id
           || tarea.get('jefe_uid', tarea.get('bossId', '')) == id
+          || tarea.get('jefe_inmediato_uid', '') == id
           || tarea.get('creador_id', tarea.get('creatorId', '')) == id
           || tarea.get('reasignada_desde_uid', '') == id
           || id in tarea.get('participantes_uid', []);

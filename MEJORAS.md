@@ -1,5 +1,13 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-14 — Primer flujo de pruebas de la Demo (Codex)
+
+- Interventoría ofrece una selección múltiple de ítems en la revisión del acta y omite los numerales ya agregados. La asignación muestra los grupos de establecimientos y los hallazgos de cada lote. Se puede elegir a una persona por hallazgo y corregir la ubicación de un hallazgo sin asignación. El establecimiento de un hallazgo vinculado se toma del acta. Los cambios en el maestro común de grupos requieren también autoridad de Admin.
+- Las tareas conservan al aprobador de la matriz y registran al jefe directo por separado. Ambos reciben avisos de seguimiento y pueden resolver una finalización pendiente. Reasignar conserva la tarea, sus avances y los responsables anteriores. Se actualizó la jefatura de las tareas vigentes de la Demo. Para otras empresas, la revisión y aplicación de históricos está disponible en Admin → Migraciones.
+- Administración de Interventoría tiene acceso a Planes de mejora. Vincular regresa al plan. Compromiso admite texto de la tarea, captura o documento. Soportes incorpora evidencias existentes. El PDF registra su versión, y la última presentación confirmada deja el plan Enviado. Un gestor puede agregar la comunicación final con motivo e historial. La presentación real se confirma en la app con la referencia de K2.
+- Mantenimiento genera rótulos para altas nuevas y toma el personal activo de la empresa para traslados y cierres. El acta y los informes usan el membrete de la empresa. Las personas identificadas pueden firmar desde el detalle de una orden cerrada con su cuenta habilitada en Mantenimiento. En Demo el director configura PPL y mínimos por sede y designa a quien los valida.
+- Validación en Firestore y Storage locales y en Flutter a 390, 768, 1024 y 1366 px con texto ampliado y perfiles de Android e iOS. Se renderizó una orden de prueba con membrete. Queda por verificar en dispositivos móviles físicos el teclado, la cámara, permisos de plataforma y firmas. La Demo registra la constancia de K2.
+
 ## 2026-11-13 — Actualización web de la Demo local (Codex)
 
 - La ruta antigua de finalización reproduce el rechazo del JPEG de la tarea

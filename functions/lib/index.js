@@ -24,8 +24,8 @@ var __importStar = (this && this.__importStar) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.dianBuzonConectar = exports.dianBuzonEstado = exports.dianTokenCambiarEstado = exports.dianTokenAbrir = exports.dianTokenAccesos = exports.dianTokensListar = exports.gdRevisarRespuesta = exports.correoEnviarRespuesta = exports.correoGuardarBorradorGmail = exports.correoPrepararExpediente = exports.gdRegistrarRespuestaExterna = exports.gdTerminarExpediente = exports.gdCodificarExpedientesHistoricos = exports.gdAsignarExpediente = exports.correoCrearExpediente = exports.correoMiRol = exports.correoEstadoIntegracion = exports.correoProbarWhatsApp = exports.correoProbarRegla = exports.correoProcesarProgramado = exports.correoProcesarHttp = exports.correoProcesar = exports.correoMicrosoftCallback = exports.correoMicrosoftAuthorize = exports.correoGmailCallback = exports.correoGmailAuthorize = exports.icd11Search = exports.carnetPublico = exports.adminMonitorNotificaciones = exports.adminSincronizarMaestros = exports.adminLimpiezaModulo = exports.securityRegistrarUsuarioNuevo = exports.securityAdminAssignInitialPassword = exports.securityAdminClearLoginBlocks = exports.securityAdminResetTemporaryPassword = exports.securityAdminRevokeDisabledSessions = exports.securityAdminRevokeSessions = exports.securityAdminRequirePasswordChange = exports.securityAdminOverview = exports.authCerrarSesionInhabilitado = exports.authCompletarRecuperacion = exports.authPrepararRecuperacion = exports.authCambiarClave = exports.authIniciarSesion = exports.mantenimientoInventario = exports.mantenimientoOrden = exports.talentoCargarPersonal = exports.biometricoDispositivo = exports.biometricoGestion = exports.marcacionesPrueba = void 0;
-exports.visitasAsignarNumero = exports.visitasBuscarLugar = exports.visitasSincronizarOffline = exports.visitasSubirFotoOffline = exports.visitasRevalidarOffline = exports.visitasPrepararOffline = exports.visitasEliminarPrueba = exports.visitasEliminarFormato = exports.visitasEliminar = exports.tareasRecurrentesGenerar = exports.tareasNumerarHistoricas = exports.tareasAsignarNumero = exports.tareasSincronizarJefes = exports.tareasReemplazarJefeInmediato = exports.interventoriaPlanesAvisos = exports.interventoriaPlanes = exports.interventoriaSincronizarMejoras = exports.interventoriaCambiarAprobador = exports.interventoriaEliminarActa = exports.interventoriaResolverEliminacion = exports.interventoriaSolicitarEliminacion = exports.thNotificarCitacionDescargos = exports.thNotificarPlazosDisciplinarios = exports.whatsappMetaConciliarAuditoria = exports.whatsappMetaWebhook = exports.whatsappAdminProbar = exports.whatsappAdminDirectorio = exports.whatsappAdminAsignarListado = exports.whatsappAdminNormalizarNumeros = exports.whatsappAdminGuardarListado = exports.whatsappAdminEnviarPlantillaRevision = exports.whatsappAdminSincronizarPlantillas = exports.whatsappAdminGuardar = exports.whatsappAdminEstado = exports.comprasNotificarVigenciasDocumentales = exports.comprasNotificarRecepcionCalidad = exports.comprasNotificarNuevoProveedorWhatsApp = exports.comprasConsolidarRequerimiento = exports.comprasLimpiarRechazadosVencidos = exports.facturacionWhatsAppDocumentoRechazado = exports.interventoriaWhatsAppNuevaActa = exports.ppWhatsAppCargaPlanilla = exports.ppWhatsAppCambioFirma = exports.ppStampDirectPdf = exports.ppNotificaciones1600 = exports.ppNotificaciones1200 = exports.ppNotificaciones0800 = exports.dianBuzonProgramado = exports.dianBuzonDesconectar = exports.dianBuzonSincronizar = void 0;
-exports.notifyTaskNews = exports.notifyTaskCompleted = exports.sendTestPushHttp = exports.registerDeviceToken = exports.sendTestPush = exports.citasNutricionRecordatorios0800 = exports.onTaskUpdated = exports.onTaskCreated = exports.retryPendingNotificationDeliveries = exports.onNotificationCreated = exports.comprasGenerarReporteAbastecimiento = exports.comprasReporteAbastecimiento1700 = exports.rutasMovilidadMedirAhora = exports.rutasMovilidadTick = exports.rutasGenerarZip = exports.rutasGenerarInforme = exports.rutasResumenEvidencia = exports.visitasCoordinadoresAlCambiarGrupo = exports.visitasCoordinadoresAlCrear = exports.visitasNumerarHistoricas = void 0;
+exports.visitasSincronizarOffline = exports.visitasSubirFotoOffline = exports.visitasRevalidarOffline = exports.visitasPrepararOffline = exports.visitasEliminarPrueba = exports.visitasEliminarFormato = exports.visitasEliminar = exports.tareasRecurrentesGenerar = exports.tareasNumerarHistoricas = exports.tareasAsignarNumero = exports.tareasSincronizarJefes = exports.tareasReemplazarJefeInmediato = exports.interventoriaPlanesAvisos = exports.interventoriaPlanes = exports.interventoriaSincronizarMejoras = exports.interventoriaReasignarHallazgo = exports.interventoriaCorregirUbicacion = exports.interventoriaCambiarAprobador = exports.interventoriaEliminarActa = exports.interventoriaResolverEliminacion = exports.interventoriaSolicitarEliminacion = exports.thNotificarCitacionDescargos = exports.thNotificarPlazosDisciplinarios = exports.whatsappMetaConciliarAuditoria = exports.whatsappMetaWebhook = exports.whatsappAdminProbar = exports.whatsappAdminDirectorio = exports.whatsappAdminAsignarListado = exports.whatsappAdminNormalizarNumeros = exports.whatsappAdminGuardarListado = exports.whatsappAdminEnviarPlantillaRevision = exports.whatsappAdminSincronizarPlantillas = exports.whatsappAdminGuardar = exports.whatsappAdminEstado = exports.comprasNotificarVigenciasDocumentales = exports.comprasNotificarRecepcionCalidad = exports.comprasNotificarNuevoProveedorWhatsApp = exports.comprasConsolidarRequerimiento = exports.comprasLimpiarRechazadosVencidos = exports.facturacionWhatsAppDocumentoRechazado = exports.interventoriaWhatsAppNuevaActa = exports.ppWhatsAppCargaPlanilla = exports.ppWhatsAppCambioFirma = exports.ppStampDirectPdf = exports.ppNotificaciones1600 = exports.ppNotificaciones1200 = exports.ppNotificaciones0800 = exports.dianBuzonProgramado = exports.dianBuzonDesconectar = exports.dianBuzonSincronizar = void 0;
+exports.notifyTaskNews = exports.notifyTaskCompleted = exports.sendTestPushHttp = exports.registerDeviceToken = exports.sendTestPush = exports.citasNutricionRecordatorios0800 = exports.onTaskUpdated = exports.onTaskCreated = exports.retryPendingNotificationDeliveries = exports.onNotificationCreated = exports.comprasGenerarReporteAbastecimiento = exports.comprasReporteAbastecimiento1700 = exports.rutasMovilidadMedirAhora = exports.rutasMovilidadTick = exports.rutasGenerarZip = exports.rutasGenerarInforme = exports.rutasResumenEvidencia = exports.visitasCoordinadoresAlCambiarGrupo = exports.visitasCoordinadoresAlCrear = exports.visitasNumerarHistoricas = exports.visitasAsignarNumero = exports.visitasBuscarLugar = void 0;
 // functions/src/index.ts
 const functions = __importStar(require("firebase-functions/v1")); // compat v1
 const crypto_1 = require("crypto");
@@ -156,6 +156,8 @@ Object.defineProperty(exports, "interventoriaResolverEliminacion", { enumerable:
 Object.defineProperty(exports, "interventoriaEliminarActa", { enumerable: true, get: function () { return interventoria_deletion_1.interventoriaEliminarActa; } });
 var interventoria_aprobador_1 = require("./interventoria_aprobador");
 Object.defineProperty(exports, "interventoriaCambiarAprobador", { enumerable: true, get: function () { return interventoria_aprobador_1.interventoriaCambiarAprobador; } });
+Object.defineProperty(exports, "interventoriaCorregirUbicacion", { enumerable: true, get: function () { return interventoria_aprobador_1.interventoriaCorregirUbicacion; } });
+Object.defineProperty(exports, "interventoriaReasignarHallazgo", { enumerable: true, get: function () { return interventoria_aprobador_1.interventoriaReasignarHallazgo; } });
 var interventoria_mejoras_1 = require("./interventoria_mejoras");
 Object.defineProperty(exports, "interventoriaSincronizarMejoras", { enumerable: true, get: function () { return interventoria_mejoras_1.interventoriaSincronizarMejoras; } });
 var interventoria_planes_1 = require("./interventoria_planes");
@@ -245,6 +247,9 @@ function getTaskDescription(d) {
     return (d.description || d.descripcion || "").toString();
 }
 async function resolveBossIdFor(assignedId, fromTask) {
+    if ((0, tareas_avisos_1.esTareaDeHallazgo)(fromTask || undefined)) {
+        return String(fromTask?.jefe_inmediato_uid ?? "").trim() || null;
+    }
     const fromDoc = getBossId(fromTask || undefined);
     if (fromDoc)
         return String(fromDoc);
@@ -828,16 +833,19 @@ exports.onTaskCreated = functions
     // Solo el responsable y su jefe inmediato reciben la asignación. Al jefe
     // (quien aprueba) le llega en silencio: todavía no tiene nada que hacer.
     const bossId = await resolveBossIdFor(assignedId, data);
-    if (bossId && bossId !== assignedId) {
+    const supervisores = (0, tareas_avisos_1.esTareaDeHallazgo)(data)
+        ? (0, tareas_avisos_1.destinatariosSeguimiento)(data, assignedId)
+        : bossId && bossId !== assignedId ? [bossId] : [];
+    for (const supervisor of supervisores) {
         try {
-            await saveInAppNotification(bossId, {
+            await saveInAppNotification(supervisor, {
                 title: "Nueva tarea asignada",
                 description,
                 taskId,
                 type: "task_assigned_report",
                 silenciosa: (0, notification_sound_policy_1.avisoAlJefeEsSilencioso)("task_assigned_report"),
                 ...notificationContext,
-            }, `${ctx.eventId}:${bossId}:assigned_report`);
+            }, `${ctx.eventId}:${supervisor}:assigned_report`);
         }
         catch (e) {
             console.error("[onTaskCreated] supervisor save notif error:", e);
@@ -886,9 +894,14 @@ exports.onTaskUpdated = functions
                 if (cargo)
                     update.cargoResponsable = cargo;
             }
-            await db.collection("TBL_INTERVENTORIA_HALLAZGOS")
-                .doc(syncHallazgo.hallazgoId)
-                .update(update);
+            const hallazgo = db.collection("TBL_INTERVENTORIA_HALLAZGOS").doc(syncHallazgo.hallazgoId);
+            await db.runTransaction(async (tx) => {
+                const [tareaActual, hallazgoActual] = await tx.getAll(change.after.ref, hallazgo);
+                if (getAssignedId(tareaActual.data()) === newAssigned &&
+                    hallazgoActual.get("empresaId") === after?.empresaId &&
+                    hallazgoActual.get("tareaId") === taskId)
+                    tx.update(hallazgo, update);
+            });
         }
         catch (e) {
             console.warn("[onTaskUpdated] no se sincronizó el hallazgo:", e);
@@ -911,17 +924,20 @@ exports.onTaskUpdated = functions
         }
         // Aviso al jefe del nuevo asignado
         const bossId2 = await resolveBossIdFor(newAssigned, after || undefined);
-        if (bossId2 && bossId2 !== newAssigned) {
+        const supervisores = (0, tareas_avisos_1.esTareaDeHallazgo)(after)
+            ? (0, tareas_avisos_1.destinatariosSeguimiento)(after, newAssigned || "")
+            : bossId2 && bossId2 !== newAssigned ? [bossId2] : [];
+        for (const supervisor of supervisores) {
             try {
-                await saveInAppNotification(bossId2, {
+                await saveInAppNotification(supervisor, {
                     title: prevAssigned ? "Tarea reasignada" : "Nueva tarea asignada",
                     description,
                     taskId,
                     type: "task_reassigned_report",
                     silenciosa: (0, notification_sound_policy_1.avisoAlJefeEsSilencioso)("task_reassigned_report"),
                     ...notificationContext,
-                }, `${ctx.eventId}:${bossId2}:reassigned_report`);
-                notifiedIds.add(bossId2);
+                }, `${ctx.eventId}:${supervisor}:reassigned_report`);
+                notifiedIds.add(supervisor);
             }
             catch (e) {
                 console.error("[onTaskUpdated] boss save notif error:", e);
@@ -958,8 +974,15 @@ exports.onTaskUpdated = functions
         else {
             if (newAssigned && !notifiedIds.has(newAssigned))
                 recipients.add(newAssigned);
-            if (bossId && !notifiedIds.has(bossId))
+            if ((0, tareas_avisos_1.esTareaDeHallazgo)(after)) {
+                for (const uid of (0, tareas_avisos_1.destinatariosSeguimiento)(after, newAssigned || "")) {
+                    if (!notifiedIds.has(uid))
+                        recipients.add(uid);
+                }
+            }
+            else if (bossId && !notifiedIds.has(bossId)) {
                 recipients.add(bossId);
+            }
         }
         if (recipients.size === 0)
             return;

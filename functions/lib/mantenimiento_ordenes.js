@@ -28,6 +28,7 @@ exports.errorMantenimiento = error;
 exports.textoMantenimiento = textoMantenimiento;
 exports.idMantenimiento = idMantenimiento;
 exports.operaOrdenMantenimiento = operaOrdenMantenimiento;
+exports.personaMantenimiento = personaMantenimiento;
 exports.cierreMantenimientoValido = cierreMantenimientoValido;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
@@ -49,6 +50,8 @@ const tiposArchivo = {
     cotizacion: ["application/pdf", "image/jpeg", "image/png"],
     evidencia: ["image/jpeg", "image/png"],
     recibo: ["application/pdf", "image/jpeg", "image/png"],
+    firmaTecnico: ["image/png"],
+    firmaReceptor: ["image/png"],
 };
 function error(code, message) {
     throw new functions.https.HttpsError(code, message);
@@ -129,6 +132,18 @@ function hallazgoExterno(input) {
         error("invalid-argument", "Revisa la entidad y las fechas del hallazgo.");
     }
     return { entidad, descripcion, fecha, limite };
+}
+function personaMantenimiento(doc, empresaId) {
+    const d = doc.data();
+    if (!d || !(0, acceso_1.empresasSeleccionables)(d).includes(empresaId))
+        return null;
+    const ficha = d.empresasDetalle?.[empresaId];
+    if (ficha?.soloTalentoHumano === true)
+        return null;
+    const nombre = String(d.nombreCompleto || d.nombre || d.displayName || d.name || "").trim().slice(0, 120);
+    const cargo = String(ficha?.cargoNombre || ficha?.cargo || d.cargoNombre || d.cargo || "").trim().slice(0, 120);
+    const area = String(ficha?.areaNombre || ficha?.area || d.areaNombre || d.area || "").trim().slice(0, 120);
+    return nombre ? { id: doc.id, nombre, cargo, area } : null;
 }
 function datosCierre(input) {
     return {
@@ -403,10 +418,20 @@ exports.mantenimientoOrden = functions.region("us-central1").https.onCall(async 
         return { base64: Buffer.concat([cipher.update(bytes), cipher.final()]).toString("base64") };
     }
     if (accion === "adjuntar") {
-        await db.runTransaction(async (tx) => {
-            const orden = (await leer(tx));
+        function verificarFirma(orden) {
+            if (input.clase === "firmaTecnico" || input.clase === "firmaReceptor") {
+                const campo = input.clase === "firmaTecnico" ? "tecnicoId" : "receptorId";
+                if (orden.estado !== "cerrada" || orden.cierre?.[campo] !== userId) {
+                    error("permission-denied", "Solo la persona identificada en el cierre puede registrar su firma.");
+                }
+                return true;
+            }
             if (orden.estado === "cerrada")
                 error("failed-precondition", "La orden ya está cerrada.");
+            return false;
+        }
+        await db.runTransaction(async (tx) => {
+            verificarFirma((await leer(tx)));
         }, { readOnly: true });
         const { bytes, ...metadata } = await validarArchivo(input);
         const archivoId = id(input.archivoId, "archivo");
@@ -421,17 +446,20 @@ exports.mantenimientoOrden = functions.region("us-central1").https.onCall(async 
         try {
             const guardado = await db.runTransaction(async (tx) => {
                 const orden = (await leer(tx));
-                if (orden.estado === "cerrada")
-                    error("failed-precondition", "La orden ya está cerrada.");
+                const firma = verificarFirma(orden);
                 const archivos = orden.archivos ?? [];
                 if (archivos.some((a) => a.id === archivoId))
                     return false;
+                if (firma && archivos.some((a) => a.clase === metadata.clase)) {
+                    error("already-exists", "La persona ya firmó esta orden.");
+                }
                 if (archivos.filter((a) => a.clase === metadata.clase).length >= 6) {
                     error("failed-precondition", "Puedes adjuntar hasta seis archivos de cada tipo.");
                 }
                 tx.create(privado, { empresaId, ordenId: ref.id, path, key: key.toString("base64"),
                     iv: iv.toString("base64"), tag: cipher.getAuthTag().toString("base64") });
-                tx.update(ref, { esquema: 2, archivos: [...archivos, { ...metadata, id: archivoId }] });
+                tx.update(ref, { esquema: 2, archivos: [...archivos, { ...metadata, id: archivoId,
+                            ...(firma ? { firmadoPor: userId, firmadoAt: admin.firestore.Timestamp.now() } : {}) }] });
                 return true;
             });
             if (!guardado)
@@ -484,11 +512,29 @@ exports.mantenimientoOrden = functions.region("us-central1").https.onCall(async 
         }
         else if (accion === "borrador" || accion === "cerrar") {
             const cierre = datosCierre(input);
+            const tecnicoId = id(input.tecnicoId, "técnico", false);
+            const receptorId = id(input.receptorId, "quien recibió", false);
+            const [tecnico, receptor] = await Promise.all([tecnicoId, receptorId].map(async (personaId) => {
+                if (!personaId)
+                    return null;
+                const doc = await tx.get(db.collection("TBL_USUARIOS").doc(personaId));
+                const persona = personaMantenimiento(doc, empresaId);
+                if (!persona)
+                    error("invalid-argument", "Selecciona una persona activa de esta empresa.");
+                return persona;
+            }));
+            if (tecnico)
+                cierre.tecnico = tecnico.nombre;
+            if (receptor) {
+                cierre.receptor = receptor.nombre;
+                cierre.cargoReceptor = receptor.cargo;
+            }
             if (accion === "cerrar" && !cierreMantenimientoValido(cierre, orden.archivos ?? [])) {
                 error("failed-precondition", "Registra el trabajo, el técnico, quien recibió y al menos una foto final.");
             }
             tx.update(ref, {
-                cierre, factura: texto(input.factura, 160, "factura"), esquema: 2, updatedAt: fecha,
+                cierre: { ...cierre, tecnicoId, receptorId },
+                factura: texto(input.factura, 160, "factura"), esquema: 2, updatedAt: fecha,
                 ...(accion === "cerrar" ? {
                     estado: "cerrada", resultado: cierre.trabajo, cerradaAt: fecha, cerradaPor: userId,
                 } : {}),

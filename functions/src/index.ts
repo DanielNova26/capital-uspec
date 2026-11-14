@@ -136,7 +136,7 @@ export {
   interventoriaResolverEliminacion,
   interventoriaEliminarActa,
 } from "./interventoria_deletion";
-export {interventoriaCambiarAprobador} from "./interventoria_aprobador";
+export {interventoriaCambiarAprobador, interventoriaCorregirUbicacion, interventoriaReasignarHallazgo} from "./interventoria_aprobador";
 export {interventoriaSincronizarMejoras} from "./interventoria_mejoras";
 export {interventoriaPlanes, interventoriaPlanesAvisos} from "./interventoria_planes";
 // Tareas — al cambiar el jefe inmediato de alguien, sus tareas activas pasan
@@ -181,6 +181,7 @@ import {
   conNumeroTarea,
   cuerpoPushConNumero,
   destinatariosSeguimiento,
+  esTareaDeHallazgo,
   esperarNumeroTarea,
 } from "./tareas_avisos";
 import {numeroDeTarea} from "./tareas_numero";
@@ -225,6 +226,9 @@ function getTaskDescription(d: admin.firestore.DocumentData | undefined | null):
 }
 
 async function resolveBossIdFor(assignedId: string, fromTask?: admin.firestore.DocumentData | null) {
+  if (esTareaDeHallazgo(fromTask || undefined)) {
+    return String(fromTask?.jefe_inmediato_uid ?? "").trim() || null;
+  }
   const fromDoc = getBossId(fromTask || undefined);
   if (fromDoc) return String(fromDoc);
 
@@ -921,16 +925,19 @@ export const onTaskCreated = functions
     // Solo el responsable y su jefe inmediato reciben la asignación. Al jefe
     // (quien aprueba) le llega en silencio: todavía no tiene nada que hacer.
     const bossId = await resolveBossIdFor(assignedId, data);
-    if (bossId && bossId !== assignedId) {
+    const supervisores = esTareaDeHallazgo(data)
+      ? destinatariosSeguimiento(data, assignedId)
+      : bossId && bossId !== assignedId ? [bossId] : [];
+    for (const supervisor of supervisores) {
       try {
-        await saveInAppNotification(bossId, {
+        await saveInAppNotification(supervisor, {
           title: "Nueva tarea asignada",
           description,
           taskId,
           type: "task_assigned_report",
           silenciosa: avisoAlJefeEsSilencioso("task_assigned_report"),
           ...notificationContext,
-        }, `${ctx.eventId}:${bossId}:assigned_report`);
+        }, `${ctx.eventId}:${supervisor}:assigned_report`);
       } catch (e) {
         console.error("[onTaskCreated] supervisor save notif error:", e);
       }
@@ -976,7 +983,7 @@ export const onTaskUpdated = functions
     const syncHallazgo = syncHallazgoDesdeTarea(before, after);
     if (syncHallazgo) {
       try {
-        const update: Record<string, unknown> = {
+        const update: FirebaseFirestore.UpdateData<FirebaseFirestore.DocumentData> = {
           ...syncHallazgo.update,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
@@ -987,9 +994,13 @@ export const onTaskUpdated = functions
           const cargo = (detalle.cargo || u.get("cargo") || "").toString().trim();
           if (cargo) update.cargoResponsable = cargo;
         }
-        await db.collection("TBL_INTERVENTORIA_HALLAZGOS")
-          .doc(syncHallazgo.hallazgoId)
-          .update(update);
+        const hallazgo = db.collection("TBL_INTERVENTORIA_HALLAZGOS").doc(syncHallazgo.hallazgoId);
+        await db.runTransaction(async (tx) => {
+          const [tareaActual, hallazgoActual] = await tx.getAll(change.after.ref, hallazgo);
+          if (getAssignedId(tareaActual.data()) === newAssigned &&
+              hallazgoActual.get("empresaId") === after?.empresaId &&
+              hallazgoActual.get("tareaId") === taskId) tx.update(hallazgo, update);
+        });
       } catch (e) {
         console.warn("[onTaskUpdated] no se sincronizó el hallazgo:", e);
       }
@@ -1012,17 +1023,20 @@ export const onTaskUpdated = functions
 
       // Aviso al jefe del nuevo asignado
       const bossId2 = await resolveBossIdFor(newAssigned!, after || undefined);
-      if (bossId2 && bossId2 !== newAssigned) {
+      const supervisores = esTareaDeHallazgo(after)
+        ? destinatariosSeguimiento(after, newAssigned || "")
+        : bossId2 && bossId2 !== newAssigned ? [bossId2] : [];
+      for (const supervisor of supervisores) {
         try {
-          await saveInAppNotification(bossId2, {
+          await saveInAppNotification(supervisor, {
             title: prevAssigned ? "Tarea reasignada" : "Nueva tarea asignada",
             description,
             taskId,
             type: "task_reassigned_report",
             silenciosa: avisoAlJefeEsSilencioso("task_reassigned_report"),
             ...notificationContext,
-          }, `${ctx.eventId}:${bossId2}:reassigned_report`);
-          notifiedIds.add(bossId2);
+          }, `${ctx.eventId}:${supervisor}:reassigned_report`);
+          notifiedIds.add(supervisor);
         } catch (e) {
           console.error("[onTaskUpdated] boss save notif error:", e);
         }
@@ -1059,7 +1073,13 @@ export const onTaskUpdated = functions
         }
       } else {
         if (newAssigned && !notifiedIds.has(newAssigned)) recipients.add(newAssigned);
-        if (bossId && !notifiedIds.has(bossId)) recipients.add(bossId);
+        if (esTareaDeHallazgo(after)) {
+          for (const uid of destinatariosSeguimiento(after, newAssigned || "")) {
+            if (!notifiedIds.has(uid)) recipients.add(uid);
+          }
+        } else if (bossId && !notifiedIds.has(bossId)) {
+          recipients.add(bossId);
+        }
       }
 
       if (recipients.size === 0) return;

@@ -867,7 +867,9 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['empresaId', 'userId', 'operador', 'updatedAt']);
       allow update: if gestionaMantenimiento(resource.data.empresaId)
         && accesoValido(request.resource.data)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['operador', 'updatedAt']);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['operador', 'updatedAt', 'gestorMinimos'])
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['gestorMinimos'])
+          || (!request.resource.data.operador && request.resource.data.gestorMinimos == false));
     }
 
     match /TBL_APPS/{id} {
@@ -2363,17 +2365,48 @@ service cloud.firestore {
 
       function esAprobadorTarea(data) {
         let uid = request.auth.token.userDocId;
-        return data.get('aprobador_uid', data.get('approverId', '')) == uid
-          || data.get('jefe_uid', data.get('bossId', '')) == uid
-          || data.get('creador_id', data.get('creatorId', '')) == uid;
+        return (data.get('aprobador_uid', data.get('approverId', '')) == uid
+            || data.get('jefe_uid', data.get('bossId', '')) == uid)
+          ? (!esResponsableTarea(data) || !esTareaDeHallazgo(data))
+          : ((data.get('jefe_inmediato_uid', '') == uid && !esResponsableTarea(data)
+              && esTareaDeHallazgo(data))
+            || (data.get('creador_id', data.get('creatorId', '')) == uid && !esTareaDeHallazgo(data)));
+      }
+
+      function esTareaDeHallazgo(d) {
+        return d.get('sourceModule', d.get('origen', '')) == 'interventoria'
+          && (d.get('sourceType', '') == 'hallazgo' || d.get('hallazgoId', '') != ''
+            || d.get('sourceEntityCollection', '') == 'TBL_INTERVENTORIA_HALLAZGOS');
+      }
+
+      function jefeInmediatoValido(d) {
+        let uid = d.get('asignado_uid', '');
+        let jefe = d.get('jefe_inmediato_uid', '');
+        return jefe == '' || (esTareaDeHallazgo(d) && jefe != uid && jefeInmediatoEnFicha(d.empresaId, uid) == jefe);
+      }
+
+      function jefeInmediatoEnFicha(empresaId, uid) {
+        let persona = get(/databases/$(database)/documents/TBL_USUARIOS/$(uid)).data;
+        let ficha = persona.get('empresasDetalle', {}).get(empresaId, {});
+        let propio = idJefeEnFicha(ficha);
+        return propio != '' ? propio : raizEsDeEmpresa(persona, empresaId) ? idJefeEnFicha(persona) : '';
+      }
+
+      function idJefeEnFicha(d) {
+        return d.get('jefeId', d.get('jefe_id', d.get('jefe_uid', d.get('jefe_directo_id', ''))));
       }
 
       function esParticipanteTarea(data) {
         let uid = request.auth.token.userDocId;
         // Sin `is list`: con esa guarda Firestore no puede demostrar la
         // consulta `participantes_uid array-contains` ("Antes asignadas").
-        return esResponsableTarea(data) || esAprobadorTarea(data)
+        return esResponsableTarea(data)
+          || data.get('aprobador_uid', data.get('approverId', '')) == uid
+          || data.get('jefe_uid', data.get('bossId', '')) == uid
+          || data.get('jefe_inmediato_uid', '') == uid
+          || data.get('creador_id', data.get('creatorId', '')) == uid
           || data.get('reasignada_desde_uid', '') == uid
+          || uid in data.get('reasignada_desde_uids', [])
           || uid in data.get('participantes_uid', []);
       }
 
@@ -2440,6 +2473,7 @@ service cloud.firestore {
           && d.get('status', d.estado) == d.estado
           && d.get('creador_id', '') is string
           && d.creador_id.size() > 0
+          && (!d.keys().hasAny(['jefe_inmediato_uid']) || jefeInmediatoValido(d))
           && belongsToCompany(empresaId)
           && ((d.creador_id == request.auth.token.userDocId
               && tieneAppTareasEn(empresaId))
@@ -2548,9 +2582,13 @@ service cloud.firestore {
             'asignado_uid', 'asignado_nombre', 'asignado_cargo_nombre',
             'areaId', 'estado', 'status', 'reasignado', 'reasignada_en',
             'reasignada_desde_uid', 'reasignada_desde_nombre',
+            'reasignada_desde_uids',
             'reasignada_por_uid', 'participantes_uid', 'reasignacion_pendiente',
-            'fecha_actualizacion', 'actualizada_en']))
+                'fecha_actualizacion', 'actualizada_en', 'jefe_inmediato_uid']))
           && tareaCambioResponsable(antes, d)
+          && (!propios.hasAny(['reasignada_desde_uids']) ||
+            d.reasignada_desde_uids.toSet() == antes.get('reasignada_desde_uids', []).toSet().union([antes.asignado_uid].toSet()))
+          && (!d.keys().hasAny(['jefe_inmediato_uid']) || jefeInmediatoValido(d))
           // Quien aprueba no queda respondiendo su propia subsanación
           // (21 oct 2026).
           && !(d.get('asignado_uid', '') in [antes.get('aprobador_uid', ''),
@@ -2562,6 +2600,7 @@ service cloud.firestore {
         return evento in ['aprobada', 'task_devuelta', 'reasignacion_aprobada',
             'reasignacion_rechazada', 'task_avance_gestionado']
           && esAprobadorTarea(antes)
+          && (antes.get('jefe_inmediato_uid', '') != request.auth.token.userDocId || jefeInmediatoValido(antes))
           && (
             (evento == 'aprobada'
               && antes.get('solicitud_finalizacion_estado', '') == 'pendiente'
@@ -2624,14 +2663,16 @@ service cloud.firestore {
             || (d.get('solicitud_finalizacion_resuelto_por', '')
                 == request.auth.token.userDocId
               && esAprobadorTarea(antes)
+              && (antes.get('jefe_inmediato_uid', '') != request.auth.token.userDocId
+                || (antes.get('solicitud_finalizacion_estado', '') == 'pendiente'
+                  && jefeInmediatoValido(antes)))
               && d.get('estado', '') in ['finalizado', 'devuelta']
               && d.get('solicitud_finalizacion_estado', '')
                 == (d.estado == 'finalizado' ? 'aprobado' : 'rechazado')
               && cambios.hasOnly(['estado', 'status',
                 'solicitud_finalizacion_estado',
                 'solicitud_finalizacion_resuelto_por', 'updatedAt']))
-          )
-          && tieneAppOrigenTareaEn(antes.get('empresaId', ''), 'interventoria');
+          );
       }
 
       function tareaVisto(antes, cambios) {

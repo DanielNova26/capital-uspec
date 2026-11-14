@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/grupos_trabajo.dart';
 import '../widgets/paged_list.dart';
 import '../widgets/user_avatar.dart';
 import 'interventoria_asignacion_grupo.dart';
@@ -22,12 +23,16 @@ Future<AsignarGrupoResultado?> mostrarAsignarPorGrupo(
   required Map<String, Set<String>> centrosPorGrupo,
   required List<InterventoriaUsuario> asignables,
   required List<InterventoriaUsuario> activos,
+  required ValueChanged<HuecoAsignacion> onElegirIndividual,
+  ValueChanged<HuecoAsignacion>? onCorregirUbicacion,
 }) {
   final panel = AsignarGrupoPanel(
     huecos: huecos,
     centrosPorGrupo: centrosPorGrupo,
     asignables: asignables,
     activos: activos,
+    onElegirIndividual: onElegirIndividual,
+    onCorregirUbicacion: onCorregirUbicacion,
   );
   final angosto = MediaQuery.sizeOf(context).width < 600;
   return showDialog<AsignarGrupoResultado>(
@@ -52,6 +57,8 @@ class AsignarGrupoPanel extends StatefulWidget {
   final Map<String, Set<String>> centrosPorGrupo;
   final List<InterventoriaUsuario> asignables;
   final List<InterventoriaUsuario> activos;
+  final ValueChanged<HuecoAsignacion> onElegirIndividual;
+  final ValueChanged<HuecoAsignacion>? onCorregirUbicacion;
 
   const AsignarGrupoPanel({
     super.key,
@@ -59,6 +66,8 @@ class AsignarGrupoPanel extends StatefulWidget {
     required this.centrosPorGrupo,
     required this.asignables,
     required this.activos,
+    required this.onElegirIndividual,
+    this.onCorregirUbicacion,
   });
 
   @override
@@ -88,6 +97,12 @@ class _AsignarGrupoPanelState extends State<AsignarGrupoPanel> {
     final lotes = _lotes;
     return _lote >= 0 && _lote < lotes.length ? lotes[_lote] : null;
   }
+
+  void _elegirLote(int indice) => setState(() {
+    _lote = indice;
+    _responsable = null;
+    _aprobador = null;
+  });
 
   @override
   void initState() {
@@ -144,9 +159,8 @@ class _AsignarGrupoPanelState extends State<AsignarGrupoPanel> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const Text(
-                  'Pon tú a quien corresponde donde el maestro pide un cargo '
-                  'que no encuentra. Donde el maestro sí resuelve dentro de la '
-                  'sede, se respeta.',
+                  'Elige un grupo de establecimientos y revisa los hallazgos '
+                  'que necesitan responsable o aprobador.',
                   style: TextStyle(fontSize: 13, color: _muted),
                 ),
                 const SizedBox(height: 12),
@@ -163,7 +177,9 @@ class _AsignarGrupoPanelState extends State<AsignarGrupoPanel> {
                     children: [
                       for (final e in _grupos.entries)
                         ChoiceChip(
-                          label: Text('Grupo ${e.key} (${e.value})'),
+                          label: Text(
+                            '${etiquetaGrupoTrabajo(e.key)} (${e.value})',
+                          ),
                           selected: _grupo == e.key,
                           onSelected: (_) => setState(() {
                             _grupo = e.key;
@@ -205,11 +221,7 @@ class _AsignarGrupoPanelState extends State<AsignarGrupoPanel> {
                           '${l.sedes} ${l.sedes == 1 ? 'sede' : 'sedes'}'
                           '${l.faltaAprobador && l.huecos.first.aprobador.ambiguo ? ' · varias personas tienen el cargo' : ''}',
                         ),
-                        onTap: () => setState(() {
-                          _lote = i;
-                          _responsable = null;
-                          _aprobador = null;
-                        }),
+                        onTap: () => _elegirLote(i),
                       ),
                     ),
                 ],
@@ -226,6 +238,45 @@ class _AsignarGrupoPanelState extends State<AsignarGrupoPanel> {
                     onElegir: (u) => setState(() => _responsable = u),
                   ),
                 ],
+                if (lote != null)
+                  ExpansionTile(
+                    title: Text(
+                      'Hallazgos de este lote (${lote.huecos.length})',
+                    ),
+                    initiallyExpanded: true,
+                    children: [
+                      for (final hueco in lote.huecos)
+                        ListTile(
+                          title: Text(
+                            '${hueco.hallazgo.centroCostoNombre} · ${hueco.hallazgo.numeroVisible}',
+                          ),
+                          subtitle: Text(hueco.hallazgo.descripcion),
+                          trailing: PopupMenuButton<bool>(
+                            tooltip: 'Acciones del hallazgo',
+                            onSelected: (corregir) {
+                              Navigator.pop(context);
+                              (corregir
+                                  ? widget.onCorregirUbicacion!
+                                  : widget.onElegirIndividual)(hueco);
+                            },
+                            itemBuilder: (_) => [
+                              const PopupMenuItem(
+                                value: false,
+                                child: Text('Elegir persona'),
+                              ),
+                              if (widget.onCorregirUbicacion != null &&
+                                  hueco.hallazgo.id.isNotEmpty)
+                                const PopupMenuItem(
+                                  value: true,
+                                  child: Text(
+                                    'Corregir grupo o establecimiento',
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
                 if (lote != null && lote.faltaAprobador) ...[
                   const SizedBox(height: 16),
                   _titulo(
@@ -261,6 +312,16 @@ class _AsignarGrupoPanelState extends State<AsignarGrupoPanel> {
               spacing: 8,
               runSpacing: 8,
               children: [
+                if (_lote > 0)
+                  TextButton(
+                    onPressed: () => _elegirLote(_lote - 1),
+                    child: const Text('Lote anterior'),
+                  ),
+                if (_lote >= 0 && _lote + 1 < _lotes.length)
+                  TextButton(
+                    onPressed: () => _elegirLote(_lote + 1),
+                    child: const Text('Siguiente lote'),
+                  ),
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(),
                   child: const Text('Cancelar'),
@@ -319,7 +380,7 @@ class _AsignarGrupoPanelState extends State<AsignarGrupoPanel> {
           Text(
             'Se asignarán ${plan.asignar.length} de ${lote.huecos.length} '
             'hallazgos en ${sedes.length} '
-            '${sedes.length == 1 ? 'sede' : 'sedes'} del Grupo ${lote.grupo}.',
+            '${sedes.length == 1 ? 'sede' : 'sedes'} · ${etiquetaGrupoTrabajo(lote.grupo)}.',
             style: const TextStyle(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 4),
@@ -403,7 +464,7 @@ class _SelectorGrupoState extends State<_SelectorGrupo> {
           widget.cargos.isEmpty
               ? 'El maestro no define cargo: elige a quien corresponda.'
               : conCargo == 0
-              ? 'Nadie ${_todaLaEmpresa ? 'en la empresa' : 'del Grupo ${widget.grupo}'} '
+              ? 'Nadie ${_todaLaEmpresa ? 'en la empresa' : 'en ${etiquetaGrupoTrabajo(widget.grupo)}'} '
                     'tiene el cargo ${widget.cargos.join(' o ')}: elige a quien '
                     'corresponda.'
               : 'Primero quienes tienen el cargo ${widget.cargos.join(' o ')}.',

@@ -21,7 +21,6 @@ class _PlanSeleccionHallazgosState extends State<PlanSeleccionHallazgos> {
   final List<PlanData> _actas = [], _rows = [];
   final Map<String, PlanData> _selected = {};
   late final Set<String> _linked = {...widget.vinculados};
-  String? _result;
   String? _establecimiento, _visita, _cursor, _error;
   bool _busy = true;
   @override
@@ -116,7 +115,6 @@ class _PlanSeleccionHallazgosState extends State<PlanSeleccionHallazgos> {
     setState(() {
       _busy = true;
       _error = null;
-      _result = null;
     });
     try {
       await widget.request({
@@ -124,14 +122,7 @@ class _PlanSeleccionHallazgosState extends State<PlanSeleccionHallazgos> {
         'planId': widget.planId,
         'hallazgoIds': ids,
       });
-      if (mounted) {
-        setState(() {
-          _linked.addAll(ids);
-          _selected.clear();
-          _result =
-              '${ids.length} hallazgos vinculados. Puedes continuar o cerrar esta ventana.';
-        });
-      }
+      if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     } finally {
@@ -265,11 +256,6 @@ class _PlanSeleccionHallazgosState extends State<PlanSeleccionHallazgos> {
                         ],
                       ),
                       if (_busy) const LinearProgressIndicator(),
-                      if (_result != null)
-                        Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Text(_result!, semanticsLabel: _result),
-                        ),
                       if (_error != null) ...[
                         Text(
                           _error!,
@@ -301,30 +287,6 @@ class _PlanSeleccionHallazgosState extends State<PlanSeleccionHallazgos> {
                               : _selected.isNotEmpty
                               ? 'No hay resultados en el acta seleccionada. Conservas ${_selected.length} ${_selected.length == 1 ? 'hallazgo seleccionado' : 'hallazgos seleccionados'} de otras actas.'
                               : 'No se encontraron hallazgos para vincular en esta consulta.',
-                        ),
-                      if (_rows.isNotEmpty)
-                        SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Row(
-                            children: [
-                              for (final r in _rows)
-                                Padding(
-                                  padding: const EdgeInsets.only(right: 6),
-                                  child: FilterChip(
-                                    selected:
-                                        _linked.contains(r['id']) ||
-                                        _selected.containsKey(r['id']),
-                                    label: Text(planText(r, 'numeral')),
-                                    onSelected:
-                                        _busy ||
-                                            _linked.contains(r['id']) ||
-                                            planText(r, 'tareaId').isEmpty
-                                        ? null
-                                        : (value) => _toggle(r, value),
-                                  ),
-                                ),
-                            ],
-                          ),
                         ),
                       for (final r in _rows)
                         Card(

@@ -57,9 +57,9 @@ void main() {
   test('Desarrollo accede a planes sin sustituir el rol de Calidad', () {
     expect(puedeGestionarPlanesInterventoria(kRolInterventoriaCalidad), isTrue);
     expect(puedeGestionarPlanesInterventoria(kRolInterventoriaGerente), isTrue);
+    expect(puedeGestionarPlanesInterventoria(kRolInterventoriaAdmin), isTrue);
     for (final rol in [
       '',
-      kRolInterventoriaAdmin,
       kRolInterventoriaRegistrador,
       kRolInterventoriaRevisor,
     ]) {

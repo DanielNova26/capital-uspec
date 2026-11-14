@@ -286,6 +286,55 @@ test('Gerencia opera el expediente completo con rol canónico y acceso vigente p
   await assert.rejects(call('otro', {accion: 'listar'}), {code: 'permission-denied'});
 });
 
+test('Administración registra un compromiso adjunto y actualiza la constancia presentada', {
+  skip: !process.env.FIREBASE_STORAGE_EMULATOR_HOST,
+}, async () => {
+  await db.doc('TBL_INTERVENTORIA_ROLES/A_otro').set({empresaId: 'A', userId: 'otro', rol: 'admin_interventoria'});
+  assert.equal((await call('otro', {accion: 'listar'})).planes.length, 1);
+  await call('otro', {accion: 'vincular', planId, hallazgoIds: ['h']});
+  const {PDFDocument} = require('pdf-lib');
+  const pdf = await PDFDocument.create();
+  pdf.addPage();
+  const base64 = Buffer.from(await pdf.save()).toString('base64');
+  const datos = {itemId: itemId(), nombre: 'Respuesta.pdf', base64};
+  await call('responsable', {accion: 'adjuntarCompromiso', ...datos});
+  await call('responsable', {accion: 'responder', itemId: itemId(), version: 1,
+    fechaEjecucion: '2026-10-20', fechaSeguimiento: '2026-10-25'});
+  const etapa = {itemId: itemId(), etapa: 'respuesta', version: 2};
+  const salida = await call('otro', {accion: 'generarPdf', planId, ...etapa});
+  assert.equal((await PDFDocument.load(Buffer.from(salida.base64, 'base64'))).getPageCount(), 2);
+  assert.equal((await itemRef().get()).get('pdfGenerado.respuesta.respuestaVersion'), 2);
+  assert.equal((await itemRef().get()).get('respuestaPresentado'), undefined);
+  await call('otro', {accion: 'revisar', ...etapa, estado: 'satisfactorio'});
+  await call('otro', {accion: 'presentar', ...etapa, fecha: policy.hoyColombia(), comprobante: 'Registrado en K2'});
+  await assert.rejects(call('responsable', {accion: 'adjuntarConstancia', ...datos, etapa: 'respuesta'}), {code: 'permission-denied'});
+  const constancia = await call('calidad', {accion: 'adjuntarConstancia', ...datos, etapa: 'respuesta'});
+  await call('calidad', {accion: 'corregirPresentacion', ...etapa,
+    constancia: constancia.path, motivo: 'Se adjunta la comunicación final.'});
+  const final = (await itemRef().get()).get('respuestaPresentado');
+  assert.equal(final.porId, 'otro');
+  assert.equal(final.constancia, constancia.path);
+  assert.equal(final.version, 2);
+});
+
+test('Administración reasigna el hallazgo sobre la misma tarea y conserva su historial', async () => {
+  const {interventoriaReasignarHallazgo} = require('../lib/interventoria_aprobador');
+  await db.doc('TBL_INTERVENTORIA_ROLES/A_otro').set({empresaId: 'A', userId: 'otro', rol: 'admin_interventoria'});
+  await db.doc('TBL_USUARIOS/historico').update({'empresasDetalle.A.jefeId': 'otro'});
+  await db.doc('TBL_TAREAS/t').update({estado: 'en_progreso',
+    solicitud_finalizacion_estado: '', jefe_uid: 'calidad', aprobador_uid: 'calidad'});
+  await db.doc('TBL_TAREAS/t/avances/prueba').set({message: 'Trabajo ya registrado'});
+  const entrada = {empresaId: 'A', hallazgoId: 'h', destinoId: 'historico'};
+  await assert.rejects(interventoriaReasignarHallazgo.run(entrada, context('responsable')), {code: 'permission-denied'});
+  assert.deepEqual(await interventoriaReasignarHallazgo.run(entrada, context('otro')), {tareaId: 't'});
+  const tarea = (await db.doc('TBL_TAREAS/t').get()).data();
+  assert.equal(tarea.aprobador_uid, 'calidad');
+  assert.equal(tarea.jefe_inmediato_uid, 'otro');
+  assert.deepEqual(tarea.reasignada_desde_uids, ['responsable']);
+  assert.equal((await db.doc('TBL_INTERVENTORIA_HALLAZGOS/h').get()).get('responsableId'), 'historico');
+  assert.equal((await db.doc('TBL_TAREAS/t/avances/prueba').get()).get('message'), 'Trabajo ya registrado');
+});
+
 test('Desarrollo resuelve solicitudes sin otro rol; la revocación canónica no revive roles históricos', async () => {
   const deletion = require('../lib/interventoria_deletion');
   await db.doc('TBL_USUARIOS/dev').set({activo: true, empresas: ['A'], empresasDetalle: {A: {roleKey: 'desarrollador'}}});

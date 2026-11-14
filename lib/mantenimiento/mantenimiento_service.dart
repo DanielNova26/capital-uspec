@@ -41,7 +41,9 @@ enum ClaseArchivoOrden {
   diagnostico('Fotos iniciales', true),
   cotizacion('Cotizaciones', false),
   evidencia('Fotos del trabajo realizado', true),
-  recibo('Recibos y soportes de pago', false);
+  recibo('Recibos y soportes de pago', false),
+  firmaTecnico('Firma de quien realizó el trabajo', true),
+  firmaReceptor('Firma de quien recibió el trabajo', true);
 
   const ClaseArchivoOrden(this.label, this.soloFotos);
   final String label;
@@ -63,6 +65,8 @@ class CierreMantenimiento {
     this.sugerencias = '',
     this.tecnico = '',
     this.receptor = '',
+    this.tecnicoId = '',
+    this.receptorId = '',
     this.cargoReceptor = '',
   });
 
@@ -73,6 +77,8 @@ class CierreMantenimiento {
         sugerencias: _texto(data, 'sugerencias'),
         tecnico: _texto(data, 'tecnico'),
         receptor: _texto(data, 'receptor'),
+        tecnicoId: _texto(data, 'tecnicoId'),
+        receptorId: _texto(data, 'receptorId'),
         cargoReceptor: _texto(data, 'cargoReceptor'),
       );
 
@@ -81,6 +87,8 @@ class CierreMantenimiento {
       sugerencias,
       tecnico,
       receptor,
+      tecnicoId,
+      receptorId,
       cargoReceptor;
 
   Map<String, String> toMap() => {
@@ -89,6 +97,8 @@ class CierreMantenimiento {
     'sugerencias': sugerencias,
     'tecnico': tecnico,
     'receptor': receptor,
+    'tecnicoId': tecnicoId,
+    'receptorId': receptorId,
     'cargoReceptor': cargoReceptor,
   };
 }

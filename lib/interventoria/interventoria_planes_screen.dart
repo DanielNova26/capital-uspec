@@ -2,6 +2,7 @@ import 'interventoria_planes_seleccion.dart';
 import 'dart:convert';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -10,6 +11,7 @@ import 'interventoria_planes_fuentes.dart';
 import 'interventoria_planes_widgets.dart';
 import 'interventoria_planes_archivos.dart';
 import '../state/empresa_scope.dart';
+import '../utils/clipboard_image.dart';
 import 'interventoria_planes_dictado.dart';
 
 PlanRequest _scopedRequest(BuildContext context, String empresaId) => (input) {
@@ -1569,6 +1571,42 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
     }
   }
 
+  Future<void> _corregirPresentacion(String etapa) async {
+    final datos = await _form(context, 'Adjuntar comunicación final', {
+      'motivo': ('Motivo de la corrección', ''),
+    });
+    if (datos == null || !mounted) return;
+    final elegido = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['png', 'jpg', 'jpeg', 'pdf'],
+      withData: true,
+    );
+    final archivo = elegido?.files.single;
+    final bytes = archivo?.bytes;
+    if (archivo == null || bytes == null || !mounted) return;
+    if (bytes.length > planMaxArchivo) {
+      _showError(context, 'La comunicación final puede pesar hasta 5 MB.');
+      return;
+    }
+    await _run(() async {
+      final constancia = await widget.request({
+        'accion': 'adjuntarConstancia',
+        'itemId': _item['id'],
+        'etapa': etapa,
+        'nombre': archivo.name,
+        'base64': base64Encode(bytes),
+      });
+      await widget.request({
+        'accion': 'corregirPresentacion',
+        'itemId': _item['id'],
+        'etapa': etapa,
+        'version': _item['${etapa}Version'],
+        'motivo': datos['motivo'],
+        'constancia': constancia['path'],
+      });
+    });
+  }
+
   Future<void> _reactivarTarea() async {
     final fields = await _form(
       context,
@@ -1603,7 +1641,41 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
     }
   }
 
-  Future<void> _archivo({bool camera = false, bool inicial = false}) async {
+  Future<void> _pegarCaptura() async {
+    try {
+      final bytes = await readClipboardImage();
+      if (!mounted) return;
+      if (bytes == null || bytes.length > planMaxArchivo) {
+        _showError(
+          context,
+          'Copia una captura PNG de hasta 5 MB o adjunta el archivo.',
+        );
+        return;
+      }
+      await _mutate({
+        'accion': 'adjuntarCompromiso',
+        'nombre': 'Captura del compromiso.png',
+        'base64': base64Encode(bytes),
+      });
+    } catch (_) {
+      if (mounted)
+        _showError(
+          context,
+          'El navegador no pudo leer el portapapeles. Adjunta la captura como archivo.',
+        );
+    }
+  }
+
+  Future<void> _archivo({
+    bool camera = false,
+    bool inicial = false,
+    bool compromiso = false,
+  }) async {
+    final accion = inicial
+        ? 'adjuntarInicial'
+        : compromiso
+        ? 'adjuntarCompromiso'
+        : 'adjuntar';
     if (camera) {
       final file = await ImagePicker().pickImage(
         source: ImageSource.camera,
@@ -1617,7 +1689,7 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
         return;
       }
       await _mutate({
-        'accion': inicial ? 'adjuntarInicial' : 'adjuntar',
+        'accion': accion,
         'nombre': file.name,
         'base64': base64Encode(bytes),
       });
@@ -1645,7 +1717,7 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
         nombre = reduced.nombre;
       }
       await _mutate({
-        'accion': inicial ? 'adjuntarInicial' : 'adjuntar',
+        'accion': accion,
         'nombre': nombre,
         'base64': base64Encode(bytes),
       });
@@ -1737,6 +1809,8 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
   Widget _estadoEtapa(String etapa) {
     final revision = planMap(_item['${etapa}Revision']);
     final presentado = planMap(_item['${etapa}Presentado']);
+    final pdfs = planMap(_item['pdfGenerado']);
+    final pdf = planMap(pdfs[etapa] ?? pdfs['todo']);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1752,6 +1826,17 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
         if (presentado.isNotEmpty)
           Text(
             'Presentado ${presentado['fecha']} por ${presentado['porNombre']}\n${presentado['comprobante']}',
+          ),
+        if (presentado.isEmpty &&
+            pdf['${etapa}Version'] == _item['${etapa}Version'])
+          const Text('PDF generado para la versión actual'),
+        if (planText(presentado, 'constancia').isNotEmpty)
+          TextButton.icon(
+            onPressed: _busy
+                ? null
+                : () => _verAdjunto({'path': presentado['constancia']}),
+            icon: const Icon(Icons.attachment),
+            label: const Text('Ver comunicación final'),
           ),
         if (widget.calidad)
           Wrap(
@@ -1773,11 +1858,16 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                       : () => _presentar(etapa),
                   child: const Text('Registrar presentación en Interventoría'),
                 ),
-              ] else
+              ] else ...[
+                TextButton(
+                  onPressed: _busy ? null : () => _corregirPresentacion(etapa),
+                  child: const Text('Adjuntar comunicación final'),
+                ),
                 TextButton(
                   onPressed: _busy ? null : () => _reabrir(etapa),
                   child: const Text('Reabrir con motivo'),
                 ),
+              ],
             ],
           ),
       ],
@@ -1911,6 +2001,62 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                           alignLabelWithHint: true,
                         ),
                       ),
+                      if (_item['respuestaPresentado'] == null) ...[
+                        Wrap(
+                          spacing: 8,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: _busy
+                                  ? null
+                                  : () => _archivo(compromiso: true),
+                              icon: const Icon(Icons.attach_file),
+                              label: const Text('Adjuntar respuesta o captura'),
+                            ),
+                            if (kIsWeb)
+                              OutlinedButton.icon(
+                                onPressed: _busy ? null : _pegarCaptura,
+                                icon: const Icon(Icons.content_paste),
+                                label: const Text('Pegar captura'),
+                              ),
+                          ],
+                        ),
+                        ExpansionTile(
+                          tilePadding: EdgeInsets.zero,
+                          title: const Text('Usar una respuesta de la tarea'),
+                          children: [
+                            PlanFuentesPanel(
+                              items: [_item],
+                              request: widget.request,
+                              onChanged: _refresh,
+                              enabled: !_busy,
+                              soloTexto: true,
+                              onUseText: (fuente) => _compromiso.text =
+                                  planText(fuente, 'message'),
+                            ),
+                          ],
+                        ),
+                      ],
+                      for (final archivo in planList(
+                        _item['adjuntosCompromiso'],
+                      ))
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.attachment),
+                          title: Text(planText(archivo, 'nombre')),
+                          onTap: _busy ? null : () => _verAdjunto(archivo),
+                          trailing: _item['respuestaPresentado'] != null
+                              ? null
+                              : IconButton(
+                                  tooltip: 'Quitar adjunto',
+                                  icon: const Icon(Icons.close),
+                                  onPressed: _busy
+                                      ? null
+                                      : () => _mutate({
+                                          'accion': 'retirarCompromiso',
+                                          'path': archivo['path'],
+                                        }),
+                                ),
+                        ),
                       PlanColumnas(
                         children: [
                           Padding(
@@ -1941,7 +2087,10 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                           child: OutlinedButton.icon(
                             onPressed:
                                 _busy ||
-                                    planText(_item, 'compromiso').isEmpty ||
+                                    (planText(_item, 'compromiso').isEmpty &&
+                                        planList(
+                                          _item['adjuntosCompromiso'],
+                                        ).isEmpty) ||
                                     (_descuentoDirecto &&
                                         (_item['soportesVersion'] as num? ??
                                                 0) ==
@@ -1995,18 +2144,6 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                                     }),
                               child: const Text('Guardar y enviar a revisión'),
                             ),
-                          if (widget.calidad &&
-                              planAprobado(_item, 'respuesta')) ...[
-                            _copy('compromiso', planText(_item, 'compromiso')),
-                            _copy(
-                              'fecha de ejecución',
-                              planText(_item, 'fechaEjecucion'),
-                            ),
-                            _copy(
-                              'fecha de seguimiento',
-                              planText(_item, 'fechaSeguimiento'),
-                            ),
-                          ],
                         ],
                       ),
                     ],
@@ -2177,9 +2314,10 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                                   : () => _run(() async {
                                       await InterventoriaPlanesService.guardarArchivo(
                                         await widget.request({
-                                          'accion': 'exportar',
+                                          'accion': 'generarPdf',
                                           'planId': _item['planId'],
                                           'itemId': _item['id'],
+                                          'etapa': 'soportes',
                                         }),
                                         request: widget.request,
                                       );
@@ -2201,9 +2339,10 @@ class _PlanItemScreenState extends State<PlanItemScreen> {
                                   ? null
                                   : () => _run(() async {
                                       final result = await widget.request({
-                                        'accion': 'exportar',
+                                        'accion': 'generarPdf',
                                         'planId': _item['planId'],
                                         'itemId': _item['id'],
+                                        'etapa': 'soportes',
                                       });
                                       final bytes =
                                           await InterventoriaPlanesService.leerArchivo(

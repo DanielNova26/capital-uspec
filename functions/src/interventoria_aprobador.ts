@@ -16,12 +16,128 @@ import {
   requireActor,
   userIsActiveInEmpresa,
 } from "./interventoria_deletion";
+import {requireAdmin} from "./security_admin";
+import {jefeEnEmpresa, tareaActiva} from "./jefe_inmediato_sync";
 
 const REGION = "us-central1";
 const HALLAZGOS = "TBL_INTERVENTORIA_HALLAZGOS";
 const TAREAS = "TBL_TAREAS";
 const USERS = "TBL_USUARIOS";
 const NOTIFICATIONS = "TBL_NOTIFICACIONES";
+
+export const interventoriaReasignarHallazgo = functions.region(REGION).https.onCall(async (input, context) => {
+  const actor = await requireActor(input, context);
+  if (!ROLES_CAMBIAN_APROBADOR.has(actor.role)) {
+    throw new functions.https.HttpsError("permission-denied", "Se requiere administrar Interventoría.");
+  }
+  const hallazgoId = texto(input.hallazgoId, 250);
+  const destinoId = texto(input.destinoId, 250);
+  if (![hallazgoId, destinoId].every((v) => v && !v.includes("/"))) {
+    throw new functions.https.HttpsError("invalid-argument", "Selecciona el hallazgo y el nuevo responsable.");
+  }
+  const db = admin.firestore();
+  const h = db.collection(HALLAZGOS).doc(hallazgoId);
+  return db.runTransaction(async (tx) => {
+    const [hallazgoDoc, destinoDoc] = await tx.getAll(h, db.collection(USERS).doc(destinoId));
+    const hallazgo = hallazgoDoc.data();
+    const destino = destinoDoc.data();
+    if (hallazgo?.empresaId !== actor.empresaId || !destino ||
+        !perteneceAEmpresa(destino, actor.empresaId) || !userIsActiveInEmpresa(destino, actor.empresaId)) {
+      throw new functions.https.HttpsError("permission-denied", "Elige a una persona activa de esta empresa.");
+    }
+    const tareaId = texto(hallazgo.tareaId, 250);
+    if (!tareaId || tareaId.includes("/")) throw new functions.https.HttpsError("failed-precondition", "El hallazgo no tiene tarea.");
+    const ref = db.collection(TAREAS).doc(tareaId);
+    const tarea = (await tx.get(ref)).data();
+    if (tarea?.empresaId !== actor.empresaId || (tarea.hallazgoId || tarea.sourceEntityId) !== hallazgoId ||
+        !tareaActiva(tarea) || tarea.solicitud_finalizacion_estado === "pendiente") {
+      throw new functions.https.HttpsError("failed-precondition", "La tarea ya está cerrada o en aprobación.");
+    }
+    const anterior = texto(tarea.asignado_uid || tarea.assignedTo);
+    if (anterior === destinoId) return {tareaId};
+    if ([tarea.aprobador_uid, tarea.approverId, tarea.jefe_uid, hallazgo.aprobadorId].includes(destinoId)) {
+      throw new functions.https.HttpsError("invalid-argument", "El aprobador no puede responder el mismo hallazgo.");
+    }
+    const jefeId = jefeEnEmpresa(destino, actor.empresaId).id;
+    const jefe = jefeId && jefeId !== destinoId && !jefeId.includes("/") ?
+      (await tx.get(db.collection(USERS).doc(jefeId))).data() : undefined;
+    const nombre = texto(destino.nombreCompleto || destino.nombre || `${destino.nombres || ""} ${destino.apellidos || ""}`) || destinoId;
+    const cargo = cargoEnEmpresa(destino, actor.empresaId);
+    const ficha = destino.empresasDetalle?.[actor.empresaId];
+    const areaId = texto(ficha?.areaId || (destino.empresaId === actor.empresaId ? destino.areaId : ""));
+    const ahora = admin.firestore.FieldValue.serverTimestamp();
+    tx.update(ref, {
+      asignado_uid: destinoId, asignado_nombre: nombre, assignedTo: destinoId, assignedToName: nombre,
+      asignado_cargo_nombre: cargo, ...(areaId ? {areaId} : {}),
+      jefe_inmediato_uid: jefe && perteneceAEmpresa(jefe, actor.empresaId) && userIsActiveInEmpresa(jefe, actor.empresaId) ? jefeId : "",
+      estado: "en_progreso", status: "en_progreso", reasignada_en: ahora,
+      reasignada_desde_uid: anterior, reasignada_desde_nombre: texto(tarea.asignado_nombre || tarea.assignedToName),
+      ...(anterior ? {reasignada_desde_uids: admin.firestore.FieldValue.arrayUnion(anterior)} : {}),
+      reasignada_por_uid: actor.id, participantes_uid: admin.firestore.FieldValue.arrayUnion(...[anterior, destinoId].filter(Boolean)),
+      lastEventType: "reasignacion_directa", lastEventAt: ahora, updatedAt: ahora,
+    });
+    tx.update(h, {responsableId: destinoId, responsableNombre: nombre,
+      cargoResponsable: cargo, reasignadoPorId: actor.id, updatedAt: ahora});
+    return {tareaId};
+  });
+});
+
+export const interventoriaCorregirUbicacion = functions.region(REGION).https.onCall(async (input, context) => {
+  const actor = await requireActor(input, context);
+  if (!ROLES_CAMBIAN_APROBADOR.has(actor.role)) {
+    throw new functions.https.HttpsError("permission-denied", "Se requiere administrar Interventoría.");
+  }
+  const centroId = texto(input.centroId, 250);
+  const hallazgoId = texto(input.hallazgoId, 250);
+  const grupoId = texto(input.grupoId, 250);
+  if (![centroId, hallazgoId].every((v) => v && !v.includes("/")) || grupoId.includes("/")) {
+    throw new functions.https.HttpsError("invalid-argument", "Selecciona un hallazgo y un establecimiento.");
+  }
+  if (grupoId) await requireAdmin(input, context);
+  const db = admin.firestore();
+  const hallazgoRef = db.collection(HALLAZGOS).doc(hallazgoId);
+  return db.runTransaction(async (tx) => {
+    const [hallazgoDoc, centros] = await Promise.all([
+      tx.get(hallazgoRef),
+      tx.get(db.collection("TBL_CENTROS_COSTOS").where("empresaId", "==", actor.empresaId)
+        .where("centroId", "==", centroId).limit(2)),
+    ]);
+    const hallazgo = hallazgoDoc.data();
+    const centroDoc = centros.docs[0] ??
+      await tx.get(db.collection("TBL_CENTROS_COSTOS").doc(centroId));
+    const centro = centroDoc.data();
+    if (hallazgo?.empresaId !== actor.empresaId || centro?.empresaId !== actor.empresaId ||
+        centro.enabled === false || centro.enabledInterventoria === false || centros.size > 1) {
+      throw new functions.https.HttpsError("invalid-argument", "Selecciona un establecimiento activo de esta empresa.");
+    }
+    if (hallazgo.tareaId || hallazgo.responsableId) {
+      throw new functions.https.HttpsError("failed-precondition", "El hallazgo ya tiene asignación.");
+    }
+    const visita = hallazgo.visitaId ?
+      (await tx.get(db.collection("TBL_INTERVENTORIA_VISITAS").doc(hallazgo.visitaId))).data() : null;
+    if (hallazgo.visitaId && (visita?.empresaId !== actor.empresaId || visita.centroCostoId !== centroId)) {
+      throw new functions.https.HttpsError("failed-precondition", "El establecimiento de un hallazgo del acta se corrige desde el acta.");
+    }
+    if (grupoId) {
+      const grupos = await tx.get(db.collection("TBL_COMPRAS_GRUPOS").where("empresaId", "==", actor.empresaId));
+      const grupo = grupos.docs.find((d) => d.id === grupoId && d.get("activo") !== false && texto(d.get("nombre")));
+      if (!grupo) throw new functions.https.HttpsError("invalid-argument", "Elige un grupo activo de esta empresa.");
+      for (const doc of grupos.docs) {
+        if (doc.id === grupoId || (Array.isArray(doc.get("centroIds")) && doc.get("centroIds").includes(centroId))) {
+          tx.update(doc.ref, {centroIds: doc.id === grupoId ?
+            admin.firestore.FieldValue.arrayUnion(centroId) : admin.firestore.FieldValue.arrayRemove(centroId),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()});
+        }
+      }
+      tx.update(centroDoc.ref, {grupo: grupo.get("nombre"), updatedAt: admin.firestore.FieldValue.serverTimestamp()});
+    }
+    tx.update(hallazgoRef, {centroCostoId: centroId, centroCostoNombre: texto(centro.nombre) || centroId,
+      subcentroId: visita?.subcentroId ?? (centroId === hallazgo.centroCostoId ? hallazgo.subcentroId ?? "" : ""),
+      subcentroNombre: visita?.subcentroNombre ?? (centroId === hallazgo.centroCostoId ? hallazgo.subcentroNombre ?? "" : ""),
+      ubicacionCorregidaPor: actor.id, updatedAt: admin.firestore.FieldValue.serverTimestamp()});
+    return {ok: true};
+  });
+});
 
 /** Los mismos que reasignan en la app (`kInterventoriaRolesReasignan`). */
 const ROLES_CAMBIAN_APROBADOR = new Set([

@@ -18,6 +18,7 @@ class PlanFuentesPanel extends StatefulWidget {
     this.onUseText,
     this.enabled = true,
     this.selector = false,
+    this.soloTexto = false,
   });
   final List<PlanData> items;
   final PlanRequest request;
@@ -26,6 +27,7 @@ class PlanFuentesPanel extends StatefulWidget {
   final ValueChanged<PlanData>? onUseText;
   final bool enabled;
   final bool selector;
+  final bool soloTexto;
 
   @override
   State<PlanFuentesPanel> createState() => _PlanFuentesPanelState();
@@ -257,10 +259,12 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
         ],
         Row(
           children: [
-            const Expanded(
+            Expanded(
               child: Text(
-                'Respuestas y archivos de la tarea',
-                style: TextStyle(fontWeight: FontWeight.bold),
+                widget.soloTexto
+                    ? 'Respuestas de la tarea'
+                    : 'Respuestas y archivos de la tarea',
+                style: const TextStyle(fontWeight: FontWeight.bold),
               ),
             ),
             const PlanAyuda(
@@ -512,11 +516,18 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
               ),
             if (_errors.containsKey(id))
               Text('No se pudieron consultar las evidencias: ${_errors[id]}'),
-            if (!_loading && source != null && files.isEmpty)
+            if (!widget.soloTexto &&
+                !_loading &&
+                source != null &&
+                files.isEmpty)
               const Text(
                 'No hay archivos existentes. Puedes adjuntar un soporte nuevo en el hallazgo.',
               ),
-            _files(id, files, editable, enabled),
+            if (!widget.soloTexto) _files(id, files, editable, enabled),
+            if (widget.soloTexto &&
+                source != null &&
+                planList(source['avances']).isEmpty)
+              const Text('La tarea aún no tiene respuestas.'),
             if (planList(source?['avances']).isNotEmpty)
               ExpansionTile(
                 tilePadding: EdgeInsets.zero,
@@ -533,7 +544,7 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
                           SelectableText(planText(text, 'message')),
                           TextButton.icon(
                             icon: const Icon(Icons.copy, size: 16),
-                            label: const Text('Copiar respuesta de la tarea'),
+                            label: const Text('Copiar texto'),
                             onPressed: !editable
                                 ? null
                                 : () => Clipboard.setData(
@@ -547,11 +558,14 @@ class _PlanFuentesPanelState extends State<PlanFuentesPanel> {
                             Align(
                               alignment: Alignment.centerLeft,
                               child: TextButton(
-                                onPressed: editable
+                                onPressed:
+                                    (widget.soloTexto ? enabled : editable)
                                     ? () => widget.onUseText!(text)
                                     : null,
-                                child: const Text(
-                                  'Incorporar respuesta al plan',
+                                child: Text(
+                                  widget.soloTexto
+                                      ? 'Usar como compromiso'
+                                      : 'Incorporar respuesta al plan',
                                 ),
                               ),
                             ),

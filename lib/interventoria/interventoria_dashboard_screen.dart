@@ -10378,243 +10378,101 @@ class _NotasInlineEditor extends StatelessWidget {
       );
       return const [];
     }
-    // El numeral sale de `catalogNumerals` cuando el acta lo trae aparte.
-    //
-    // El acta regular lo lleva escrito dentro del texto ("2. Existen
-    // fichas..."), asi que de ahi se extrae. Las actas de Infraestructura y
-    // Policia guardan el texto limpio: sin la lista se caia al `i + 1`, que es
-    // la POSICION en la seccion y no el numeral del acta. En la seccion 4 del
-    // acta de policia se veia 1..11 en vez de 4.1..4.11.
-    String numeroDe(int i) {
-      if (i < catalogNumerals.length && catalogNumerals[i].trim().isNotEmpty) {
-        return catalogNumerals[i];
-      }
-      final m = RegExp(r'^(\d+)\.').firstMatch(catalogItems[i]);
-      return m?.group(1) ?? '${i + 1}';
-    }
-
-    final selected = <String>{};
-    var pagina = 0;
-    final total = catalogItems.length;
-
-    // Al pasar de item, el circulo activo se salia de vista y parecia que los
-    // numeros "desaparecian": la tira no seguia al seleccionado.
-    final indiceCtrl = ScrollController();
-    void seguirAlActual() {
-      if (!indiceCtrl.hasClients) return;
-      const anchoItem = 38.0; // 32 del circulo + 6 de separacion
-      final destino = (pagina * anchoItem) - 120;
-      indiceCtrl.animateTo(
-        destino.clamp(0.0, indiceCtrl.position.maxScrollExtent),
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOut,
+    final numeralesUsados = {
+      for (final note in notes)
+        if (_numeralDeNota(note).isNotEmpty)
+          normalizarNumeralActa(_numeralDeNota(note)),
+    };
+    final textosUsados = {
+      for (final note in notes)
+        if (note.fuente == 'lista_acta') note.texto.trim(),
+    };
+    final disponibles = catalogItems
+        .where((item) {
+          final numeral = _numeralDelAspecto(item);
+          return !textosUsados.contains(item.trim()) &&
+              (numeral.isEmpty ||
+                  !numeralesUsados.contains(normalizarNumeralActa(numeral)));
+        })
+        .toSet()
+        .toList();
+    if (disponibles.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Ya agregaste todos los ítems de esta sección.'),
+        ),
       );
+      return const [];
     }
 
-    final result = await showModalBottomSheet<List<String>>(
+    final seleccionados = <String>{};
+    final result = await showDialog<List<String>>(
       context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      constraints: const BoxConstraints(maxWidth: 560),
-      // PointerInterceptor evita que el iframe del PDF robe los clicks del sheet
-      builder: (ctx) => PointerInterceptor(
+      builder: (_) => PointerInterceptor(
         child: StatefulBuilder(
-          builder: (ctx, setSheetState) {
-            final text = catalogItems[pagina];
-            final checked = selected.contains(text);
-            return DraggableScrollableSheet(
-              expand: false,
-              initialChildSize: 0.45,
-              maxChildSize: 0.7,
-              minChildSize: 0.3,
-              builder: (_, controller) => Material(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(16),
-                ),
-                child: Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 14, 8, 8),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Seleccionar ítems del acta',
-                                  style: TextStyle(
-                                    fontFamily: _kFont,
-                                    fontWeight: FontWeight.w900,
-                                    fontSize: 17,
-                                  ),
-                                ),
-                                Text(
-                                  'Ítem ${numeroDe(pagina)} (${pagina + 1} de $total)'
-                                  '${selected.isEmpty ? '' : ' · ${selected.length} seleccionados'}',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Color(0xFF64748B),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: () =>
-                                Navigator.pop(ctx, const <String>[]),
-                            icon: const Icon(Icons.close_rounded),
-                          ),
-                        ],
-                      ),
-                    ),
-                    // ── Índice numerado: salto directo a cualquier ítem ────
-                    SizedBox(
-                      height: 44,
-                      child: ListView.separated(
-                        controller: indiceCtrl,
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        itemCount: total,
-                        separatorBuilder: (_, _) => const SizedBox(width: 6),
-                        itemBuilder: (_, i) {
-                          final esActual = i == pagina;
-                          final yaSeleccionado = selected.contains(
-                            catalogItems[i],
-                          );
-                          return InkWell(
-                            onTap: () {
-                              setSheetState(() => pagina = i);
-                              seguirAlActual();
-                            },
-                            borderRadius: BorderRadius.circular(16),
-                            child: Container(
-                              width: 32,
-                              height: 32,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: esActual
-                                    ? _kAccent
-                                    : yaSeleccionado
-                                    ? _kOk.withValues(alpha: 0.15)
-                                    : Colors.white,
-                                border: Border.all(
-                                  color: esActual
-                                      ? _kAccent
-                                      : yaSeleccionado
-                                      ? _kOk
-                                      : const Color(0xFFCBD5E1),
-                                ),
-                              ),
-                              child: Text(
-                                numeroDe(i),
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w800,
-                                  color: esActual
-                                      ? Colors.white
-                                      : yaSeleccionado
-                                      ? _kOk
-                                      : const Color(0xFF64748B),
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    // ── Ítem actual (uno a la vez = paginado) ──────────────
-                    Expanded(
-                      child: SingleChildScrollView(
-                        controller: controller,
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                        child: CheckboxListTile(
-                          value: checked,
+          builder: (dialogContext, actualizar) => AlertDialog(
+            title: const Text('Seleccionar ítems del acta'),
+            content: SizedBox(
+              width: 650,
+              height: MediaQuery.sizeOf(dialogContext).height * .52,
+              child: Column(
+                children: [
+                  CheckboxListTile(
+                    title: const Text('Seleccionar todos'),
+                    controlAffinity: ListTileControlAffinity.leading,
+                    value: seleccionados.length == disponibles.length,
+                    onChanged: (marcado) => actualizar(() {
+                      seleccionados.clear();
+                      if (marcado == true) seleccionados.addAll(disponibles);
+                    }),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: disponibles.length,
+                      itemBuilder: (_, index) {
+                        final item = disponibles[index];
+                        final numeral = _numeralDelAspecto(item);
+                        return CheckboxListTile(
                           controlAffinity: ListTileControlAffinity.leading,
-                          title: Text(
-                            text,
-                            style: const TextStyle(fontSize: 14),
-                          ),
-                          tileColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                            side: const BorderSide(color: Color(0xFFE2E8F0)),
-                          ),
-                          onChanged: (value) {
-                            setSheetState(() {
-                              if (value == true) {
-                                selected.add(text);
-                              } else {
-                                selected.remove(text);
-                              }
-                            });
-                          },
-                        ),
-                      ),
+                          value: seleccionados.contains(item),
+                          title: Text(item),
+                          subtitle: numeral.isEmpty
+                              ? null
+                              : Text('Numeral $numeral'),
+                          onChanged: (marcado) => actualizar(() {
+                            if (marcado == true) {
+                              seleccionados.add(item);
+                            } else {
+                              seleccionados.remove(item);
+                            }
+                          }),
+                        );
+                      },
                     ),
-                    // ── Navegación anterior/siguiente ──────────────────────
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                      child: Row(
-                        children: [
-                          OutlinedButton.icon(
-                            onPressed: pagina > 0
-                                ? () {
-                                    setSheetState(() => pagina--);
-                                    seguirAlActual();
-                                  }
-                                : null,
-                            icon: const Icon(Icons.chevron_left_rounded),
-                            label: const Text('Anterior'),
-                          ),
-                          const Spacer(),
-                          OutlinedButton.icon(
-                            onPressed: pagina < total - 1
-                                ? () {
-                                    setSheetState(() => pagina++);
-                                    seguirAlActual();
-                                  }
-                                : null,
-                            icon: const Icon(Icons.chevron_right_rounded),
-                            label: const Text('Siguiente'),
-                          ),
-                        ],
-                      ),
-                    ),
-                    SafeArea(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                        child: SizedBox(
-                          width: double.infinity,
-                          child: FilledButton.icon(
-                            onPressed: selected.isEmpty
-                                ? null
-                                : () => Navigator.pop(ctx, [
-                                    for (final item in catalogItems)
-                                      if (selected.contains(item)) item,
-                                  ]),
-                            icon: const Icon(Icons.add_rounded),
-                            label: Text(
-                              selected.isEmpty
-                                  ? 'Selecciona uno o varios'
-                                  : 'Agregar ${selected.length}',
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            );
-          },
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: seleccionados.isEmpty
+                    ? null
+                    : () => Navigator.pop(
+                        dialogContext,
+                        disponibles.where(seleccionados.contains).toList(),
+                      ),
+                child: Text('Agregar ${seleccionados.length}'),
+              ),
+            ],
+          ),
         ),
       ),
     );
-    indiceCtrl.dispose();
     return result ?? const [];
   }
 

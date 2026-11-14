@@ -1,12 +1,65 @@
 import 'dart:typed_data';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../core/subcentros_costo.dart';
+import '../services/company_branding_service.dart';
 import 'mantenimiento_service.dart';
+
+const _tinta = PdfColor.fromInt(0xff173c4a);
+const _fondo = PdfColor.fromInt(0xffedf4f5);
+
+Future<({String nombre, Uint8List? logo})> marcaMantenimiento(
+  String empresaId,
+) async {
+  final empresa = await FirebaseFirestore.instance
+      .collection('TBL_EMPRESAS')
+      .doc(empresaId)
+      .get();
+  final nombre = (empresa.data()?['nombre'] ?? '').toString().trim();
+  final logo = await CompanyBrandingService().loadLogoBytes(empresaId);
+  return (nombre: nombre, logo: logo);
+}
+
+pw.Widget membreteMantenimiento(
+  String titulo, {
+  String nombre = '',
+  Uint8List? logo,
+}) => pw.Container(
+  padding: const pw.EdgeInsets.all(14),
+  decoration: const pw.BoxDecoration(color: _fondo),
+  child: pw.Row(
+    children: [
+      if (logo != null) ...[
+        pw.Image(
+          pw.MemoryImage(logo),
+          width: 72,
+          height: 48,
+          fit: pw.BoxFit.contain,
+        ),
+        pw.SizedBox(width: 14),
+      ],
+      pw.Expanded(
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            if (nombre.isNotEmpty)
+              pw.Text(nombre, style: const pw.TextStyle(fontSize: 10)),
+            pw.SizedBox(height: 4),
+            pw.Text(
+              titulo,
+              style: const pw.TextStyle(fontSize: 20, color: _tinta),
+            ),
+          ],
+        ),
+      ),
+    ],
+  ),
+);
 
 Future<Uint8List> generarInformeMantenimiento({
   required String empresaId,
@@ -15,9 +68,16 @@ Future<Uint8List> generarInformeMantenimiento({
   required Map<String, String> centros,
   required Map<String, EquipoMantenimiento> equipos,
   bool ordenIndividual = false,
+  String empresaNombre = '',
+  Uint8List? empresaLogo,
   Future<Uint8List> Function(ArchivoOrden)? fotos,
 }) async {
   final documento = pw.Document(title: 'Informe de mantenimiento');
+  final membrete = membreteMantenimiento(
+    ordenIndividual ? 'Orden de trabajo' : 'Informe de órdenes de trabajo',
+    nombre: empresaNombre.isEmpty ? empresaId : empresaNombre,
+    logo: empresaLogo,
+  );
   final fuente = pw.Font.ttf(await rootBundle.load('assets/arial.ttf'));
   final evidencias = <ArchivoOrden, pw.MemoryImage>{};
   if (fotos != null) {
@@ -35,19 +95,13 @@ Future<Uint8List> generarInformeMantenimiento({
       pageFormat: PdfPageFormat.a4,
       maxPages: ordenes.length * 6 + 4,
       theme: pw.ThemeData.withFont(base: fuente, bold: fuente),
-      header: (_) => pw.Text('MANTENIMIENTO · $empresaId'),
+      header: (_) => membrete,
       footer: (context) => pw.Align(
         alignment: pw.Alignment.centerRight,
         child: pw.Text('${context.pageNumber} / ${context.pagesCount}'),
       ),
       build: (_) => [
         pw.SizedBox(height: 14),
-        pw.Text(
-          ordenIndividual
-              ? 'Orden de trabajo'
-              : 'Informe de órdenes de trabajo',
-          style: pw.TextStyle(fontSize: 22),
-        ),
         pw.Paragraph(text: alcance),
         if (!ordenIndividual)
           pw.Paragraph(
@@ -65,11 +119,15 @@ Future<Uint8List> generarInformeMantenimiento({
                 .join('   |   '),
           ),
         for (final orden in ordenes) ...[
-          pw.Divider(),
-          pw.Paragraph(
-            text:
-                'Orden ${orden.referencia} · ${orden.tipo.label} · ${orden.estado.label}',
-            style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+          pw.Container(
+            width: double.infinity,
+            margin: const pw.EdgeInsets.symmetric(vertical: 8),
+            padding: const pw.EdgeInsets.all(9),
+            color: _fondo,
+            child: pw.Text(
+              'Orden ${orden.referencia} · ${orden.tipo.label} · ${orden.estado.label}',
+              style: const pw.TextStyle(color: _tinta, fontSize: 12),
+            ),
           ),
           pw.Paragraph(
             text:
@@ -141,8 +199,16 @@ Future<Uint8List> generarInformeMantenimiento({
                       padding: const pw.EdgeInsets.only(bottom: 12),
                       child: pw.Image(
                         foto,
-                        width: 350,
-                        height: 210,
+                        width:
+                            clase == ClaseArchivoOrden.firmaTecnico ||
+                                clase == ClaseArchivoOrden.firmaReceptor
+                            ? 170
+                            : 350,
+                        height:
+                            clase == ClaseArchivoOrden.firmaTecnico ||
+                                clase == ClaseArchivoOrden.firmaReceptor
+                            ? 72
+                            : 210,
                         fit: pw.BoxFit.contain,
                       ),
                     ),

@@ -1084,6 +1084,8 @@ class _InterventoriaTableroAsignacionState
       centrosPorGrupo: _porGrupo,
       asignables: _usuarios,
       activos: activos,
+      onElegirIndividual: (h) => _elegirPersona(h.hallazgo),
+      onCorregirUbicacion: (h) => _corregirUbicacion(h.hallazgo),
     );
     if (elegido == null || !mounted) return;
     setState(() => _asignandoMasivo = true);
@@ -1124,11 +1126,128 @@ class _InterventoriaTableroAsignacionState
         backgroundColor: fallidos == 0 ? _ok : _warn,
         content: Text(
           fallidos == 0
-              ? 'Grupo ${elegido.lote.grupo}: asignados $ok hallazgos'
-              : 'Grupo ${elegido.lote.grupo}: asignados $ok · $fallidos no se pudieron asignar',
+              ? 'Asignados $ok hallazgos'
+              : 'Asignados $ok · $fallidos no se pudieron asignar',
         ),
       ),
     );
+  }
+
+  Future<void> _corregirUbicacion(InterventoriaHallazgo h) async {
+    try {
+      final centros = await widget.service
+          .streamCentrosCosto(widget.empresaId)
+          .first;
+      final grupos = await widget.service.gruposEditables(widget.empresaId);
+      if (!mounted) return;
+      final visita = widget.visitas
+          .where((v) => v.id == h.visitaId)
+          .firstOrNull;
+      final vinculada = h.visitaId.isNotEmpty;
+      final opciones = vinculada
+          ? centros
+                .where(
+                  (c) =>
+                      c.centroId == (visita?.centroCostoId ?? h.centroCostoId),
+                )
+                .toList()
+          : centros;
+      String? centro = opciones
+          .where(
+            (c) => c.centroId == (visita?.centroCostoId ?? h.centroCostoId),
+          )
+          .firstOrNull
+          ?.centroId;
+      var grupo = '';
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (_) => StatefulBuilder(
+          builder: (context, cambiar) => AlertDialog(
+            title: const Text('Corregir ubicación'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<String>(
+                    isExpanded: true,
+                    initialValue: centro,
+                    decoration: const InputDecoration(
+                      labelText: 'Establecimiento',
+                    ),
+                    items: opciones
+                        .map(
+                          (c) => DropdownMenuItem(
+                            value: c.centroId,
+                            child: Text(
+                              c.nombre,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: vinculada
+                        ? null
+                        : (v) => cambiar(() => centro = v),
+                  ),
+                  if (vinculada)
+                    const Text(
+                      'El establecimiento se toma del acta. Para cambiar el del acta, usa su opción Corregir.',
+                    ),
+                  if (grupos.isNotEmpty)
+                    DropdownButtonFormField<String>(
+                      isExpanded: true,
+                      initialValue: grupo,
+                      decoration: const InputDecoration(
+                        labelText: 'Grupo del establecimiento',
+                      ),
+                      items: [
+                        const DropdownMenuItem(
+                          value: '',
+                          child: Text('Conservar grupo'),
+                        ),
+                        for (final g in grupos.entries)
+                          DropdownMenuItem(
+                            value: g.key,
+                            child: Text(
+                              g.value,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: (v) => cambiar(() => grupo = v ?? ''),
+                    ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: centro == null
+                    ? null
+                    : () => Navigator.pop(context, true),
+                child: const Text('Guardar'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (ok != true || centro == null || !mounted) return;
+      await widget.service.corregirUbicacionHallazgo(
+        empresaId: widget.empresaId,
+        hallazgoId: h.id,
+        centroId: centro!,
+        grupoId: grupo,
+      );
+      if (!mounted) return;
+      await _cargarApoyos(widget.empresaId, widget.service);
+      if (mounted)
+        _avisar('Ubicación actualizada. Revisa la asignación del hallazgo.');
+    } catch (e) {
+      if (mounted) _avisar('No se pudo corregir la ubicación. $e', error: true);
+    }
   }
 
   Future<void> _asignarTodosSugeridos(

@@ -66,7 +66,7 @@ export async function actorPlanes(input: DatosPlan, context: functions.https.Cal
   return {id: uid, empresaId, calidad, opera, desarrollo, director, nombre: s(u.nombreCompleto || u.nombre || `${u.nombres || ""} ${u.apellidos || ""}`) || "Responsable"};
 }
 function calidad(a: Actor) {
-  if (!a.calidad) err("Solo Calidad, Gerencia Interventoría o Desarrollo gestiona planes de mejora.", "permission-denied");
+  if (!a.calidad) err("La gestión de planes requiere Calidad, Gerencia, Administración de Interventoría o Desarrollo.", "permission-denied");
 }
 function empresa(d: DatosPlan | undefined, a: Actor): asserts d is DatosPlan {
   if (!d || d.empresaId !== a.empresaId) err("El registro no existe en la empresa activa.", "permission-denied");
@@ -568,7 +568,9 @@ export async function cambiarItem(input: DatosPlan, a: Actor) {
         err("La entrega cambió. Actualiza antes de guardar.", "aborted");
       }
       if (item.respuestaPresentado || item.soportesPresentado) err("Reabre las entregas presentadas antes de corregirlas.");
-      Object.assign(update, validarCompromiso(input, plan));
+      Object.assign(update, validarCompromiso({
+        ...input, compromisoAdjunto: !!item.adjuntosCompromiso?.length,
+      }, plan));
       const textoCalidad = s(input.respuestaSoportes);
       const texto = textoCalidad || s(item.respuestaTarea);
       if (texto.length < 10 || texto.length > 12000 || !item.evidencias?.length) err("Escribe la subsanación y adjunta al menos un soporte.");
@@ -588,7 +590,9 @@ export async function cambiarItem(input: DatosPlan, a: Actor) {
       if (Number(input.version) !== item[`${e}Version`]) err("La entrega cambió. Actualiza antes de guardar.", "aborted");
       if (item[`${e}Presentado`]) err("La entrega está presentada en Interventoría. Una persona gestora del plan debe reabrirla con motivo.");
       if (e === "respuesta") {
-        Object.assign(update, validarCompromiso(input, plan));
+        Object.assign(update, validarCompromiso({
+          ...input, compromisoAdjunto: !!item.adjuntosCompromiso?.length,
+        }, plan));
         update.soportesRevision = {estado: "pendiente", motivo: "Compromiso actualizado"};
       } else {
         const textoCalidad = s(input.respuestaSoportes);
@@ -628,6 +632,27 @@ export async function cambiarItem(input: DatosPlan, a: Actor) {
       if (fecha < plan.fechaNotificacion || fecha > hoyColombia()) err("La fecha de presentación no es válida.");
       update[`${etapa}Presentado`] = {fecha, comprobante, version: item[`${etapa}Version`],
         porId: a.id, porNombre: a.nombre, registradoAt: admin.firestore.Timestamp.now()};
+      const vigentes = siblings.docs.filter((d) => d.get("eliminado") !== true);
+      if (["recibido", "en_gestion"].includes(plan.estadoGestion || "recibido") &&
+          vigentes.length && vigentes.every((d) => {
+            const datos = d.id === ref.id ? {...item, ...update} : d.data();
+            return datos.respuestaPresentado && datos.soportesPresentado;
+          })) {
+        tx.update(pr, {estadoGestion: "enviado", updatedAt: admin.firestore.Timestamp.now()});
+        audit(tx, pr, a, "estado_automatico", {estadoGestion: "enviado"});
+      }
+    } else if (accion === "corregirPresentacion") {
+      calidad(a);
+      if (!["respuesta", "soportes"].includes(etapa)) err("Etapa inválida.");
+      const presentado = item[`${etapa}Presentado`];
+      const constancia = (item.constancias || []).find((v: DatosPlan) => v.path === input.constancia);
+      const motivo = s(input.motivo);
+      if (!presentado || presentado.version !== Number(input.version) ||
+          !constancia || constancia.etapa !== etapa || motivo.length < 8 || motivo.length > 1000) {
+        err("Adjunta la comunicación final e indica el motivo de la corrección.");
+      }
+      update[`${etapa}Presentado`] = {...presentado, constancia: constancia.path,
+        correccion: motivo, corregidoPor: a.nombre, corregidoAt: admin.firestore.Timestamp.now()};
     } else if (accion === "reabrir") {
       calidad(a);
       if (!["respuesta", "soportes"].includes(etapa) || s(input.motivo).length < 8) err("Indica etapa y motivo de reapertura.");
@@ -718,8 +743,13 @@ async function reactivarTarea(input: DatosPlan, a: Actor) {
 
 async function adjuntar(input: DatosPlan, a: Actor) {
   const inicial = input._inicial === true;
-  if (inicial) calidad(a);
-  const campo = inicial ? "evidenciasIniciales" : "evidencias";
+  const compromiso = input._compromiso === true;
+  const constancia = input._constancia === true;
+  const etapa = constancia ? s(input.etapa) : "";
+  if (inicial || constancia) calidad(a);
+  if (constancia && !["respuesta", "soportes"].includes(etapa)) err("Etapa inválida.");
+  const campo = inicial ? "evidenciasIniciales" : compromiso ? "adjuntosCompromiso" :
+    constancia ? "constancias" : "evidencias";
   const ref = db().collection(ITEMS_COL).doc(id(input.itemId));
   const item = (await ref.get()).data(); empresa(item, a); await tareaItem(item, a);
   const nombre = s(input.nombre).replace(/[^\p{L}\p{N}._ -]/gu, "_").slice(0, 150);
@@ -751,7 +781,9 @@ async function adjuntar(input: DatosPlan, a: Actor) {
       const plan = (await tx.get(pr)).data(); empresa(plan, a);
       if (plan.estado !== "abierto") err("El plan está cerrado.");
       const siblings = await tx.get(db().collection(ITEMS_COL).where("planId", "==", current.planId));
-      if (current.soportesPresentado) err("Calidad debe reabrir los soportes ya presentados.");
+      if (!constancia && (compromiso ? current.respuestaPresentado : current.soportesPresentado)) {
+        err("Un gestor del plan debe reabrir la etapa presentada.");
+      }
       // Only usarFuente supplies this server-owned marker. Retries/concurrent
       // selections preserve the version and never attach the same source twice.
       if (input._fuenteKey && current.evidencias?.some((ev: DatosPlan) => ev.fuenteKey === input._fuenteKey)) {
@@ -760,24 +792,27 @@ async function adjuntar(input: DatosPlan, a: Actor) {
       duplicado = false;
       if ((current[campo]?.length || 0) >= 12) err("Máximo 12 archivos por hallazgo.");
       const evidencia = {path, nombre, contentType: types[ext], size: bytes.length, porId: a.id, fecha: admin.firestore.Timestamp.now(),
+        ...(constancia ? {etapa} : {}),
         ...(input._fuenteKey ? {fuenteKey: input._fuenteKey, fuenteOrigen: input._fuenteOrigen} : {}),
         _cryptoKey: key.toString("base64"), _cryptoIv: iv.toString("base64"), _cryptoTag: cipher.getAuthTag().toString("base64")};
-      tx.update(ref, inicial ? {evidenciasIniciales: [...(current[campo] || []), evidencia]} :
-        {evidencias: [...(current.evidencias || []), evidencia],
-          soportesVersion: current.soportesVersion + 1, soportesRevision: {estado: "pendiente"}});
+      tx.update(ref, {[campo]: [...(current[campo] || []), evidencia],
+        ...(compromiso ? {respuestaVersion: current.respuestaVersion + 1,
+          respuestaRevision: {estado: "pendiente"}} : {}),
+        ...(campo === "evidencias" ? {soportesVersion: current.soportesVersion + 1,
+          soportesRevision: {estado: "pendiente"}} : {})});
       const estadoGestion = estadoGestionAutomatico(plan.estadoGestion || "recibido",
         siblings.docs.map((d) => d.id === ref.id ? {...current, soportesVersion: current.soportesVersion + (inicial ? 0 : 1)} : d.data()));
       if (estadoGestion !== plan.estadoGestion) {
         tx.update(pr, {estadoGestion, updatedAt: admin.firestore.Timestamp.now()});
         audit(tx, pr, a, "estado_automatico", {estadoGestion});
       }
-      audit(tx, ref, a, inicial ? "fotografia_inicial_adjunta" : "soporte_adjunto", evidencia);
+      audit(tx, ref, a, `adjunto_${campo}`, evidencia);
     });
   } catch (e) {
     await file.delete().catch(() => undefined); throw e;
   }
   if (duplicado) await file.delete().catch(() => undefined);
-  return {ok: true};
+  return {ok: true, path};
 }
 
 // URLs are used only to recover a path in OUR bucket, never fetched over HTTP.
@@ -899,17 +934,21 @@ async function verFuente(input: DatosPlan, a: Actor) {
 
 async function retirarSoporte(input: DatosPlan, a: Actor) {
   const inicial = input._inicial === true;
+  const compromiso = input._compromiso === true;
   if (inicial) calidad(a);
-  const campo = inicial ? "evidenciasIniciales" : "evidencias";
+  const campo = inicial ? "evidenciasIniciales" : compromiso ? "adjuntosCompromiso" : "evidencias";
   const ref = db().collection(ITEMS_COL).doc(id(input.itemId));
   await db().runTransaction(async (tx) => {
     const item = (await tx.get(ref)).data(); empresa(item, a); await tareaItem(item, a, tx);
-    if (item.soportesPresentado) err("Reabre la entrega antes de corregir los soportes.");
+    if (compromiso ? item.respuestaPresentado : item.soportesPresentado) {
+      err("Reabre la entrega antes de retirar el archivo.");
+    }
     const evs = (item[campo] || []).filter((v: DatosPlan) => v.path !== input.path);
     if (evs.length === (item[campo] || []).length) err("El archivo ya no forma parte de la entrega.");
-    tx.update(ref, inicial ? {evidenciasIniciales: evs} :
-      {evidencias: evs, soportesVersion: item.soportesVersion + 1, soportesRevision: {estado: "pendiente"}});
-    audit(tx, ref, a, inicial ? "fotografia_inicial_retirada" : "soporte_retirado", {anterior: item, path: input.path});
+    tx.update(ref, {[campo]: evs,
+      ...(compromiso ? {respuestaVersion: item.respuestaVersion + 1, respuestaRevision: {estado: "pendiente"}} : {}),
+      ...(campo === "evidencias" ? {soportesVersion: item.soportesVersion + 1, soportesRevision: {estado: "pendiente"}} : {})});
+    audit(tx, ref, a, `retiro_${campo}`, {anterior: item, path: input.path});
   });
   return {ok: true};
 }
@@ -926,7 +965,9 @@ async function editarFechas(input: DatosPlan, a: Actor) {
     const items = await tx.get(db().collection(ITEMS_COL).where("planId", "==", ref.id));
     for (const item of items.docs) {
       const d = item.data(); empresa(d, a);
-      if (d.compromiso) validarCompromiso(d, fechas);
+      if (d.compromiso || d.adjuntosCompromiso?.length) {
+        validarCompromiso({...d, compromisoAdjunto: !!d.adjuntosCompromiso?.length}, fechas);
+      }
     }
     tx.update(ref, {...fechas, ...plazosInternosPlan(fechas), updatedAt: admin.firestore.Timestamp.now()});
     audit(tx, ref, a, "fechas_corregidas", {anterior: p, fechas, motivo: s(input.motivo).slice(0, 2000)});
@@ -949,7 +990,8 @@ async function identificarVisita(input: DatosPlan, a: Actor) {
 
 async function evidencia(input: DatosPlan, a: Actor) {
   const item = (await db().collection(ITEMS_COL).doc(id(input.itemId)).get()).data(); empresa(item, a); await tareaItem(item, a);
-  const ev = [...(item.evidencias || []), ...(item.evidenciasIniciales || [])].find((v: DatosPlan) => v.path === input.path);
+  const ev = [...(item.evidencias || []), ...(item.evidenciasIniciales || []),
+    ...(item.adjuntosCompromiso || []), ...(item.constancias || [])].find((v: DatosPlan) => v.path === input.path);
   if (!ev || !s(ev.path).startsWith(`interventoria_planes/${a.empresaId}/${id(input.itemId)}/`)) err("Soporte inválido.");
   const bytes = await leerEvidencia(ev);
   return {nombre: ev.nombre, base64: bytes.toString("base64"), contentType: ev.contentType};
@@ -1007,7 +1049,11 @@ async function exportar(input: DatosPlan, a: Actor) {
     const pdf = await fichaPlanPdf(companyName, detail.plan, item, expediente, corte,
       (etapaPdf === "soportes" ? "" : etapa("respuesta")) + (etapaPdf === "respuesta" ? "" : etapa("soportes")),
       generarPdf ? "" : historialTexto, etapaPdf);
-    for (const ev of etapaPdf === "respuesta" ? [] : original.evidencias || []) {
+    for (const ev of [
+      ...(etapaPdf === "soportes" ? [] : original.adjuntosCompromiso || []),
+      ...(etapaPdf === "respuesta" ? [] : original.evidencias || []),
+      ...(input.accion === "expediente" ? original.constancias || [] : []),
+    ]) {
       if (!s(ev.path).startsWith(`interventoria_planes/${a.empresaId}/${item.id}/`)) err("Ruta de evidencia inválida.");
       const bytes = await leerEvidencia(ev); total += bytes.length;
       if (total > 100 * 1024 * 1024) err("El paquete supera 100 MB. Descarga los hallazgos individualmente.");
@@ -1041,6 +1087,20 @@ async function exportar(input: DatosPlan, a: Actor) {
   const safeName = s(detail.plan.numero).replace(/[^\p{L}\p{N}._-]/gu, "_");
   const resultado = consolidado ? {nombre: `${safeName}_${etapaPdf}.pdf`, bytes: Buffer.from(await consolidado.save())} :
     input.itemId && individual && !expediente ? individual : {nombre: `${safeName}_${expediente ? "expediente" : "soportes"}.zip`, bytes};
+  if (generarPdf && input.itemId) {
+    const ref = db().collection(ITEMS_COL).doc(id(input.itemId));
+    await db().runTransaction(async (tx) => {
+      const actual = (await tx.get(ref)).data(); empresa(actual, a);
+      const item = items[0];
+      if (actual.respuestaVersion !== item.respuestaVersion || actual.soportesVersion !== item.soportesVersion) {
+        err("La entrega cambió. Genera el PDF de la versión actual.", "aborted");
+      }
+      const marca = {respuestaVersion: item.respuestaVersion, soportesVersion: item.soportesVersion,
+        porId: a.id, fecha: admin.firestore.Timestamp.now()};
+      tx.update(ref, {[`pdfGenerado.${etapaPdf}`]: marca});
+      audit(tx, ref, a, "pdf_generado", {etapa: etapaPdf, ...marca});
+    });
+  }
   if (resultado.bytes.length <= 6 * 1024 * 1024) return {nombre: resultado.nombre, base64: resultado.bytes.toString("base64")};
   const ref = db().collection(PLANES_COL).doc(id(input.planId)).collection("exportaciones").doc();
   const partes: DatosPlan[] = [];
@@ -1103,14 +1163,17 @@ export const interventoriaPlanes = functions.region("us-central1").runWith({time
         case "reactivarTarea": return await reactivarTarea(input, a);
         case "recordar": return await recordarItem(input, a);
         case "colaborar": return await colaborarPlan(input, a);
-        case "entregaDirecta": case "responder": case "soportes": case "usarTexto": case "revisar": case "presentar": case "reabrir": return await cambiarItem(input, a);
+        case "entregaDirecta": case "responder": case "soportes": case "usarTexto": case "revisar": case "presentar": case "corregirPresentacion": case "reabrir": return await cambiarItem(input, a);
         case "adjuntarInicial": return await adjuntar({itemId: input.itemId, nombre: input.nombre, base64: input.base64, _inicial: true}, a);
         case "adjuntar": return await adjuntar({itemId: input.itemId, nombre: input.nombre, base64: input.base64}, a);
+        case "adjuntarCompromiso": return await adjuntar({itemId: input.itemId, nombre: input.nombre, base64: input.base64, _compromiso: true}, a);
+        case "adjuntarConstancia": return await adjuntar({itemId: input.itemId, nombre: input.nombre, base64: input.base64, etapa: input.etapa, _constancia: true}, a);
         case "fuentes": return await fuentesTarea(input, a);
         case "usarFuente": return await usarFuente(input, a);
         case "verFuente": return await verFuente(input, a);
         case "retirarInicial": return await retirarSoporte({itemId: input.itemId, path: input.path, _inicial: true}, a);
         case "retirarSoporte": return await retirarSoporte({itemId: input.itemId, path: input.path}, a);
+        case "retirarCompromiso": return await retirarSoporte({itemId: input.itemId, path: input.path, _compromiso: true}, a);
         case "fechas": return await editarFechas(input, a);
         case "identificarVisita": return await identificarVisita(input, a);
         case "evidencia": return await evidencia(input, a);

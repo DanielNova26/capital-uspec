@@ -21,6 +21,8 @@ import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
 import {createHash} from "crypto";
 import {requireAdmin} from "./security_admin";
+import {esTareaDeHallazgo} from "./tareas_avisos";
+import {empresasSeleccionables} from "./acceso";
 
 const REGION = "us-central1";
 const TAREAS = "TBL_TAREAS";
@@ -194,8 +196,9 @@ export function aprobadorFijadoPorModulo(tarea: Datos): boolean {
 export function debeCambiarJefe(tarea: Datos, cambio: CambioJefe): boolean {
   return tareaActiva(tarea) &&
     esDeEmpresa(tarea, cambio.empresaId) &&
-    !aprobadorFijadoPorModulo(tarea) &&
-    texto(tarea.jefe_uid || tarea.bossId) === cambio.anteriorId;
+    (esTareaDeHallazgo(tarea) ?
+      texto(tarea.jefe_inmediato_uid) !== cambio.nuevo.id :
+      !aprobadorFijadoPorModulo(tarea) && texto(tarea.jefe_uid || tarea.bossId) === cambio.anteriorId);
 }
 
 /**
@@ -211,6 +214,7 @@ export function actualizacionJefe(
   cambio: CambioJefe
 ): Record<string, string> {
   const {id, nombre} = cambio.nuevo;
+  if (esTareaDeHallazgo(tarea)) return {jefe_inmediato_uid: id};
   const update: Record<string, string> = {
     jefe_uid: id,
     jefe_nombre: nombre,
@@ -256,12 +260,13 @@ async function reemplazarJefeEnTareas(
   afectadas: FirebaseFirestore.QueryDocumentSnapshot[]
 ): Promise<void> {
   const nuevo = cambio.nuevo;
-  for (let i = 0; i < afectadas.length; i += 400) {
+  for (let i = 0; i < afectadas.length; i += 200) {
     const batch = db.batch();
     for (const doc of afectadas.slice(i, i + 400)) {
       const data = doc.data();
       // El hallazgo de Interventoría guarda el aprobador: se mantiene igual.
-      if (texto(data.sourceEntityCollection) === "TBL_INTERVENTORIA_HALLAZGOS" &&
+      if (!esTareaDeHallazgo(data) &&
+          texto(data.sourceEntityCollection) === "TBL_INTERVENTORIA_HALLAZGOS" &&
           texto(data.sourceEntityId)) {
         batch.update(db.collection("TBL_INTERVENTORIA_HALLAZGOS").doc(texto(data.sourceEntityId)), {
           aprobadorId: nuevo.id,
@@ -272,7 +277,7 @@ async function reemplazarJefeEnTareas(
         ...actualizacionJefe(data, cambio),
         // Las reglas de Tareas miran `participantes_uid` para dejar
         // actuar a quien interviene en la tarea.
-        ...(Array.isArray(data.participantes_uid) ?
+        ...(!esTareaDeHallazgo(data) && Array.isArray(data.participantes_uid) ?
           {participantes_uid: admin.firestore.FieldValue.arrayUnion(nuevo.id)} :
           {}),
         lastEventAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -282,6 +287,7 @@ async function reemplazarJefeEnTareas(
     await batch.commit();
   }
 
+  if (!nuevo.id) return;
   const ids = afectadas.map((d) => d.id).sort();
   const n = ids.length;
   const notifId = createHash("sha256")
@@ -325,8 +331,15 @@ export const tareasReemplazarJefeInmediato = functions
   .onUpdate(async (change, ctx) => {
     const userId = ctx.params.userId as string;
     const despues = change.after.data() || {};
-    const cambios = cambiosDeJefe(change.before.data() || {}, despues, userId);
-    if (!cambios.length) return;
+    const antes = change.before.data() || {};
+    const cambios = cambiosDeJefe(antes, despues, userId);
+    const cambiosHallazgo = [...new Set([...empresasDe(antes), ...empresasDe(despues)])]
+      .map((empresaId) => {
+        const anteriorId = jefeEnEmpresa(antes, empresaId).id;
+        const nuevo = jefeEnEmpresa(despues, empresaId);
+        return {empresaId, anteriorId, nuevo: nuevo.id === userId ? {id: "", nombre: ""} : nuevo};
+      }).filter((c) => c.anteriorId !== c.nuevo.id);
+    if (!cambios.length && !cambiosHallazgo.length) return;
 
     const db = admin.firestore();
     const tareas = await db.collection(TAREAS)
@@ -335,11 +348,18 @@ export const tareasReemplazarJefeInmediato = functions
     if (tareas.empty) return;
     const empleado = nombreUsuario(despues, userId);
 
-    for (const cambio of cambios) {
-      const afectadas = tareas.docs.filter((d) => debeCambiarJefe(d.data(), cambio));
-      if (!afectadas.length) continue;
-      const nuevo = await nombreDelJefe(db, cambio.nuevo);
-      await reemplazarJefeEnTareas(db, userId, empleado, {...cambio, nuevo}, afectadas);
+    for (const [esHallazgo, conjunto] of [[false, cambios], [true, cambiosHallazgo]] as const) {
+      for (const cambio of conjunto) {
+        const jefe = cambio.nuevo.id && !cambio.nuevo.id.includes("/") ?
+          (await db.collection(USERS).doc(cambio.nuevo.id).get()).data() : undefined;
+        const verificado = esHallazgo && (!jefe || !empresasSeleccionables(jefe).includes(cambio.empresaId)) ?
+          {...cambio, nuevo: {id: "", nombre: ""}} : cambio;
+        const afectadas = tareas.docs.filter((d) => esTareaDeHallazgo(d.data()) === esHallazgo &&
+          debeCambiarJefe(d.data(), verificado));
+        if (!afectadas.length) continue;
+        const nuevo = verificado.nuevo.id ? await nombreDelJefe(db, verificado.nuevo) : verificado.nuevo;
+        await reemplazarJefeEnTareas(db, userId, empleado, {...verificado, nuevo}, afectadas);
+      }
     }
   });
 
@@ -372,12 +392,13 @@ export function planSincronizacionJefes(
   const plan: PlanSincronizacion[] = [];
   for (const {id, data} of tareas) {
     if (!tareaActiva(data) || !esDeEmpresa(data, empresaId)) continue;
-    if (aprobadorFijadoPorModulo(data)) continue;
+    const hallazgo = esTareaDeHallazgo(data);
+    if (!hallazgo && aprobadorFijadoPorModulo(data)) continue;
     const responsable = texto(data.asignado_uid || data.assignedTo);
     const jefe = jefes.get(responsable);
-    const actual = texto(data.jefe_uid || data.bossId);
+    const actual = texto(hallazgo ? data.jefe_inmediato_uid : data.jefe_uid || data.bossId);
     if (!jefe || !jefe.id || jefe.id === responsable) continue;
-    if (!actual || actual === jefe.id) continue;
+    if ((!hallazgo && !actual) || actual === jefe.id) continue;
     plan.push({
       tareaId: id,
       responsableId: responsable,
@@ -413,7 +434,12 @@ export const tareasSincronizarJefes = functions
       for (const u of await db.getAll(...refs)) if (u.exists) usuarios.set(u.id, u.data() || {});
     }
     const jefes = new Map<string, JefeEnEmpresa>();
-    for (const [id, u] of usuarios) jefes.set(id, jefeEnEmpresa(u, empresaId));
+    for (const [id, u] of usuarios) {
+      const jefe = jefeEnEmpresa(u, empresaId);
+      if (!jefe.id || jefe.id.includes("/")) continue;
+      const ficha = usuarios.get(jefe.id) ?? (await db.collection(USERS).doc(jefe.id).get()).data();
+      if (ficha && empresasSeleccionables(ficha).includes(empresaId)) jefes.set(id, jefe);
+    }
 
     const plan = planSincronizacionJefes(
       abiertas.map((d) => ({id: d.id, data: d.data()})),

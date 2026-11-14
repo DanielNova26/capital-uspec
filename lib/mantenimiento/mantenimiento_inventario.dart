@@ -13,6 +13,8 @@ import 'package:share_plus/share_plus.dart';
 
 import 'mantenimiento_archivos.dart' show nuevoIdMantenimiento;
 import 'mantenimiento_forms.dart';
+import 'mantenimiento_report.dart'
+    show marcaMantenimiento, membreteMantenimiento;
 import 'mantenimiento_service.dart';
 import 'mantenimiento_web_widgets.dart';
 
@@ -770,7 +772,7 @@ class _AltaEquipoState extends State<_AltaEquipo> {
     guardar: _guardar,
     campos: [
       if (widget.equipo == null)
-        _campo('Código o rótulo', 'codigo', 60, requerido: true)
+        const Text('El rótulo se genera al registrar el equipo.')
       else
         Text('Rótulo ${widget.equipo!.codigo}'),
       _campo('Referencia', 'referencia', 100),
@@ -902,8 +904,8 @@ class _MovimientoEquipoState extends State<_MovimientoEquipo> {
       'origen': widget.origen,
       'destino': _destino,
       'cantidad': int.parse(_cantidad),
-      'entrega': _entrega,
-      'recibe': _recibe,
+      'entregaId': _entrega,
+      'recibeId': _recibe,
       'observaciones': _observaciones,
       'archivos': adjuntos.map((a) => a.id).toList(),
     });
@@ -985,17 +987,15 @@ class _MovimientoEquipoState extends State<_MovimientoEquipo> {
       ],
       soportes: [
         if (!widget.baja) ...[
-          campoMantenimiento(
-            'Quién entrega',
-            120,
-            requerido: true,
-            onChanged: (v) => _entrega = v,
+          PersonaMantenimientoField(
+            etiqueta: 'Quién entrega',
+            catalogo: _catalogos,
+            onChanged: (p) => _entrega = p['id'] as String,
           ),
-          campoMantenimiento(
-            'Quién recibe',
-            120,
-            requerido: true,
-            onChanged: (v) => _recibe = v,
+          PersonaMantenimientoField(
+            etiqueta: 'Quién recibe',
+            catalogo: _catalogos,
+            onChanged: (p) => _recibe = p['id'] as String,
           ),
         ],
         campoMantenimiento(
@@ -1200,7 +1200,10 @@ class _FichaEquipoState extends State<_FichaEquipo> {
                                       onPressed: _ocupado
                                           ? null
                                           : () => _procesar(() async {
-                                              final bytes = await _acta(m);
+                                              final bytes = await _acta(
+                                                m,
+                                                widget.service.empresaId,
+                                              );
                                               if (context.mounted) {
                                                 await _verPdf(
                                                   context,
@@ -1235,39 +1238,73 @@ String _fechaMovimiento(Map m) => DateFormat(
   'dd/MM/yyyy HH:mm',
 ).format(DateTime.fromMillisecondsSinceEpoch((m['fecha'] as num).toInt()));
 
-Future<Uint8List> _acta(Map m) async {
+Future<Uint8List> _acta(Map m, String empresaId) async {
   final fuente = pw.Font.ttf(await rootBundle.load('assets/arial.ttf'));
   final documento = pw.Document(title: 'Acta de traslado');
+  final marca = await marcaMantenimiento(empresaId);
+  final membrete = membreteMantenimiento(
+    'Acta de traslado de equipos',
+    nombre: marca.nombre,
+    logo: marca.logo,
+  );
+  pw.Widget ficha(String titulo, Map<String, String> datos) => pw.Column(
+    crossAxisAlignment: pw.CrossAxisAlignment.start,
+    children: [
+      pw.SizedBox(height: 14),
+      pw.Text(
+        titulo,
+        style: const pw.TextStyle(fontSize: 13, color: PdfColors.teal900),
+      ),
+      pw.SizedBox(height: 5),
+      pw.TableHelper.fromTextArray(
+        data: datos.entries
+            .map((e) => [e.key, e.value.isEmpty ? '—' : e.value])
+            .toList(),
+        columnWidths: {
+          0: const pw.FlexColumnWidth(1),
+          1: const pw.FlexColumnWidth(3),
+        },
+        cellPadding: const pw.EdgeInsets.all(7),
+        oddRowDecoration: const pw.BoxDecoration(color: PdfColors.grey100),
+        border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+      ),
+    ],
+  );
   documento.addPage(
     pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
       theme: pw.ThemeData.withFont(base: fuente, bold: fuente),
+      header: (_) => membrete,
       build: (_) => [
-        pw.Text(
-          'Acta de traslado de equipos',
-          style: const pw.TextStyle(fontSize: 22),
-        ),
-        pw.SizedBox(height: 16),
-        for (final linea in [
-          'Movimiento ${m['id']}',
-          'Empresa ${m['empresaId']}',
-          'Fecha ${_fechaMovimiento(m)}',
-          'Equipo ${m['codigo']} · ${m['nombre']}',
-          'Referencia ${m['referencia']}',
-          'Unidades ${m['unidades']}',
-          'Origen ${m['origenNombre']}',
-          'Destino ${m['destinoNombre']}',
-          'Entrega ${m['entrega']}',
-          'Recibe ${m['recibe']}',
-          'Equipo obligatorio ${m['obligatorio'] == null
+        ficha('Movimiento', {
+          'Referencia': _texto(m, 'id'),
+          'Fecha': _fechaMovimiento(m),
+          'Bodega de origen': _texto(m, 'origenNombre'),
+          'Destino': _texto(m, 'destinoNombre'),
+        }),
+        ficha('Equipo trasladado', {
+          'Rótulo': _texto(m, 'codigo'),
+          'Equipo': _texto(m, 'nombre'),
+          'Referencia': _texto(m, 'referencia'),
+          'Unidades': _texto(m, 'unidades'),
+          'Obligatorio en destino': m['obligatorio'] == null
               ? 'Sin validar'
               : m['obligatorio'] == true
               ? 'Sí'
-              : 'No'}',
-          if (_texto(m, 'observaciones').isNotEmpty)
-            'Observaciones ${m['observaciones']}',
-        ])
-          pw.Paragraph(text: linea),
+              : 'No',
+        }),
+        ficha('Entrega y recepción', {
+          'Entregó': _texto(m, 'entrega'),
+          'Recibió': _texto(m, 'recibe'),
+        }),
+        if (_texto(m, 'observaciones').isNotEmpty) ...[
+          pw.SizedBox(height: 14),
+          pw.Text(
+            'Observaciones',
+            style: const pw.TextStyle(fontSize: 13, color: PdfColors.teal900),
+          ),
+          pw.Paragraph(text: _texto(m, 'observaciones')),
+        ],
       ],
     ),
   );
@@ -1281,6 +1318,7 @@ Future<void> _verPdf(BuildContext context, Uint8List bytes, String nombre) =>
           appBar: AppBar(title: const Text('Documento PDF')),
           body: SafeArea(
             child: PdfPreview(
+              maxPageWidth: 700,
               build: (_) => bytes,
               pdfFileName: nombre,
               canChangePageFormat: false,

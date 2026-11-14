@@ -19,6 +19,7 @@ import '../core/task_estado_visible.dart';
 import '../core/task_flujo.dart';
 import '../core/org_context_resolver.dart';
 import '../core/task_origen.dart';
+import '../interventoria/interventoria_service.dart';
 import '../core/task_personas_empresa.dart';
 import '../core/user_directory.dart';
 import '../utils/task_status.dart';
@@ -134,6 +135,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
               Filter('aprobador_uid', isEqualTo: widget.userId),
               // Compatibilidad con tareas históricas anteriores al contrato v2.
               Filter('jefe_uid', isEqualTo: widget.userId),
+              Filter('jefe_inmediato_uid', isEqualTo: widget.userId),
               // Quien la asignó decide cuando el aprobador guardado es el
               // propio responsable (reasignadas antes de oct 2026, tarea
               // 2090). El filtro fino es `taskEsperaDecisionDe`.
@@ -288,11 +290,15 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
       return switch (_statusFilter) {
         'por_aprobar' => taskFinalizacionPendiente(m),
         'reasignacion' => taskReasignacionPendiente(m),
+        'reasignada' => _reasignadaDesdeInterventoria(m),
         _ => true,
       };
     }
     return taskEstadoVisible(m).clave == _statusFilter;
   }
+
+  bool _reasignadaDesdeInterventoria(Map<String, dynamic> data) =>
+      esTareaDeHallazgo(data) && data['reasignada_en'] != null;
 
   List<Map<String, String>> _extractAttachments(Map<String, dynamic> data) {
     final out = <Map<String, String>>[];
@@ -639,7 +645,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
         collection == 'novedades' &&
         tarea != null &&
         (laAsignoEstaPersona(tareaData, widget.userId) ||
-            taskAprobadorId(tareaData) == widget.userId) &&
+            taskAprobadoresId(tareaData).contains(widget.userId)) &&
         resolveTaskStatus(tareaData) != 'finalizado';
     final responsable = taskResponsableId(tareaData);
     await showTaskPanel<void>(
@@ -1275,6 +1281,20 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     final approvalRef = ref.collection('finalizacion').doc();
     final now = Timestamp.now();
     try {
+      final data = doc.data() ?? const <String, dynamic>{};
+      if (esTareaDeHallazgo(data)) {
+        final hallazgoId = (data['hallazgoId'] ?? data['sourceEntityId'] ?? '')
+            .toString()
+            .trim();
+        if (hallazgoId.isNotEmpty) {
+          await InterventoriaService().aprobarSubsanacion(
+            hallazgoId,
+            actorId: widget.userId,
+            requiereSolicitud: true,
+          );
+          return;
+        }
+      }
       await FirebaseFirestore.instance.runTransaction((trx) async {
         final snap = await trx.get(ref);
         final data = snap.data() ?? <String, dynamic>{};
@@ -1438,7 +1458,25 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
           'lastEventAt': now,
           'lastEventText': 'Tarea devuelta con nueva fecha',
         });
-        if ((data['origen'] ?? '').toString() == kFacTaskOrigin) {
+        if (esTareaDeHallazgo(data)) {
+          final hallazgoId =
+              (data['hallazgoId'] ?? data['sourceEntityId'] ?? '').toString();
+          if (hallazgoId.isNotEmpty) {
+            trx.update(
+              FirebaseFirestore.instance
+                  .collection('TBL_INTERVENTORIA_HALLAZGOS')
+                  .doc(hallazgoId),
+              {
+                'estado': 'activo',
+                'fechaSubsanacion': null,
+                'fechaLimite': Timestamp.fromDate(nuevaFecha!),
+                'resueltoPorId': widget.userId,
+                'resueltoEn': now,
+                'updatedAt': now,
+              },
+            );
+          }
+        } else if ((data['origen'] ?? '').toString() == kFacTaskOrigin) {
           final obsId = (data['facObservacionId'] ?? '').toString().trim();
           if (obsId.isNotEmpty) {
             trx.update(
@@ -1716,8 +1754,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     // inmediato del responsable o, en su defecto, quien la asignó). Quien la
     // asignó sin ser el aprobador ve que está en espera y de quién.
     final aprobadorId = taskAprobadorId(data);
-    final soyAprobador =
-        aprobadorId.isNotEmpty && _misIds.contains(aprobadorId);
+    final soyAprobador = taskAprobadoresId(data).any(_misIds.contains);
     final requiereEvidencias = () {
       final raw = data['requiere_adjunto'] ?? data['requiereAdjunto'];
       if (raw == null) return true;
@@ -2454,6 +2491,13 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
       // El responsable va en el pie de la tarjeta; no se repite como chip
       // (3 oct 2026, "mostrar el nombre del responsable solo una vez").
       chips: [
+        if (widget.approvalMode && _reasignadaDesdeInterventoria(m))
+          TaskCardChip(
+            label: (m['reasignada_desde_nombre'] ?? '').toString().isEmpty
+                ? 'Reasignada'
+                : 'Reasignada desde ${m['reasignada_desde_nombre']}',
+            icon: Icons.swap_horiz,
+          ),
         if (terminoEl != null)
           TaskCardChip(
             label:
@@ -2660,6 +2704,15 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                 count: reasignaciones,
                 color: TaskEstadoVisible.reasignada.color,
               ),
+              if (sinEstado.any((d) => _reasignadaDesdeInterventoria(d.data())))
+                TaskQuickFilter(
+                  label: 'Reasignadas',
+                  value: 'reasignada',
+                  count: sinEstado
+                      .where((d) => _reasignadaDesdeInterventoria(d.data()))
+                      .length,
+                  color: TaskEstadoVisible.reasignada.color,
+                ),
             ]
           : [
               TaskQuickFilter(

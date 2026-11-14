@@ -27,6 +27,7 @@ class InterventoriaTareaCreada {
   final String responsableNombre;
   final String aprobadorId;
   final String aprobadorNombre;
+  final String jefeInmediatoId;
 
   const InterventoriaTareaCreada({
     required this.taskId,
@@ -37,6 +38,7 @@ class InterventoriaTareaCreada {
     required this.responsableNombre,
     required this.aprobadorId,
     required this.aprobadorNombre,
+    this.jefeInmediatoId = '',
   });
 }
 
@@ -116,12 +118,15 @@ List<InterventoriaAvisoAsignacion> avisosDeAsignacion(
   for (final tarea in creadas) {
     if (tarea.taskId.trim().isEmpty || !vistas.add(tarea.taskId)) continue;
     final responsable = tarea.responsableId.trim();
-    final aprobador = tarea.aprobadorId.trim();
     if (responsable.isNotEmpty) {
       porResponsable.putIfAbsent(responsable, () => []).add(tarea);
     }
-    if (aprobador.isNotEmpty && aprobador != responsable) {
-      porAprobador.putIfAbsent(aprobador, () => []).add(tarea);
+    for (final supervisor in {
+      tarea.aprobadorId.trim(),
+      tarea.jefeInmediatoId.trim(),
+    }) {
+      if (supervisor.isEmpty || supervisor == responsable) continue;
+      porAprobador.putIfAbsent(supervisor, () => []).add(tarea);
     }
   }
 

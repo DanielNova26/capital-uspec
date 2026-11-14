@@ -4,7 +4,7 @@ export const PLANES_COL = "TBL_INTERVENTORIA_PLANES";
 export const ITEMS_COL = "TBL_INTERVENTORIA_PLAN_ITEMS";
 export const APP_PLANES = "interventoriadashboard";
 export const ROL_CALIDAD_PLANES = "calidad_interventoria";
-export const ROLES_GESTORES_PLANES = [ROL_CALIDAD_PLANES, "gerente_interventoria"];
+export const ROLES_GESTORES_PLANES = [ROL_CALIDAD_PLANES, "gerente_interventoria", "admin_interventoria"];
 export const ESTADOS_PLAN = ["recibido", "en_gestion", "enviado", "mesa_descuentos"];
 
 // Same source/normalization as grupoCentroCostoDesdeData in Flutter.
@@ -50,7 +50,7 @@ export function validarCambioFechas(fechas: DatosPlan, anteriores: DatosPlan, ho
 export function validarPdfPlan(plan: DatosPlan, item?: DatosPlan, etapa = "todo"): void {
   if (!item) {
     if (plan.estadoGestion !== "enviado") throw Error("El PDF del plan solo se genera cuando está Enviado.");
-  } else if ((etapa !== "soportes" && (!item.compromiso || !Number(item.respuestaVersion))) ||
+  } else if ((etapa !== "soportes" && ((!item.compromiso && !item.adjuntosCompromiso?.length) || !Number(item.respuestaVersion))) ||
       (etapa !== "respuesta" && !Number(item.soportesVersion))) {
     throw Error("Guarda la entrega antes de generar su PDF.");
   }
@@ -115,7 +115,7 @@ export function validarCompromiso(input: DatosPlan, plan: DatosPlan): DatosPlan 
   const compromiso = String(input.compromiso || "").trim();
   const ejecucion = diaValido(input.fechaEjecucion);
   const seguimiento = diaValido(input.fechaSeguimiento);
-  if (compromiso.length < 10 || compromiso.length > 12000) {
+  if ((!input.compromisoAdjunto && compromiso.length < 10) || compromiso.length > 12000) {
     throw Error("El compromiso debe tener entre 10 y 12000 caracteres.");
   }
   if (ejecucion < plan.fechaNotificacion || ejecucion > plan.limiteSoportes ||
@@ -138,7 +138,7 @@ export function validarRevision(item: DatosPlan, etapa: string, version: number,
   if (item[`${etapa}Presentado`]) throw Error("La entrega ya fue presentada en Interventoría.");
   if (estado === "devuelto" && motivo.trim().length < 8) throw Error("Explica la devolución (mínimo 8 caracteres).");
   if (estado === "satisfactorio" && (etapa === "respuesta" ?
-    !item.compromiso : !(item.evidencias?.length > 0 && item.respuestaSoportes?.trim()))) {
+    !(item.compromiso || item.adjuntosCompromiso?.length) : !(item.evidencias?.length > 0 && item.respuestaSoportes?.trim()))) {
     throw Error("La entrega todavía está incompleta.");
   }
 }

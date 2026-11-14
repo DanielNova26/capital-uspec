@@ -22,7 +22,7 @@ exports.PLANES_COL = "TBL_INTERVENTORIA_PLANES";
 exports.ITEMS_COL = "TBL_INTERVENTORIA_PLAN_ITEMS";
 exports.APP_PLANES = "interventoriadashboard";
 exports.ROL_CALIDAD_PLANES = "calidad_interventoria";
-exports.ROLES_GESTORES_PLANES = [exports.ROL_CALIDAD_PLANES, "gerente_interventoria"];
+exports.ROLES_GESTORES_PLANES = [exports.ROL_CALIDAD_PLANES, "gerente_interventoria", "admin_interventoria"];
 exports.ESTADOS_PLAN = ["recibido", "en_gestion", "enviado", "mesa_descuentos"];
 // Same source/normalization as grupoCentroCostoDesdeData in Flutter.
 function grupoCentroPlan(data) {
@@ -67,7 +67,7 @@ function validarPdfPlan(plan, item, etapa = "todo") {
         if (plan.estadoGestion !== "enviado")
             throw Error("El PDF del plan solo se genera cuando está Enviado.");
     }
-    else if ((etapa !== "soportes" && (!item.compromiso || !Number(item.respuestaVersion))) ||
+    else if ((etapa !== "soportes" && ((!item.compromiso && !item.adjuntosCompromiso?.length) || !Number(item.respuestaVersion))) ||
         (etapa !== "respuesta" && !Number(item.soportesVersion))) {
         throw Error("Guarda la entrega antes de generar su PDF.");
     }
@@ -125,7 +125,7 @@ function validarCompromiso(input, plan) {
     const compromiso = String(input.compromiso || "").trim();
     const ejecucion = diaValido(input.fechaEjecucion);
     const seguimiento = diaValido(input.fechaSeguimiento);
-    if (compromiso.length < 10 || compromiso.length > 12000) {
+    if ((!input.compromisoAdjunto && compromiso.length < 10) || compromiso.length > 12000) {
         throw Error("El compromiso debe tener entre 10 y 12000 caracteres.");
     }
     if (ejecucion < plan.fechaNotificacion || ejecucion > plan.limiteSoportes ||
@@ -149,7 +149,7 @@ function validarRevision(item, etapa, version, estado, motivo) {
     if (estado === "devuelto" && motivo.trim().length < 8)
         throw Error("Explica la devolución (mínimo 8 caracteres).");
     if (estado === "satisfactorio" && (etapa === "respuesta" ?
-        !item.compromiso : !(item.evidencias?.length > 0 && item.respuestaSoportes?.trim()))) {
+        !(item.compromiso || item.adjuntosCompromiso?.length) : !(item.evidencias?.length > 0 && item.respuestaSoportes?.trim()))) {
         throw Error("La entrega todavía está incompleta.");
     }
 }

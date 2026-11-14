@@ -16,6 +16,7 @@ import '../core/task_contract.dart';
 import '../core/task_estado_visible.dart' show taskNumero;
 import '../core/task_flujo.dart';
 import '../utils/user_company.dart';
+import '../core/task_origen.dart' show esTareaDeHallazgo;
 
 class TaskAttachment {
   final String filename;
@@ -730,12 +731,43 @@ class TaskService {
       final resolvedArea = targetArea.isNotEmpty
           ? targetArea
           : (newAreaId ?? '').trim();
-      if (_s(t, ['sourceModule', 'origen']) == 'interventoria') {
+      if (esTareaDeHallazgo(t)) {
         hallazgoId = _s(t, ['hallazgoId', 'sourceEntityId']);
+        if (hallazgoId.isNotEmpty) {
+          final hallazgo = (await trx.get(
+            _db.collection('TBL_INTERVENTORIA_HALLAZGOS').doc(hallazgoId),
+          )).data();
+          if (hallazgo == null ||
+              hallazgo['empresaId'] != empresaId ||
+              hallazgo['tareaId'] != taskId) {
+            throw StateError('El hallazgo ya no está vinculado a esta tarea.');
+          }
+        }
+      }
+      var jefeId = '';
+      if (esTareaDeHallazgo(t)) {
+        const campos = ['jefeId', 'jefe_id', 'jefe_uid', 'jefe_directo_id'];
+        final id = resolveScopedStringWithFallbacks(
+          target,
+          empresaId,
+          campos,
+          campos,
+        ).trim();
+        if (id.isNotEmpty && id != targetUid && !id.contains('/')) {
+          final jefe = (await trx.get(
+            _db.collection('TBL_USUARIOS').doc(id),
+          )).data();
+          if (jefe != null &&
+              userBelongsToEmpresa(jefe, empresaId) &&
+              personaHabilitadaEn(jefe, empresaId)) {
+            jefeId = id;
+          }
+        }
       }
 
       final update = <String, dynamic>{
         'asignado_uid': targetUid,
+        if (esTareaDeHallazgo(t)) 'jefe_inmediato_uid': jefeId,
         if (newAssignedToName != null && newAssignedToName.trim().isNotEmpty)
           'asignado_nombre': newAssignedToName.trim(),
         'areaId': resolvedArea,
@@ -750,6 +782,7 @@ class TaskService {
         // trazabilidad
         'reasignada_en': FieldValue.serverTimestamp(),
         'reasignada_desde_uid': prevAssignedUid,
+        'reasignada_desde_uids': FieldValue.arrayUnion([prevAssignedUid]),
         'reasignada_desde_nombre': prevAssignedName,
         if (actorId.isNotEmpty) 'reasignada_por_uid': actorId,
         'participantes_uid': FieldValue.arrayUnion([
@@ -778,30 +811,22 @@ class TaskService {
         'lastEventAt': FieldValue.serverTimestamp(),
       };
       trx.update(taskRef, update);
-    });
-
-    // En Interventoría el hallazgo guarda a quién quedó (Subsanaciones lo
-    // muestra y la aprobación lo lee). Sin esto, la tarea pasaba al
-    // administrador pero la tabla seguía diciendo que la tenía SST.
-    if (hallazgoId.isNotEmpty) {
-      try {
-        await _db
-            .collection('TBL_INTERVENTORIA_HALLAZGOS')
-            .doc(hallazgoId)
-            .update({
-              'responsableId': targetUid,
-              if (newAssignedToName != null &&
-                  newAssignedToName.trim().isNotEmpty)
-                'responsableNombre': newAssignedToName.trim(),
-              if (newCargoNombre != null && newCargoNombre.trim().isNotEmpty)
-                'cargoResponsable': newCargoNombre.trim(),
-              'reasignadoPorId': actorId,
-              'updatedAt': FieldValue.serverTimestamp(),
-            });
-      } catch (_) {
-        // La tarea ya quedó reasignada, que es lo que mueve el trabajo.
+      if (hallazgoId.isNotEmpty) {
+        trx.update(
+          _db.collection('TBL_INTERVENTORIA_HALLAZGOS').doc(hallazgoId),
+          {
+            'responsableId': targetUid,
+            if (newAssignedToName != null &&
+                newAssignedToName.trim().isNotEmpty)
+              'responsableNombre': newAssignedToName.trim(),
+            if (newCargoNombre != null && newCargoNombre.trim().isNotEmpty)
+              'cargoResponsable': newCargoNombre.trim(),
+            'reasignadoPorId': actorId,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+        );
       }
-    }
+    });
 
     // onTaskUpdated genera las notificaciones de reasignación.
   }

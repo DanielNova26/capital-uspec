@@ -84,6 +84,27 @@ class _ServicioPrueba implements MantenimientoService {
   bool? cerrada;
 
   @override
+  Future<Map<String, dynamic>> inventario(
+    String accion, [
+    Map<String, dynamic> datos = const {},
+  ]) async => {
+    'personal': [
+      {
+        'id': 'tecnico',
+        'nombre': 'Técnico de mantenimiento',
+        'cargo': 'Técnico',
+        'area': 'Mantenimiento',
+      },
+      {
+        'id': 'receptor',
+        'nombre': 'Responsable del establecimiento',
+        'cargo': 'Administrador',
+        'area': 'Operaciones',
+      },
+    ],
+  };
+
+  @override
   Future<({String id, bool existente, bool mismaSolicitud})> crearOrden({
     required String ordenId,
     required String centroDocId,
@@ -549,12 +570,27 @@ void main() {
           campos.at(0),
           'Se reemplazó el empaque y se comprobó la temperatura.',
         );
-        for (final (index, texto) in [
-          (3, 'Técnico de mantenimiento'),
-          (4, 'Responsable del establecimiento'),
+        for (final (campo, texto) in [
+          ('selector-tecnico', 'Técnico de mantenimiento'),
+          ('selector-receptor', 'Responsable del establecimiento'),
         ]) {
-          await _desplazarHasta(tester, campos.at(index));
-          await tester.enterText(campos.at(index), texto);
+          final selector = find.byKey(ValueKey(campo));
+          await _desplazarHasta(tester, selector);
+          await tester.tap(selector);
+          await tester.pumpAndSettle();
+          final lista = find
+              .descendant(
+                of: find.byType(Dialog),
+                matching: find.byType(Scrollable),
+              )
+              .last;
+          await tester.scrollUntilVisible(
+            find.text(texto).hitTestable(),
+            70,
+            scrollable: lista,
+          );
+          await tester.tap(find.text(texto));
+          await tester.pumpAndSettle();
         }
         final boton = find.text(web ? 'Guardar borrador' : 'Cerrar orden');
         expect(boton.hitTestable(), findsOneWidget);
@@ -579,6 +615,7 @@ void main() {
         }
         expect(servicio.cerrada, !web);
         expect(servicio.cierreGuardado?.tecnico, 'Técnico de mantenimiento');
+        expect(servicio.cierreGuardado?.receptorId, 'receptor');
         expect(tester.takeException(), isNull);
       },
     );

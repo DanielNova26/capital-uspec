@@ -57,7 +57,10 @@ String _jefeGuardado(Map<String, dynamic> data) =>
 String taskAprobadorId(Map<String, dynamic> data) {
   final responsable = taskResponsableId(data);
   final creador = taskCreadorId(data);
-  final quienAsigno = creador == kCreadorInterventoria ? '' : creador;
+  final quienAsigno =
+      creador == kCreadorInterventoria || esTareaDeHallazgo(data)
+      ? ''
+      : creador;
   final guardados = [_aprobadorGuardado(data), _jefeGuardado(data)];
   final candidatos = [
     if (!taskReasignacionPendiente(data)) quienAsigno,
@@ -106,13 +109,21 @@ bool taskFinalizacionPendiente(Map<String, dynamic> data) =>
 /// Es el criterio de "Tareas por aprobar" (4 oct 2026: "deben salir solo las
 /// tareas que este usuario tiene por APROBAR").
 bool taskEsperaDecisionDe(Map<String, dynamic> data, Iterable<String> ids) {
-  final aprobador = taskAprobadorId(data);
-  if (aprobador.isEmpty) return false;
   final mios = ids.map((id) => id.trim()).where((id) => id.isNotEmpty);
-  if (!mios.contains(aprobador)) return false;
+  if (!taskAprobadoresId(data).any(mios.contains)) return false;
   if (resolveTaskStatus(data) == 'finalizado') return false;
   return taskFinalizacionPendiente(data) || taskReasignacionPendiente(data);
 }
+
+Set<String> taskAprobadoresId(Map<String, dynamic> data) =>
+    {
+      taskAprobadorId(data),
+      if (esTareaDeHallazgo(data)) _t(data['jefe_inmediato_uid']),
+    }..removeWhere(
+      (id) =>
+          id.isEmpty ||
+          (esTareaDeHallazgo(data) && id == taskResponsableId(data)),
+    );
 
 /// A quién se le avisa lo que hace el responsable (avance, novedad,
 /// finalización, solicitud de reasignación): quien asignó la tarea y quien
@@ -128,6 +139,9 @@ Set<String> taskDestinatariosSeguimiento(
   bool incluirJefe = false,
 }) {
   final out = <String>{};
+  if (esTareaDeHallazgo(data)) {
+    return taskAprobadoresId(data)..remove(_t(excluir));
+  }
   final creador = taskCreadorId(data);
   if (creador.isNotEmpty && creador != kCreadorInterventoria) out.add(creador);
   final aprobador = taskAprobadorId(data);
@@ -281,7 +295,7 @@ TaskDecisionAviso decidirDestinoAvisoTarea({
 
   final esResponsable = mio(taskResponsableId(tarea));
   final esAprobador =
-      mio(taskAprobadorId(tarea)) ||
+      taskAprobadoresId(tarea).any(mio) ||
       mio(_aprobadorGuardado(tarea)) ||
       mio(_jefeGuardado(tarea));
   final esCreador = ids.any((id) => laAsignoEstaPersona(tarea, id));

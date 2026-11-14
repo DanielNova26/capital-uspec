@@ -535,7 +535,7 @@ test("los flujos permitidos más caros dejan margen bajo el tope de 1000", async
         setDoc(doc(db, "TBL_USUARIOS/admin"), user("EMP_A", ["admindashboard"])),
         setDoc(doc(db, "TBL_TAREAS/m1"), task()),
         setDoc(doc(db, "TBL_TAREAS/m2"), task({
-          asignado_uid: "inter",
+          asignado_uid: "alice",
           aprobador_uid: "inter",
           jefe_uid: "inter",
           sourceModule: "interventoria",
@@ -783,11 +783,40 @@ test("Tareas por aprobar consulta también lo que asignó la persona", async () 
       or(
         where("aprobador_uid", "==", "jefe"),
         where("jefe_uid", "==", "jefe"),
+        where("jefe_inmediato_uid", "==", "jefe"),
         where("creador_id", "==", "jefe")
       ),
       where("empresaId", "==", "EMP_A")
     )
   )));
+});
+
+test("Interventoría comparte la aprobación con el jefe directo, sin dársela al asignador", async () => {
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, "TBL_USUARIOS/asignador-h"), user("EMP_A", ["tareasdashboard"]));
+    await setDoc(doc(db, "TBL_USUARIOS/jefe-h"), user("EMP_A", ["tareasdashboard"]));
+    await setDoc(doc(db, "TBL_USUARIOS/responsable-h"), user("EMP_A", ["tareasdashboard"], {jefeId: "jefe-h"}));
+    await setDoc(doc(db, "TBL_TAREAS/hallazgo-jefe"), task({
+      asignado_uid: "responsable-h", creador_id: "asignador-h", jefe_uid: "jefe", aprobador_uid: "jefe",
+      jefe_inmediato_uid: "jefe-h", sourceModule: "interventoria", sourceType: "hallazgo",
+      estado: "por_aprobar", status: "por_aprobar", solicitud_finalizacion_estado: "pendiente",
+    }));
+  });
+  const ref = (uid) => doc(auth(uid), "TBL_TAREAS/hallazgo-jefe");
+  await assertSucceeds(getDoc(ref("jefe-h")));
+  await assertSucceeds(getDocs(query(collection(auth("jefe-h"), "TBL_TAREAS"),
+    where("empresaId", "==", "EMP_A"), where("jefe_inmediato_uid", "==", "jefe-h"))));
+  const cerrar = {estado: "finalizado", status: "finalizado",
+    solicitud_finalizacion_estado: "aprobado", solicitud_finalizacion_resuelto_por: "jefe-h"};
+  await assertFails(updateDoc(ref("asignador-h"), {...cerrar, solicitud_finalizacion_resuelto_por: "asignador-h"}));
+  const db = auth("jefe-h");
+  const lote = writeBatch(db);
+  lote.update(doc(db, "TBL_TAREAS/hallazgo-jefe"), cerrar);
+  lote.set(doc(db, "TBL_TAREAS/hallazgo-jefe/finalizacion/validacion"), {
+    type: "aprobacion_finalizacion", createdBy: "jefe-h", message: "Aprobada", attachments: [],
+  });
+  await assertSucceeds(lote.commit());
 });
 
 // ── Documento "Tareas - septiembre 05 de 2026" ─────────────────────────────

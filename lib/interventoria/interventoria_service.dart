@@ -2430,10 +2430,12 @@ class InterventoriaService {
   Future<void> aprobarSubsanacion(
     String hallazgoId, {
     required String actorId,
+    bool requiereSolicitud = false,
   }) => _resolverSubsanacion(
     hallazgoId: hallazgoId,
     actorId: actorId,
     aprobar: true,
+    requiereSolicitud: requiereSolicitud,
   );
 
   /// Rechaza únicamente la persona que la regla dejó como aprobador.
@@ -2450,6 +2452,7 @@ class InterventoriaService {
     required String hallazgoId,
     required String actorId,
     required bool aprobar,
+    bool requiereSolicitud = false,
   }) async {
     final hallazgoRef = _db
         .collection('TBL_INTERVENTORIA_HALLAZGOS')
@@ -2459,7 +2462,24 @@ class InterventoriaService {
       if (!snap.exists) throw StateError('El hallazgo ya no existe.');
       final data = snap.data()!;
       final aprobadorId = (data['aprobadorId'] ?? '').toString().trim();
-      if (aprobadorId.isEmpty || aprobadorId != actorId.trim()) {
+      final tareaId = (data['tareaId'] ?? '').toString().trim();
+      final tareaRef = tareaId.isEmpty
+          ? null
+          : _db.collection('TBL_TAREAS').doc(tareaId);
+      final tarea = tareaRef == null ? null : (await trx.get(tareaRef)).data();
+      final solicitudPendiente =
+          tarea?['solicitud_finalizacion_estado'] == 'pendiente';
+      if ((requiereSolicitud && !solicitudPendiente) ||
+          (tareaRef != null &&
+              (tarea == null || tarea['empresaId'] != data['empresaId'])) ||
+          (data['estado'] == 'subsanado' && !solicitudPendiente)) {
+        throw StateError('La solicitud de finalización ya no está pendiente.');
+      }
+      final esJefe =
+          tarea?['jefe_inmediato_uid'] == actorId &&
+          tarea?['asignado_uid'] != actorId &&
+          solicitudPendiente;
+      if (!esJefe && (aprobadorId.isEmpty || aprobadorId != actorId.trim())) {
         throw StateError(
           'Esta subsanación solo puede resolverla su aprobador asignado.',
         );
@@ -2472,15 +2492,24 @@ class InterventoriaService {
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
-      final tareaId = (data['tareaId'] ?? '').toString().trim();
-      if (tareaId.isNotEmpty) {
-        trx.set(_db.collection('TBL_TAREAS').doc(tareaId), {
+      if (tareaRef != null) {
+        trx.set(tareaRef, {
           'estado': aprobar ? 'finalizado' : 'devuelta',
           'status': aprobar ? 'finalizado' : 'devuelta',
           'solicitud_finalizacion_estado': aprobar ? 'aprobado' : 'rechazado',
           'solicitud_finalizacion_resuelto_por': actorId,
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
+        if (aprobar && solicitudPendiente) {
+          trx.set(tareaRef.collection('finalizacion').doc(), {
+            'type': 'aprobacion_finalizacion',
+            'message': 'Finalización aprobada',
+            'createdAt': Timestamp.now(),
+            'createdBy': actorId,
+            'createdByName': actorId,
+            'attachments': const [],
+          });
+        }
       }
     });
   }
@@ -3097,6 +3126,32 @@ class InterventoriaService {
   Future<Map<String, Set<String>>> centrosPorGrupoInterventoria(
     String empresaId,
   ) => _leerEnLote('grupos|$empresaId', () => _leerCentrosPorGrupo(empresaId));
+
+  Future<Map<String, String>> gruposEditables(String empresaId) async {
+    final snap = await _db
+        .collection('TBL_COMPRAS_GRUPOS')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+    return {
+      for (final doc in snap.docs)
+        if (doc.get('nombre') is String && doc.data()['activo'] != false)
+          doc.id: doc.get('nombre') as String,
+    };
+  }
+
+  Future<void> corregirUbicacionHallazgo({
+    required String empresaId,
+    required String hallazgoId,
+    required String centroId,
+    required String grupoId,
+  }) async {
+    await _functions.httpsCallable('interventoriaCorregirUbicacion').call({
+      'empresaId': empresaId,
+      'hallazgoId': hallazgoId,
+      'centroId': centroId,
+      'grupoId': grupoId,
+    });
+  }
 
   Future<Map<String, Set<String>>> _leerCentrosPorGrupo(
     String empresaId,
@@ -4476,6 +4531,16 @@ class InterventoriaService {
     required bool notificarCreacion,
     required void Function(InterventoriaTareaCreada creada)? alCrear,
   }) async {
+    if (hallazgo.tareaId.isNotEmpty && responsableForzado != null) {
+      final respuesta = await _functions
+          .httpsCallable('interventoriaReasignarHallazgo')
+          .call({
+            'empresaId': hallazgo.empresaId,
+            'hallazgoId': hallazgo.id,
+            'destinoId': responsableForzado.id,
+          });
+      return (respuesta.data as Map)['tareaId'] as String;
+    }
     // Los hallazgos históricos pueden no haber copiado la ubicación del acta.
     // Recuperarla antes de crear/reasignar, sin modificar el histórico.
     InterventoriaVisita? actaUbicacion;
@@ -4609,6 +4674,19 @@ class InterventoriaService {
     }
     final jefeId = aprobador.id;
     final jefeNombre = aprobador.nombre;
+    final personalActivo = await _usuariosDeEmpresa(
+      hallazgo.empresaId,
+      soloAsignables: false,
+    );
+    final jefeInmediatoId =
+        personalActivo
+            .where((u) => u.id == destinatarioId)
+            .firstOrNull
+            ?.jefeId ??
+        '';
+    final jefeInmediato = personalActivo
+        .where((u) => u.id == jefeInmediatoId && u.id != destinatarioId)
+        .firstOrNull;
     final cargoAprobador = cargoDelAprobador(propuesto);
 
     final fechaLimite =
@@ -4749,6 +4827,7 @@ class InterventoriaService {
         'ejecutadoPorId': creadorId,
         'ejecutadoPorNombre': creadorNombreReal,
         'aprobadorId': aprobador.id,
+        if (jefeInmediato != null) 'jefe_inmediato_uid': jefeInmediato.id,
         // De dónde salió el aprobador: solo el que viene de la jefatura
         // sigue el cambio de jefe inmediato (`tareasReemplazarJefeInmediato`).
         'origenAprobador': propuesto.origen.name,
@@ -4802,6 +4881,7 @@ class InterventoriaService {
         responsableNombre: destinatarioNombre,
         aprobadorId: aprobador.id,
         aprobadorNombre: aprobador.nombre,
+        jefeInmediatoId: jefeInmediato?.id ?? '',
       ),
     );
 

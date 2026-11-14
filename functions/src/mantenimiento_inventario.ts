@@ -7,7 +7,7 @@ import {empresasSeleccionables} from "./acceso";
 import {familiasAnexo, minimosAnexo} from "./mantenimiento_anexo";
 import {
   appIdMantenimiento, errorMantenimiento as error, idMantenimiento as id,
-  operaOrdenMantenimiento, textoMantenimiento as texto,
+  operaOrdenMantenimiento, personaMantenimiento, textoMantenimiento as texto,
 } from "./mantenimiento_ordenes";
 import {catalogoTareasMantenimiento} from "./mantenimiento_tareas";
 
@@ -125,20 +125,25 @@ export const mantenimientoInventario = functions.region("us-central1").https.onC
 
   if (accion === "catalogos") {
     const acceso = await autorizar();
-    const [compras, empresaPlanes, operadores] = await Promise.all([
+    const [compras, empresaPlanes, operadores, principal, multiempresa] = await Promise.all([
       porEmpresa(proveedores).get(),
       porEmpresa(planes).get(),
       porEmpresa(permisos).get(),
+      porEmpresa(usuarios).get(),
+      usuarios.where("empresas", "array-contains", empresaId).get(),
     ]);
     const fichas = operadores.docs.filter((a) => a.get("operador") === true).map((a) => a.get("userId"))
       .filter((v): v is string => typeof v === "string" && !!v && !v.includes("/"));
     const personas = fichas.length ? await db.getAll(...[...new Set(fichas)].map((v) => usuarios.doc(v))) : [];
     return {
-      actor: usuarioId, gestor: acceso.gestor === true,
+      actor: usuarioId, gestor: acceso.gestor === true || acceso.gestorMinimos === true,
       proveedores: compras.docs.filter((p) => p.get("activo") !== false && p.get("estado") !== "inactivo")
         .map((p) => ({id: p.id, nombre: String(p.get("razonSocial") || p.get("nombre") || p.id).slice(0, 200)})),
       personas: personas.filter((p) => p.exists && esOperador(p.data()!))
         .map((p) => ({id: p.id, nombre: nombrePersona(p.data()!) || p.id})),
+      personal: [...new Map([...principal.docs, ...multiempresa.docs].map((p) => [p.id, p])).values()]
+        .map((p) => personaMantenimiento(p, empresaId)).filter((p) => p !== null)
+        .sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
       familias: familiasAnexo.map((nombre, i) => ({id: `anexo_${i}`, nombre})),
       minimos: empresaPlanes.docs.map((m) => {
         const d = m.data();
@@ -179,7 +184,7 @@ export const mantenimientoInventario = functions.region("us-central1").https.onC
       );
       if (!centroActivo(centro.data())) error("invalid-argument", "El establecimiento no está activo.");
       const anterior = plan.data();
-      if (acceso.gestor !== true &&
+      if (acceso.gestor !== true && acceso.gestorMinimos !== true &&
           (anterior?.responsableId !== usuarioId || responsableId !== usuarioId ||
             anterior.coordinadorId !== coordinadorId)) {
         error("permission-denied", "El gestor de Mantenimiento debe asignar los responsables de la sede.");
@@ -264,9 +269,10 @@ export const mantenimientoInventario = functions.region("us-central1").https.onC
 
   if (accion === "alta") {
     const solicitudId = id(input.solicitudId, "solicitud");
-    const codigo = texto(input.codigo, 60, "rótulo", true);
-    const clave = codigo.normalize("NFKC").toLocaleLowerCase("es");
     const copiaId = id(input.equipoId, "ficha base", false);
+    const codigo = texto(input.codigo, 60, "rótulo", !!copiaId) ||
+      `EQ-${hash([empresaId, usuarioId, solicitudId]).slice(0, 12).toUpperCase()}`;
+    const clave = codigo.normalize("NFKC").toLocaleLowerCase("es");
     const ref = almacen.doc(copiaId || hash([empresaId, clave]));
     const categoria = texto(input.categoria, 15, "categoría", true);
     const propiedad = texto(input.propiedad, 20, "propiedad", true);
@@ -349,8 +355,8 @@ export const mantenimientoInventario = functions.region("us-central1").https.onC
   const destino = traslado ? id(input.destino, "destino") : "";
   if (origen === destino) error("invalid-argument", "Elige una bodega diferente.");
   const unidades = cantidad(input.cantidad, "unidades");
-  const entrega = traslado ? texto(input.entrega, 120, "quien entrega", true) : "";
-  const recibe = traslado ? texto(input.recibe, 120, "quien recibe", true) : "";
+  const entregaId = traslado ? id(input.entregaId, "quien entrega", false) : "";
+  const recibeId = traslado ? id(input.recibeId, "quien recibe", false) : "";
   const observaciones = texto(input.observaciones, 1200, "observaciones", !traslado);
   const catalogo = !traslado ? await catalogoTareasMantenimiento(db, empresaId) : null;
   return db.runTransaction(async (tx) => {
@@ -364,6 +370,15 @@ export const mantenimientoInventario = functions.region("us-central1").https.onC
       }
       return {id: movimiento.id, tareaId: previo.get("tareaId") ?? ""};
     }
+    const [entrega, recibe] = traslado ? await Promise.all([
+      {personaId: entregaId, nombre: input.entrega, campo: "quien entrega"},
+      {personaId: recibeId, nombre: input.recibe, campo: "quien recibe"},
+    ].map(async ({personaId, nombre, campo}) => {
+      if (!personaId) return texto(nombre, 120, campo, true);
+      const persona = personaMantenimiento(await tx.get(usuarios.doc(personaId)), empresaId);
+      if (!persona) error("invalid-argument", "Selecciona una persona activa de esta empresa.");
+      return persona.nombre;
+    })) : ["", ""];
     const saldo = existenciasMantenimiento(d);
     if ((saldo[origen] ?? 0) < unidades) error("failed-precondition", "La bodega ya no tiene esas unidades.");
     const ubicacion = async (centro: string) => {
@@ -411,7 +426,8 @@ export const mantenimientoInventario = functions.region("us-central1").https.onC
     archivos?.vincular(movimiento.id);
     tx.update(ref, {inventario: true, existencias: saldo, centroDocId: sedes[0] ?? "", updatedAt: ahora});
     tx.create(movimiento, {empresaId, accion, origen, destino, origenNombre, destinoNombre, unidades,
-      codigo: d.codigo, nombre: d.nombre, referencia: d.referencia ?? "", entrega, recibe, observaciones,
+      codigo: d.codigo, nombre: d.nombre, referencia: d.referencia ?? "",
+      entregaId, recibeId, entrega, recibe, observaciones,
       obligatorio, archivos: archivos?.datos ?? [], tareaId, actorId: usuarioId, createdAt: ahora});
     return {id: movimiento.id, tareaId};
   });

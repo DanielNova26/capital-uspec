@@ -18,6 +18,12 @@ type Datos = FirebaseFirestore.DocumentData;
 /** Creador de las tareas que asigna la matriz de Interventoría. */
 export const CREADOR_INTERVENTORIA = "interventoria_automatica";
 
+export function esTareaDeHallazgo(data?: Datos): boolean {
+  return texto(data?.sourceModule ?? data?.origen).toLowerCase() === "interventoria" &&
+    (data?.sourceType === "hallazgo" || Boolean(texto(data?.hallazgoId)) ||
+      data?.sourceEntityCollection === "TBL_INTERVENTORIA_HALLAZGOS");
+}
+
 function texto(value: unknown): string {
   return (value ?? "").toString().trim();
 }
@@ -56,7 +62,7 @@ export function creadorDeTarea(data: Datos | undefined): string {
 export function aprobadorDeTarea(data: Datos | undefined): string {
   const responsable = responsableDeTarea(data);
   const creador = creadorDeTarea(data);
-  const quienAsigno = creador === CREADOR_INTERVENTORIA ? "" : creador;
+  const quienAsigno = creador === CREADOR_INTERVENTORIA || esTareaDeHallazgo(data) ? "" : creador;
   const reasignando =
     texto(data?.solicitud_reasignacion_estado).toLowerCase() === "pendiente";
   const candidatos = [
@@ -85,6 +91,10 @@ export function destinatariosSeguimiento(
   incluirJefe = false
 ): string[] {
   const out = new Set<string>();
+  if (esTareaDeHallazgo(data)) {
+    return [...new Set([aprobadorDeTarea(data), texto(data?.jefe_inmediato_uid)])]
+      .filter((id) => id && id !== texto(excluir) && id !== responsableDeTarea(data));
+  }
   const creador = creadorDeTarea(data);
   if (creador && creador !== CREADOR_INTERVENTORIA) out.add(creador);
   const aprobador = aprobadorDeTarea(data);

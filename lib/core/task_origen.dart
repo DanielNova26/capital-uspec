@@ -20,6 +20,14 @@ const String kNombreCreadorInterventoria = 'Interventoría';
 
 String _texto(Object? valor) => (valor ?? '').toString().trim();
 
+bool esTareaDeHallazgo(Map<String, dynamic> tarea) =>
+    _texto(tarea['sourceModule'] ?? tarea['origen']).toLowerCase() ==
+        'interventoria' &&
+    (_texto(tarea['sourceType']) == 'hallazgo' ||
+        _texto(tarea['hallazgoId']).isNotEmpty ||
+        _texto(tarea['sourceEntityCollection']) ==
+            'TBL_INTERVENTORIA_HALLAZGOS');
+
 /// La tarea la asignó un módulo con su regla, no una persona.
 ///
 /// Una asignación hecha a mano en Interventoría (persona elegida en el

@@ -167,6 +167,9 @@ class TaskRouteGuard {
     if (!knownIds.contains(creatorId) &&
         !knownIds.contains(assignedId) &&
         !knownIds.contains(bossId) &&
+        !knownIds.contains(
+          (taskData['jefe_inmediato_uid'] ?? '').toString().trim(),
+        ) &&
         !knownIds.contains(approverId) &&
         !knownIds.contains(previousAssignedId) &&
         !knownIds.any(participants.contains)) {

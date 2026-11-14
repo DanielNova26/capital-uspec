@@ -40,6 +40,140 @@ Widget campoMantenimiento(
   onChanged: onChanged,
 );
 
+class PersonaMantenimientoField extends StatelessWidget {
+  const PersonaMantenimientoField({
+    super.key,
+    required this.etiqueta,
+    required this.catalogo,
+    required this.onChanged,
+    this.nombre = '',
+  });
+
+  final String etiqueta, nombre;
+  final Future<Map<String, dynamic>> catalogo;
+  final ValueChanged<Map<String, dynamic>> onChanged;
+
+  @override
+  Widget build(BuildContext context) => FormField<String>(
+    initialValue: nombre,
+    validator: (value) =>
+        (value ?? '').isEmpty ? 'Selecciona una persona' : null,
+    builder: (field) => InkWell(
+      onTap: () async {
+        final elegido = await showDialog<Map<String, dynamic>>(
+          context: context,
+          builder: (context) {
+            final panel = _BuscarPersonaMantenimiento(catalogo, etiqueta);
+            return MediaQuery.sizeOf(context).width < 600
+                ? Dialog.fullscreen(child: panel)
+                : Dialog(
+                    child: SizedBox(width: 540, height: 480, child: panel),
+                  );
+          },
+        );
+        if (elegido == null || !field.mounted) return;
+        field.didChange(elegido['nombre'] as String);
+        onChanged(elegido);
+      },
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: etiqueta,
+          errorText: field.errorText,
+          suffixIcon: const Icon(Icons.person_search_outlined),
+        ),
+        child: Text(
+          field.value?.isNotEmpty == true
+              ? field.value!
+              : 'Seleccionar persona',
+        ),
+      ),
+    ),
+  );
+}
+
+class _BuscarPersonaMantenimiento extends StatefulWidget {
+  const _BuscarPersonaMantenimiento(this.catalogo, this.etiqueta);
+  final Future<Map<String, dynamic>> catalogo;
+  final String etiqueta;
+
+  @override
+  State<_BuscarPersonaMantenimiento> createState() =>
+      _BuscarPersonaMantenimientoState();
+}
+
+class _BuscarPersonaMantenimientoState
+    extends State<_BuscarPersonaMantenimiento> {
+  String _filtro = '';
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: Text(widget.etiqueta)),
+    body: SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+        child: Column(
+          children: [
+            TextField(
+              decoration: const InputDecoration(
+                labelText: 'Buscar por nombre, cargo o área',
+                prefixIcon: Icon(Icons.search),
+              ),
+              onChanged: (v) =>
+                  setState(() => _filtro = v.trim().toLowerCase()),
+            ),
+            Expanded(
+              child: FutureBuilder(
+                future: widget.catalogo,
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return const Center(
+                      child: Text('No se pudo cargar el personal.'),
+                    );
+                  }
+                  if (!snapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final personas = (snapshot.data?['personal'] as List? ?? [])
+                      .whereType<Map>()
+                      .where(
+                        (p) => "${p['nombre']} ${p['cargo']} ${p['area']}"
+                            .toLowerCase()
+                            .contains(_filtro),
+                      )
+                      .toList();
+                  if (personas.isEmpty) {
+                    return const Center(
+                      child: Text('No hay personas que coincidan.'),
+                    );
+                  }
+                  return ListView.builder(
+                    itemCount: personas.length,
+                    itemBuilder: (context, i) {
+                      final p = personas[i];
+                      final detalle = [p['cargo'], p['area']]
+                          .whereType<String>()
+                          .where((s) => s.isNotEmpty)
+                          .join(' · ');
+                      return ListTile(
+                        title: Text(p['nombre'] as String),
+                        subtitle: detalle.isEmpty ? null : Text(detalle),
+                        onTap: () => Navigator.pop(
+                          context,
+                          Map<String, dynamic>.from(p),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 class EditorMantenimiento extends StatefulWidget {
   const EditorMantenimiento({
     super.key,
@@ -1004,6 +1138,9 @@ class CierreMantenimientoForm extends StatefulWidget {
 class _CierreMantenimientoFormState extends State<CierreMantenimientoForm>
     with _BorradorFormulario<CierreMantenimientoForm> {
   late final _cierre = widget.orden.cierre ?? const CierreMantenimiento();
+  late final _personal = widget.service.inventario('catalogos');
+  late String _tecnicoId = _cierre.tecnicoId;
+  late String _receptorId = _cierre.receptorId;
   late final _campos = {
     'Trabajo realizado': TextEditingController(text: _cierre.trabajo),
     'Materiales utilizados': TextEditingController(text: _cierre.materiales),
@@ -1035,6 +1172,8 @@ class _CierreMantenimientoFormState extends State<CierreMantenimientoForm>
       for (final campo in _campos.entries) campo.key: campo.value.text,
     },
     'version': widget.orden.updatedAt?.toString(),
+    'tecnicoId': _tecnicoId,
+    'receptorId': _receptorId,
     'pendientes': _serializarPendientes(_pendientes),
     'retirados': _retirados.toList(),
   };
@@ -1050,6 +1189,8 @@ class _CierreMantenimientoFormState extends State<CierreMantenimientoForm>
     for (final campo in _campos.entries) {
       campo.value.text = campos[campo.key] ?? '';
     }
+    _tecnicoId = data['tecnicoId'] as String? ?? _cierre.tecnicoId;
+    _receptorId = data['receptorId'] as String? ?? _cierre.receptorId;
     _pendientes.addAll(_leerPendientes(data['pendientes']));
     _retirados.addAll(List<String>.from(data['retirados'] as List));
   }
@@ -1108,6 +1249,8 @@ class _CierreMantenimientoFormState extends State<CierreMantenimientoForm>
         sugerencias: _campos['Sugerencias de uso y manejo']!.text.trim(),
         tecnico: _campos['Técnico que realizó el trabajo']!.text.trim(),
         receptor: _campos['Quién recibió el trabajo']!.text.trim(),
+        tecnicoId: _tecnicoId,
+        receptorId: _receptorId,
         cargoReceptor: _campos['Cargo de quien recibió']!.text.trim(),
       ),
       factura: _campos['Referencia de factura']!.text.trim(),
@@ -1172,22 +1315,29 @@ class _CierreMantenimientoFormState extends State<CierreMantenimientoForm>
         titulo: 'Entrega del trabajo',
         icono: Icons.people_alt_outlined,
         campos: [
-          campoMantenimiento(
-            'Técnico que realizó el trabajo',
-            120,
-            controller: _campos['Técnico que realizó el trabajo'],
-            requerido: true,
+          PersonaMantenimientoField(
+            key: const ValueKey('selector-tecnico'),
+            etiqueta: 'Técnico que realizó el trabajo',
+            catalogo: _personal,
+            nombre: _campos['Técnico que realizó el trabajo']!.text,
+            onChanged: (p) {
+              _tecnicoId = p['id'] as String;
+              _campos['Técnico que realizó el trabajo']!.text =
+                  p['nombre'] as String;
+              cambiarBorrador();
+            },
           ),
-          campoMantenimiento(
-            'Quién recibió el trabajo',
-            120,
-            controller: _campos['Quién recibió el trabajo'],
-            requerido: true,
-          ),
-          campoMantenimiento(
-            'Cargo de quien recibió',
-            120,
-            controller: _campos['Cargo de quien recibió'],
+          PersonaMantenimientoField(
+            key: const ValueKey('selector-receptor'),
+            etiqueta: 'Quién recibió el trabajo',
+            catalogo: _personal,
+            nombre: _campos['Quién recibió el trabajo']!.text,
+            onChanged: (p) {
+              _receptorId = p['id'] as String;
+              _campos['Quién recibió el trabajo']!.text = p['nombre'] as String;
+              _campos['Cargo de quien recibió']!.text = p['cargo'] as String;
+              cambiarBorrador();
+            },
           ),
         ],
       ),

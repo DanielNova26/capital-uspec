@@ -29,6 +29,8 @@ Interventoría incluye las cuatro plantillas PEC USPEC habilitadas en Capital y 
 
 En Tareas, el responsable puede reportar avances, comunicar novedades y solicitar la finalización con evidencias. Si la tarea viene de un hallazgo de Interventoría, su aprobador puede revisar las evidencias y cerrar la tarea desde el hallazgo.
 
+El jefe directo también puede revisar esas finalizaciones desde Tareas → Por aprobar. El director de Mantenimiento `9900001025` puede configurar los mínimos y el PPL por sede desde Mantenimiento → Mínimos por sede. Allí designa a la persona responsable que valida los mínimos y al coordinador que recibe las tareas de reposición.
+
 El director, coordinador y analista de Mantenimiento y Gerencia General tienen acceso operativo a Mantenimiento. La carga completa la autorización de quienes conservan la app asignada en la Demo y respeta los permisos que ya estén guardados.
 
 ## Reiniciar el entorno local

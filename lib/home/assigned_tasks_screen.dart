@@ -940,13 +940,32 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     if (actual != null && _tareasStreamKey == key) return actual;
     Query<Map<String, dynamic>> query = FirebaseFirestore.instance
         .collection('TBL_TAREAS')
-        .where('asignado_uid', isEqualTo: widget.userId);
+        .where(
+          Filter.or(
+            Filter('asignado_uid', isEqualTo: widget.userId),
+            Filter('reasignada_desde_uid', isEqualTo: widget.userId),
+            Filter('reasignada_desde_uids', arrayContains: widget.userId),
+          ),
+        );
     if (scopedEmpresaId != null) {
       query = query.where('empresaId', isEqualTo: scopedEmpresaId);
     }
     _tareasStreamKey = key;
     return _tareasStream = query.snapshots();
   }
+
+  bool _reasignadaPorMi(Map<String, dynamic> data) =>
+      !isTaskAssignedToUser(data, _currentUserIds()) &&
+      (_currentUserIds().contains(data['reasignada_desde_uid']) ||
+          _currentUserIds().contains(data['reasignada_por_uid']) ||
+          (data['reasignada_desde_uids'] as List? ?? const []).any(
+            _currentUserIds().contains,
+          ));
+
+  TaskEstadoVisible _estadoParaMi(Map<String, dynamic> data) =>
+      _reasignadaPorMi(data)
+      ? TaskEstadoVisible.reasignada
+      : taskEstadoVisible(data);
 
   bool _coincideBusqueda(Map<String, dynamic> data, String q) {
     if (q.isEmpty) return true;
@@ -994,7 +1013,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     final filtered = _statusFilter == 'todas'
         ? [...sinEstado]
         : sinEstado
-              .where((d) => taskEstadoVisible(d.data()).clave == _statusFilter)
+              .where((d) => _estadoParaMi(d.data()).clave == _statusFilter)
               .toList();
     filtered.sort(_compareByDueDate);
     if (!_groupByArea) return filtered;
@@ -1132,7 +1151,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         : enRevisionCalidad
         ? 'El documento corregido está pendiente de aprobación.'
         : finishPending
-        ? 'Esperando aprobación del creador'
+        ? 'Esperando aprobación'
         : esCorreccionCompras
         ? 'Abre Compras y envía la corrección a Calidad.'
         : esRequerimientoFacturacion
@@ -1379,7 +1398,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                   subtitle: hasPendingReassign
                       ? 'Inhabilitado mientras se aprueba la reasignación.'
                       : 'Comunica una novedad o inconveniente.',
-                  onTap: hasPendingReassign || finishPending
+                  onTap: !canComplete || hasPendingReassign || finishPending
                       ? null
                       : () async {
                           final finalizo = await Navigator.of(sheetContext)
@@ -1403,7 +1422,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                   subtitle: hasPendingReassign
                       ? 'Inhabilitado mientras se aprueba la reasignación.'
                       : 'Notifica progreso realizado hoy.',
-                  onTap: hasPendingReassign || finishPending
+                  onTap: !canComplete || hasPendingReassign || finishPending
                       ? null
                       : () => Navigator.of(sheetContext).push<bool>(
                           MaterialPageRoute(
@@ -1448,7 +1467,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                       : esInterventoria
                       ? 'Elige área y persona de esta empresa. El cambio se aplica directamente.'
                       : 'Elige área y persona de esta empresa. Tu jefe aprueba el cambio.',
-                  onTap: hasPendingReassign || finishPending
+                  onTap: !canComplete || hasPendingReassign || finishPending
                       ? null
                       : () async {
                           Navigator.pop(context);
@@ -1530,7 +1549,13 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
             if (!snap.hasData) {
               return const Scaffold(body: SkeletonList(items: 5));
             }
-            final allDocs = snap.data?.docs ?? [];
+            final allDocs = (snap.data?.docs ?? [])
+                .where(
+                  (doc) =>
+                      isTaskAssignedToUser(doc.data(), _currentUserIds()) ||
+                      _reasignadaPorMi(doc.data()),
+                )
+                .toList();
 
             if (!_didAutoOpen && widget.highlightTaskId != null) {
               final hit = allDocs
@@ -1668,7 +1693,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
 
     final conteo = <String, int>{};
     for (final d in sinEstado) {
-      final clave = taskEstadoVisible(d.data()).clave;
+      final clave = _estadoParaMi(d.data()).clave;
       conteo[clave] = (conteo[clave] ?? 0) + 1;
     }
 

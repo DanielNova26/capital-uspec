@@ -47,10 +47,12 @@ test.before(async () => {
     projectId,
     firestore: {rules: fs.readFileSync(path.resolve(__dirname, "../../firestore.rules"), "utf8")},
   });
+  await env.clearFirestore();
   await sembrar({
     "TBL_USUARIOS/operario": {
       empresaId: "B", empresas: ["A", "B"], appsPorEmpresa: true, apps: [],
       empresasDetalle: {A: {apps: [app]}, B: {apps: []}},
+      nombre: "Operario de la sede",
     },
     "TBL_USUARIOS/sinapp": {empresaId: "A", apps: []},
     "TBL_USUARIOS/inhabilitado": {
@@ -126,7 +128,7 @@ test("revoca y reactiva sin recuperar privilegios de un rol histórico", async (
   await sembrar({"TBL_USUARIOS/operario": {...usuario, empresasDetalle: {A: {apps: []}}}});
   await assertFails(getDoc(equipo));
   await sembrar({
-    "TBL_USUARIOS/operario": {...usuario, empresasDetalle: {A: {apps: [app]}}},
+    "TBL_USUARIOS/operario": {...usuario, nombre: "Operario de la sede", empresasDetalle: {A: {apps: [app]}}},
     [`TBL_APPS/A_${app}`]: {empresaId: "A", appId: app, enabled: false},
   });
   await assertFails(getDoc(equipo));
@@ -201,7 +203,7 @@ test("consecutivos por empresa, estructura y cierre con evidencia en el servidor
   await call("borrador", {...previo, materiales: "Empaque"});
   await assert.rejects(call("editar", {...previo, ...datos}), {code: "aborted"});
   assert.equal((await ref.get()).data().estado, "abierta");
-  const cierre = {...await version(), trabajo: "Ajuste final", tecnico: "Técnico", receptor: "Responsable"};
+  const cierre = {...await version(), trabajo: "Ajuste final", tecnicoId: "operario", receptorId: "operario"};
   await assert.rejects(call("cerrar", cierre), {code: "failed-precondition"});
   const base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aT2QAAAAASUVORK5CYII=";
   const adjunto = {archivoId: "foto", clase: "evidencia", mime: "image/png", nombre: "cierre.png", base64};
@@ -217,6 +219,11 @@ test("consecutivos por empresa, estructura y cierre con evidencia en el servidor
   await assert.rejects(call("leerArchivo", {archivoId: "foto", ordenId: "segunda"}), {code: "not-found"});
   await call("cerrar", cierre);
   assert.equal((await ref.get()).data().estado, "cerrada");
+  assert.equal((await ref.get()).get("cierre.tecnicoId"), "operario");
+  const firma = {...adjunto, archivoId: "firma-tecnico", clase: "firmaTecnico", nombre: "firma.png"};
+  await assert.rejects(call("adjuntar", firma, "sinapp"), {code: "permission-denied"});
+  await call("adjuntar", firma);
+  assert.equal((await ref.get()).data().archivos.find((a) => a.id === firma.archivoId).firmadoPor, "operario");
   await assert.rejects(call("quitarArchivo", {archivoId: "foto"}), {code: "failed-precondition"});
   await assert.rejects(call("editar", {...datos, ...await version()}), {code: "failed-precondition"});
   await sembrar({[`${accesos}/A_operario`]: {empresaId: "A", userId: "operario", operador: false}});
@@ -343,7 +350,7 @@ test("alta en temporal, traslado parcial y baja obligatoria quedan registrados u
   const foto = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aT2QAAAAASUVORK5CYII=";
   await call("subirArchivo", {clase: "ficha", mime: "application/pdf", nombre: "ficha.pdf", archivoId: "ficha", base64});
   await call("subirArchivo", {clase: "foto", mime: "image/png", nombre: "baja.png", archivoId: "evidencia", base64: foto});
-  const datos = {codigo: "LOTE-50", nombre: "Marmitas", categoria: "equipo", propiedad: "propio",
+  const datos = {nombre: "Marmitas", categoria: "equipo", propiedad: "propio",
     familia: "anexo_2", grupo: true, cantidad: 50, fechaIngreso: "2026-11-13", archivos: ["ficha"],
     solicitudId: "alta"};
   await assert.rejects(call("alta", {...datos, proveedorId: "pb"}), {code: "invalid-argument"});
@@ -351,6 +358,7 @@ test("alta en temporal, traslado parcial y baja obligatoria quedan registrados u
   assert.deepEqual(await call("alta", {...datos, proveedorId: "pa"}), alta);
   const equipoId = alta.id;
   const ref = dbAdmin.doc(`${equipos}/${equipoId}`);
+  assert.match((await ref.get()).get("codigo"), /^EQ-[A-F0-9]{12}$/);
   assert.deepEqual((await ref.get()).data().existencias, {_bodega_temporal: 50});
   await assertFails(updateDoc(doc(cuenta("operario"), ref.path), {centroDocId: "centro-A", updatedAt: serverTimestamp()}));
   const plan = {centroDocId: "centro-A", ppl: 2300, cantidades: {anexo_2: 4},
@@ -358,8 +366,9 @@ test("alta en temporal, traslado parcial y baja obligatoria quedan registrados u
   await call("minimos", plan);
   await assertFails(getDoc(doc(cuenta("operario"), "TBL_MANTENIMIENTO_MINIMOS/A_centro-A")));
   const traslado = {equipoId, origen: "_bodega_temporal", destino: "centro-A",
-    cantidad: 5, solicitudId: "traslado", entrega: "Bodega", recibe: "Establecimiento"};
+    cantidad: 5, solicitudId: "traslado", entregaId: "operario", recibeId: "operario"};
   await assert.rejects(call("traslado", {...traslado, destino: "centro-B"}), {code: "invalid-argument"});
+  await assert.rejects(call("traslado", {...traslado, recibeId: "usuario-ajeno"}), {code: "invalid-argument"});
   const movimientos = await Promise.all([call("traslado", traslado), call("traslado", traslado)]);
   assert.deepEqual(movimientos[0], movimientos[1]);
   assert.deepEqual((await ref.get()).data().existencias, {_bodega_temporal: 45, "centro-A": 5});

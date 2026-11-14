@@ -193,6 +193,7 @@ void main() {
                         centrosPorGrupo: porGrupo,
                         asignables: asignables,
                         activos: activos,
+                        onElegirIndividual: (_) {},
                       ),
                   child: const Text('abrir'),
                 ),
@@ -204,12 +205,12 @@ void main() {
       await tester.tap(find.text('abrir'));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      await tester.tap(find.text('Grupo G3 (3)'));
+      await tester.tap(find.text('Grupo 3 (3)'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Falta aprobador: Director de operaciones'));
       await tester.pumpAndSettle();
       expect(
-        find.textContaining('Nadie del Grupo G3 tiene el cargo'),
+        find.textContaining('Nadie en Grupo 3 tiene el cargo'),
         findsOneWidget,
       );
       await tester.ensureVisible(find.text('supervisorG3').last);

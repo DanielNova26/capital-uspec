@@ -143,11 +143,19 @@ async function cargarAccesosMantenimiento(db, listado) {
       const usuario = docs[index * 2].data();
       const acceso = docs[index * 2 + 1];
       const ficha = usuario?.empresasDetalle?.[empresaId];
-      if (acceso.exists || usuario?.empresas?.length !== 1 || usuario.empresas[0] !== empresaId ||
+      if (usuario?.empresas?.length !== 1 || usuario.empresas[0] !== empresaId ||
           usuario.estado !== 'activo' || usuario.activo === false || ficha?.activo === false ||
           ficha?.estadoLaboral !== 'activo' || ficha.soloTalentoHumano === true ||
           !ficha.apps?.includes(appId)) continue;
-      tx.create(acceso.ref, {empresaId, userId: persona.id, operador: true, updatedAt: FieldValue.serverTimestamp()});
+      const gestorDemo = persona.id === '9900001025';
+      if (acceso.exists) {
+        if (gestorDemo && acceso.get('operador') === true && acceso.get('gestorMinimos') === undefined) {
+          tx.update(acceso.ref, {gestorMinimos: true, updatedAt: FieldValue.serverTimestamp()});
+        }
+        continue;
+      }
+      tx.create(acceso.ref, {empresaId, userId: persona.id, operador: true,
+        gestorMinimos: gestorDemo, updatedAt: FieldValue.serverTimestamp()});
       creados++;
     }
     return creados;
@@ -155,9 +163,45 @@ async function cargarAccesosMantenimiento(db, listado) {
 }
 
 async function cargarConfiguracionDemo(db, listado) {
+  const empresaRef = db.collection('TBL_EMPRESAS').doc(empresaId);
+  await db.runTransaction(async (tx) => {
+    const empresa = await tx.get(empresaRef);
+    if (empresa.get('esDemo') === true && !empresa.get('logoUrl')) {
+      tx.update(empresaRef, {logoUrl: 'http://127.0.0.1:8787/assets/assets/logo.png'});
+    }
+  });
   const reglas = await cargarMaestroInterventoria(db);
   const accesos = await cargarAccesosMantenimiento(db, listado);
-  return `Reglas de Interventoría agregadas: ${reglas}. Accesos de Mantenimiento agregados: ${accesos}.`;
+  const jefes = await cargarJefesHallazgos(db, listado);
+  return `Reglas de Interventoría agregadas: ${reglas}. Accesos de Mantenimiento agregados: ${accesos}. Tareas con jefatura actualizada: ${jefes}.`;
+}
+
+async function cargarJefesHallazgos(db, listado) {
+  const {esTareaDeHallazgo} = require('../../functions/lib/tareas_avisos');
+  const {jefeEnEmpresa, tareaActiva} = require('../../functions/lib/jefe_inmediato_sync');
+  const {empresasSeleccionables} = require('../../functions/lib/acceso');
+  const fichas = db.collection('TBL_USUARIOS');
+  const ids = new Set(listado.map((p) => p.id));
+  const tareas = await db.collection('TBL_TAREAS').where('empresaId', '==', empresaId).get();
+  let actualizadas = 0;
+  for (const doc of tareas.docs) {
+    if (!esTareaDeHallazgo(doc.data()) || !tareaActiva(doc.data())) continue;
+    if (await db.runTransaction(async (tx) => {
+      const tarea = (await tx.get(doc.ref)).data();
+      if (!tarea || tarea.empresaId !== empresaId || !tareaActiva(tarea) ||
+          !esTareaDeHallazgo(tarea) || tarea.jefe_inmediato_uid !== undefined) return false;
+      const responsable = tarea.asignado_uid || tarea.assignedTo;
+      if (!ids.has(responsable)) return false;
+      const ficha = (await tx.get(fichas.doc(responsable))).data();
+      const jefeId = jefeEnEmpresa(ficha ?? {}, empresaId).id;
+      if (jefeId === responsable || !ids.has(jefeId)) return false;
+      const jefe = (await tx.get(fichas.doc(jefeId))).data();
+      if (!jefe || !empresasSeleccionables(jefe).includes(empresaId)) return false;
+      tx.update(doc.ref, {jefe_inmediato_uid: jefeId});
+      return true;
+    })) actualizadas++;
+  }
+  return actualizadas;
 }
 
 async function poblar() {

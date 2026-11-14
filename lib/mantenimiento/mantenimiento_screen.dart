@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -7,6 +8,7 @@ import '../core/subcentros_costo.dart';
 import '../interventoria/interventoria_models.dart'
     show EstablecimientoDelHallazgo;
 import '../widgets/empresa_activa_chip.dart';
+import '../visitas/visitas_firma.dart' show pedirFirma;
 import 'mantenimiento_archivos.dart';
 import 'mantenimiento_forms.dart';
 import 'mantenimiento_inventario.dart';
@@ -1053,6 +1055,17 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
               Icons.receipt_long_outlined,
               () => _avanzarOrden(orden),
             ),
+          if (cerrada && orden.cierre != null)
+            for (final clase in [
+              ClaseArchivoOrden.firmaTecnico,
+              ClaseArchivoOrden.firmaReceptor,
+            ])
+              if (!orden.archivos.any((a) => a.clase == clase))
+                OutlinedButton.icon(
+                  onPressed: () => _firmarOrden(orden, clase),
+                  icon: const Icon(Icons.draw_outlined),
+                  label: Text(clase.label),
+                ),
           OutlinedButton.icon(
             onPressed: _exportando
                 ? null
@@ -1072,6 +1085,56 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
         ],
       ),
     ];
+  }
+
+  Future<void> _firmarOrden(
+    OrdenMantenimiento orden,
+    ClaseArchivoOrden clase,
+  ) async {
+    final cierre = orden.cierre!;
+    final esTecnico = clase == ClaseArchivoOrden.firmaTecnico;
+    final personaId = esTecnico ? cierre.tecnicoId : cierre.receptorId;
+    try {
+      final token = await FirebaseAuth.instance.currentUser?.getIdTokenResult();
+      if (!mounted) return;
+      if (personaId.isEmpty || token?.claims?['userDocId'] != personaId) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'La persona identificada en el cierre debe firmar desde su cuenta.',
+            ),
+          ),
+        );
+        return;
+      }
+      final firma = await pedirFirma(
+        context,
+        titulo: clase.label,
+        nombreInicial: esTecnico ? cierre.tecnico : cierre.receptor,
+        cargoInicial: esTecnico ? 'Técnico' : cierre.cargoReceptor,
+        nombreEditable: false,
+        cargoEditable: false,
+      );
+      if (firma == null) return;
+      await _service.adjuntar(orden.id, (
+        archivo: (
+          id: nuevoIdMantenimiento(),
+          nombre: '${clase.name}.png',
+          mime: 'image/png',
+          clase: clase,
+        ),
+        bytes: firma.png,
+      ));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Firma guardada.')));
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo guardar la firma. $e')),
+        );
+    }
   }
 
   void _avanzarOrden(OrdenMantenimiento orden) {
@@ -1243,8 +1306,11 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
   }) async {
     setState(() => _exportando = true);
     try {
+      final marca = await marcaMantenimiento(widget.empresaId);
       final bytes = await generarInformeMantenimiento(
         empresaId: widget.empresaId,
+        empresaNombre: marca.nombre,
+        empresaLogo: marca.logo,
         alcance: alcance,
         ordenes: ordenes,
         centros: centros,
@@ -1626,6 +1692,7 @@ class _VistaInformeMantenimientoState
           ),
           Expanded(
             child: PdfPreview(
+              maxPageWidth: 700,
               build: (_) => widget.bytes,
               pdfFileName: widget.nombre,
               canChangeOrientation: false,

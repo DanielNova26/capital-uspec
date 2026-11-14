@@ -519,7 +519,7 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             child: Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 720),
+                constraints: const BoxConstraints(maxWidth: 880),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -560,26 +560,27 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
                         horizontal: 16,
                         vertical: 8,
                       ),
-                      child: Row(
+                      child: Wrap(
+                        spacing: 10,
+                        runSpacing: 8,
                         children: [
-                          Expanded(
-                            child: _ActionButton(
-                              icon: Icons.attach_file,
-                              label: 'Adjuntar\narchivos',
-                              onTap: _busy ? null : _pickFiles,
-                            ),
+                          OutlinedButton.icon(
+                            icon: const Icon(Icons.attach_file),
+                            label: const Text('Adjuntar archivos'),
+                            onPressed: _busy ? null : _pickFiles,
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _ActionButton(
-                              icon: _takingPhoto
+                          OutlinedButton.icon(
+                            icon: Icon(
+                              _takingPhoto
                                   ? Icons.hourglass_top
-                                  : Icons.camera_alt,
-                              label: _takingPhoto
-                                  ? 'Procesando...'
-                                  : 'Tomar foto',
-                              onTap: _busy || _takingPhoto ? null : _takePhoto,
+                                  : Icons.camera_alt_outlined,
                             ),
+                            label: Text(
+                              _takingPhoto ? 'Procesando…' : 'Tomar foto',
+                            ),
+                            onPressed: _busy || _takingPhoto
+                                ? null
+                                : _takePhoto,
                           ),
                         ],
                       ),
@@ -687,42 +688,6 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
                 ),
               ),
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ActionButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback? onTap;
-
-  const _ActionButton({required this.icon, required this.label, this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = onTap != null;
-    return Material(
-      color: enabled ? kMarronOscuro : Colors.grey.shade400,
-      borderRadius: BorderRadius.circular(28),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(28),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, color: Colors.white),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white, fontFamily: kArial),
-              ),
-            ],
           ),
         ),
       ),
