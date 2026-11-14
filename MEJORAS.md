@@ -1,5 +1,11 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-14 — Publicación web y AAB 2.8.37+91 (Codex)
+
+- Web publicada en `https://to-do-gestion.web.app`. Los SHA-256 del HTML, el archivo de versión, el bootstrap y el JavaScript principal coinciden con la compilación local.
+- Se publicaron las diez funciones del flujo de Interventoría, Tareas y Mantenimiento, las reglas de Firestore verificadas y el índice de reasignaciones. El índice estaba disponible al publicar Hosting. Las pruebas en producción consultaron versiones y confirmaron que los callables protegidos exigen sesión. La Demo y sus reglas de Storage siguen en el emulador local.
+- Android `outputs/android/to-do-gestion-2.8.37-91.aab`. Bundletool validó el paquete `com.todogestion.app`, versión 2.8.37, código 91. Jarsigner verificó la firma y el certificado coincide con la entrega 90. SHA-256 `d4339933f13b26af513feba7e01823982b7f74b3cc096825ac66624165c07c96`. Queda la carga en Play Console y la validación móvil física.
+
 ## 2026-11-14 — Primer flujo de pruebas de la Demo (Codex)
 
 - Interventoría ofrece una selección múltiple de ítems en la revisión del acta y omite los numerales ya agregados. La asignación muestra los grupos de establecimientos y los hallazgos de cada lote. Se puede elegir a una persona por hallazgo y corregir la ubicación de un hallazgo sin asignación. El establecimiento de un hallazgo vinculado se toma del acta. Los cambios en el maestro común de grupos requieren también autoridad de Admin.
