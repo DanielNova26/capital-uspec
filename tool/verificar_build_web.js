@@ -11,6 +11,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 const raiz = path.resolve(__dirname, '..');
 
@@ -56,3 +57,10 @@ if (versionWeb !== version || buildWeb !== build) {
 }
 
 console.log(`build/web es la ${version} (${build}): coincide con pubspec.yaml.`);
+// No permite volver a publicar un HTML con la clave histórica compartida.
+try {
+  execFileSync(process.execPath, [path.join(__dirname, 'verificar_claves_maps.cjs'), '--build', '--cloud'], { stdio: 'inherit' });
+} catch {
+  console.error('Publicación detenida: no se pudo validar la protección de Maps. Revisa la auditoría antes de publicar.');
+  process.exit(2);
+}

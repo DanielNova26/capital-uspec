@@ -1,5 +1,14 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-18 — Contención de Geocoding y separación de claves Maps (Codex)
+
+- Incidente: COP 474.615,40 en Geocoding y 40.002 solicitudes en siete días, asociadas a la clave pública compartida por Web, Android, iOS y tres funciones. La clave tenía 31 APIs y ninguna restricción de aplicación. El origen del tráfico no está confirmado.
+- Aplicado en producción por solicitud del usuario: Geocoding y nueve servicios no utilizados deshabilitados; cuotas de Geocoding v3/v4 en cero. Límites diarios de 250 cargas de Maps JavaScript, 100 Directions, 100 ComputeRoutes y 20 SearchText; demás operaciones de esos servicios en cero. Estos límites son por proyecto: pueden suspender mapas o mediciones al agotarse.
+- Claves independientes y restringidas para Web, Android (incluidas firmas de Google Play, distribución local y debug) e iOS. Las tres funciones de Rutas/Lugares están activas con la clave privada del servidor, limitada a Routes/Places New. La clave histórica queda solo para SDK móviles, para no romper las versiones instaladas; ya no admite servicios Web de pago. Se retiró la constante pública sin uso de Crear tarea.
+- Web 2.8.38+92 publicada; HTML y versión coinciden por SHA-256 en ambos dominios de producción y la pantalla de acceso carga. Auditoría `node tool/verificar_claves_maps.cjs --cloud --build` integrada en el predeploy de Hosting: revisa fuentes, restricciones reales, tres funciones, servicios deshabilitados y cuotas. No modifica producción.
+- Android 2.8.38+92 compilado en `outputs/android/to-do-gestion-2.8.38-92.aab`; Bundletool valida paquete/versión y Jarsigner confirma firma con el certificado de distribución. Manifiesto verificado con la clave Android nueva. SHA-256 `bee234e596aaf7766188432d3c7c88a4f6511a15db182a344b946de299c3bca8`. Pendiente carga en Play Console; no se alteró el envío 91 que ya estaba preparado allí.
+- Validación pendiente: navegación autenticada y mapas en Android/iOS físicos; compilación y publicación iOS desde macOS. El control de coste ya protege a las versiones instaladas mediante la clave histórica limitada a SDK. [Detalle y borrador de solicitud de ajuste, no enviado](docs/incidente_maps_2026-11-18.md). El cargo previo no se elimina con esta corrección y cualquier ajuste requiere respuesta de Google.
+
 ## 2026-11-14 — Publicación web y AAB 2.8.37+91 (Codex)
 
 - Web publicada en `https://to-do-gestion.web.app`. Los SHA-256 del HTML, el archivo de versión, el bootstrap y el JavaScript principal coinciden con la compilación local.

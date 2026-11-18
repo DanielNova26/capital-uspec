@@ -1,0 +1,140 @@
+{
+  "project": "integra360-94704",
+  "projectNumber": "379551786878",
+  "keys": [
+    {
+      "platform": "web",
+      "file": "web/index.html",
+      "name": "projects/379551786878/locations/global/keys/maps-web-restringida-20261118",
+      "restrictions": {
+        "browserKeyRestrictions": {
+          "allowedReferrers": [
+            "https://to-do-gestion.com/*",
+            "https://www.to-do-gestion.com/*",
+            "https://integra360.web.app/*",
+            "https://integra360.firebaseapp.com/*",
+            "https://integra360-94704.web.app/*",
+            "https://integra360-94704.firebaseapp.com/*",
+            "https://to-do-cd3e3.web.app/*",
+            "https://to-do-cd3e3.firebaseapp.com/*",
+            "https://to-do-gestion.web.app/*",
+            "https://to-do-gestion.firebaseapp.com/*",
+            "http://localhost:*/*",
+            "http://127.0.0.1:*/*"
+          ]
+        },
+        "apiTargets": [
+          {
+            "service": "maps-backend.googleapis.com"
+          },
+          {
+            "service": "directions-backend.googleapis.com"
+          }
+        ]
+      },
+      "keySha256": "48ddb0cb53a5de9cd217822cb0b693e84d58a92731f17aff3b386e21245d3bda"
+    },
+    {
+      "platform": "android",
+      "file": "android/app/src/main/AndroidManifest.xml",
+      "name": "projects/379551786878/locations/global/keys/maps-android-restringida-20261118",
+      "restrictions": {
+        "androidKeyRestrictions": {
+          "allowedApplications": [
+            {
+              "packageName": "com.todogestion.app",
+              "sha1Fingerprint": "1C189AD409516279756AFC9BEAFA49A4E5912B9A"
+            },
+            {
+              "packageName": "com.todogestion.app",
+              "sha1Fingerprint": "8EC225C0944F97512166CA4C85E5BC26C17E61E5"
+            },
+            {
+              "packageName": "com.todogestion.app",
+              "sha1Fingerprint": "E1325BB0569BBAEC20A8A24A941D8719250F9AFC"
+            },
+            {
+              "packageName": "com.todogestion.app",
+              "sha1Fingerprint": "2D4D0FFB1A154827D579F7550A501F85A699311D"
+            },
+            {
+              "packageName": "com.todogestion.app",
+              "sha1Fingerprint": "44D2D8107453DA35E7EE67F49C45D1BDD3F18F7E"
+            }
+          ]
+        },
+        "apiTargets": [
+          {
+            "service": "maps-android-backend.googleapis.com"
+          }
+        ]
+      },
+      "keySha256": "dce915a61a991f7335d02c9768292694094c44014924e3d3355d67f414cb7521"
+    },
+    {
+      "platform": "ios",
+      "file": "ios/Runner/AppDelegate.swift",
+      "name": "projects/379551786878/locations/global/keys/maps-ios-restringida-20261118",
+      "restrictions": {
+        "iosKeyRestrictions": {
+          "allowedBundleIds": [
+            "com.capitaluspec.gestionapp"
+          ]
+        },
+        "apiTargets": [
+          {
+            "service": "maps-ios-backend.googleapis.com"
+          }
+        ]
+      },
+      "keySha256": "0d51f869e566e230017f3303e0c85ba7ba6b84c83ff17139302a6f0f3215cfa1"
+    }
+  ],
+  "legacy": {
+    "name": "projects/379551786878/locations/global/keys/7a4ebb62-4934-4fce-810e-561709a99139",
+    "services": [
+      "maps-android-backend.googleapis.com",
+      "maps-ios-backend.googleapis.com"
+    ]
+  },
+  "daily": {
+    "geocoding-backend.googleapis.com": {},
+    "maps-backend.googleapis.com": {
+      "Map loads": 250
+    },
+    "directions-backend.googleapis.com": {
+      "Requests": 100
+    },
+    "routes.googleapis.com": {
+      "Directions - ComputeRoutes per request quota": 100
+    },
+    "places.googleapis.com": {
+      "SearchTextRequest": 20
+    }
+  },
+  "server": {
+    "name": "projects/379551786878/locations/global/keys/1a70e996-84dc-43e8-8cab-affb110f1fc1",
+    "restrictions": {
+      "apiTargets": [
+        {
+          "service": "routes.googleapis.com"
+        },
+        {
+          "service": "places.googleapis.com"
+        }
+      ]
+    }
+  },
+  "disabledServices": [
+    "geocoding-backend.googleapis.com",
+    "elevation-backend.googleapis.com",
+    "geolocation.googleapis.com",
+    "maps-embed-backend.googleapis.com",
+    "mapsplatformdatasets.googleapis.com",
+    "places-backend.googleapis.com",
+    "roads.googleapis.com",
+    "static-maps-backend.googleapis.com",
+    "streetviewpublish.googleapis.com",
+    "timezone-backend.googleapis.com"
+  ]
+}

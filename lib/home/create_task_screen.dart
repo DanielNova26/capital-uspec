@@ -28,9 +28,6 @@ import '../core/area_directory.dart';
 import '../widgets/dictado_dialog.dart';
 
 /// ===================== CONFIG =====================
-/// Tu API KEY (debes tener habilitado Static Maps y billing activo)
-const String kGoogleMapsApiKey = 'AIzaSyD8posdo50hmD8PLPD9kR6IebNYfi6PkPs';
-
 /// Colecciones
 const String kCollUsuarios = 'TBL_USUARIOS';
 const String kCollAreas = 'TBL_AREAS';

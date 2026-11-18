@@ -146,7 +146,7 @@
         <!-- ===== Google Maps SDK: API KEY ===== -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="AIzaSyD8posdo50hmD8PLPD9kR6IebNYfi6PkPs" />
+            android:value="AIzaSyAsrVU1EsmeHZ_SOctawg03LDCJSUrnPOA" />
     </application>
 
     <!-- ===== Consultas opcionales ===== -->
