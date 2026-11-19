@@ -39,6 +39,7 @@ exports.signaturePattern = signaturePattern;
 exports.ownReplyText = ownReplyText;
 exports.classifyCorreoAccountError = classifyCorreoAccountError;
 exports.enviarWhatsAppAListado = enviarWhatsAppAListado;
+const whatsapp_runtime_1 = require("./whatsapp_runtime");
 /**
  * Módulo Correo
  *
@@ -1485,6 +1486,7 @@ async function sendRuleAlerts(input) {
                 prioridad: input.rule.prioridad >= 80 ? "alta" : "normal",
                 metadata: {
                     correoMensajeId: input.messageRef.id,
+                    deliveryRecordPath: alertRef.path,
                     cuentaId: input.account.id,
                     correoCuenta: input.account.email,
                     proveedorCorreo: input.account.proveedor,
@@ -1501,14 +1503,18 @@ async function sendRuleAlerts(input) {
             await alertRef.update({
                 // 201 de OpenWA significa que WhatsApp aceptó la solicitud; no
                 // confirma la entrega final. La interfaz lo muestra explícitamente.
-                estado: "aceptado",
+                estado: result.queued ? "pendiente_cupo" : "aceptado",
+                queueId: result.queueId || null,
                 providerMessageId: result.providerMessageId || null,
                 providerStatus: result.rawStatus,
                 mensaje: result.renderedMessage || messageText,
                 sentAt: admin.firestore.FieldValue.serverTimestamp(),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             });
-            sent += 1;
+            if (result.queued)
+                skipped += 1;
+            else
+                sent += 1;
         }
         catch (error) {
             const detail = friendlyDeliveryError(error);
@@ -1569,7 +1575,7 @@ async function enviarWhatsAppAListado(input) {
                 proveedor: provider.name,
                 estado: "enviando",
                 mensaje: message,
-                metadata: brandedMetadata,
+                metadata: { ...brandedMetadata, listadoId: input.listadoId, deliveryRecordPath: alertRef.path },
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             });
@@ -1598,17 +1604,21 @@ async function enviarWhatsAppAListado(input) {
                 mensaje: message,
                 empresaId: input.empresaId,
                 prioridad: input.prioridad || "normal",
-                metadata: brandedMetadata,
+                metadata: { ...brandedMetadata, listadoId: input.listadoId, deliveryRecordPath: alertRef.path },
             });
             await alertRef.update({
-                estado: "aceptado",
+                estado: result.queued ? "pendiente_cupo" : "aceptado",
+                queueId: result.queueId || null,
                 providerMessageId: result.providerMessageId || null,
                 providerStatus: result.rawStatus,
                 mensaje: result.renderedMessage || message,
                 sentAt: admin.firestore.FieldValue.serverTimestamp(),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             });
-            sent += 1;
+            if (result.queued)
+                skipped += 1;
+            else
+                sent += 1;
         }
         catch (error) {
             await alertRef.update({
@@ -3795,7 +3805,7 @@ exports.correoMicrosoftCallback = functions
 /** Procesamiento manual desde Flutter. */
 exports.correoProcesar = functions
     .region(REGION)
-    .runWith({ timeoutSeconds: 300, memory: "512MB" })
+    .runWith({ ...whatsapp_runtime_1.whatsappRuntime, timeoutSeconds: 300, memory: "512MB" })
     .https.onCall(async (data, context) => {
     const caller = await requireCorreoAccess(data, context, ["operador"]);
     return processEmpresa(caller.empresaId, text(data?.cuentaId || data?.accountId));
@@ -3803,6 +3813,7 @@ exports.correoProcesar = functions
 /** Endpoint HTTP equivalente para automatización externa: POST /correo/procesar vía Hosting rewrite. */
 exports.correoProcesarHttp = functions
     .region(REGION)
+    .runWith(whatsapp_runtime_1.whatsappRuntime)
     .https.onRequest(async (req, res) => {
     if (req.method !== "POST")
         return res.status(405).json({ error: "method-not-allowed" });
@@ -3832,6 +3843,7 @@ exports.correoProcesarHttp = functions
 /** Cron de respaldo. El lock evita que dos ejecuciones se solapen. */
 exports.correoProcesarProgramado = functions
     .region(REGION)
+    .runWith(whatsapp_runtime_1.whatsappRuntime)
     .pubsub.schedule("every 5 minutes")
     .timeZone("America/Bogota")
     .onRun(async () => {
@@ -3894,6 +3906,7 @@ exports.correoProbarRegla = functions
 /** Verifica WhatsApp con una alerta de prueba controlada. */
 exports.correoProbarWhatsApp = functions
     .region(REGION)
+    .runWith(whatsapp_runtime_1.whatsappRuntime)
     .https.onCall(async (data, context) => {
     const caller = await requireCorreoAccess(data, context, ["administrador"]);
     const telefono = normalizePhone(data?.telefono);
@@ -3959,6 +3972,7 @@ exports.correoMiRol = functions
 });
 exports.correoEstadoIntegracion = functions
     .region(REGION)
+    .runWith(whatsapp_runtime_1.whatsappRuntime)
     .https.onCall(async (data, context) => {
     const caller = await requireCorreoAccess(data, context, ["visor"]);
     const gmail = gmailOAuthConfig(false);

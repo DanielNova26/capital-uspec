@@ -24,6 +24,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.thNotificarCitacionDescargos = exports.thNotificarPlazosDisciplinarios = void 0;
+const whatsapp_runtime_1 = require("./whatsapp_runtime");
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 const whatsapp_1 = require("./whatsapp");
@@ -350,6 +351,7 @@ async function avisarEnApp(cedula, recordId, empresaId, diligencia, now) {
 }
 exports.thNotificarCitacionDescargos = functions
     .region(REGION)
+    .runWith(whatsapp_runtime_1.whatsappRuntime)
     .firestore.document("TBL_LLAMADOS_ATENCION/{procesoId}")
     .onUpdate(async (change, context) => {
     const antes = text(change.before.data().etapa).toLowerCase();
@@ -384,11 +386,14 @@ exports.thNotificarCitacionDescargos = functions
                 "Talento Humano te entregará el documento de la citación.",
             metadata: {
                 type: "disciplinario_citacion",
+                idempotencyKey: context.eventId,
+                deliveryRecordPath: `TBL_LLAMADOS_ATENCION/${recordId}`,
+                expiresAtMs: diligencia.getTime(),
                 disciplinarioId: recordId,
                 cedula,
             },
         });
-        whatsapp = resultado.sent ? "enviado" : `omitido:${resultado.reason}`;
+        whatsapp = resultado.queued ? "pendiente_cupo" : resultado.sent ? "enviado" : `omitido:${resultado.reason}`;
     }
     else {
         whatsapp = "omitido:sin_telefono";

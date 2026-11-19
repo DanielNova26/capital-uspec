@@ -30,6 +30,7 @@ exports.idMantenimiento = idMantenimiento;
 exports.operaOrdenMantenimiento = operaOrdenMantenimiento;
 exports.personaMantenimiento = personaMantenimiento;
 exports.cierreMantenimientoValido = cierreMantenimientoValido;
+const whatsapp_runtime_1 = require("./whatsapp_runtime");
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 const crypto_1 = require("crypto");
@@ -190,7 +191,7 @@ async function validarArchivo(input) {
     }
     return { clase, mime, nombre, bytes };
 }
-exports.mantenimientoOrden = functions.region("us-central1").https.onCall(async (input, context) => {
+exports.mantenimientoOrden = functions.region("us-central1").runWith(whatsapp_runtime_1.whatsappRuntime).https.onCall(async (input, context) => {
     const token = context.auth?.token;
     if (token?.authVersion !== 2 || typeof token.userDocId !== "string") {
         error("unauthenticated", "Inicia sesión para gestionar órdenes.");

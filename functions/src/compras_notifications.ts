@@ -1,3 +1,4 @@
+import {whatsappRuntime} from "./whatsapp_runtime";
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 import { enviarWhatsAppAListado } from "./correo";
@@ -183,6 +184,7 @@ async function notifyInAppNewSupplier(input: {
  */
 export const comprasNotificarNuevoProveedorWhatsApp = functions
   .region(REGION)
+  .runWith(whatsappRuntime)
   .firestore.document("TBL_COMPRAS_PROVEEDORES/{proveedorId}")
   .onCreate(async (snapshot, context) => {
     const data = snapshot.data();

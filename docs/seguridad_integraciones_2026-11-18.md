@@ -1,5 +1,11 @@
 # Seguridad de integraciones y consumo — 18 de noviembre de 2026
 
+**Registro histórico:** el 19 de noviembre se aprobó y publicó el límite de
+250 intentos diarios, se aislaron los secretos, se redujeron permisos y se
+desactivaron las tres claves antiguas. Meta quedó con doble factor para Todos.
+Consultar el [estado actualizado y pendientes](proteccion_servicios_2026-11-19.md);
+los apartados siguientes describen la situación al cierre del 18 de noviembre.
+
 La revisión amplía la contención del incidente de Maps a WhatsApp/Meta y a los
 accesos de Google. El ajuste de COP 474.615,40 sigue pendiente de Facturación
 en el caso 77760956; estas correcciones no cancelan un cargo ya generado.

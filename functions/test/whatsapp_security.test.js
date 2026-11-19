@@ -63,6 +63,18 @@ test('cuenta o empresa inhabilitada no conserva privilegios y un rol operativo n
   assert.equal(whatsapp.puedeAdministrarWhatsApp(user, 'empresa-2'), false);
 });
 
+test('un aviso pendiente respeta el retiro de una empresa sin bloquear a la otra', () => {
+  const person = {empresaId: 'A', empresas: ['A', 'B'], empresasDetalle: {
+    A: {activo: false}, B: {activo: true},
+  }};
+  assert.equal(whatsapp.puedeRecibirPendiente(person, 'A'), false);
+  assert.equal(whatsapp.puedeRecibirPendiente(person, 'B'), true);
+  assert.equal(whatsapp.puedeRecibirPendiente({...person, desarrollador: true}, 'A'), false);
+  assert.equal(whatsapp.puedeRecibirPendiente({...person, activo: false}, 'B'), false);
+  assert.equal(whatsapp.puedeRecibirPendiente({...person, empresasDetalle: {B: {estadoLaboral: 'inactivo'}}}, 'B'), false);
+  assert.equal(whatsapp.puedeRecibirPendiente({...person, empresas: ['A'], empresasDetalle: {A: {activo: true}}}, 'B'), false);
+});
+
 const config = {
   baseUrl: 'https://graph.facebook.com/v25.0/123/messages',
   apiKey: 'test-token', defaultCountryCode: '57', metaTemplates: {},

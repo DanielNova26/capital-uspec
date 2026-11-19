@@ -1,3 +1,4 @@
+import {whatsappRuntime} from "./whatsapp_runtime";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
 import {sendWhatsAppDirect} from "./whatsapp";
@@ -396,6 +397,7 @@ async function avisarEnApp(
 
 export const thNotificarCitacionDescargos = functions
   .region(REGION)
+  .runWith(whatsappRuntime)
   .firestore.document("TBL_LLAMADOS_ATENCION/{procesoId}")
   .onUpdate(async (change, context) => {
     const antes = text(change.before.data().etapa).toLowerCase();
@@ -440,11 +442,14 @@ export const thNotificarCitacionDescargos = functions
           "Talento Humano te entregará el documento de la citación.",
         metadata: {
           type: "disciplinario_citacion",
+          idempotencyKey: context.eventId,
+          deliveryRecordPath: `TBL_LLAMADOS_ATENCION/${recordId}`,
+          expiresAtMs: diligencia.getTime(),
           disciplinarioId: recordId,
           cedula,
         },
       });
-      whatsapp = resultado.sent ? "enviado" : `omitido:${resultado.reason}`;
+      whatsapp = resultado.queued ? "pendiente_cupo" : resultado.sent ? "enviado" : `omitido:${resultado.reason}`;
     } else {
       whatsapp = "omitido:sin_telefono";
     }

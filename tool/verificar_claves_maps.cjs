@@ -36,15 +36,7 @@ function verifySources(build = false) {
   return values;
 }
 async function verifyCloud(values) {
-  let firebaseLib;
-  try { firebaseLib = path.dirname(require.resolve('firebase-tools/lib/auth')); }
-  catch { firebaseLib = path.join(process.env.APPDATA || '', 'npm/node_modules/firebase-tools/lib'); }
-  const auth = require(path.join(firebaseLib, 'auth'));
-  const api = require(path.join(firebaseLib, 'apiv2'));
-  const account = auth.getGlobalDefaultAccount();
-  assert.ok(account, 'Inicia sesión con firebase login para auditar Google Cloud');
-  auth.setRefreshToken(account.tokens.refresh_token);
-  const token = await api.getAccessToken();
+  const token = await require('./firebase_google_auth.cjs').getGoogleAccessToken();
   async function get(url) {
     for (let attempt = 0; attempt < 3; attempt++) {
       let response;

@@ -1,3 +1,4 @@
+import {whatsappRuntime} from "./whatsapp_runtime";
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 import { sendWhatsAppDirect, sendWhatsAppRoute } from "./whatsapp";
@@ -66,12 +67,14 @@ async function once(eventId: string, work: () => Promise<void>) {
 
 export const ppWhatsAppCambioFirma = functions
   .region(REGION)
+  .runWith(whatsappRuntime)
   .firestore.document("TBL_PP_PLANILLAS/{planillaId}")
   .onUpdate((change, context) =>
     notificarEtapaPlanilla(text(change.before.data().estado), change.after.data(), context));
 
 export const ppWhatsAppCargaPlanilla = functions
   .region(REGION)
+  .runWith(whatsappRuntime)
   .firestore.document("TBL_PP_PLANILLAS/{planillaId}")
   .onCreate(async (snapshot, context) => {
     const planilla = snapshot.data();
@@ -109,6 +112,7 @@ async function notificarEtapaPlanilla(
         mensaje: `💳 *Planilla enviada por Tesorería*\n📄 ${nombre}\n🔎 Está disponible para revisión de Auditoría.`,
         metadata: {
           type: "planillas_tesoreria_auditoria",
+          idempotencyKey: context.eventId,
           templateKey: "planilla_pago_actualizacion",
           planillaId: context.params.planillaId,
           templateVariables: {
@@ -128,6 +132,7 @@ async function notificarEtapaPlanilla(
         mensaje: `✅ *Planilla firmada por Auditoría*\n📄 ${nombre}\n✍️ Está disponible para el proceso de Gerencia.`,
         metadata: {
           type: "planillas_auditoria_gerencia",
+          idempotencyKey: context.eventId,
           templateKey: "planilla_pago_actualizacion",
           planillaId: context.params.planillaId,
           templateVariables: {
@@ -148,6 +153,7 @@ async function notificarEtapaPlanilla(
         mensaje: `✅ *Planilla firmada por Gerencia*\n📄 ${nombre}\n💳 Tesorería ya puede descargar la planilla firmada y el archivo plano.`,
         metadata: {
           type: "planillas_gerencia_tesoreria",
+          idempotencyKey: context.eventId,
           templateKey: "planilla_pago_actualizacion",
           planillaId: context.params.planillaId,
           templateVariables: {
@@ -193,6 +199,7 @@ export function etiquetaCentroConSubcentro(centro: string, subcentro: string): s
 // guardados de revisión y terminaba en 6 ms sin enviar nada.
 export const interventoriaWhatsAppNuevaActa = functions
   .region(REGION)
+  .runWith(whatsappRuntime)
   .firestore.document("TBL_INTERVENTORIA_VISITAS/{visitaId}")
   .onWrite(async (change, context) => {
     if (!change.after.exists) return;
@@ -222,6 +229,7 @@ export const interventoriaWhatsAppNuevaActa = functions
         ].filter(Boolean).join("\n"),
         metadata: {
           type: "interventoria_nueva_acta",
+          idempotencyKey: `acta_${context.params.visitaId}_${current}`,
           templateKey: "interventoria_actividad",
           visitaId: context.params.visitaId,
           templateVariables: {
@@ -235,6 +243,7 @@ export const interventoriaWhatsAppNuevaActa = functions
 
 export const facturacionWhatsAppDocumentoRechazado = functions
   .region(REGION)
+  .runWith(whatsappRuntime)
   .firestore.document("TBL_FAC_REVISIONES/{revisionId}")
   .onWrite(async (change, context) => {
     if (!change.after.exists) return;
@@ -287,6 +296,9 @@ export const facturacionWhatsAppDocumentoRechazado = functions
             ].filter(Boolean).join("\n"),
             metadata: {
               type: "facturacion_documento_rechazado",
+              idempotencyKey: `facturacion_${context.params.revisionId}_${version}`,
+              deliveryRecordPath: revisionRef.path,
+              revisionVersion: version,
               templateKey: "facturacion_documento_rechazado",
               revisionId: context.params.revisionId,
               responsableId: responsibleId,
@@ -300,7 +312,7 @@ export const facturacionWhatsAppDocumentoRechazado = functions
             },
           });
           await revisionRef.set({
-            whatsappEstado: result.sent ? "enviado" : "omitido",
+            whatsappEstado: result.queued ? "pendiente_cupo" : result.sent ? "enviado" : "omitido",
             whatsappDetalle: result.reason || "",
             whatsappActualizadoAt: admin.firestore.FieldValue.serverTimestamp(),
           }, { merge: true });

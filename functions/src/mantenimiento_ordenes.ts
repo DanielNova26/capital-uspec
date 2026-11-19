@@ -1,3 +1,4 @@
+import {whatsappRuntime} from "./whatsapp_runtime";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
 import {createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID} from "crypto";
@@ -172,7 +173,7 @@ async function validarArchivo(input: Data) {
   return {clase, mime, nombre, bytes};
 }
 
-export const mantenimientoOrden = functions.region("us-central1").https.onCall(async (input: Data, context) => {
+export const mantenimientoOrden = functions.region("us-central1").runWith(whatsappRuntime).https.onCall(async (input: Data, context) => {
   const token = context.auth?.token;
   if (token?.authVersion !== 2 || typeof token.userDocId !== "string") {
     error("unauthenticated", "Inicia sesión para gestionar órdenes.");

@@ -24,6 +24,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.comprasNotificarNuevoProveedorWhatsApp = exports.comprasNotificarRecepcionCalidad = void 0;
+const whatsapp_runtime_1 = require("./whatsapp_runtime");
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
 const correo_1 = require("./correo");
@@ -184,6 +185,7 @@ async function notifyInAppNewSupplier(input) {
  */
 exports.comprasNotificarNuevoProveedorWhatsApp = functions
     .region(REGION)
+    .runWith(whatsapp_runtime_1.whatsappRuntime)
     .firestore.document("TBL_COMPRAS_PROVEEDORES/{proveedorId}")
     .onCreate(async (snapshot, context) => {
     const data = snapshot.data();

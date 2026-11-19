@@ -1,3 +1,4 @@
+import {whatsappRuntime} from "./whatsapp_runtime";
 /**
  * Servicio central de WhatsApp.
  *
@@ -10,6 +11,9 @@ import {whatsappActivoParaRuta} from "./notification_catalog";
 import * as admin from "firebase-admin";
 import {appsDeEmpresa, raizEsDeEmpresa} from "./apps_por_empresa";
 import {cuentaInhabilitada, inhabilitadaEn} from "./acceso";
+import {CloudJob, dispatchWhatsApp, WHATSAPP_DAILY_LIMIT, WHATSAPP_DAILY_WARNING,
+  WHATSAPP_QUEUE, WHATSAPP_USAGE, whatsappBudgetDay} from "./whatsapp_delivery";
+import {correoAlertOmission} from "./correo_alert_policy";
 import {
   createCipheriv,
   createDecipheriv,
@@ -229,6 +233,9 @@ export interface WhatsAppSendResult {
   providerMessageId?: string;
   rawStatus: number;
   renderedMessage?: string;
+  queued?: boolean;
+  queueId?: string;
+  reused?: boolean;
 }
 
 export interface WhatsAppRecipientCheck {
@@ -631,7 +638,7 @@ async function loadRuntimeConfig(
   const data = snapshot.data() || {};
   let apiKey = fallback.apiKey;
   const encrypted = text(data.apiKeyEncrypted);
-  if (encrypted) {
+  if (encrypted && !forceEnvironmentCredentials) {
     try {
       apiKey = decrypt(encrypted);
     } catch (error) {
@@ -996,6 +1003,7 @@ class AuditedWhatsAppProvider implements WhatsAppProvider {
     const renderedMessage = renderConfiguredMessage(input, this.config);
     const characterizedInput: WhatsAppSendInput = {
       ...input,
+      telefono: normalizePhone(input.telefono, this.config.defaultCountryCode),
       mensaje: applyWhatsAppBranding(
         renderedMessage,
         branding,
@@ -1017,11 +1025,16 @@ class AuditedWhatsAppProvider implements WhatsAppProvider {
       destinationLast4: destination.slice(-4),
     };
     try {
-      const result = await this.delegate.send(characterizedInput);
-      await this.safeAudit("send_accepted", {
+      const result = this.name === "whatsapp_cloud" ? await dispatchWhatsApp({
+        store: db(), job: {empresaId: this.empresaId, moduleId: this.moduleId, input: characterizedInput},
+        seal: encrypt, send: () => this.delegate.send(characterizedInput),
+      }) : await this.delegate.send(characterizedInput);
+      await notificarConsumoWhatsApp().catch(() => undefined);
+      await this.safeAudit(result.queued ? "send_queued" : result.reused ? "send_reused" : "send_accepted", {
         ...details,
         providerStatus: result.rawStatus,
         providerMessageId: result.providerMessageId || null,
+        queueId: result.queueId || null,
       });
       return { ...result, renderedMessage: characterizedInput.mensaje };
     } catch (error) {
@@ -1077,6 +1090,158 @@ export async function createWhatsAppProvider(
     config
   );
 }
+
+// Alerta dentro de la app a Desarrollo, sin usar el canal de pago para avisar
+// de su propio consumo. El ID diario evita duplicarla en ejecuciones paralelas.
+async function notificarConsumoWhatsApp() {
+  const day = whatsappBudgetDay(new Date());
+  const ref = db().collection(WHATSAPP_USAGE).doc(day);
+  const usage = await ref.get();
+  if (Number(usage.get("attempts") || 0) < WHATSAPP_DAILY_WARNING || usage.get("warningNotified")) return;
+  const people = await db().collection("TBL_USUARIOS").get();
+  const developers = people.docs.filter((d) => isDeveloper(d.data()) && !cuentaInhabilitada(d.data()));
+  for (const person of developers) {
+    const notification = db().collection("TBL_NOTIFICACIONES").doc(person.id)
+      .collection("notifications").doc(`whatsapp_consumo_${day}`);
+    await db().runTransaction(async (tx) => {
+      if ((await tx.get(notification)).exists) return;
+      tx.create(notification, {id: notification.id, title: "Consumo diario de WhatsApp",
+        description: `Se alcanzaron ${WHATSAPP_DAILY_WARNING} intentos. El máximo global es ${WHATSAPP_DAILY_LIMIT}.`,
+        type: "whatsapp_consumo", module: "admin", read: false,
+        empresaId: text(person.get("empresaId")), createdAt: admin.firestore.FieldValue.serverTimestamp()});
+    });
+  }
+  if (developers.length) await ref.set({warningNotified: true}, {merge: true});
+}
+
+// Solo permite actualizar la trazabilidad que el servidor adjuntó al crear
+// el aviso, dentro de la misma empresa; nunca acepta una ruta desde un callable.
+async function actualizarOrigenCola(job: CloudJob, state: string, result?: WhatsAppSendResult) {
+  const path = text(job.input.metadata?.deliveryRecordPath);
+  if (!/^(TBL_CORREO_ALERTAS|TBL_FAC_REVISIONES|TBL_LLAMADOS_ATENCION)\/[^/]+$/.test(path) &&
+      !/^TBL_MANTENIMIENTO_ORDENES\/[^/]+\/enviosPdf\/[^/]+$/.test(path)) return;
+  const ref = db().doc(path);
+  const companyRef = path.startsWith("TBL_MANTENIMIENTO_ORDENES/") ? ref.parent.parent! : ref;
+  const owner = await companyRef.get();
+  if (!owner.exists || owner.get("empresaId") !== job.empresaId) return;
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const accepted = state === "accepted";
+  const fields = path.startsWith("TBL_FAC_REVISIONES/") ? {
+    whatsappEstado: accepted ? "enviado" : state, whatsappActualizadoAt: now,
+  } : path.startsWith("TBL_LLAMADOS_ATENCION/") ? {
+    "avisoCitacion.whatsapp": accepted ? "enviado" : state,
+  } : {estado: accepted ? path.startsWith("TBL_CORREO_ALERTAS/") ? "aceptado" : "enviado" : state,
+    providerMessageId: result?.providerMessageId || null, updatedAt: now,
+    ...(accepted ? {sentAt: now} : {})};
+  await ref.update(fields);
+}
+
+// Una retirada de empresa posterior al encolado también retira al destinatario.
+export function puedeRecibirPendiente(user: admin.firestore.DocumentData, empresaId: string): boolean {
+  return !cuentaInhabilitada(user) && !inhabilitadaEn(user, empresaId) &&
+    companyDetail(user, empresaId)?.activo !== false && belongsToEmpresa(user, empresaId);
+}
+
+async function validarPendiente(job: CloudJob, config: WhatsAppRuntimeConfig): Promise<boolean> {
+  if (!config.enabled || config.modules[job.moduleId] !== true) return false;
+  assertRuntimeReady(config, job.moduleId);
+  if (!isCloudProvider(config.provider)) return false;
+  const metadata = job.input.metadata || {};
+  const listId = text(metadata.listadoId);
+  let listedPersonId = "";
+  if (listId) {
+    const list = await db().collection(LIST_COLLECTION).doc(listId).get();
+    const destination = normalizePhone(job.input.telefono, config.defaultCountryCode);
+    if (!list.exists) return false;
+    const recipient = destinatariosPdf(list.data()!, job.empresaId, job.moduleId, config.defaultCountryCode)
+      .find((person) => person.telefono === destination);
+    if (!recipient) return false;
+    listedPersonId = recipient.personaId;
+    const route = text(metadata.routeId);
+    if (route) {
+      if (text(config.routes[route]) !== listId) return false;
+      const master = await db().collection("TBL_NOTIFICACIONES_CONFIG").doc(job.empresaId).get();
+      if (!whatsappActivoParaRuta(route, master.data())) return false;
+    }
+  }
+  const personId = text(metadata.responsableId || metadata.cedula || listedPersonId);
+  if (personId) {
+    let person = await db().collection("TBL_USUARIOS").doc(personId).get();
+    if (!person.exists) {
+      const historical = await db().collection("TBL_USUARIOS").where("cedula", "==", personId).limit(5).get();
+      const enabled = historical.docs.find((d) => puedeRecibirPendiente(d.data(), job.empresaId));
+      if (enabled) person = enabled;
+    }
+    if (!person.exists || !puedeRecibirPendiente(person.data()!, job.empresaId)) return false;
+  }
+  const sourcePath = text(metadata.deliveryRecordPath);
+  if (sourcePath.startsWith("TBL_FAC_REVISIONES/")) {
+    const source = await db().doc(sourcePath).get();
+    if (source.get("empresaId") !== job.empresaId || source.get("estado") !== "rechazado" ||
+        Number(source.get("version") || 0) !== Number(metadata.revisionVersion)) return false;
+  }
+  if (metadata.correoMensajeId) {
+    const messageId = text(metadata.correoMensajeId);
+    const message = await db().collection("TBL_CORREO_MENSAJES").doc(messageId).get();
+    const expedienteId = text(message.get("expedienteId")) || safeId(`correo_${messageId}`);
+    const expediente = await db().collection("TBL_GD_EXPEDIENTES").doc(expedienteId).get();
+    if (expediente.exists && expediente.get("empresaId") !== job.empresaId) return false;
+    const receivedAtMs = Number(metadata.expiresAtMs) - 15 * 60000;
+    if (correoAlertOmission({receivedAtMs, nowMs: Date.now(), expediente: expediente.data()})) return false;
+  }
+  return true;
+}
+
+export const whatsappProcesarCola = functions.region(REGION)
+  .runWith({...whatsappRuntime, timeoutSeconds: 300, maxInstances: 1, memory: "256MB"})
+  .pubsub.schedule("every 15 minutes").timeZone("America/Bogota").onRun(async () => {
+    await notificarConsumoWhatsApp();
+    const pending = await db().collection(WHATSAPP_QUEUE).where("state", "==", "pending").limit(500).get();
+    const ordered = pending.docs.sort((a, b) =>
+      (a.get("createdAt")?.toMillis?.() || 0) - (b.get("createdAt")?.toMillis?.() || 0));
+    const startedAt = Date.now();
+    for (const record of ordered) {
+      if (Date.now() - startedAt > 230000) break;
+      const data = record.data();
+      let job: CloudJob;
+      try {
+        job = JSON.parse(decrypt(data.payloadEncrypted));
+        if (job.empresaId !== data.empresaId || job.moduleId !== data.moduleId ||
+            job.input.empresaId !== job.empresaId) throw new Error("WHATSAPP_COMPANY_INVALID");
+      } catch (_) {
+        await record.ref.update({state: "invalid", updatedAt: new Date()});
+        continue;
+      }
+      if (data.expiresAtMs <= Date.now()) {
+        await record.ref.update({state: "expired", payloadEncrypted: admin.firestore.FieldValue.delete()});
+        await actualizarOrigenCola(job, "vencido_cupo_diario");
+        continue;
+      }
+      try {
+        const config = await loadRuntimeConfig(job.empresaId);
+        if (!await validarPendiente(job, config)) {
+          await record.ref.update({state: "cancelled", payloadEncrypted: admin.firestore.FieldValue.delete()});
+          await actualizarOrigenCola(job, "cancelado_cambio_configuracion");
+          continue;
+        }
+        const result = await dispatchWhatsApp({store: db(), job, jobId: record.id, seal: encrypt,
+          send: () => new WhatsAppCloudProvider(config).send(job.input)});
+        if (result.queued) break;
+        await actualizarOrigenCola(job, "accepted", result);
+        await db().collection("TBL_WHATSAPP_AUDITORIA").doc(`cola_${record.id}`).set({
+          empresaId: job.empresaId, userId: "system", action: "send_accepted",
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          details: {provider: "whatsapp_cloud", moduleId: job.moduleId, queueId: record.id,
+            providerMessageId: result.providerMessageId || null, reservedDay: whatsappBudgetDay(new Date())},
+        });
+      } catch (error) {
+        console.error("WHATSAPP_QUEUE_ERROR", {jobId: record.id,
+          message: error instanceof Error ? error.message.slice(0, 160) : "unknown"});
+      }
+    }
+    await notificarConsumoWhatsApp();
+    return null;
+  });
 
 async function sessionState(
   config: WhatsAppRuntimeConfig
@@ -1138,6 +1303,10 @@ function adminOperationError(
 ): functions.https.HttpsError {
   if (error instanceof functions.https.HttpsError) return error;
   const message = error instanceof Error ? error.message : String(error);
+  if (message.startsWith("WHATSAPP_DAILY_LIMIT_REACHED")) {
+    return new functions.https.HttpsError("resource-exhausted",
+      "Se alcanzaron los 250 intentos de hoy. La prueba no se programó; los avisos operativos quedan pendientes.");
+  }
   const code = message.split(":", 1)[0];
   console.error("WHATSAPP_ADMIN_OPERATION_FAILED", { code, message });
 
@@ -1246,7 +1415,7 @@ export async function sendWhatsAppRoute(input: {
   routeId: string;
   mensaje: string;
   metadata?: Record<string, unknown>;
-}): Promise<{ sent: number; skipped: boolean }> {
+}): Promise<{ sent: number; queued?: number; skipped: boolean }> {
   const routeId = normalize(input.routeId);
   // Cada omisión deja rastro: un aviso que no sale sin decir por qué es
   // exactamente lo que no se pudo diagnosticar el 11 sep 2026.
@@ -1289,9 +1458,10 @@ export async function sendWhatsAppRoute(input: {
   if (!recipients.length) return skip("lista_sin_destinatarios", { listId });
   const provider = await createWhatsAppProvider(input.empresaId, moduleId);
   let sent = 0;
+  let queued = 0;
   for (const recipient of recipients) {
     try {
-      await provider.send({
+      const result = await provider.send({
         telefono: recipient.telefono,
         mensaje: input.mensaje,
         empresaId: input.empresaId,
@@ -1303,7 +1473,8 @@ export async function sendWhatsAppRoute(input: {
           destinatarioNombre: recipient.nombre,
         },
       });
-      sent++;
+      if (result.queued) queued++;
+      else sent++;
       console.log("WHATSAPP_ROUTE_SENT", {
         empresaId: input.empresaId, routeId, listId,
         telefono: recipient.telefono.slice(-4),
@@ -1317,7 +1488,7 @@ export async function sendWhatsAppRoute(input: {
       });
     }
   }
-  return { sent, skipped: false };
+  return { sent, queued, skipped: false };
 }
 
 /**
@@ -1332,7 +1503,7 @@ export async function sendWhatsAppDirect(input: {
   telefono: string;
   mensaje: string;
   metadata?: Record<string, unknown>;
-}): Promise<{ sent: boolean; skipped: boolean; reason?: string }> {
+}): Promise<{ sent: boolean; skipped: boolean; queued?: boolean; reason?: string }> {
   const telefono = text(input.telefono);
   if (!telefono) {
     return { sent: false, skipped: true, reason: "missing_phone" };
@@ -1349,7 +1520,7 @@ export async function sendWhatsAppDirect(input: {
     }
     chatId = text(check.chatId);
   }
-  await provider.send({
+  const result = await provider.send({
     telefono,
     ...(chatId ? { chatId } : {}),
     mensaje: input.mensaje,
@@ -1357,7 +1528,8 @@ export async function sendWhatsAppDirect(input: {
     prioridad: "normal",
     metadata: input.metadata,
   });
-  return { sent: true, skipped: false };
+  return { sent: !result.queued, queued: result.queued === true, skipped: false,
+    ...(result.queued ? {reason: "pendiente_cupo_diario"} : {}) };
 }
 
 async function audit(input: {
@@ -1572,6 +1744,7 @@ async function persistMetaTemplateStates(
 
 export const whatsappAdminEstado = functions
   .region(REGION)
+  .runWith(whatsappRuntime)
   .https.onCall(async (data: any, context: functions.https.CallableContext) => {
     // No encapsulamos la autorización: un HttpsError de permisos debe llegar
     // al cliente con su código real, no convertirse en un "internal" opaco.
@@ -1582,6 +1755,12 @@ export const whatsappAdminEstado = functions
       const companyBranding = await loadCompanyNotificationBranding(
         caller.empresaId
       );
+      const pending = await db().collection(WHATSAPP_QUEUE).where("empresaId", "==", caller.empresaId)
+        .where("state", "==", "pending").count().get();
+      const person = await db().collection("TBL_USUARIOS").doc(caller.userId).get();
+      const day = whatsappBudgetDay(new Date());
+      const usage = isDeveloper(person.data() || {}) ?
+        await db().collection(WHATSAPP_USAGE).doc(day).get() : null;
       const messageTemplates = Object.fromEntries(
         Object.entries(MESSAGE_TEMPLATE_DEFINITIONS).map(([key, definition]) => {
           const configured = config.messageTemplates[key];
@@ -1604,6 +1783,9 @@ export const whatsappAdminEstado = functions
       );
       return {
         empresaId: caller.empresaId,
+        controlEnvios: {limiteDiarioGlobal: WHATSAPP_DAILY_LIMIT, alertaDiaria: WHATSAPP_DAILY_WARNING,
+          pendientesEmpresa: pending.data().count,
+          ...(usage ? {diaBogota: day, intentosGlobales: Number(usage.get("attempts") || 0)} : {})},
         provider: config.provider,
         baseUrl: config.baseUrl,
         sessionId: config.sessionId,
@@ -1639,6 +1821,7 @@ export const whatsappAdminEstado = functions
 
 export const whatsappAdminGuardar = functions
   .region(REGION)
+  .runWith(whatsappRuntime)
   .https.onCall(async (data: any, context: functions.https.CallableContext) => {
     const caller = await requireWhatsAppAdmin(data, context);
     const provider = normalize(data?.provider || "openwa");
@@ -1738,7 +1921,9 @@ export const whatsappAdminGuardar = functions
         ...(hasTemplates
           ? { messageTemplates: normalizedMessageTemplates(data.messageTemplates) }
           : {}),
-        ...(apiKey ? { apiKeyEncrypted: encrypt(apiKey) } : {}),
+        ...(normalize(process.env.WHATSAPP_FORCE_ENV_CONFIG) === "true"
+          ? {apiKeyEncrypted: admin.firestore.FieldValue.delete()}
+          : apiKey ? {apiKeyEncrypted: encrypt(apiKey)} : {}),
         updatedBy: caller.userId,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         ...(!current.exists
@@ -1790,6 +1975,7 @@ export const whatsappAdminGuardar = functions
 
 export const whatsappAdminSincronizarPlantillas = functions
   .region(REGION)
+  .runWith(whatsappRuntime)
   .https.onCall(async (data: any, context: functions.https.CallableContext) => {
     const caller = await requireWhatsAppAdmin(data, context);
     try {
@@ -1818,6 +2004,7 @@ export const whatsappAdminSincronizarPlantillas = functions
 
 export const whatsappAdminEnviarPlantillaRevision = functions
   .region(REGION)
+  .runWith(whatsappRuntime)
   .https.onCall(async (data: any, context: functions.https.CallableContext) => {
     const caller = await requireWhatsAppAdmin(data, context);
     const templateKey = normalize(data?.templateKey);
@@ -1961,6 +2148,7 @@ function inactiveDirectoryPerson(
 /** Directorio empresarial para construir listas sin copiar teléfonos a mano. */
 export const whatsappAdminDirectorio = functions
   .region(REGION)
+  .runWith(whatsappRuntime)
   .https.onCall(async (data: any, context: functions.https.CallableContext) => {
     const caller = await requireWhatsAppAdmin(data, context);
     const includeDetails = data?.includeDetails === true;
@@ -2199,6 +2387,7 @@ export async function enviarPdfWhatsApp(input: {
         resultado = await provider.send({
           telefono: persona.telefono, empresaId: input.empresaId, prioridad: "normal",
           mensaje: input.mensaje, documento: {id: mediaId, nombre},
+          metadata: {deliveryRecordPath: ref.path, listadoId: input.listadoId},
         });
       } catch (error) {
         if (error instanceof Error && /^WHATSAPP_CLOUD_(400|401|403|404|429):/.test(error.message)) {
@@ -2209,8 +2398,10 @@ export async function enviarPdfWhatsApp(input: {
         }
         return;
       }
-      await ref.update({estado: "enviado", providerMessageId: resultado.providerMessageId ?? null});
-      enviados++;
+      await ref.update({estado: resultado.queued ? "pendiente_cupo" : "enviado",
+        providerMessageId: resultado.providerMessageId ?? null, queueId: resultado.queueId || null});
+      if (resultado.queued) porConfirmar++;
+      else enviados++;
     }));
   }
   return {enviados, fallidos, porConfirmar};
@@ -2218,6 +2409,7 @@ export async function enviarPdfWhatsApp(input: {
 
 export const whatsappAdminGuardarListado = functions
   .region(REGION)
+  .runWith(whatsappRuntime)
   .https.onCall(async (data: any, context: functions.https.CallableContext) => {
     const caller = await requireWhatsAppAdmin(data, context);
     const config = await loadRuntimeConfig(caller.empresaId);
@@ -2330,6 +2522,7 @@ export const whatsappAdminGuardarListado = functions
 
 export const whatsappAdminNormalizarNumeros = functions
   .region(REGION)
+  .runWith(whatsappRuntime)
   .https.onCall(async (data: any, context: functions.https.CallableContext) => {
     const caller = await requireWhatsAppAdmin(data, context);
     const config = await loadRuntimeConfig(caller.empresaId);
@@ -2391,6 +2584,7 @@ export const whatsappAdminNormalizarNumeros = functions
 
 export const whatsappAdminAsignarListado = functions
   .region(REGION)
+  .runWith(whatsappRuntime)
   .https.onCall(async (data: any, context: functions.https.CallableContext) => {
     const caller = await requireWhatsAppAdmin(data, context);
     const routeId = normalize(data?.routeId);
@@ -2451,6 +2645,7 @@ export const whatsappAdminAsignarListado = functions
 
 export const whatsappAdminProbar = functions
   .region(REGION)
+  .runWith(whatsappRuntime)
   .https.onCall(async (data: any, context: functions.https.CallableContext) => {
     const caller = await requireWhatsAppAdmin(data, context);
     try {

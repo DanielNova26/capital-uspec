@@ -155,11 +155,14 @@
         ".git",
         "firebase-debug.log",
         "firebase-debug.*.log",
-        "*.local"
+        "*.local",
+        "**/.env*",
+        "**/.secret*"
       ],
       "predeploy": [
         "npm --prefix \"$RESOURCE_DIR\" run lint",
-        "npm --prefix \"$RESOURCE_DIR\" run build"
+        "npm --prefix \"$RESOURCE_DIR\" run build",
+        "node tool/verificar_seguridad_whatsapp.cjs"
       ]
     }
   ],

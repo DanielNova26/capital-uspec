@@ -120,6 +120,7 @@ export {
   whatsappAdminAsignarListado,
   whatsappAdminDirectorio,
   whatsappAdminProbar,
+  whatsappProcesarCola,
 } from "./whatsapp";
 export {
   whatsappMetaWebhook,

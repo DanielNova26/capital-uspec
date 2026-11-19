@@ -51,6 +51,7 @@ app.*.map.json
 
 # Secretos de Cloud Functions: NUNCA se versionan
 functions/.env
+functions/.secret.local
 .env
 *.env
 !*.env.example

@@ -2,12 +2,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
-const base = path.join(process.env.APPDATA || '', 'npm/node_modules/firebase-tools/lib');
-const auth = require(path.join(base, 'auth'));
-const api = require(path.join(base, 'apiv2'));
+const {getGoogleAccessToken} = require('./firebase_google_auth.cjs');
 async function main() {
-  auth.setRefreshToken(auth.getGlobalDefaultAccount().tokens.refresh_token);
-  const token = await api.getAccessToken();
+  const token = await getGoogleAccessToken();
   const end = new Date();
   const start = new Date(end.getTime() - 30 * 86400000);
   const googleHeaders = {Authorization: `Bearer ${token}`, 'Content-Type': 'application/json'};
@@ -51,6 +48,14 @@ async function main() {
     const match = line.match(/^([A-Z0-9_]+)=(.*)$/);
     if (!match) continue;
     try { env[match[1]] = JSON.parse(match[2]); } catch { env[match[1]] = match[2].replace(/^['"]|['"]$/g, ''); }
+  }
+  if (!env.WHATSAPP_CLOUD_ACCESS_TOKEN) {
+    const secret = await fetch('https://secretmanager.googleapis.com/v1/projects/integra360-94704/secrets/WHATSAPP_CLOUD_ACCESS_TOKEN/versions/latest:access', {
+      headers: googleHeaders, signal: AbortSignal.timeout(20000),
+    });
+    if (!secret.ok) throw new Error(`No fue posible leer el secreto de Meta (${secret.status}); no se calculó coste.`);
+    const value = await secret.json();
+    env.WHATSAPP_CLOUD_ACCESS_TOKEN = Buffer.from(value.payload.data, 'base64').toString('utf8');
   }
   const report = {
     start: start.toISOString(), end: end.toISOString(), complete, sampleRecords: sampled,

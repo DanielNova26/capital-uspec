@@ -25,6 +25,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.facturacionWhatsAppDocumentoRechazado = exports.interventoriaWhatsAppNuevaActa = exports.ppWhatsAppCargaPlanilla = exports.ppWhatsAppCambioFirma = void 0;
 exports.etiquetaCentroConSubcentro = etiquetaCentroConSubcentro;
+const whatsapp_runtime_1 = require("./whatsapp_runtime");
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
 const whatsapp_1 = require("./whatsapp");
@@ -86,10 +87,12 @@ async function once(eventId, work) {
 }
 exports.ppWhatsAppCambioFirma = functions
     .region(REGION)
+    .runWith(whatsapp_runtime_1.whatsappRuntime)
     .firestore.document("TBL_PP_PLANILLAS/{planillaId}")
     .onUpdate((change, context) => notificarEtapaPlanilla(text(change.before.data().estado), change.after.data(), context));
 exports.ppWhatsAppCargaPlanilla = functions
     .region(REGION)
+    .runWith(whatsapp_runtime_1.whatsappRuntime)
     .firestore.document("TBL_PP_PLANILLAS/{planillaId}")
     .onCreate(async (snapshot, context) => {
     const planilla = snapshot.data();
@@ -124,6 +127,7 @@ async function notificarEtapaPlanilla(previous, after, context) {
                 mensaje: `💳 *Planilla enviada por Tesorería*\n📄 ${nombre}\n🔎 Está disponible para revisión de Auditoría.`,
                 metadata: {
                     type: "planillas_tesoreria_auditoria",
+                    idempotencyKey: context.eventId,
                     templateKey: "planilla_pago_actualizacion",
                     planillaId: context.params.planillaId,
                     templateVariables: {
@@ -143,6 +147,7 @@ async function notificarEtapaPlanilla(previous, after, context) {
                 mensaje: `✅ *Planilla firmada por Auditoría*\n📄 ${nombre}\n✍️ Está disponible para el proceso de Gerencia.`,
                 metadata: {
                     type: "planillas_auditoria_gerencia",
+                    idempotencyKey: context.eventId,
                     templateKey: "planilla_pago_actualizacion",
                     planillaId: context.params.planillaId,
                     templateVariables: {
@@ -163,6 +168,7 @@ async function notificarEtapaPlanilla(previous, after, context) {
                 mensaje: `✅ *Planilla firmada por Gerencia*\n📄 ${nombre}\n💳 Tesorería ya puede descargar la planilla firmada y el archivo plano.`,
                 metadata: {
                     type: "planillas_gerencia_tesoreria",
+                    idempotencyKey: context.eventId,
                     templateKey: "planilla_pago_actualizacion",
                     planillaId: context.params.planillaId,
                     templateVariables: {
@@ -209,6 +215,7 @@ function etiquetaCentroConSubcentro(centro, subcentro) {
 // guardados de revisión y terminaba en 6 ms sin enviar nada.
 exports.interventoriaWhatsAppNuevaActa = functions
     .region(REGION)
+    .runWith(whatsapp_runtime_1.whatsappRuntime)
     .firestore.document("TBL_INTERVENTORIA_VISITAS/{visitaId}")
     .onWrite(async (change, context) => {
     if (!change.after.exists)
@@ -241,6 +248,7 @@ exports.interventoriaWhatsAppNuevaActa = functions
             ].filter(Boolean).join("\n"),
             metadata: {
                 type: "interventoria_nueva_acta",
+                idempotencyKey: `acta_${context.params.visitaId}_${current}`,
                 templateKey: "interventoria_actividad",
                 visitaId: context.params.visitaId,
                 templateVariables: {
@@ -253,6 +261,7 @@ exports.interventoriaWhatsAppNuevaActa = functions
 });
 exports.facturacionWhatsAppDocumentoRechazado = functions
     .region(REGION)
+    .runWith(whatsapp_runtime_1.whatsappRuntime)
     .firestore.document("TBL_FAC_REVISIONES/{revisionId}")
     .onWrite(async (change, context) => {
     if (!change.after.exists)
@@ -301,6 +310,9 @@ exports.facturacionWhatsAppDocumentoRechazado = functions
                 ].filter(Boolean).join("\n"),
                 metadata: {
                     type: "facturacion_documento_rechazado",
+                    idempotencyKey: `facturacion_${context.params.revisionId}_${version}`,
+                    deliveryRecordPath: revisionRef.path,
+                    revisionVersion: version,
                     templateKey: "facturacion_documento_rechazado",
                     revisionId: context.params.revisionId,
                     responsableId: responsibleId,
@@ -314,7 +326,7 @@ exports.facturacionWhatsAppDocumentoRechazado = functions
                 },
             });
             await revisionRef.set({
-                whatsappEstado: result.sent ? "enviado" : "omitido",
+                whatsappEstado: result.queued ? "pendiente_cupo" : result.sent ? "enviado" : "omitido",
                 whatsappDetalle: result.reason || "",
                 whatsappActualizadoAt: admin.firestore.FieldValue.serverTimestamp(),
             }, { merge: true });
