@@ -68,6 +68,9 @@ async function verifyCloud(values) {
     console.log(`${key.platform}: restricciones y credencial verificadas en Google Cloud.`);
   }
   const legacy = await get(keyRoot + policy.legacy.name);
+  assert.deepEqual(policy.legacy.services, ['maps-android-backend.googleapis.com'], 'La clave histórica solo debe permitir el SDK Android');
+  assert.ok(policy.legacy.restrictions?.androidKeyRestrictions?.allowedApplications?.length, 'La política histórica debe exigir firmas y paquete Android');
+  assert.deepEqual(normalize(legacy.restrictions), normalize(policy.legacy.restrictions), 'La clave histórica perdió su restricción de aplicación Android');
   assert.deepEqual(legacy.restrictions.apiTargets.map(t => t.service).sort(), [...policy.legacy.services].sort(), 'La clave histórica aún permite servicios de pago');
   const server = await get(keyRoot + policy.server.name);
   assert.deepEqual(normalize(server.restrictions), normalize(policy.server.restrictions), 'APIs de la clave de servidor distintas de la política');
@@ -78,7 +81,7 @@ async function verifyCloud(values) {
     assert.equal(live.status, 'ACTIVE', `${fn}: función todavía no activa`);
     assert.equal(live.environmentVariables.MOVILIDAD_GOOGLE_API_KEY, serverValue, `${fn}: conserva la clave pública`);
   }
-  console.log('Servidor: tres funciones activas con clave privada; clave histórica limitada a SDK móviles.');
+  console.log('Servidor: tres funciones activas con clave privada; clave histórica limitada a Android y firmas verificadas.');
   const serviceRoot = `https://serviceusage.googleapis.com/v1/projects/${policy.projectNumber}/services/`;
   for (const service of policy.disabledServices) assert.equal((await get(serviceRoot + service)).state, 'DISABLED', `${service}: se ha vuelto a habilitar`);
   console.log(`${policy.disabledServices.length} servicios no utilizados deshabilitados, incluido Geocoding.`);
@@ -87,6 +90,8 @@ async function verifyCloud(values) {
     assert.ok(metrics.metrics?.length, `${service}: no se pudieron comprobar las cuotas`);
     for (const metric of metrics.metrics) {
       const daily = metric.consumerQuotaLimits?.find(l => l.unit === '1/d/{project}');
+      // Discovery es metadata del SDK y solo dispone de cuota por 100 s.
+      if (!daily && metric.name.endsWith('/DiscoveryGroup')) continue;
       assert.ok(daily?.quotaBuckets?.length, `${service}/${metric.displayName}: falta cuota diaria`);
       const expected = limits[metric.displayName] || 0;
       for (const bucket of daily.quotaBuckets) {

@@ -93,9 +93,39 @@
   "legacy": {
     "name": "projects/379551786878/locations/global/keys/7a4ebb62-4934-4fce-810e-561709a99139",
     "services": [
-      "maps-android-backend.googleapis.com",
-      "maps-ios-backend.googleapis.com"
-    ]
+      "maps-android-backend.googleapis.com"
+    ],
+    "restrictions": {
+      "androidKeyRestrictions": {
+        "allowedApplications": [
+          {
+            "packageName": "com.todogestion.app",
+            "sha1Fingerprint": "1C189AD409516279756AFC9BEAFA49A4E5912B9A"
+          },
+          {
+            "packageName": "com.todogestion.app",
+            "sha1Fingerprint": "8EC225C0944F97512166CA4C85E5BC26C17E61E5"
+          },
+          {
+            "packageName": "com.todogestion.app",
+            "sha1Fingerprint": "E1325BB0569BBAEC20A8A24A941D8719250F9AFC"
+          },
+          {
+            "packageName": "com.todogestion.app",
+            "sha1Fingerprint": "2D4D0FFB1A154827D579F7550A501F85A699311D"
+          },
+          {
+            "packageName": "com.todogestion.app",
+            "sha1Fingerprint": "44D2D8107453DA35E7EE67F49C45D1BDD3F18F7E"
+          }
+        ]
+      },
+      "apiTargets": [
+        {
+          "service": "maps-android-backend.googleapis.com"
+        }
+      ]
+    }
   },
   "daily": {
     "geocoding-backend.googleapis.com": {},
@@ -110,6 +140,12 @@
     },
     "places.googleapis.com": {
       "SearchTextRequest": 20
+    },
+    "maps-android-backend.googleapis.com": {
+      "Map Loads": 1000
+    },
+    "maps-ios-backend.googleapis.com": {
+      "Map Loads": 1000
     }
   },
   "server": {
