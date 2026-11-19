@@ -43,6 +43,13 @@ trabajar online con los perfiles y registros de la copia local guardada.
   omitidas por su configuración. Guardas de WhatsApp y auditoría de Maps aprobadas.
 - Ingreso online comprobado para las 43 cuentas. Libro Excel exportado y ambas
   hojas revisadas visualmente.
+- Comprobación posterior a la carga: los 822 documentos de la fuente existen
+  online. Verificados los tres adjuntos por descarga y SHA-256, y la versión,
+  `index.html` y `main.dart.js` en ambos dominios de producción. Con tokens de
+  cliente reales se probaron la lectura de ficha, los niveles de Planeación de
+  Gerencia/director, catálogos y tareas de Mantenimiento y consulta de actas del
+  registrador. Durante el arranque hubo respuestas temporales de falta de
+  instancia; las comprobaciones finales terminaron correctamente.
 - Android firmado y validado con Bundletool y Jarsigner; versión 2.8.39,
   código 93 y mismo certificado de distribución que la versión 92.
 - Archivo: `outputs/android/to-do-gestion-2.8.39-93.aab`.
