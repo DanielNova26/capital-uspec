@@ -26,13 +26,13 @@ enum _Seccion {
     mantenimientoAcento,
   ),
   hojas(
-    'Hojas de vida',
+    'Hoja de vida',
     Icons.folder_open_outlined,
     'Revisa el historial de cada establecimiento.',
     Color(0xFF2459A6),
   ),
   equipos(
-    'Equipos',
+    'Inventario',
     Icons.inventory_2_outlined,
     'Registra equipos y consulta su hoja de vida.',
     mantenimientoAcento,
@@ -40,11 +40,17 @@ enum _Seccion {
   bajas(
     'Bajas',
     Icons.remove_circle_outline,
-    'Registra bajas de inventario.',
+    'Consulta los equipos y unidades dados de baja.',
     Color(0xFF9A4B0E),
   ),
+  movimientos(
+    'Movimientos',
+    Icons.swap_horiz,
+    'Consulta traslados entre bodegas y sus actas.',
+    mantenimientoAcento,
+  ),
   minimos(
-    'Mínimos por sede',
+    'Equipos por sede',
     Icons.fact_check_outlined,
     'Valida el Anexo 5 por establecimiento.',
     mantenimientoAcento,
@@ -56,7 +62,7 @@ enum _Seccion {
     Color(0xFF9A4B0E),
   ),
   informe(
-    'Informe',
+    'Informes',
     Icons.picture_as_pdf_outlined,
     'Filtra por establecimiento y fecha. Genera el informe en PDF.',
     Color(0xFF6E478D),
@@ -66,6 +72,11 @@ enum _Seccion {
   final String label, descripcion;
   final IconData icon;
   final Color color;
+
+  static const grupos = {
+    'Equipos': [equipos, hojas, bajas, movimientos, minimos],
+    'Mantenimiento': [pendientes, ordenes, informe],
+  };
 }
 
 class MantenimientoScreen extends StatefulWidget {
@@ -125,44 +136,74 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
   });
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: widget.vistaWeb ? mantenimientoFondo : null,
-    appBar: AppBar(
-      backgroundColor: widget.vistaWeb ? Colors.white : null,
-      foregroundColor: widget.vistaWeb ? mantenimientoTinta : null,
-      title: Text(widget._detalleId == null ? 'Mantenimiento' : _seccion.label),
-      actions: [
-        ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: MediaQuery.sizeOf(context).width >= 700 ? 200 : 112,
-          ),
-          child: EmpresaActivaChip(
-            empresaId: widget.empresaId,
-            accentColor: widget.vistaWeb
-                ? mantenimientoAcento
-                : Theme.of(context).colorScheme.primary,
-          ),
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, espacioDisponible) => Scaffold(
+      backgroundColor: widget.vistaWeb ? mantenimientoFondo : null,
+      appBar: AppBar(
+        toolbarHeight:
+            MediaQuery.textScalerOf(context).scale(16) > 22 &&
+                espacioDisponible.maxWidth < 700
+            ? 80
+            : null,
+        backgroundColor: widget.vistaWeb ? Colors.white : null,
+        foregroundColor: widget.vistaWeb ? mantenimientoTinta : null,
+        title: Text(
+          widget._detalleId == null &&
+                  widget.vistaWeb &&
+                  espacioDisponible.maxWidth >= 700
+              ? 'Mantenimiento y Equipos'
+              : _seccion.label,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
         ),
-        if (!widget.vistaWeb && widget._detalleId == null)
-          PopupMenuButton<_Seccion>(
-            tooltip: 'Secciones de Mantenimiento',
-            initialValue: _seccion,
-            onSelected: _irA,
-            itemBuilder: (_) => [
-              for (final seccion in _Seccion.values.skip(1))
-                PopupMenuItem(value: seccion, child: Text(seccion.label)),
-            ],
+        actions: [
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: espacioDisponible.maxWidth >= 700 ? 200 : 112,
+            ),
+            child: EmpresaActivaChip(
+              empresaId: widget.empresaId,
+              accentColor: widget.vistaWeb
+                  ? mantenimientoAcento
+                  : Theme.of(context).colorScheme.primary,
+            ),
           ),
-      ],
-    ),
-    body: SafeArea(
-      child: _Datos(
-        stream: _centrosStream,
-        builder: (centros) => _Datos(
-          stream: _equiposStream,
-          builder: (equipos) => _Datos(
-            stream: _ordenesStream,
-            builder: (ordenes) => _componer(centros, equipos, ordenes),
+          if ((!widget.vistaWeb || espacioDisponible.maxWidth < 700) &&
+              widget._detalleId == null)
+            PopupMenuButton<_Seccion>(
+              tooltip: 'Secciones de Mantenimiento',
+              initialValue: _seccion,
+              onSelected: _irA,
+              itemBuilder: (_) => [
+                const PopupMenuItem<_Seccion>(
+                  enabled: false,
+                  child: Text('Mantenimiento y Equipos'),
+                ),
+                const PopupMenuItem(
+                  value: _Seccion.resumen,
+                  child: Text('Resumen'),
+                ),
+                for (final grupo in _Seccion.grupos.entries) ...[
+                  PopupMenuItem<_Seccion>(
+                    enabled: false,
+                    child: Text(grupo.key),
+                  ),
+                  for (final seccion in grupo.value)
+                    PopupMenuItem(value: seccion, child: Text(seccion.label)),
+                ],
+              ],
+            ),
+        ],
+      ),
+      body: SafeArea(
+        child: _Datos(
+          stream: _centrosStream,
+          builder: (centros) => _Datos(
+            stream: _equiposStream,
+            builder: (equipos) => _Datos(
+              stream: _ordenesStream,
+              builder: (ordenes) => _componer(centros, equipos, ordenes),
+            ),
           ),
         ),
       ),
@@ -189,8 +230,9 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
           centro: _centroTarea,
           cambiarOrigen: (origen) => setState(() => _origenTarea = origen),
           cambiarCentro: (centro) => setState(() => _centroTarea = centro),
-          actualizar: () =>
-              setState(() => _tareas = _service.tareasPendientes()),
+          actualizar: () => setState(() {
+            _tareas = _service.tareasPendientes();
+          }),
           abrir: (tarea, orden) => _desdeTarea(tarea, orden, centros, equipos),
           procesarVarias: (tareas) => _desdeTarea(
             tareas.first,
@@ -210,14 +252,21 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
             centros: centros,
             vistaWeb: widget.vistaWeb,
           ),
-        _Seccion.bajas || _Seccion.minimos => InventarioMantenimiento(
+        _Seccion.bajas ||
+        _Seccion.movimientos => ConsultaMovimientosMantenimiento(
+          key: ValueKey(_seccion),
+          service: _service,
+          equipos: equipos,
+          vistaWeb: widget.vistaWeb,
+          bajas: _seccion == _Seccion.bajas,
+        ),
+        _Seccion.minimos => InventarioMantenimiento(
           key: ValueKey(_seccion),
           service: _service,
           equipos: equipos,
           centros: centros,
           vistaWeb: widget.vistaWeb,
-          bajas: _seccion == _Seccion.bajas,
-          minimos: _seccion == _Seccion.minimos,
+          minimos: true,
         ),
         _ => _operacion(
           centros,
@@ -231,7 +280,9 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
         return Row(
           children: [
             SizedBox(
-              width: 218,
+              width: MediaQuery.textScalerOf(context).scale(16) > 22
+                  ? 260
+                  : 218,
               child: Material(
                 color: Colors.white,
                 child: ListView(
@@ -248,18 +299,37 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
                             ),
                       ),
                     ),
-                    for (final seccion in _Seccion.values)
-                      ListTile(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                    for (final grupo in {
+                      '': [_Seccion.resumen],
+                      ..._Seccion.grupos,
+                    }.entries) ...[
+                      if (grupo.key.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 16, 12, 4),
+                          child: Text(
+                            grupo.key,
+                            style: Theme.of(context).textTheme.labelLarge,
+                          ),
                         ),
-                        selected: seccion == _seccion,
-                        selectedTileColor: const Color(0xFFE6F5F2),
-                        selectedColor: mantenimientoAcento,
-                        leading: Icon(seccion.icon),
-                        title: Text(seccion.label),
-                        onTap: () => _irA(seccion),
-                      ),
+                      for (final seccion in grupo.value)
+                        ListTile(
+                          minLeadingWidth: 24,
+                          horizontalTitleGap: 12,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 4,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          selected: seccion == _seccion,
+                          selectedTileColor: const Color(0xFFE6F5F2),
+                          selectedColor: mantenimientoAcento,
+                          leading: Icon(seccion.icon),
+                          title: Text(seccion.label),
+                          onTap: () => _irA(seccion),
+                        ),
+                    ],
                   ],
                 ),
               ),
@@ -272,31 +342,38 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (widget.vistaWeb)
+          if (widget.vistaWeb && constraints.maxWidth >= 700)
             ColoredBox(
               color: Colors.white,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
                 child: Wrap(
                   spacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    for (final seccion in _Seccion.values)
-                      ChoiceChip(
-                        showCheckmark: false,
-                        backgroundColor: const Color(0xFFF7FAFA),
-                        side: const BorderSide(color: mantenimientoBorde),
-                        avatar: Icon(
-                          seccion.icon,
-                          size: 17,
-                          color: seccion == _seccion
-                              ? mantenimientoAcento
-                              : null,
+                    for (final grupo in {
+                      '': [_Seccion.resumen],
+                      ..._Seccion.grupos,
+                    }.entries) ...[
+                      if (grupo.key.isNotEmpty) Text('${grupo.key}: '),
+                      for (final seccion in grupo.value)
+                        ChoiceChip(
+                          showCheckmark: false,
+                          backgroundColor: const Color(0xFFF7FAFA),
+                          side: const BorderSide(color: mantenimientoBorde),
+                          avatar: Icon(
+                            seccion.icon,
+                            size: 17,
+                            color: seccion == _seccion
+                                ? mantenimientoAcento
+                                : null,
+                          ),
+                          selectedColor: const Color(0xFFE6F5F2),
+                          label: Text(seccion.label),
+                          selected: seccion == _seccion,
+                          onSelected: (_) => _irA(seccion),
                         ),
-                        selectedColor: const Color(0xFFE6F5F2),
-                        label: Text(seccion.label),
-                        selected: seccion == _seccion,
-                        onSelected: (_) => _irA(seccion),
-                      ),
+                    ],
                   ],
                 ),
               ),
@@ -358,6 +435,7 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
           _Seccion.pendientes,
           _Seccion.equipos,
           _Seccion.bajas,
+          _Seccion.movimientos,
           _Seccion.minimos,
           _Seccion.ordenes,
           _Seccion.hojas,
@@ -678,6 +756,7 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
         case _Seccion.informe:
         case _Seccion.pendientes:
         case _Seccion.bajas:
+        case _Seccion.movimientos:
         case _Seccion.minimos:
         case _Seccion.resumen:
           return null;
@@ -1125,15 +1204,17 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
         ),
         bytes: firma.png,
       ));
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Firma guardada.')));
+      }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('No se pudo guardar la firma. $e')),
         );
+      }
     }
   }
 

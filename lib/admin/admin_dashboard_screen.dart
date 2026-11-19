@@ -5543,7 +5543,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       ),
       const _AccessMatrixModule(
         key: 'mantenimiento',
-        label: 'Mantenimiento',
+        label: 'Mantenimiento y Equipos',
         appId: kMantenimientoAppId,
         icon: Icons.build_circle_outlined,
         color: Color(0xFF0E7490),
@@ -16903,7 +16903,7 @@ const List<({String id, String label})> _kAllModules = [
   (id: 'comprasdashboard', label: 'Compras'),
   (id: 'correodashboard', label: 'Correo'),
   (id: 'interventoriadashboard', label: 'Interventoría'),
-  (id: kMantenimientoAppId, label: 'Mantenimiento'),
+  (id: kMantenimientoAppId, label: 'Mantenimiento y Equipos'),
   (id: 'facturaciondashboard', label: 'Facturación'),
   (id: 'rutasdashboard', label: 'Rutas'),
   (id: 'visitasdashboard', label: 'Visitas'),

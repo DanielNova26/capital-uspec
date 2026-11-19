@@ -178,6 +178,97 @@ class _ServicioPrueba implements MantenimientoService {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class _ServicioInventario extends _ServicioPrueba {
+  final temporal = EquipoMantenimiento('temporal', {
+    'codigo': 'EQ-2026',
+    'nombre': 'Computador de oficina',
+    'descripcion': 'Equipo para gestión administrativa',
+    'clasificacion': 'Computadores',
+    'inventario': true,
+    'existencias': {'_bodega_temporal': 5},
+    'archivos': [
+      {'id': 'foto-equipo', 'clase': 'foto', 'mime': 'image/png'},
+    ],
+  });
+  Map<String, dynamic>? movimientoGuardado, clasificacionGuardada;
+  Map<String, dynamic> movimiento(String accion) => {
+    'id': movimientoGuardado?['solicitudId'] ?? 'mov-1',
+    'equipoId': 'temporal',
+    'accion': accion,
+    'actaCodigo': accion == 'baja' ? 'BA-2026' : 'TR-2026',
+    'codigo': 'EQ-2026',
+    'nombre': 'Computador de oficina',
+    'origen': '_bodega_temporal',
+    'origenNombre': 'Bodega temporal',
+    'destino': 'sede',
+    'destinoNombre': 'Sede Norte',
+    'unidades': 2,
+    'descripcion':
+        'Equipo de oficina para actividades administrativas del establecimiento.',
+    'entrega': 'Técnico de mantenimiento',
+    'recibe': 'Responsable del establecimiento',
+    'entregaPersona': {'cargo': 'Técnico', 'area': 'Mantenimiento'},
+    'recibePersona': {'cargo': 'Administrador', 'area': 'Operaciones'},
+    'observaciones':
+        'Se revisan las condiciones del equipo y se deja constancia del movimiento, de las unidades y del saldo disponible en la bodega de origen.',
+    'saldoAnterior': 5,
+    'saldoPosterior': 3,
+    'fecha': DateTime(2026, 11, 19, 8).millisecondsSinceEpoch,
+  };
+  @override
+  Stream<List<EquipoMantenimiento>> equipos() => Stream.value([
+    temporal,
+    EquipoMantenimiento('retirado', {
+      'codigo': 'EQ-BAJA',
+      'nombre': 'Equipo retirado',
+      'inventario': true,
+      'existencias': <String, int>{},
+    }),
+  ]);
+  @override
+  Future<Map<String, dynamic>> inventario(
+    String accion, [
+    Map<String, dynamic> datos = const {},
+  ]) async {
+    if (accion == 'traslado') {
+      movimientoGuardado = datos;
+      return {'id': datos['solicitudId']};
+    }
+    if (accion == 'clasificacion') {
+      clasificacionGuardada = datos;
+      return {'id': 'comp'};
+    }
+    if (accion == 'movimientos') {
+      return {
+        'movimientos': [movimiento(datos['clase'] as String)],
+      };
+    }
+    if (accion == 'historial') {
+      return {
+        'movimientos': [movimiento('traslado')],
+      };
+    }
+    if (accion == 'leerArchivo') {
+      return {
+        'base64': base64Encode(img.encodePng(img.Image(width: 20, height: 20))),
+      };
+    }
+    return {
+      ...await super.inventario(accion, datos),
+      'actor': 'tecnico',
+      'clasificaciones': [
+        {
+          'id': 'comp',
+          'codigo': 'COMP',
+          'nombre': 'Computadores',
+          'metodoDepreciacion': 'linea_recta',
+          'activo': true,
+        },
+      ],
+    };
+  }
+}
+
 Future<void> _abrirModulo(
   WidgetTester tester,
   _ServicioPrueba servicio, {
@@ -196,15 +287,12 @@ Future<void> _abrirModulo(
           textScaler: TextScaler.linear(1.6),
           padding: EdgeInsets.only(top: web ? 0 : 28, bottom: web ? 0 : 24),
         ),
-        child: child!,
+        child: RepaintBoundary(key: captura, child: child!),
       ),
-      home: RepaintBoundary(
-        key: captura,
-        child: MantenimientoScreen(
-          empresaId: 'A',
-          service: servicio,
-          vistaWeb: web,
-        ),
+      home: MantenimientoScreen(
+        empresaId: 'A',
+        service: servicio,
+        vistaWeb: web,
       ),
     ),
   );
@@ -228,7 +316,11 @@ void main() {
       tester,
     ) async {
       await _abrirModulo(tester, _ServicioPrueba(), ancho: ancho);
-      await tester.tap(find.text('Hojas de vida').hitTestable().first);
+      if (ancho < 700) {
+        await tester.tap(find.byTooltip('Secciones de Mantenimiento'));
+        await tester.pumpAndSettle();
+      }
+      await tester.tap(find.text('Hoja de vida').hitTestable().first);
       await tester.pumpAndSettle();
       if (ancho == 390) {
         await _desplazarHasta(tester, find.text('Sede Norte'));
@@ -336,7 +428,7 @@ void main() {
           platform: plataforma ?? TargetPlatform.android,
           captura: captura,
         );
-        if (plataforma != null) {
+        if (plataforma != null || ancho < 700) {
           await tester.tap(find.byTooltip('Secciones de Mantenimiento'));
           await tester.pumpAndSettle();
         }
@@ -358,6 +450,7 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.text('Visitas').last);
         await tester.pumpAndSettle();
+        await _desplazarHasta(tester, find.text('Ajustar cocina'));
         expect(find.text('Ajustar cocina'), findsOneWidget);
         expect(find.text('Reparar puerta'), findsNothing);
         final centro = find.widgetWithText(
@@ -423,11 +516,11 @@ void main() {
         web: plataforma == null,
         platform: plataforma ?? TargetPlatform.android,
       );
-      if (plataforma != null) {
+      if (plataforma != null || ancho < 700) {
         await tester.tap(find.byTooltip('Secciones de Mantenimiento'));
         await tester.pumpAndSettle();
       }
-      await tester.tap(find.text('Equipos').hitTestable().first);
+      await tester.tap(find.text('Inventario').hitTestable().first);
       await tester.pumpAndSettle();
       expect(find.byType(InventarioMantenimiento), findsOneWidget);
       await _desplazarHasta(tester, find.text('Nevera industrial'));
@@ -436,6 +529,249 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  for (final (ancho, plataforma) in [
+    (390.0, null),
+    (768.0, null),
+    (1024.0, null),
+    (1366.0, null),
+    (390.0, TargetPlatform.android),
+    (390.0, TargetPlatform.iOS),
+  ]) {
+    testWidgets(
+      'Traslado con saldo y sesión autenticada a $ancho en ${plataforma ?? 'Web'}',
+      (tester) async {
+        final servicio = _ServicioInventario();
+        final captura = GlobalKey();
+        await _abrirModulo(
+          tester,
+          servicio,
+          ancho: ancho,
+          web: plataforma == null,
+          platform: plataforma ?? TargetPlatform.android,
+          captura: captura,
+        );
+        if (plataforma != null || ancho < 700) {
+          await tester.tap(find.byTooltip('Secciones de Mantenimiento'));
+          await tester.pumpAndSettle();
+        }
+        await tester.tap(find.text('Inventario').hitTestable().first);
+        await tester.pumpAndSettle();
+        expect(find.text('Equipo retirado'), findsNothing);
+        expect(find.text('Asociar tipo'), findsNothing);
+        await _desplazarHasta(tester, find.text('Trasladar'));
+        await tester.tap(find.text('Trasladar'));
+        await tester.pumpAndSettle();
+        if (plataforma == null &&
+            Platform.environment['MANTENIMIENTO_CAPTURAS'] == '1') {
+          expect(find.byType(Image), findsOneWidget);
+          await _capturar(tester, captura, 'traslado_inicio_$ancho');
+        }
+        final cantidad = find.widgetWithText(TextFormField, 'Unidades *');
+        await _desplazarHasta(tester, cantidad);
+        await tester.enterText(cantidad, '2');
+        await tester.pumpAndSettle();
+        expect(
+          find.text('Saldo en bodega después del movimiento'),
+          findsOneWidget,
+        );
+        expect(find.text('3'), findsOneWidget);
+        final destino = find.widgetWithText(
+          DropdownButtonFormField<String>,
+          'Bodega o sede de destino *',
+        );
+        await _desplazarHasta(tester, destino);
+        await tester.tap(destino);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Sede Norte').last);
+        await tester.pumpAndSettle();
+        final recibe = find.byType(PersonaMantenimientoField);
+        await _desplazarHasta(tester, recibe);
+        await tester.tap(recibe);
+        await tester.pumpAndSettle();
+        final dialogo = find.byType(Dialog);
+        expect(
+          find.descendant(
+            of: dialogo,
+            matching: find.text('Técnico de mantenimiento'),
+          ),
+          findsNothing,
+        );
+        expect(find.text('Administrador · Operaciones'), findsOneWidget);
+        await tester.tap(find.text('Responsable del establecimiento'));
+        await tester.pumpAndSettle();
+        if (plataforma == null &&
+            Platform.environment['MANTENIMIENTO_CAPTURAS'] == '1') {
+          await _capturar(tester, captura, 'traslado_personas_$ancho');
+        }
+        await tester.tap(find.text('Registrar traslado').hitTestable());
+        await tester.pumpAndSettle();
+        expect(servicio.movimientoGuardado?['entregaId'], 'tecnico');
+        expect(servicio.movimientoGuardado?['recibeId'], 'receptor');
+        expect(servicio.movimientoGuardado?['cantidad'], 2);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'Bajas y movimientos permiten solo consulta a $ancho en ${plataforma ?? 'Web'}',
+      (tester) async {
+        final servicio = _ServicioInventario();
+        final captura = GlobalKey();
+        await _abrirModulo(
+          tester,
+          servicio,
+          ancho: ancho,
+          web: plataforma == null,
+          platform: plataforma ?? TargetPlatform.android,
+          captura: captura,
+        );
+        for (final seccion in ['Bajas', 'Movimientos']) {
+          if (plataforma == null &&
+              Platform.environment['MANTENIMIENTO_CAPTURAS'] == '1') {
+            await _capturar(
+              tester,
+              captura,
+              'consulta_antes_${seccion}_$ancho',
+            );
+          }
+          if (plataforma != null || ancho < 700) {
+            await tester.tap(find.byTooltip('Secciones de Mantenimiento'));
+            await tester.pumpAndSettle();
+          }
+          await tester.tap(
+            plataforma == null && ancho >= 700 && ancho < 1160
+                ? find.widgetWithText(ChoiceChip, seccion)
+                : find.text(seccion).hitTestable().first,
+          );
+          await tester.pumpAndSettle();
+          expect(find.byType(ConsultaMovimientosMantenimiento), findsOneWidget);
+          expect(find.text('Dar de baja'), findsNothing);
+          expect(find.text('Registrar equipo'), findsNothing);
+          await _desplazarHasta(tester, find.text('Ver acta'));
+          expect(find.text('Ver acta'), findsOneWidget);
+          if (plataforma == null &&
+              Platform.environment['MANTENIMIENTO_CAPTURAS'] == '1') {
+            await _capturar(tester, captura, 'consulta_${seccion}_$ancho');
+          }
+          expect(tester.takeException(), isNull);
+        }
+      },
+    );
+  }
+
+  for (final (ancho, plataforma) in [
+    (390.0, null),
+    (768.0, null),
+    (1024.0, null),
+    (1366.0, null),
+    (390.0, TargetPlatform.android),
+    (390.0, TargetPlatform.iOS),
+  ]) {
+    testWidgets(
+      'Registrar equipo exige precio con factura a $ancho en ${plataforma ?? 'Web'}',
+      (tester) async {
+        await _abrirModulo(
+          tester,
+          _ServicioInventario(),
+          ancho: ancho,
+          web: plataforma == null,
+          platform: plataforma ?? TargetPlatform.android,
+        );
+        if (plataforma != null || ancho < 700) {
+          await tester.tap(find.byTooltip('Secciones de Mantenimiento'));
+          await tester.pumpAndSettle();
+        }
+        await tester.tap(find.text('Inventario').hitTestable().first);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Registrar equipo'));
+        await tester.pumpAndSettle();
+        expect(find.text('Referencia'), findsNothing);
+        expect(find.text('Tipo en el maestro de mínimos'), findsNothing);
+        expect(find.text('Rótulo *'), findsOneWidget);
+        await tester.enterText(
+          find.widgetWithText(TextFormField, 'Nombre *'),
+          'Impresora',
+        );
+        final factura = find.widgetWithText(TextFormField, 'Factura');
+        await _desplazarHasta(tester, factura);
+        if (plataforma != null) {
+          tester.view.viewInsets = FakeViewPadding(
+            bottom: 240 * tester.view.devicePixelRatio,
+          );
+          addTearDown(tester.view.resetViewInsets);
+          await tester.pumpAndSettle();
+        }
+        await tester.enterText(factura, 'F-200');
+        await tester.tap(find.text('Ingresar a bodega temporal'));
+        await tester.pumpAndSettle();
+        expect(find.text('Obligatorio cuando hay factura'), findsOneWidget);
+        expect(find.text('Precio de compra (COP) *'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('El maestro permite crear clasificaciones con depreciación', (
+    tester,
+  ) async {
+    final servicio = _ServicioInventario();
+    await _abrirModulo(tester, servicio, ancho: 1024);
+    await tester.tap(find.text('Inventario').hitTestable().first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Clasificaciones'));
+    await tester.pumpAndSettle();
+    expect(find.text('COMP · Computadores'), findsOneWidget);
+    await tester.tap(find.text('Nueva clasificación'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Código *'),
+      'IMP',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Nombre *'),
+      'Impresoras',
+    );
+    await tester.tap(
+      find.widgetWithText(
+        DropdownButtonFormField<String>,
+        'Método de depreciación *',
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Línea recta').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Guardar'));
+    await tester.pumpAndSettle();
+    expect(servicio.clasificacionGuardada?['nombre'], 'Impresoras');
+    expect(
+      servicio.clasificacionGuardada?['metodoDepreciacion'],
+      'linea_recta',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  test(
+    'Actas de traslado y baja incluyen foto y nombres de archivo legibles',
+    () async {
+      final servicio = _ServicioInventario();
+      for (final accion in ['traslado', 'baja']) {
+        final movimiento = servicio.movimiento(accion);
+        final bytes = await generarActaEquipo(
+          movimiento,
+          'A',
+          foto: img.encodePng(img.Image(width: 30, height: 20)),
+        );
+        expect(ascii.decode(bytes.take(5).toList()), '%PDF-');
+        expect(nombreActaEquipo(movimiento), contains('acta_${accion}_'));
+        expect(nombreActaEquipo(movimiento), contains('Computador_de_oficina'));
+        await Directory('build/mantenimiento_revision').create(recursive: true);
+        await File(
+          'build/mantenimiento_revision/acta_$accion.pdf',
+        ).writeAsBytes(bytes);
+      }
+    },
+  );
 
   testWidgets('Una tarea manual sin sede exige elegir un establecimiento', (
     tester,

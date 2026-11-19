@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const {operaOrdenMantenimiento, cierreMantenimientoValido} = require("../lib/mantenimiento_ordenes");
+const {operaOrdenMantenimiento, cierreMantenimientoValido, personaMantenimiento} = require("../lib/mantenimiento_ordenes");
+const {tipoEquipoEnSede} = require("../lib/mantenimiento_inventario");
 
 test("el servidor exige acceso efectivo, empresa y módulo habilitados", () => {
   const usuario = {
@@ -31,4 +32,21 @@ test("el cierre exige trabajo, técnico, receptor y fotografía final", () => {
   for (const campo of ["trabajo", "tecnico", "receptor"]) {
     assert.equal(cierreMantenimientoValido({...completo, [campo]: ""}, [{clase: "evidencia"}]), false);
   }
+});
+
+test("el tipo respeta la sede, conserva el histórico y nunca aplica en temporal", () => {
+  const equipo = {familia: "anexo_2", familiasPorSede: {norte: "anexo_3", sur: ""}};
+  assert.equal(tipoEquipoEnSede(equipo, "norte"), "anexo_3");
+  assert.equal(tipoEquipoEnSede(equipo, "sur"), "");
+  assert.equal(tipoEquipoEnSede(equipo, "historica"), "anexo_2");
+  assert.equal(tipoEquipoEnSede(equipo, "_bodega_temporal"), "");
+});
+
+test("el personal usa el cargo y departamento de la empresa activa", () => {
+  const datos = {empresaId: "B", empresas: ["A", "B"], nombre: "Ana", cargo: "Cargo B", area: "Área B",
+    empresasDetalle: {A: {cargoNombre: "Cargo A", areaNombre: "Área A"}}};
+  const persona = (data) => personaMantenimiento({id: "ana", data: () => data}, "A");
+  assert.deepEqual(persona(datos), {id: "ana", nombre: "Ana", cargo: "Cargo A", area: "Área A"});
+  assert.deepEqual(persona({...datos, empresasDetalle: {A: {}}}), {id: "ana", nombre: "Ana", cargo: "", area: ""});
+  assert.equal(persona({...datos, empresasDetalle: {A: {activo: false}}}), null);
 });

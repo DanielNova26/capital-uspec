@@ -142,8 +142,9 @@ function personaMantenimiento(doc, empresaId) {
     if (ficha?.soloTalentoHumano === true)
         return null;
     const nombre = String(d.nombreCompleto || d.nombre || d.displayName || d.name || "").trim().slice(0, 120);
-    const cargo = String(ficha?.cargoNombre || ficha?.cargo || d.cargoNombre || d.cargo || "").trim().slice(0, 120);
-    const area = String(ficha?.areaNombre || ficha?.area || d.areaNombre || d.area || "").trim().slice(0, 120);
+    const principal = d.empresaId === empresaId || d.empresa === empresaId ? d : {};
+    const cargo = String(ficha?.cargoNombre || ficha?.cargo || principal.cargoNombre || principal.cargo || "").trim().slice(0, 120);
+    const area = String(ficha?.areaNombre || ficha?.area || principal.areaNombre || principal.area || "").trim().slice(0, 120);
     return nombre ? { id: doc.id, nombre, cargo, area } : null;
 }
 function datosCierre(input) {

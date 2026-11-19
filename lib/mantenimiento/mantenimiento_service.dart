@@ -194,6 +194,9 @@ class EquipoMantenimiento {
   final Map<String, dynamic> datos;
   final Map<String, int> existencias;
   String get familia => _texto(datos, 'familia');
+  String tipoEnSede(String sede) => sede == '_bodega_temporal'
+      ? ''
+      : ((datos['familiasPorSede'] as Map?)?[sede] ?? familia).toString();
   final Timestamp? updatedAt;
 }
 

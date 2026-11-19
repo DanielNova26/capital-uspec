@@ -337,8 +337,12 @@ test("alta en temporal, traslado parcial y baja obligatoria quedan registrados u
   );
   await sembrar({
     [`${accesos}/A_operario`]: {empresaId: "A", userId: "operario", operador: true, gestor: true},
-    "TBL_COMPRAS_PROVEEDORES/pa": {empresaId: "A", razonSocial: "Proveedor A"},
+    "TBL_COMPRAS_PROVEEDORES/pa": {empresaId: "A", razonSocial: "Proveedor A", categorias: ["Equipos"]},
+    "TBL_COMPRAS_PROVEEDORES/pc": {empresaId: "A", razonSocial: "Proveedor de alimentos", categorias: ["Abarrotes"]},
     "TBL_COMPRAS_PROVEEDORES/pb": {empresaId: "B", razonSocial: "Proveedor B"},
+    "TBL_USUARIOS/receptor": {empresaId: "A", nombre: "Persona receptora", cargo: "Administrador", area: "Operaciones"},
+    "TBL_MANTENIMIENTO_CLASIFICACIONES/clase-A": {empresaId: "A", codigo: "MAR", nombre: "Marmitas", metodoDepreciacion: "linea_recta"},
+    "TBL_MANTENIMIENTO_CLASIFICACIONES/clase-B": {empresaId: "B", codigo: "MAR", nombre: "Marmitas B"},
     "TBL_CENTROS_COSTOS/centro-A": {empresaId: "A", centroId: "sede-A", nombre: "Establecimiento A"},
   });
   const catalogo = await call("catalogos");
@@ -350,28 +354,44 @@ test("alta en temporal, traslado parcial y baja obligatoria quedan registrados u
   const foto = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aT2QAAAAASUVORK5CYII=";
   await call("subirArchivo", {clase: "ficha", mime: "application/pdf", nombre: "ficha.pdf", archivoId: "ficha", base64});
   await call("subirArchivo", {clase: "foto", mime: "image/png", nombre: "baja.png", archivoId: "evidencia", base64: foto});
+  await call("subirArchivo", {clase: "foto", mime: "image/png", nombre: "equipo.png", archivoId: "foto-equipo", base64: foto});
   const datos = {nombre: "Marmitas", categoria: "equipo", propiedad: "propio",
-    familia: "anexo_2", grupo: true, cantidad: 50, fechaIngreso: "2026-11-13", archivos: ["ficha"],
+    familia: "anexo_2", grupo: true, cantidad: 50, fechaIngreso: "2026-11-13", archivos: ["ficha", "foto-equipo"],
+    clasificacionId: "clase-A",
     solicitudId: "alta"};
   await assert.rejects(call("alta", {...datos, proveedorId: "pb"}), {code: "invalid-argument"});
-  const alta = await call("alta", {...datos, proveedorId: "pa"});
+  await assert.rejects(call("alta", {...datos, proveedorId: "pc"}), {code: "invalid-argument"});
+  await assert.rejects(call("alta", {...datos, factura: "F-10"}), {code: "invalid-argument"});
+  await assert.rejects(call("alta", {...datos, factura: "F-10", precioCompra: -2}), {code: "invalid-argument"});
+  await assert.rejects(call("alta", {...datos, clasificacionId: "clase-B"}), {code: "invalid-argument"});
+  const alta = await call("alta", {...datos, proveedorId: "pa", factura: "F-10", precioCompra: 120000.50});
   assert.deepEqual(await call("alta", {...datos, proveedorId: "pa"}), alta);
   const equipoId = alta.id;
   const ref = dbAdmin.doc(`${equipos}/${equipoId}`);
   assert.match((await ref.get()).get("codigo"), /^EQ-[A-F0-9]{12}$/);
   assert.deepEqual((await ref.get()).data().existencias, {_bodega_temporal: 50});
+  assert.equal((await ref.get()).get("familia"), "");
+  assert.equal((await ref.get()).get("clasificacion"), "Marmitas");
+  assert.equal((await ref.get()).get("precioCompra"), 120000.50);
+  await assert.rejects(call("asociar", {equipoId, centroDocId: "_bodega_temporal", familia: "anexo_2"}), {code: "invalid-argument"});
   await assertFails(updateDoc(doc(cuenta("operario"), ref.path), {centroDocId: "centro-A", updatedAt: serverTimestamp()}));
   const plan = {centroDocId: "centro-A", ppl: 2300, cantidades: {anexo_2: 4},
     responsableId: "operario", coordinadorId: "operario", validar: true};
   await call("minimos", plan);
   await assertFails(getDoc(doc(cuenta("operario"), "TBL_MANTENIMIENTO_MINIMOS/A_centro-A")));
   const traslado = {equipoId, origen: "_bodega_temporal", destino: "centro-A",
-    cantidad: 5, solicitudId: "traslado", entregaId: "operario", recibeId: "operario"};
+    cantidad: 5, solicitudId: "traslado", entregaId: "operario", recibeId: "receptor"};
+  await assert.rejects(call("traslado", {...traslado, recibeId: "operario"}), {code: "invalid-argument"});
+  await assert.rejects(call("traslado", {...traslado, entregaId: "receptor"}), {code: "invalid-argument"});
+  await assert.rejects(call("traslado", {...traslado, recibeId: "", recibe: "Texto libre"}), {code: "invalid-argument"});
   await assert.rejects(call("traslado", {...traslado, destino: "centro-B"}), {code: "invalid-argument"});
   await assert.rejects(call("traslado", {...traslado, recibeId: "usuario-ajeno"}), {code: "invalid-argument"});
+  await assert.rejects(call("traslado", {...traslado, cantidad: 51}), {code: "failed-precondition"});
   const movimientos = await Promise.all([call("traslado", traslado), call("traslado", traslado)]);
   assert.deepEqual(movimientos[0], movimientos[1]);
   assert.deepEqual((await ref.get()).data().existencias, {_bodega_temporal: 45, "centro-A": 5});
+  await call("asociar", {equipoId, centroDocId: "centro-A", familia: "anexo_2"});
+  assert.equal((await ref.get()).get("familiasPorSede.centro-A"), "anexo_2");
   await assert.rejects(call("baja", {equipoId, origen: "centro-A", cantidad: 1, observaciones: "Daño",
     solicitudId: "sin-evidencia"}), {code: "invalid-argument"});
   const baja = {equipoId, origen: "centro-A", cantidad: 5, observaciones: "Daño",
@@ -382,9 +402,70 @@ test("alta en temporal, traslado parcial y baja obligatoria quedan registrados u
   assert.deepEqual((await ref.get()).data().existencias, {_bodega_temporal: 45});
   assert.equal((await dbAdmin.doc(`TBL_TAREAS/${reemplazo.tareaId}`).get()).get("asignado_uid"), "operario");
   assert.equal((await call("historial", {equipoId})).movimientos.length, 2);
+  const historia = await call("historial", {equipoId, movimientoId: "traslado"});
+  assert.equal(historia.movimientos.length, 1);
+  assert.match(historia.movimientos[0].actaCodigo, /^TR-[A-F0-9]{12}$/);
+  assert.equal(historia.movimientos[0].saldoPosterior, 45);
+  assert.equal(historia.movimientos[0].entregaId, "operario");
+  assert.equal(historia.movimientos[0].recibePersona.cargo, "Administrador");
+  assert.equal(historia.movimientos[0].fotosEquipo[0].id, "foto-equipo");
+  const consultaBajas = await call("movimientos", {clase: "baja"});
+  assert.equal(consultaBajas.movimientos.length, 1);
+  assert.match(consultaBajas.movimientos[0].actaCodigo, /^BA-[A-F0-9]{12}$/);
+  assert.equal(consultaBajas.movimientos[0].equipoId, equipoId);
+  assert.equal((await call("movimientos", {clase: "traslado"})).movimientos.length, 1);
+  await assert.rejects(call("movimientos", {clase: "baja", empresaId: "B"}), {code: "permission-denied"});
+  await assert.rejects(call("movimientos", {clase: "baja", cursor: "TBL_MANTENIMIENTO_EQUIPOS/equipo-B/movimientos/x"}), {code: "invalid-argument"});
   assert.deepEqual(await call("leerArchivo", {archivoId: "evidencia"}), {base64: foto});
   await assertFails(getDoc(doc(cuenta("operario"), `${ref.path}/movimientos/baja`)));
   const tareas = await mantenimientoOrden.run({empresaId: "A", accion: "tareas"},
     {auth: {uid: "operario", token: {authVersion: 2, userDocId: "operario"}}});
   assert.ok(tareas.tareas.some((t) => t.id === reemplazo.tareaId && t.origen === "inventario"));
+});
+
+test("clasificaciones operativas se aíslan por empresa y no permiten escritura directa", async () => {
+  const {mantenimientoInventario} = require("../lib/mantenimiento_inventario");
+  const call = (accion, data = {}, persona = "operario") => mantenimientoInventario.run(
+    {empresaId: "A", accion, ...data}, {auth: {uid: persona, token: {authVersion: 2, userDocId: persona}}},
+  );
+  const clase = {codigo: "COMP", nombre: "Computadores", metodoDepreciacion: "linea_recta"};
+  const creada = await call("clasificacion", clase);
+  await sembrar({"TBL_MANTENIMIENTO_CLASIFICACIONES/copiada": {empresaId: "A", ...clase, codigo: "COPIADA"}});
+  await assert.rejects(call("clasificacion", {...clase, codigo: "COPIADA"}), {code: "already-exists"});
+  await assert.rejects(call("clasificacion", clase), {code: "already-exists"});
+  await assert.rejects(call("clasificacion", {...clase, empresaId: "B"}), {code: "permission-denied"});
+  await assert.rejects(call("clasificacion", {...clase, codigo: "OTRO", metodoDepreciacion: "inventado"}), {code: "invalid-argument"});
+  await assert.rejects(call("clasificacion", {...clase, clasificacionId: creada.id}, "sinapp"), {code: "permission-denied"});
+  await call("clasificacion", {...clase, clasificacionId: creada.id, nombre: "Computadores e impresoras", activo: false});
+  const ref = `TBL_MANTENIMIENTO_CLASIFICACIONES/${creada.id}`;
+  assert.equal((await dbAdmin.doc(ref).get()).get("activo"), false);
+  await assertFails(setDoc(doc(cuenta("operario"), ref), {...clase, empresaId: "A"}));
+  await assertFails(getDoc(doc(cuenta("sinapp"), ref)));
+  await call("clasificacion", {...clase, clasificacionId: creada.id, activo: true});
+  assert.equal((await call("catalogos")).clasificaciones.find((c) => c.id === creada.id).activo, true);
+});
+
+test("consulta de movimientos pagina sin duplicar y no mezcla empresas", async () => {
+  const {mantenimientoInventario} = require("../lib/mantenimiento_inventario");
+  const batch = dbAdmin.batch();
+  for (let i = 0; i < 101; i++) {
+    batch.set(dbAdmin.doc(`${equipos}/paginado/movimientos/mov-${String(i).padStart(3, "0")}`), {
+      empresaId: "A", accion: "traslado", createdAt: admin.firestore.Timestamp.fromMillis(1000 + i),
+    });
+  }
+  batch.set(dbAdmin.doc(`${equipos}/equipo-B/movimientos/mov-externo`), {
+    empresaId: "B", accion: "traslado", createdAt: admin.firestore.Timestamp.now(),
+  });
+  await batch.commit();
+  const call = (cursor) => mantenimientoInventario.run({empresaId: "A", accion: "movimientos", clase: "traslado", cursor},
+    {auth: {uid: "operario", token: {authVersion: 2, userDocId: "operario"}}});
+  const primera = await call("");
+  assert.equal(primera.movimientos.length, 100);
+  assert.ok(primera.cursor);
+  const segunda = await call(primera.cursor);
+  assert.equal(segunda.cursor, "");
+  const todas = [...primera.movimientos, ...segunda.movimientos];
+  assert.equal(todas.filter((m) => m.equipoId === "paginado").length, 101);
+  assert.equal(new Set(todas.map((m) => `${m.equipoId}/${m.id}`)).size, todas.length);
+  assert.ok(todas.every((m) => m.empresaId === "A"));
 });

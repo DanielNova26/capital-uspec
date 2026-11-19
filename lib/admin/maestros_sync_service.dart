@@ -82,10 +82,14 @@ const kModulosMaestros = <ModuloMaestrosInfo>[
   ),
   ModuloMaestrosInfo(
     id: 'mantenimiento',
-    nombre: 'Mantenimiento',
+    nombre: 'Mantenimiento y Equipos',
     icono: Icons.build_circle_outlined,
     color: Color(0xFF0E7490),
     maestros: [
+      MaestroInfo(
+        'TBL_MANTENIMIENTO_CLASIFICACIONES',
+        'Clasificaciones de equipos',
+      ),
       MaestroInfo('TBL_MANTENIMIENTO_EQUIPOS', 'Fichas base de equipos'),
       MaestroInfo('TBL_MANTENIMIENTO_MINIMOS', 'Mínimos por establecimiento'),
     ],

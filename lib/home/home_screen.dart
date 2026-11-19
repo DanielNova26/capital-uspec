@@ -2174,7 +2174,7 @@ class _HomeScreenState extends State<HomeScreen> {
           kMantenimientoAppId,
           ModuleCard(
             width: cardWidth,
-            title: 'Mantenimiento',
+            title: 'Mantenimiento y Equipos',
             icon: Icons.build_circle_outlined,
             color: const Color(0xFF0E7490),
             compact: !isWeb,

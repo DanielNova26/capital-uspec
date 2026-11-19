@@ -67,13 +67,15 @@ test('mantenimiento copia fichas base sin trasladar activos ni su historial', ()
   const modulo = MODULOS_MAESTROS.find((m) => m.id === 'mantenimiento');
   assert.ok(!MODULOS_LIMPIEZA.some((m) => m.id === modulo.id));
   assert.deepEqual(modulo.maestros.map((m) => m.id), [
-    'TBL_MANTENIMIENTO_EQUIPOS', 'TBL_MANTENIMIENTO_MINIMOS',
+    'TBL_MANTENIMIENTO_CLASIFICACIONES', 'TBL_MANTENIMIENTO_EQUIPOS', 'TBL_MANTENIMIENTO_MINIMOS',
   ]);
-  const [equipos, minimos] = modulo.maestros;
+  const [clasificaciones, equipos, minimos] = modulo.maestros;
+  assert.deepEqual(clasificaciones.clave, ['codigo']);
   assert.deepEqual(equipos.clave, ['codigo']);
   assert.deepEqual(equipos.omitir, [
     'centroDocId', 'serie', 'factura', 'inventario', 'existencias', 'cantidadInicial',
     'proveedorId', 'proveedorNombre', 'fechaCompra', 'fechaIngreso', 'archivos', 'creadoPor', 'solicitudId',
+    'precioCompra', 'familiasPorSede',
   ]);
   assert.deepEqual(minimos.clave, ['centroDocId']);
   assert.deepEqual(minimos.omitir, ['validadoPor', 'validadoAt', 'responsableId', 'coordinadorId', 'ppl']);

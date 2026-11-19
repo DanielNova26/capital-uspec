@@ -35,14 +35,13 @@ class InventarioMantenimiento extends StatefulWidget {
     required this.equipos,
     required this.centros,
     required this.vistaWeb,
-    this.bajas = false,
     this.minimos = false,
   });
 
   final MantenimientoService service;
   final List<EquipoMantenimiento> equipos;
   final List<EstablecimientoMantenimiento> centros;
-  final bool vistaWeb, bajas, minimos;
+  final bool vistaWeb, minimos;
 
   @override
   State<InventarioMantenimiento> createState() =>
@@ -64,7 +63,9 @@ class _InventarioMantenimientoState extends State<InventarioMantenimiento> {
       context,
     ).push(MaterialPageRoute<void>(builder: (_) => pagina));
     if (mounted && widget.minimos) {
-      setState(() => _catalogos = widget.service.inventario('catalogos'));
+      setState(() {
+        _catalogos = widget.service.inventario('catalogos');
+      });
     }
   }
 
@@ -81,18 +82,18 @@ class _InventarioMantenimientoState extends State<InventarioMantenimiento> {
     ),
   );
 
-  Future<void> _asociar(EquipoMantenimiento equipo) async {
+  Future<void> _asociar(EquipoMantenimiento equipo, String sede) async {
     try {
       final datos = await widget.service.inventario('catalogos');
       if (!mounted) return;
-      var familia = equipo.familia;
+      var familia = equipo.tipoEnSede(sede);
       final guardar = await showDialog<bool>(
         context: context,
         builder: (c) => AlertDialog(
           title: Text(equipo.nombre),
           content: _selector('Tipo en el maestro de mínimos', familia, {
             '': 'Sin asociar',
-            ..._familias(datos),
+            ..._familiasSede(datos, sede),
           }, (v) => familia = v),
           actions: [
             TextButton(
@@ -110,6 +111,7 @@ class _InventarioMantenimientoState extends State<InventarioMantenimiento> {
         await widget.service.inventario('asociar', {
           'equipoId': equipo.id,
           'familia': familia,
+          'centroDocId': sede,
         });
       }
     } catch (e) {
@@ -137,7 +139,7 @@ class _InventarioMantenimientoState extends State<InventarioMantenimiento> {
             for (final c in widget.centros.where((c) => c.activo))
               c.id: c.centro.nombre,
           }..remove(origen),
-          baja: baja ?? widget.bajas,
+          baja: baja ?? false,
           vistaWeb: widget.vistaWeb,
         ),
       );
@@ -151,17 +153,17 @@ class _InventarioMantenimientoState extends State<InventarioMantenimiento> {
                 _abrir(_FichaEquipo(service: widget.service, equipo: equipo)),
             child: const Text('Ver'),
           ),
-          if (!widget.bajas && saldo == 0 && equipo.datos['inventario'] != true)
+          if (saldo == 0 && equipo.datos['inventario'] != true)
             TextButton(
               onPressed: () => _alta(equipo),
               child: const Text('Registrar ingreso'),
             ),
-          if (!widget.bajas && saldo > 0)
+          if (saldo > 0 && bodega != bodegaTemporalMantenimiento)
             TextButton(
-              onPressed: () => _asociar(equipo),
+              onPressed: () => _asociar(equipo, bodega),
               child: const Text('Asociar tipo'),
             ),
-          if (saldo > 0 && !widget.bajas)
+          if (saldo > 0)
             TextButton(
               onPressed: () => _movimiento(equipo, bodega),
               child: const Text('Trasladar'),
@@ -192,9 +194,9 @@ class _InventarioMantenimientoState extends State<InventarioMantenimiento> {
               if (snap.hasError)
                 PanelMantenimiento(
                   child: OutlinedButton(
-                    onPressed: () => setState(
-                      () => _catalogos = widget.service.inventario('catalogos'),
-                    ),
+                    onPressed: () => setState(() {
+                      _catalogos = widget.service.inventario('catalogos');
+                    }),
                     child: const Text('Reintentar la carga del maestro'),
                   ),
                 )
@@ -228,6 +230,10 @@ class _InventarioMantenimientoState extends State<InventarioMantenimiento> {
     final bodegas = _bodegas;
     final filas = <(EquipoMantenimiento, String, int)>[];
     for (final e in widget.equipos) {
+      if (e.datos['inventario'] == true &&
+          !e.existencias.values.any((n) => n > 0)) {
+        continue;
+      }
       if (_categoria.isNotEmpty && _texto(e.datos, 'categoria') != _categoria) {
         continue;
       }
@@ -239,217 +245,257 @@ class _InventarioMantenimientoState extends State<InventarioMantenimiento> {
       )) {
         continue;
       }
-      if (e.existencias.isEmpty && _bodega.isEmpty && !widget.bajas) {
+      if (e.existencias.isEmpty && _bodega.isEmpty) {
         filas.add((e, '', 0));
       }
       for (final b in e.existencias.entries) {
-        if (_bodega.isEmpty || b.key == _bodega) filas.add((e, b.key, b.value));
+        if (b.value > 0 && (_bodega.isEmpty || b.key == _bodega)) {
+          filas.add((e, b.key, b.value));
+        }
       }
     }
     final paginas = (filas.length / 20).ceil();
     final pagina = paginas == 0 ? 0 : _pagina.clamp(0, paginas - 1);
     final visibles = filas.skip(pagina * 20).take(20);
-    return LayoutBuilder(
-      builder: (context, espacio) {
-        final tabla =
-            widget.vistaWeb &&
-            espacio.maxWidth >= 830 &&
-            MediaQuery.textScalerOf(context).scale(16) <= 26;
-        return ListView(
-          padding: EdgeInsets.all(tabla ? 24 : 16),
-          children: [
-            Wrap(
-              spacing: 16,
-              runSpacing: 8,
-              alignment: WrapAlignment.spaceBetween,
-              crossAxisAlignment: WrapCrossAlignment.center,
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _catalogos ??= widget.service.inventario('catalogos'),
+      builder: (context, snap) {
+        final clases = {
+          for (final c in _lista(snap.data?['clasificaciones']))
+            _texto(c, 'id'): _texto(c, 'nombre'),
+        };
+        String clasificacion(EquipoMantenimiento e) =>
+            clases[_texto(e.datos, 'clasificacionId')] ??
+            (_texto(e.datos, 'clasificacion').isEmpty
+                ? 'Sin clasificación'
+                : _texto(e.datos, 'clasificacion'));
+        return LayoutBuilder(
+          builder: (context, espacio) {
+            final tabla =
+                widget.vistaWeb &&
+                espacio.maxWidth >= 830 &&
+                MediaQuery.textScalerOf(context).scale(16) <= 26;
+            return ListView(
+              padding: EdgeInsets.all(tabla ? 24 : 16),
               children: [
-                Text(
-                  widget.bajas ? 'Baja de equipos' : 'Inventario de equipos',
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
-                if (!widget.bajas)
-                  FilledButton.icon(
-                    onPressed: _alta,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Registrar equipo'),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            PanelMantenimiento(
-              child: Wrap(
-                runSpacing: 10,
-                spacing: 12,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  SizedBox(
-                    width: tabla ? 210 : double.infinity,
-                    child: campoMantenimiento(
-                      'Código o nombre',
-                      120,
-                      onChanged: (v) => setState(() {
-                        _buscar = v;
-                        _pagina = 0;
-                      }),
-                    ),
-                  ),
-                  SizedBox(
-                    width: tabla ? 230 : double.infinity,
-                    child: _selector(
-                      'Establecimiento o bodega',
-                      _bodega,
-                      {'': 'Todas las bodegas', ...bodegas},
-                      (v) => setState(() {
-                        _bodega = v;
-                        _pagina = 0;
-                      }),
-                    ),
-                  ),
-                  SizedBox(
-                    width: tabla ? 170 : double.infinity,
-                    child: _selector(
-                      'Categoría',
-                      _categoria,
-                      const {
-                        '': 'Todas',
-                        'equipo': 'Equipo',
-                        'fungible': 'Fungible',
-                      },
-                      (v) => setState(() {
-                        _categoria = v;
-                        _pagina = 0;
-                      }),
-                    ),
-                  ),
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.event_outlined),
-                    label: Text(
-                      _ingreso.isEmpty ? 'Fecha de ingreso' : _ingreso,
-                    ),
-                    onPressed: () async {
-                      final fecha = await _elegirFecha(context, _ingreso);
-                      if (fecha != null && mounted) {
-                        setState(() {
-                          _ingreso = fecha;
-                          _pagina = 0;
-                        });
-                      }
-                    },
-                  ),
-                  if (_ingreso.isNotEmpty)
-                    IconButton(
-                      tooltip: 'Quitar fecha',
-                      icon: const Icon(Icons.close),
-                      onPressed: () => setState(() {
-                        _ingreso = '';
-                        _pagina = 0;
-                      }),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            if (filas.isEmpty)
-              const PanelMantenimiento(
-                child: Text('No hay existencias con estos filtros.'),
-              )
-            else if (tabla)
-              PanelMantenimiento(
-                padding: EdgeInsets.zero,
-                child: Table(
-                  columnWidths: const {
-                    0: FlexColumnWidth(1.2),
-                    1: FlexColumnWidth(2),
-                    2: FlexColumnWidth(1.6),
-                    3: FlexColumnWidth(.75),
-                    4: FlexColumnWidth(2.3),
-                  },
-                  defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-                  border: const TableBorder(
-                    horizontalInside: BorderSide(color: mantenimientoBorde),
-                  ),
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    TableRow(
-                      decoration: const BoxDecoration(color: Color(0xFFE6F5F2)),
-                      children: [
-                        for (final t in [
-                          'Código',
-                          'Nombre',
-                          'Bodega',
-                          'Cantidad',
-                          'Acciones',
-                        ])
-                          _celda(
-                            Text(
-                              t,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                      ],
+                    Text(
+                      'Inventario de equipos',
+                      style: Theme.of(context).textTheme.headlineSmall,
                     ),
-                    for (final (e, b, n) in visibles)
-                      TableRow(
-                        children: [
-                          _celda(Text(e.codigo)),
-                          _celda(Text(e.nombre)),
-                          _celda(
-                            Text(
-                              bodegas[b] ?? (b.isEmpty ? 'Sin existencias' : b),
-                            ),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        await _abrir(
+                          _ClasificacionesEquipos(
+                            service: widget.service,
+                            vistaWeb: widget.vistaWeb,
                           ),
-                          _celda(Text('$n')),
-                          _acciones(e, b, n),
-                        ],
-                      ),
+                        );
+                        if (mounted) {
+                          setState(() {
+                            _catalogos = widget.service.inventario('catalogos');
+                          });
+                        }
+                      },
+                      icon: const Icon(Icons.category_outlined),
+                      label: const Text('Clasificaciones'),
+                    ),
+                    FilledButton.icon(
+                      onPressed: _alta,
+                      icon: const Icon(Icons.add),
+                      label: const Text('Registrar equipo'),
+                    ),
                   ],
                 ),
-              )
-            else
-              for (final (e, b, n) in visibles)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: PanelMantenimiento(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          e.nombre,
-                          style: Theme.of(context).textTheme.titleMedium,
+                const SizedBox(height: 12),
+                PanelMantenimiento(
+                  child: Wrap(
+                    runSpacing: 10,
+                    spacing: 12,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: tabla ? 210 : double.infinity,
+                        child: campoMantenimiento(
+                          'Rótulo o nombre',
+                          120,
+                          onChanged: (v) => setState(() {
+                            _buscar = v;
+                            _pagina = 0;
+                          }),
                         ),
-                        Text(e.codigo),
-                        Text(
-                          '${bodegas[b] ?? (b.isEmpty ? 'Sin existencias' : b)} · $n unidades',
+                      ),
+                      SizedBox(
+                        width: tabla ? 230 : double.infinity,
+                        child: _selector(
+                          'Establecimiento o bodega',
+                          _bodega,
+                          {'': 'Todas las bodegas', ...bodegas},
+                          (v) => setState(() {
+                            _bodega = v;
+                            _pagina = 0;
+                          }),
                         ),
-                        _acciones(e, b, n),
-                      ],
-                    ),
+                      ),
+                      SizedBox(
+                        width: tabla ? 170 : double.infinity,
+                        child: _selector(
+                          'Categoría',
+                          _categoria,
+                          const {
+                            '': 'Todas',
+                            'equipo': 'Equipo',
+                            'fungible': 'Fungible',
+                          },
+                          (v) => setState(() {
+                            _categoria = v;
+                            _pagina = 0;
+                          }),
+                        ),
+                      ),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.event_outlined),
+                        label: Text(
+                          _ingreso.isEmpty ? 'Fecha de ingreso' : _ingreso,
+                        ),
+                        onPressed: () async {
+                          final fecha = await _elegirFecha(context, _ingreso);
+                          if (fecha != null && mounted) {
+                            setState(() {
+                              _ingreso = fecha;
+                              _pagina = 0;
+                            });
+                          }
+                        },
+                      ),
+                      if (_ingreso.isNotEmpty)
+                        IconButton(
+                          tooltip: 'Quitar fecha',
+                          icon: const Icon(Icons.close),
+                          onPressed: () => setState(() {
+                            _ingreso = '';
+                            _pagina = 0;
+                          }),
+                        ),
+                    ],
                   ),
                 ),
-            if (paginas > 1)
-              Wrap(
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  IconButton(
-                    tooltip: 'Anterior',
-                    onPressed: pagina <= 0
-                        ? null
-                        : () => setState(() => _pagina = pagina - 1),
-                    icon: const Icon(Icons.chevron_left),
+                const SizedBox(height: 12),
+                if (filas.isEmpty)
+                  const PanelMantenimiento(
+                    child: Text('No hay existencias con estos filtros.'),
+                  )
+                else if (tabla)
+                  PanelMantenimiento(
+                    padding: EdgeInsets.zero,
+                    child: Table(
+                      columnWidths: const {
+                        0: FlexColumnWidth(1.2),
+                        1: FlexColumnWidth(2),
+                        2: FixedColumnWidth(170),
+                        3: FlexColumnWidth(1.6),
+                        4: FixedColumnWidth(118),
+                        5: FlexColumnWidth(2.3),
+                      },
+                      defaultVerticalAlignment:
+                          TableCellVerticalAlignment.middle,
+                      border: const TableBorder(
+                        horizontalInside: BorderSide(color: mantenimientoBorde),
+                      ),
+                      children: [
+                        TableRow(
+                          decoration: const BoxDecoration(
+                            color: Color(0xFFE6F5F2),
+                          ),
+                          children: [
+                            for (final t in [
+                              'Rótulo',
+                              'Nombre',
+                              'Clasificación',
+                              'Bodega',
+                              'Cantidad',
+                              'Acciones',
+                            ])
+                              _celda(
+                                Text(
+                                  t,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        for (final (e, b, n) in visibles)
+                          TableRow(
+                            children: [
+                              _celda(Text(e.codigo)),
+                              _celda(Text(e.nombre)),
+                              _celda(Text(clasificacion(e))),
+                              _celda(
+                                Text(
+                                  bodegas[b] ??
+                                      (b.isEmpty ? 'Sin existencias' : b),
+                                ),
+                              ),
+                              _celda(Text('$n')),
+                              _acciones(e, b, n),
+                            ],
+                          ),
+                      ],
+                    ),
+                  )
+                else
+                  for (final (e, b, n) in visibles)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: PanelMantenimiento(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              e.nombre,
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            Text(e.codigo),
+                            Text('Clasificación: ${clasificacion(e)}'),
+                            Text(
+                              '${bodegas[b] ?? (b.isEmpty ? 'Sin existencias' : b)} · $n unidades',
+                            ),
+                            _acciones(e, b, n),
+                          ],
+                        ),
+                      ),
+                    ),
+                if (paginas > 1)
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      IconButton(
+                        tooltip: 'Anterior',
+                        onPressed: pagina <= 0
+                            ? null
+                            : () => setState(() => _pagina = pagina - 1),
+                        icon: const Icon(Icons.chevron_left),
+                      ),
+                      Text('${pagina + 1} de $paginas'),
+                      IconButton(
+                        tooltip: 'Siguiente',
+                        onPressed: pagina + 1 >= paginas
+                            ? null
+                            : () => setState(() => _pagina = pagina + 1),
+                        icon: const Icon(Icons.chevron_right),
+                      ),
+                    ],
                   ),
-                  Text('${pagina + 1} de $paginas'),
-                  IconButton(
-                    tooltip: 'Siguiente',
-                    onPressed: pagina + 1 >= paginas
-                        ? null
-                        : () => setState(() => _pagina = pagina + 1),
-                    icon: const Icon(Icons.chevron_right),
-                  ),
-                ],
-              ),
-          ],
+              ],
+            );
+          },
         );
       },
     );
@@ -476,7 +522,7 @@ Widget _selector(
 }) => DropdownButtonFormField<String>(
   initialValue: items.containsKey(valor) ? valor : null,
   isExpanded: true,
-  decoration: InputDecoration(labelText: label),
+  decoration: InputDecoration(labelText: requerido ? '$label *' : label),
   items: [
     for (final item in items.entries) opcionMantenimiento(item.key, item.value),
   ],
@@ -683,6 +729,15 @@ Map<String, String> _familias(Map catalogos) => {
     ...Map<String, String>.from(plan['locales'] as Map? ?? const {}),
 };
 
+Map<String, String> _familiasSede(Map catalogos, String sede) => {
+  for (final f in _lista(catalogos['familias']))
+    _texto(f, 'id'): _texto(f, 'nombre'),
+  for (final p in _lista(
+    catalogos['minimos'],
+  ).where((p) => p['centroDocId'] == sede))
+    ...Map<String, String>.from(p['locales'] as Map? ?? const {}),
+};
+
 class _AltaEquipo extends StatefulWidget {
   const _AltaEquipo({
     required this.service,
@@ -710,9 +765,7 @@ class _AltaEquipoState extends State<_AltaEquipo> {
         'descripcion',
         'serie',
         'factura',
-        'familia',
-        'clasificacion',
-        'otraClasificacion',
+        'clasificacionId',
       ])
         campo: _texto(e.datos, campo),
     if (widget.equipo != null) 'equipoId': widget.equipo!.id,
@@ -737,7 +790,7 @@ class _AltaEquipoState extends State<_AltaEquipo> {
     initialValue: _texto(_datos, clave),
     requerido: requerido,
     lineas: lineas,
-    onChanged: (v) => _datos[clave] = v,
+    onChanged: (v) => setState(() => _datos[clave] = v),
   );
 
   Widget _fechaCampo(String label, String clave) => OutlinedButton.icon(
@@ -772,14 +825,43 @@ class _AltaEquipoState extends State<_AltaEquipo> {
     guardar: _guardar,
     campos: [
       if (widget.equipo == null)
-        const Text('El rótulo se genera al registrar el equipo.')
+        const InputDecorator(
+          decoration: InputDecoration(labelText: 'Rótulo *'),
+          child: Text('Se genera automáticamente al guardar'),
+        )
       else
         Text('Rótulo ${widget.equipo!.codigo}'),
-      _campo('Referencia', 'referencia', 100),
       _campo('Nombre', 'nombre', 120, requerido: true),
       _campo('Descripción', 'descripcion', 1200, lineas: 2),
       _campo('Serial', 'serie', 100),
       _campo('Factura', 'factura', 160),
+      TextFormField(
+        decoration: InputDecoration(
+          labelText: _texto(_datos, 'factura').trim().isEmpty
+              ? 'Precio de compra (COP)'
+              : 'Precio de compra (COP) *',
+        ),
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        inputFormatters: [LengthLimitingTextInputFormatter(16)],
+        validator: (v) {
+          if ((v ?? '').trim().isEmpty) {
+            return _texto(_datos, 'factura').trim().isEmpty
+                ? null
+                : 'Obligatorio cuando hay factura';
+          }
+          final n = double.tryParse(v!.replaceAll(',', '.'));
+          return n == null ||
+                  !n.isFinite ||
+                  n <= 0 ||
+                  n > 1000000000000 ||
+                  (n * 100 - (n * 100).round()).abs() > .001
+              ? 'Ingresa un precio positivo con hasta dos decimales'
+              : null;
+        },
+        onChanged: (v) => _datos['precioCompra'] = v.trim().isEmpty
+            ? null
+            : double.tryParse(v.replaceAll(',', '.')),
+      ),
       SegmentedButton<String>(
         segments: const [
           ButtonSegment(value: 'equipo', label: Text('Equipo')),
@@ -790,24 +872,21 @@ class _AltaEquipoState extends State<_AltaEquipo> {
             setState(() => _datos['categoria'] = v.single),
       ),
       _selector(
-        'Tipo en el maestro de mínimos',
-        _texto(_datos, 'familia'),
-        {'': 'Sin asociar', ..._familias(widget.catalogos)},
-        (v) => _datos['familia'] = v,
-      ),
-      _selector(
         'Clasificación',
-        _texto(_datos, 'clasificacion'),
-        const {
+        _texto(_datos, 'clasificacionId'),
+        {
           '': 'Sin clasificación',
-          'Línea caliente': 'Línea caliente',
-          'Línea fría': 'Línea fría',
-          'Otra': 'Otra',
+          for (final c in _lista(
+            widget.catalogos['clasificaciones'],
+          ).where((c) => c['activo'] != false))
+            _texto(c, 'id'): '${c['codigo']} · ${c['nombre']}',
         },
-        (v) => _datos['clasificacion'] = v,
+        (v) => _datos['clasificacionId'] = v,
       ),
-      _campo('Otra clasificación', 'otraClasificacion', 100),
-      _selector('Propiedad', _texto(_datos, 'propiedad'), const {
+      const Text(
+        'El tipo del maestro de mínimos se asocia por establecimiento después del traslado.',
+      ),
+      _selector('Propiedad *', _texto(_datos, 'propiedad'), const {
         'propio': 'Propio',
         'alquilado': 'Alquilado',
         'tercero': 'De tercero',
@@ -824,7 +903,7 @@ class _AltaEquipoState extends State<_AltaEquipo> {
       ),
       if (_datos['grupo'] == true)
         _entero(
-          'Cantidad de unidades',
+          'Cantidad de unidades *',
           _cantidad,
           (v) => _cantidad = v,
           minimo: 1,
@@ -840,10 +919,10 @@ class _AltaEquipoState extends State<_AltaEquipo> {
         (v) => _datos['proveedorId'] = v,
       ),
       _fechaCampo('Fecha de compra', 'fechaCompra'),
-      _fechaCampo('Fecha de ingreso', 'fechaIngreso'),
+      _fechaCampo('Fecha de ingreso *', 'fechaIngreso'),
       _archivoCampo(
         context,
-        'Ficha técnica en PDF',
+        'Ficha técnica en PDF * (máximo 5 MB)',
         'ficha',
         ['pdf'],
         _pdf,
@@ -891,6 +970,14 @@ class _MovimientoEquipoState extends State<_MovimientoEquipo> {
   int get saldo => widget.equipo.existencias[widget.origen] ?? 0;
 
   Future<void> _guardar() async {
+    final catalogos = await _catalogos;
+    _entrega = _texto(catalogos, 'actor');
+    if (_entrega.isEmpty) {
+      throw StateError('No se pudo identificar a la persona autenticada.');
+    }
+    if (!widget.baja && (_recibe.isEmpty || _recibe == _entrega)) {
+      throw StateError('Elige una persona diferente de quien entrega.');
+    }
     final adjuntos = [?_foto, ?_video];
     if (widget.baja && adjuntos.isEmpty) {
       throw StateError('Adjunta una foto o un video de la baja.');
@@ -929,16 +1016,32 @@ class _MovimientoEquipoState extends State<_MovimientoEquipo> {
         ),
       ),
       campos: [
-        Text('${widget.equipo.codigo} · ${widget.equipo.nombre}'),
+        Text(
+          widget.equipo.nombre,
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        Text('Rótulo: ${widget.equipo.codigo}'),
         if (_texto(widget.equipo.datos, 'referencia').isNotEmpty)
           Text('Referencia ${_texto(widget.equipo.datos, 'referencia')}'),
-        Text('${widget.origenNombre} · $saldo unidades disponibles'),
+        Text('Descripción: ${_texto(widget.equipo.datos, 'descripcion')}'),
+        Text('Bodega seleccionada: ${widget.origenNombre}'),
+        Text('Unidades en bodega: $saldo'),
         _entero(
-          'Unidades',
+          'Unidades *',
           _cantidad,
-          (v) => _cantidad = v,
+          (v) => setState(() => _cantidad = v),
           minimo: 1,
           maximo: saldo,
+        ),
+        InputDecorator(
+          decoration: const InputDecoration(
+            labelText: 'Saldo en bodega después del movimiento',
+          ),
+          child: Text(
+            int.tryParse(_cantidad) == null || int.parse(_cantidad) > saldo
+                ? 'Revisa las unidades'
+                : '${saldo - int.parse(_cantidad)}',
+          ),
         ),
         if (!widget.baja)
           _selector(
@@ -961,7 +1064,8 @@ class _MovimientoEquipoState extends State<_MovimientoEquipo> {
                   'Obligatoriedad no aplica en bodega temporal.',
                 );
               }
-              if (widget.equipo.familia.isEmpty) {
+              final tipo = widget.equipo.tipoEnSede(sede);
+              if (tipo.isEmpty) {
                 return const Text(
                   'Este equipo no está asociado al maestro de mínimos.',
                 );
@@ -971,10 +1075,7 @@ class _MovimientoEquipoState extends State<_MovimientoEquipo> {
                   'La sede tiene mínimos pendientes de validar.',
                 );
               }
-              final minimo =
-                  (plan?['cantidades'] as Map?)?[widget.equipo.familia]
-                      as int? ??
-                  0;
+              final minimo = (plan?['cantidades'] as Map?)?[tipo] as int? ?? 0;
               return Text(
                 minimo > 0
                     ? widget.baja
@@ -984,20 +1085,46 @@ class _MovimientoEquipoState extends State<_MovimientoEquipo> {
               );
             },
           ),
-      ],
-      soportes: [
-        if (!widget.baja) ...[
-          PersonaMantenimientoField(
-            etiqueta: 'Quién entrega',
-            catalogo: _catalogos,
-            onChanged: (p) => _entrega = p['id'] as String,
+        FutureBuilder(
+          future: _catalogos,
+          builder: (context, snap) {
+            if (snap.hasError) {
+              return const Text(
+                'No se pudo cargar el personal. Vuelve a abrir el formulario.',
+              );
+            }
+            if (!snap.hasData) return const LinearProgressIndicator();
+            final actor = _texto(snap.data!, 'actor');
+            final persona = _lista(
+              snap.data!['personal'],
+            ).where((p) => p['id'] == actor).firstOrNull;
+            return InputDecorator(
+              decoration: InputDecoration(
+                labelText: widget.baja
+                    ? 'Responsable de la baja'
+                    : 'Quién entrega (sesión actual)',
+              ),
+              child: Text(
+                persona == null
+                    ? 'Persona autenticada'
+                    : [persona['nombre'], persona['cargo'], persona['area']]
+                          .whereType<String>()
+                          .where((s) => s.isNotEmpty)
+                          .join(' · '),
+              ),
+            );
+          },
+        ),
+        if (!widget.baja)
+          FutureBuilder(
+            future: _catalogos,
+            builder: (context, snap) => PersonaMantenimientoField(
+              etiqueta: 'Quién recibe',
+              catalogo: _catalogos,
+              excluirIds: {_texto(snap.data ?? {}, 'actor')},
+              onChanged: (p) => _recibe = p['id'] as String,
+            ),
           ),
-          PersonaMantenimientoField(
-            etiqueta: 'Quién recibe',
-            catalogo: _catalogos,
-            onChanged: (p) => _recibe = p['id'] as String,
-          ),
-        ],
         campoMantenimiento(
           'Observaciones',
           1200,
@@ -1005,7 +1132,16 @@ class _MovimientoEquipoState extends State<_MovimientoEquipo> {
           requerido: widget.baja,
           onChanged: (v) => _observaciones = v,
         ),
+      ],
+      soportes: [
+        _ImagenEquipo(
+          service: widget.service,
+          archivos: _lista(widget.equipo.datos['archivos']),
+        ),
         if (widget.baja) ...[
+          const Text(
+            'Evidencia obligatoria *: adjunta al menos una foto o un video (máximo 5 MB por archivo).',
+          ),
           _archivoCampo(
             context,
             'Evidencia fotográfica',
@@ -1047,6 +1183,7 @@ class _FichaEquipo extends StatefulWidget {
 class _FichaEquipoState extends State<_FichaEquipo> {
   late final _historial = widget.service.inventario('historial', {
     'equipoId': widget.equipo.id,
+    if (widget.movimiento != null) 'movimientoId': widget.movimiento,
   });
   bool _ocupado = false;
 
@@ -1136,6 +1273,7 @@ class _FichaEquipoState extends State<_FichaEquipo> {
                       ('propiedad', 'Propiedad'),
                       ('serie', 'Serial'),
                       ('factura', 'Factura'),
+                      ('precioCompra', 'Precio de compra (COP)'),
                       ('proveedorNombre', 'Proveedor'),
                       ('fechaCompra', 'Compra'),
                       ('fechaIngreso', 'Ingreso'),
@@ -1181,6 +1319,7 @@ class _FichaEquipoState extends State<_FichaEquipo> {
                                 '${m['accion'] == 'traslado' ? 'Traslado' : 'Baja'} · ${m['unidades']} unidades',
                                 style: Theme.of(context).textTheme.titleMedium,
                               ),
+                              Text('Acta: ${codigoActaEquipo(m)}'),
                               Text(
                                 '${_fechaMovimiento(m)} · ${m['origenNombre']}${m['accion'] == 'traslado' ? ' → ${m['destinoNombre']}' : ''}',
                               ),
@@ -1195,28 +1334,44 @@ class _FichaEquipoState extends State<_FichaEquipo> {
                                 children: [
                                   for (final a in _lista(m['archivos']))
                                     _adjunto(a),
-                                  if (m['accion'] == 'traslado')
-                                    OutlinedButton.icon(
-                                      onPressed: _ocupado
-                                          ? null
-                                          : () => _procesar(() async {
-                                              final bytes = await _acta(
-                                                m,
-                                                widget.service.empresaId,
-                                              );
-                                              if (context.mounted) {
-                                                await _verPdf(
-                                                  context,
-                                                  bytes,
-                                                  'acta_${m['id']}.pdf',
+                                  OutlinedButton.icon(
+                                    onPressed: _ocupado
+                                        ? null
+                                        : () => _procesar(() async {
+                                            final foto = await _fotoActa(
+                                              widget.service,
+                                              m,
+                                              e,
+                                            );
+                                            final marca =
+                                                await marcaMantenimiento(
+                                                  widget.service.empresaId,
                                                 );
-                                              }
-                                            }),
-                                      icon: const Icon(
-                                        Icons.picture_as_pdf_outlined,
-                                      ),
-                                      label: const Text('Ver acta de traslado'),
+                                            final bytes =
+                                                await generarActaEquipo(
+                                                  m,
+                                                  widget.service.empresaId,
+                                                  foto: foto,
+                                                  empresaNombre: marca.nombre,
+                                                  empresaLogo: marca.logo,
+                                                );
+                                            if (context.mounted) {
+                                              await _verPdf(
+                                                context,
+                                                bytes,
+                                                nombreActaEquipo(m),
+                                              );
+                                            }
+                                          }),
+                                    icon: const Icon(
+                                      Icons.picture_as_pdf_outlined,
                                     ),
+                                    label: Text(
+                                      m['accion'] == 'traslado'
+                                          ? 'Ver acta de traslado'
+                                          : 'Ver acta de baja',
+                                    ),
+                                  ),
                                 ],
                               ),
                             ],
@@ -1238,64 +1393,134 @@ String _fechaMovimiento(Map m) => DateFormat(
   'dd/MM/yyyy HH:mm',
 ).format(DateTime.fromMillisecondsSinceEpoch((m['fecha'] as num).toInt()));
 
-Future<Uint8List> _acta(Map m, String empresaId) async {
-  final fuente = pw.Font.ttf(await rootBundle.load('assets/arial.ttf'));
-  final documento = pw.Document(title: 'Acta de traslado');
-  final marca = await marcaMantenimiento(empresaId);
-  final membrete = membreteMantenimiento(
-    'Acta de traslado de equipos',
-    nombre: marca.nombre,
-    logo: marca.logo,
+String codigoActaEquipo(Map m) => _texto(m, 'actaCodigo').isNotEmpty
+    ? _texto(m, 'actaCodigo')
+    : '${m['accion'] == 'baja' ? 'BA' : 'TR'}-${m['codigo']}-${_texto(m, 'id')}';
+
+String nombreActaEquipo(Map m) {
+  final nombre = '${m['nombre']}'.replaceAll(
+    RegExp(r'[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ]+'),
+    '_',
   );
-  pw.Widget ficha(String titulo, Map<String, String> datos) => pw.Column(
-    crossAxisAlignment: pw.CrossAxisAlignment.start,
-    children: [
-      pw.SizedBox(height: 14),
-      pw.Text(
-        titulo,
-        style: const pw.TextStyle(fontSize: 13, color: PdfColors.teal900),
-      ),
-      pw.SizedBox(height: 5),
-      pw.TableHelper.fromTextArray(
-        data: datos.entries
-            .map((e) => [e.key, e.value.isEmpty ? '—' : e.value])
-            .toList(),
-        columnWidths: {
-          0: const pw.FlexColumnWidth(1),
-          1: const pw.FlexColumnWidth(3),
-        },
-        cellPadding: const pw.EdgeInsets.all(7),
-        oddRowDecoration: const pw.BoxDecoration(color: PdfColors.grey100),
-        border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
-      ),
-    ],
+  return 'acta_${m['accion'] == 'baja' ? 'baja' : 'traslado'}_${codigoActaEquipo(m).replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_')}_${nombre.substring(0, nombre.length.clamp(0, 60))}.pdf';
+}
+
+Future<Uint8List?> _fotoActa(
+  MantenimientoService service,
+  Map m,
+  EquipoMantenimiento e,
+) async {
+  final fotos = _lista(m['fotosEquipo']).isNotEmpty
+      ? _lista(m['fotosEquipo'])
+      : _lista(e.datos['archivos']).where((a) => a['clase'] == 'foto').toList();
+  if (fotos.isEmpty) return null;
+  final datos = await service.inventario('leerArchivo', {
+    'archivoId': fotos.first['id'],
+  });
+  return base64Decode(datos['base64'] as String);
+}
+
+Future<Uint8List> generarActaEquipo(
+  Map m,
+  String empresaId, {
+  Uint8List? foto,
+  String empresaNombre = '',
+  Uint8List? empresaLogo,
+}) async {
+  final fuente = pw.Font.ttf(await rootBundle.load('assets/arial.ttf'));
+  final baja = m['accion'] == 'baja';
+  final titulo = baja ? 'ACTA DE BAJA' : 'ACTA DE TRASLADO DE EQUIPOS';
+  final documento = pw.Document(title: titulo);
+  final membrete = membreteMantenimiento(
+    titulo,
+    nombre: empresaNombre.isEmpty ? empresaId : empresaNombre,
+    logo: empresaLogo,
+  );
+  pw.Widget ficha(String titulo, Map<String, String> datos) => pw.Inseparable(
+    child: pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.SizedBox(height: 14),
+        pw.Text(
+          titulo,
+          style: const pw.TextStyle(fontSize: 13, color: PdfColors.teal900),
+        ),
+        pw.SizedBox(height: 5),
+        pw.TableHelper.fromTextArray(
+          headerCount: 0,
+          data: datos.entries
+              .map(
+                (e) => [
+                  e.key,
+                  e.value.isEmpty
+                      ? '—'
+                      : e.value.replaceAll(RegExp(r'\s+'), ' ').trim(),
+                ],
+              )
+              .toList(),
+          columnWidths: {
+            0: const pw.FlexColumnWidth(1),
+            1: const pw.FlexColumnWidth(3),
+          },
+          cellPadding: const pw.EdgeInsets.all(7),
+          oddRowDecoration: const pw.BoxDecoration(color: PdfColors.grey100),
+          border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+        ),
+      ],
+    ),
   );
   documento.addPage(
     pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
       theme: pw.ThemeData.withFont(base: fuente, bold: fuente),
       header: (_) => membrete,
+      footer: (context) => pw.Align(
+        alignment: pw.Alignment.centerRight,
+        child: pw.Text('${context.pageNumber} / ${context.pagesCount}'),
+      ),
       build: (_) => [
         ficha('Movimiento', {
-          'Referencia': _texto(m, 'id'),
+          'Código del acta': codigoActaEquipo(m),
           'Fecha': _fechaMovimiento(m),
           'Bodega de origen': _texto(m, 'origenNombre'),
-          'Destino': _texto(m, 'destinoNombre'),
+          if (!baja) 'Destino': _texto(m, 'destinoNombre'),
         }),
-        ficha('Equipo trasladado', {
+        ficha(baja ? 'Equipo dado de baja' : 'Equipo trasladado', {
           'Rótulo': _texto(m, 'codigo'),
           'Equipo': _texto(m, 'nombre'),
           'Referencia': _texto(m, 'referencia'),
+          'Descripción': _texto(m, 'descripcion'),
           'Unidades': _texto(m, 'unidades'),
-          'Obligatorio en destino': m['obligatorio'] == null
+          if (m['saldoAnterior'] != null)
+            'Saldo anterior': _texto(m, 'saldoAnterior'),
+          if (m['saldoPosterior'] != null)
+            'Saldo posterior': _texto(m, 'saldoPosterior'),
+          'Obligatorio en la sede': m['obligatorio'] == null
               ? 'Sin validar'
               : m['obligatorio'] == true
               ? 'Sí'
               : 'No',
         }),
-        ficha('Entrega y recepción', {
-          'Entregó': _texto(m, 'entrega'),
-          'Recibió': _texto(m, 'recibe'),
+        if (foto != null) ...[
+          pw.SizedBox(height: 12),
+          pw.Center(
+            child: pw.Image(
+              pw.MemoryImage(foto),
+              width: 220,
+              height: 150,
+              fit: pw.BoxFit.contain,
+            ),
+          ),
+        ],
+        ficha(baja ? 'Responsable de la baja' : 'Entrega y recepción', {
+          baja ? 'Responsable' : 'Entregó': _texto(m, 'entrega'),
+          if (m['entregaPersona'] is Map)
+            'Cargo / departamento de entrega':
+                '${m['entregaPersona']['cargo']} / ${m['entregaPersona']['area']}',
+          if (!baja) 'Recibió': _texto(m, 'recibe'),
+          if (!baja && m['recibePersona'] is Map)
+            'Cargo / departamento de recepción':
+                '${m['recibePersona']['cargo']} / ${m['recibePersona']['area']}',
         }),
         if (_texto(m, 'observaciones').isNotEmpty) ...[
           pw.SizedBox(height: 14),
@@ -1329,6 +1554,468 @@ Future<void> _verPdf(BuildContext context, Uint8List bytes, String nombre) =>
         ),
       ),
     );
+
+class _ImagenEquipo extends StatefulWidget {
+  const _ImagenEquipo({required this.service, required this.archivos});
+  final MantenimientoService service;
+  final List<Map<String, dynamic>> archivos;
+  @override
+  State<_ImagenEquipo> createState() => _ImagenEquipoState();
+}
+
+class _ImagenEquipoState extends State<_ImagenEquipo> {
+  late final _foto = widget.archivos
+      .where((a) => a['clase'] == 'foto')
+      .firstOrNull;
+  late final _carga = _foto == null
+      ? null
+      : widget.service.inventario('leerArchivo', {'archivoId': _foto!['id']});
+  @override
+  Widget build(BuildContext context) => PanelMantenimiento(
+    child: _carga == null
+        ? const SizedBox(
+            height: 160,
+            child: Center(child: Text('Equipo sin fotografía registrada')),
+          )
+        : FutureBuilder(
+            future: _carga,
+            builder: (context, snap) => snap.hasError
+                ? const Text('No se pudo cargar la fotografía del equipo.')
+                : !snap.hasData
+                ? const LinearProgressIndicator()
+                : Image.memory(
+                    base64Decode(snap.data!['base64'] as String),
+                    height: 220,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, _, _) =>
+                        const Text('Fotografía no disponible'),
+                  ),
+          ),
+  );
+}
+
+const _metodosDepreciacion = {
+  'linea_recta': 'Línea recta',
+  'saldo_decreciente': 'Saldo decreciente',
+  'unidades_produccion': 'Unidades de producción',
+  'no_deprecia': 'No deprecia',
+};
+
+class _ClasificacionesEquipos extends StatefulWidget {
+  const _ClasificacionesEquipos({
+    required this.service,
+    required this.vistaWeb,
+  });
+  final MantenimientoService service;
+  final bool vistaWeb;
+  @override
+  State<_ClasificacionesEquipos> createState() =>
+      _ClasificacionesEquiposState();
+}
+
+class _ClasificacionesEquiposState extends State<_ClasificacionesEquipos> {
+  late Future<Map<String, dynamic>> _catalogos = widget.service.inventario(
+    'catalogos',
+  );
+  Future<void> _editar([Map<String, dynamic>? clase]) async {
+    var codigo = _texto(clase ?? {}, 'codigo');
+    var nombre = _texto(clase ?? {}, 'nombre');
+    var metodo = _texto(clase ?? {}, 'metodoDepreciacion');
+    var activo = clase?['activo'] != false;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => StatefulBuilder(
+          builder: (context, cambiar) => EditorMantenimiento(
+            titulo: clase == null
+                ? 'Nueva clasificación'
+                : 'Editar clasificación',
+            vistaWeb: widget.vistaWeb,
+            guardar: () async {
+              await widget.service.inventario('clasificacion', {
+                if (clase != null) 'clasificacionId': clase['id'],
+                'codigo': codigo,
+                'nombre': nombre,
+                'metodoDepreciacion': metodo,
+                'activo': activo,
+              });
+            },
+            campos: [
+              if (clase == null)
+                campoMantenimiento(
+                  'Código',
+                  40,
+                  requerido: true,
+                  onChanged: (v) => codigo = v,
+                )
+              else
+                Text('Código: $codigo'),
+              campoMantenimiento(
+                'Nombre',
+                120,
+                initialValue: nombre,
+                requerido: true,
+                onChanged: (v) => nombre = v,
+              ),
+              _selector(
+                'Método de depreciación',
+                metodo,
+                {'': 'Selecciona', ..._metodosDepreciacion},
+                (v) => metodo = v,
+                requerido: true,
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Activa'),
+                value: activo,
+                onChanged: (v) => cambiar(() => activo = v),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (mounted) {
+      setState(() {
+        _catalogos = widget.service.inventario('catalogos');
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Clasificaciones de equipos')),
+    body: SafeArea(
+      child: FutureBuilder(
+        future: _catalogos,
+        builder: (context, snap) => ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Align(
+              alignment: Alignment.centerLeft,
+              child: FilledButton.icon(
+                onPressed: _editar,
+                icon: const Icon(Icons.add),
+                label: const Text('Nueva clasificación'),
+              ),
+            ),
+            const SizedBox(height: 16),
+            if (snap.hasError)
+              OutlinedButton(
+                onPressed: () => setState(() {
+                  _catalogos = widget.service.inventario('catalogos');
+                }),
+                child: const Text('Reintentar'),
+              )
+            else if (!snap.hasData)
+              const LinearProgressIndicator()
+            else if (_lista(snap.data!['clasificaciones']).isEmpty)
+              const Text(
+                'No hay clasificaciones. Crea la primera para asignarla a los equipos.',
+              )
+            else
+              for (final c in _lista(snap.data!['clasificaciones']))
+                PanelMantenimiento(
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text('${c['codigo']} · ${c['nombre']}'),
+                    subtitle: Text(
+                      '${_metodosDepreciacion[c['metodoDepreciacion']] ?? c['metodoDepreciacion']} · ${c['activo'] == false ? 'Inactiva' : 'Activa'}',
+                    ),
+                    trailing: const Icon(Icons.edit_outlined),
+                    onTap: () => _editar(c),
+                  ),
+                ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class ConsultaMovimientosMantenimiento extends StatefulWidget {
+  const ConsultaMovimientosMantenimiento({
+    super.key,
+    required this.service,
+    required this.equipos,
+    required this.vistaWeb,
+    this.bajas = false,
+  });
+  final MantenimientoService service;
+  final List<EquipoMantenimiento> equipos;
+  final bool vistaWeb, bajas;
+  @override
+  State<ConsultaMovimientosMantenimiento> createState() =>
+      _ConsultaMovimientosMantenimientoState();
+}
+
+class _ConsultaMovimientosMantenimientoState
+    extends State<ConsultaMovimientosMantenimiento> {
+  final _registros = <Map<String, dynamic>>[];
+  String _cursor = '', _buscar = '', _origen = '', _destino = '';
+  DateTimeRange? _periodo;
+  bool _cargando = true;
+  String? _error;
+  @override
+  void initState() {
+    super.initState();
+    _cargar();
+  }
+
+  Future<void> _cargar({bool reiniciar = false}) async {
+    setState(() {
+      _cargando = true;
+      _error = null;
+    });
+    try {
+      final datos = await widget.service.inventario('movimientos', {
+        'clase': widget.bajas ? 'baja' : 'traslado',
+        if (!reiniciar && _cursor.isNotEmpty) 'cursor': _cursor,
+      });
+      if (!mounted) return;
+      setState(() {
+        if (reiniciar) _registros.clear();
+        _registros.addAll(_lista(datos['movimientos']));
+        _cursor = _texto(datos, 'cursor');
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(
+          () => _error = e is StateError
+              ? e.message
+              : 'No se pudieron cargar los movimientos.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _cargando = false);
+    }
+  }
+
+  void _abrir(Map<String, dynamic> m) {
+    final equipo =
+        widget.equipos.where((e) => e.id == m['equipoId']).firstOrNull ??
+        EquipoMantenimiento(
+          _texto(m, 'equipoId'),
+          Map<String, dynamic>.from(m),
+        );
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _FichaEquipo(
+          service: widget.service,
+          equipo: equipo,
+          movimiento: _texto(m, 'id'),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, espacio) {
+      final tabla =
+          widget.vistaWeb &&
+          espacio.maxWidth >= 830 &&
+          MediaQuery.textScalerOf(context).scale(16) <= 26;
+      final origenes = {
+        for (final m in _registros)
+          _texto(m, 'origen'): _texto(m, 'origenNombre'),
+      };
+      final destinos = {
+        for (final m in _registros)
+          _texto(m, 'destino'): _texto(m, 'destinoNombre'),
+      };
+      final visibles = _registros.where((m) {
+        final fecha = DateTime.fromMillisecondsSinceEpoch(
+          (m['fecha'] as num).toInt(),
+        );
+        return '${m['nombre']} ${m['codigo']} ${codigoActaEquipo(m)}'
+                .toLowerCase()
+                .contains(_buscar.toLowerCase()) &&
+            (_origen.isEmpty || m['origen'] == _origen) &&
+            (_destino.isEmpty || m['destino'] == _destino) &&
+            (_periodo == null ||
+                (!fecha.isBefore(_periodo!.start) &&
+                    fecha.isBefore(
+                      _periodo!.end.add(const Duration(days: 1)),
+                    )));
+      }).toList();
+      return ListView(
+        padding: EdgeInsets.all(tabla ? 24 : 16),
+        children: [
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                widget.bajas
+                    ? 'Consulta de bajas'
+                    : 'Movimientos entre bodegas',
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              OutlinedButton.icon(
+                onPressed: _cargando ? null : () => _cargar(reiniciar: true),
+                icon: const Icon(Icons.refresh),
+                label: const Text('Actualizar'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          PanelMantenimiento(
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                SizedBox(
+                  width: tabla ? 230 : double.infinity,
+                  child: campoMantenimiento(
+                    'Rótulo, equipo o acta',
+                    120,
+                    onChanged: (v) => setState(() => _buscar = v),
+                  ),
+                ),
+                SizedBox(
+                  width: tabla ? 230 : double.infinity,
+                  child: _selector('Origen', _origen, {
+                    '': 'Todos',
+                    ...origenes,
+                  }, (v) => setState(() => _origen = v)),
+                ),
+                if (!widget.bajas)
+                  SizedBox(
+                    width: tabla ? 230 : double.infinity,
+                    child: _selector('Destino', _destino, {
+                      '': 'Todos',
+                      ...destinos,
+                    }, (v) => setState(() => _destino = v)),
+                  ),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.date_range),
+                  label: Text(
+                    _periodo == null
+                        ? 'Fecha del movimiento'
+                        : '${_fecha(_periodo!.start)} / ${_fecha(_periodo!.end)}',
+                  ),
+                  onPressed: () async {
+                    final periodo = await showDateRangePicker(
+                      context: context,
+                      firstDate: DateTime(2000),
+                      lastDate: DateTime.now().add(const Duration(days: 1)),
+                      initialDateRange: _periodo,
+                    );
+                    if (periodo != null && mounted) {
+                      setState(() => _periodo = periodo);
+                    }
+                  },
+                ),
+                if (_periodo != null)
+                  TextButton(
+                    onPressed: () => setState(() => _periodo = null),
+                    child: const Text('Quitar fechas'),
+                  ),
+              ],
+            ),
+          ),
+          if (_error != null) Text(_error!),
+          if (_cargando) const LinearProgressIndicator(),
+          if (!_cargando && visibles.isEmpty)
+            const PanelMantenimiento(
+              child: Text('No hay movimientos con estos filtros.'),
+            ),
+          if (tabla && visibles.isNotEmpty)
+            PanelMantenimiento(
+              child: Table(
+                columnWidths: const {
+                  0: FlexColumnWidth(1.4),
+                  1: FlexColumnWidth(2),
+                  2: FlexColumnWidth(2),
+                  3: FixedColumnWidth(132),
+                  4: FixedColumnWidth(150),
+                },
+                defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+                children: [
+                  TableRow(
+                    children: [
+                      for (final t in [
+                        'Acta / fecha',
+                        'Equipo / rótulo',
+                        'Movimiento',
+                        'Unidades',
+                        'Consulta',
+                      ])
+                        _celda(
+                          Text(
+                            t,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                    ],
+                  ),
+                  for (final m in visibles)
+                    TableRow(
+                      children: [
+                        _celda(
+                          Text(
+                            '${codigoActaEquipo(m)}\n${_fechaMovimiento(m)}',
+                          ),
+                        ),
+                        _celda(Text('${m['nombre']}\n${m['codigo']}')),
+                        _celda(
+                          Text(
+                            '${m['origenNombre']}${widget.bajas ? '' : ' → ${m['destinoNombre']}'}',
+                          ),
+                        ),
+                        _celda(Text('${m['unidades']}')),
+                        TextButton(
+                          onPressed: () => _abrir(m),
+                          child: const Text('Ver acta'),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            )
+          else
+            for (final m in visibles)
+              PanelMantenimiento(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${m['nombre']} · ${m['codigo']}',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    Text('${codigoActaEquipo(m)} · ${_fechaMovimiento(m)}'),
+                    Text(
+                      '${m['origenNombre']}${widget.bajas ? '' : ' → ${m['destinoNombre']}'} · ${m['unidades']} unidades',
+                    ),
+                    TextButton(
+                      onPressed: () => _abrir(m),
+                      child: const Text('Ver acta'),
+                    ),
+                  ],
+                ),
+              ),
+          if (_cursor.isNotEmpty) ...[
+            const Text(
+              'Los filtros se aplican a los movimientos cargados. Carga más para consultar registros anteriores.',
+            ),
+            OutlinedButton(
+              onPressed: _cargando ? null : _cargar,
+              child: const Text('Cargar más movimientos'),
+            ),
+          ],
+          if (_error != null)
+            OutlinedButton(
+              onPressed: _cargando
+                  ? null
+                  : () => _cargar(reiniciar: _registros.isEmpty),
+              child: const Text('Reintentar'),
+            ),
+        ],
+      );
+    },
+  );
+}
 
 class _FichaTecnica extends StatefulWidget {
   const _FichaTecnica({required this.bytes, required this.nombre});
@@ -1509,9 +2196,11 @@ class _MinimosSedeState extends State<_MinimosSede> {
   Widget build(BuildContext context) {
     final familias = {..._base, ..._locales};
     final actual = <String, int>{};
-    for (final e in widget.equipos.where((e) => e.familia.isNotEmpty)) {
+    for (final e in widget.equipos.where(
+      (e) => e.tipoEnSede(widget.centro.id).isNotEmpty,
+    )) {
       actual.update(
-        e.familia,
+        e.tipoEnSede(widget.centro.id),
         (n) => n + (e.existencias[widget.centro.id] ?? 0),
         ifAbsent: () => e.existencias[widget.centro.id] ?? 0,
       );

@@ -98,12 +98,15 @@ exports.MODULOS_MAESTROS = [
         ],
     },
     {
-        id: "mantenimiento", nombre: "Mantenimiento",
+        id: "mantenimiento", nombre: "Mantenimiento y Equipos",
         maestros: [
+            { id: "TBL_MANTENIMIENTO_CLASIFICACIONES", nombre: "Clasificaciones de equipos",
+                tipo: "coleccion", clave: ["codigo"], omitir: ["updatedBy"] },
             { id: "TBL_MANTENIMIENTO_EQUIPOS", nombre: "Fichas base de equipos",
                 tipo: "coleccion", clave: ["codigo"],
                 omitir: ["centroDocId", "serie", "factura", "inventario", "existencias", "cantidadInicial",
-                    "proveedorId", "proveedorNombre", "fechaCompra", "fechaIngreso", "archivos", "creadoPor", "solicitudId"] },
+                    "proveedorId", "proveedorNombre", "fechaCompra", "fechaIngreso", "archivos", "creadoPor", "solicitudId",
+                    "precioCompra", "familiasPorSede"] },
             { id: "TBL_MANTENIMIENTO_MINIMOS", nombre: "Mínimos por establecimiento",
                 tipo: "coleccion", clave: ["centroDocId"], soloSi: "centroDocId",
                 omitir: ["validadoPor", "validadoAt", "responsableId", "coordinadorId", "ppl"] },

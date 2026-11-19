@@ -178,7 +178,7 @@ const List<AppCatalogEntry> kAppCatalog = [
   ),
   AppCatalogEntry(
     appId: kMantenimientoAppId,
-    nombre: 'Mantenimiento',
+    nombre: 'Mantenimiento y Equipos',
     paraQueSirve:
         'Registrar equipos, atender órdenes de trabajo y generar informes por establecimiento.',
     grupo: AppCatalogGroup.areasOperativas,

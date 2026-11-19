@@ -30,7 +30,7 @@ Widget campoMantenimiento(
   minLines: lineas,
   maxLines: lineas == 1 ? 1 : lineas + 2,
   decoration: InputDecoration(
-    labelText: label,
+    labelText: requerido ? '$label *' : label,
     counterText: '',
     floatingLabelBehavior: FloatingLabelBehavior.always,
   ),
@@ -47,9 +47,11 @@ class PersonaMantenimientoField extends StatelessWidget {
     required this.catalogo,
     required this.onChanged,
     this.nombre = '',
+    this.excluirIds = const {},
   });
 
   final String etiqueta, nombre;
+  final Set<String> excluirIds;
   final Future<Map<String, dynamic>> catalogo;
   final ValueChanged<Map<String, dynamic>> onChanged;
 
@@ -63,7 +65,11 @@ class PersonaMantenimientoField extends StatelessWidget {
         final elegido = await showDialog<Map<String, dynamic>>(
           context: context,
           builder: (context) {
-            final panel = _BuscarPersonaMantenimiento(catalogo, etiqueta);
+            final panel = _BuscarPersonaMantenimiento(
+              catalogo,
+              etiqueta,
+              excluirIds,
+            );
             return MediaQuery.sizeOf(context).width < 600
                 ? Dialog.fullscreen(child: panel)
                 : Dialog(
@@ -72,12 +78,21 @@ class PersonaMantenimientoField extends StatelessWidget {
           },
         );
         if (elegido == null || !field.mounted) return;
-        field.didChange(elegido['nombre'] as String);
+        final detalle = [
+          elegido['cargo'],
+          elegido['area'],
+        ].whereType<String>().where((s) => s.isNotEmpty).join(' · ');
+        field.didChange(
+          [
+            elegido['nombre'] as String,
+            if (detalle.isNotEmpty) detalle,
+          ].join('\n'),
+        );
         onChanged(elegido);
       },
       child: InputDecorator(
         decoration: InputDecoration(
-          labelText: etiqueta,
+          labelText: '$etiqueta *',
           errorText: field.errorText,
           suffixIcon: const Icon(Icons.person_search_outlined),
         ),
@@ -92,9 +107,14 @@ class PersonaMantenimientoField extends StatelessWidget {
 }
 
 class _BuscarPersonaMantenimiento extends StatefulWidget {
-  const _BuscarPersonaMantenimiento(this.catalogo, this.etiqueta);
+  const _BuscarPersonaMantenimiento(
+    this.catalogo,
+    this.etiqueta,
+    this.excluirIds,
+  );
   final Future<Map<String, dynamic>> catalogo;
   final String etiqueta;
+  final Set<String> excluirIds;
 
   @override
   State<_BuscarPersonaMantenimiento> createState() =>
@@ -135,6 +155,7 @@ class _BuscarPersonaMantenimientoState
                   }
                   final personas = (snapshot.data?['personal'] as List? ?? [])
                       .whereType<Map>()
+                      .where((p) => !widget.excluirIds.contains(p['id']))
                       .where(
                         (p) => "${p['nombre']} ${p['cargo']} ${p['area']}"
                             .toLowerCase()
