@@ -635,9 +635,9 @@ export async function cambiarItem(input: DatosPlan, a: Actor) {
       const vigentes = siblings.docs.filter((d) => d.get("eliminado") !== true);
       if (["recibido", "en_gestion"].includes(plan.estadoGestion || "recibido") &&
           vigentes.length && vigentes.every((d) => {
-            const datos = d.id === ref.id ? {...item, ...update} : d.data();
-            return datos.respuestaPresentado && datos.soportesPresentado;
-          })) {
+        const datos = d.id === ref.id ? {...item, ...update} : d.data();
+        return datos.respuestaPresentado && datos.soportesPresentado;
+      })) {
         tx.update(pr, {estadoGestion: "enviado", updatedAt: admin.firestore.Timestamp.now()});
         audit(tx, pr, a, "estado_automatico", {estadoGestion: "enviado"});
       }

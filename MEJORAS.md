@@ -1,5 +1,15 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-18 — Permisos de WhatsApp, medición de Meta y revisión de cuentas (Codex)
+
+- Cerrada la suplantación de administradores de WhatsApp mediante identidad enviada por el cliente: los nueve callables requieren Auth v2 firmado, UID vinculado y acceso habilitado en la empresa activa. Se evita heredar administración a empresas secundarias o elevar un rol local a Desarrollo global. Se conservan los roles históricos de autoridad en su ámbito.
+- Meta: mensajes, PDF y plantillas validan dominio/ruta HTTPS oficiales antes de adjuntar el token; rechazan redirecciones y usan tiempo máximo. Publicadas las 20 funciones consumidoras; todas ACTIVE con hash `a53d1448dace5ec440e7419c05757f6b2d9383a0`. Los nueve Admin rechazan solicitudes sin sesión en producción.
+- Medición de 30 días por lectura, sin envíos reales: 2.009 aceptados en la app (máximo 167/día); Meta informa 1.992 enviados y entregados (máximo 165/día) y coste analítico aproximado COP 5.867,44. Diferencia de 17 pendiente de conciliación por mensaje; falta configurar el webhook firmado con secretos reales de Meta. Script reproducible `tool/medir_whatsapp.cjs`.
+- Daniel pidió medir primero: se propone 250 intentos diarios globales y alerta a 150; no se activó un tope. Requiere contador transaccional, cola de pendientes e idempotencia para no perder avisos ni duplicarlos. El límite de mensajes no garantiza un límite monetario ni evita el uso de un token robado fuera del backend.
+- Auditoría de cuentas: Google tiene doble verificación activa y cinco sesiones mostradas en Colombia. Daniel reconoce el TECNO KM4 inactivo y autorizó cerrar su sesión; Google exige verificación personal antes de continuar. Panel empresarial Meta sin sesión: pendientes sus administradores, socios, doble factor y límites del proveedor. Se encontraron tres claves privadas de servicio de 2025 activas y permisos IAM amplios: identificar dependencias y rotar/reducir sin interrumpir servicios.
+- Pendiente aislar secretos por función: token Meta en 97 funciones al inicio, 98 después del despliegue con `.env` compartido. El backend no lo devuelve al cliente y `.env` está ignorado. Migración a Secret Manager y retirada de copias pendientes; no se revocaron credenciales sin conocer sus consumidores.
+- Validación: TypeScript y lint sin errores (50 advertencias); suite con 345 aprobadas, cero fallos y una omitida por falta de emulador. Auditoría de Maps en Google Cloud aprobada. Corrección equivalente de declaración local en Mantenimiento para superar lint; autofix de sangría en Interventoría. Sin cambios de layout/catálogos, sin WhatsApp reales de prueba y sin validación autenticada o móvil física. [Resultados y pendientes](docs/seguridad_integraciones_2026-11-18.md).
+
 ## 2026-11-18 — Contención de Geocoding y separación de claves Maps (Codex)
 
 - Incidente: COP 474.615,40 en Geocoding y 40.002 solicitudes en siete días, asociadas a la clave pública compartida por Web, Android, iOS y tres funciones. La clave tenía 31 APIs y ninguna restricción de aplicación. El origen del tráfico no está confirmado.

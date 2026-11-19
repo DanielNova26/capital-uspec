@@ -395,7 +395,7 @@ export const mantenimientoOrden = functions.region("us-central1").https.onCall(a
   }
 
   if (accion === "adjuntar") {
-    function verificarFirma(orden: Data) {
+    const verificarFirma = (orden: Data) => {
       if (input.clase === "firmaTecnico" || input.clase === "firmaReceptor") {
         const campo = input.clase === "firmaTecnico" ? "tecnicoId" : "receptorId";
         if (orden.estado !== "cerrada" || orden.cierre?.[campo] !== userId) {
@@ -405,7 +405,7 @@ export const mantenimientoOrden = functions.region("us-central1").https.onCall(a
       }
       if (orden.estado === "cerrada") error("failed-precondition", "La orden ya está cerrada.");
       return false;
-    }
+    };
     await db.runTransaction(async (tx) => {
       verificarFirma((await leer(tx))!);
     }, {readOnly: true});

@@ -9,6 +9,7 @@ import * as functions from "firebase-functions/v1";
 import {whatsappActivoParaRuta} from "./notification_catalog";
 import * as admin from "firebase-admin";
 import {appsDeEmpresa, raizEsDeEmpresa} from "./apps_por_empresa";
+import {cuentaInhabilitada, inhabilitadaEn} from "./acceso";
 import {
   createCipheriv,
   createDecipheriv,
@@ -425,21 +426,6 @@ function isDeveloper(user: admin.firestore.DocumentData): boolean {
     user.rol,
     user.tipoUsuario,
   ].map(normalize);
-  const detail = user.empresasDetalle;
-  if (detail && typeof detail === "object" && !Array.isArray(detail)) {
-    for (const raw of Object.values(detail)) {
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
-      const scoped = raw as Record<string, unknown>;
-      roles.push(
-        ...[
-          scoped.roleKey,
-          scoped.roleId,
-          scoped.role,
-          scoped.rol,
-        ].map(normalize)
-      );
-    }
-  }
   return roles.some((role) =>
     [
       "desarrollador",
@@ -515,12 +501,10 @@ function hasAdminAccess(
     scoped?.roleId,
     scoped?.role,
     scoped?.rol,
-    user.roleKey,
-    user.role_key,
-    user.roleId,
-    user.role,
-    user.rol,
-    user.tipoUsuario,
+    ...(raizEsDeEmpresa(user, empresaId) ? [
+      user.roleKey, user.role_key, user.roleId, user.role,
+      user.rol, user.tipoUsuario,
+    ] : []),
   ].map(normalize);
   if (roles.some(roleIsAdmin)) return true;
 
@@ -528,21 +512,35 @@ function hasAdminAccess(
   return appIds.some(appIsAdminDashboard);
 }
 
-async function findUser(identity: string) {
-  const direct = await db().collection("TBL_USUARIOS").doc(identity).get();
-  if (direct.exists) return direct;
-  const byUid = await db()
-    .collection("TBL_USUARIOS")
-    .where("uid", "==", identity)
-    .limit(1)
-    .get();
-  if (!byUid.empty) return byUid.docs[0];
-  const byCedula = await db()
-    .collection("TBL_USUARIOS")
-    .where("cedula", "==", identity)
-    .limit(1)
-    .get();
-  return byCedula.empty ? null : byCedula.docs[0];
+/**
+ * Identidad firmada por Auth v2; nunca acepta una cédula del payload.
+ * @param {functions.https.CallableContext} context Sesión verificada por Firebase.
+ * @return {string} Documento vinculado a la sesión, o vacío si no es válida.
+ */
+export function whatsappAdminUserId(
+  context: functions.https.CallableContext
+): string {
+  const auth = context.auth;
+  const id = auth?.token.userDocId;
+  if (!auth || auth.token.authVersion !== 2 || typeof id !== "string" ||
+      !id || id.length > 512 || id.includes("/")) return "";
+  const expected = `todo_${createHash("sha256").update(id, "utf8").digest("hex")}`;
+  return auth.uid === expected ? id : "";
+}
+
+/**
+ * Usa la empresa activa y respeta la inhabilitación global y por empresa.
+ * @param {admin.firestore.DocumentData} user Ficha del usuario autenticado.
+ * @param {string} empresaId Empresa activa solicitada.
+ * @return {boolean} Si conserva acceso administrativo en esa empresa.
+ */
+export function puedeAdministrarWhatsApp(
+  user: admin.firestore.DocumentData,
+  empresaId: string
+): boolean {
+  return !cuentaInhabilitada(user) && !inhabilitadaEn(user, empresaId) &&
+    companyDetail(user, empresaId)?.activo !== false &&
+    belongsToEmpresa(user, empresaId) && hasAdminAccess(user, empresaId);
 }
 
 async function requireWhatsAppAdmin(
@@ -550,27 +548,19 @@ async function requireWhatsAppAdmin(
   context: functions.https.CallableContext
 ): Promise<{ empresaId: string; userId: string }> {
   const empresaId = text(data?.empresaId);
-  // La aplicación aún mezcla Firebase Auth con su identidad interna
-  // (uid/cédula en TBL_USUARIOS). Correo ya permite ambas variantes y
-  // Administración debe conservar el mismo comportamiento.
-  const authUid = text(context.auth?.uid);
-  const appIdentity = text(
-    data?.userId || data?.appUserId || data?.usuario || data?.cedula
-  );
-  if (!empresaId || !authUid) {
+  const userId = whatsappAdminUserId(context);
+  if (!empresaId || !userId) {
     throw new functions.https.HttpsError(
       "unauthenticated",
-      "Se requiere usuario y empresa."
+      "Se requiere una sesión segura y empresa. Inicia sesión de nuevo."
     );
   }
-  // Firebase Auth es anónimo en esta aplicación; la identidad laboral se
-  // resuelve con la cédula/docId enviada por la sesión interna.
-  const userDoc = await findUser(appIdentity || authUid);
-  if (!userDoc) {
+  const userDoc = await db().collection("TBL_USUARIOS").doc(userId).get();
+  if (!userDoc.exists) {
     throw new functions.https.HttpsError("permission-denied", "Usuario no encontrado.");
   }
   const user = userDoc.data() || {};
-  if (!belongsToEmpresa(user, empresaId) || !hasAdminAccess(user, empresaId)) {
+  if (!puedeAdministrarWhatsApp(user, empresaId)) {
     throw new functions.https.HttpsError(
       "permission-denied",
       "Solo Administración puede configurar WhatsApp."
@@ -842,6 +832,26 @@ class GenericHttpWhatsAppProvider implements WhatsAppProvider {
   }
 }
 
+/**
+ * Valida el destino antes de adjuntar una credencial de Meta.
+ * @param {string} value URL de mensajes configurada en servidor.
+ * @return {URL} Endpoint oficial sin parámetros ni credenciales embebidas.
+ */
+export function metaMessagesUrl(value: string): URL {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch (_) {
+    throw new Error("WHATSAPP_CLOUD_URL_INVALID");
+  }
+  if (url.origin !== "https://graph.facebook.com" || url.username ||
+      url.password || url.search || url.hash ||
+      !/^\/v\d+\.\d+\/\d+\/messages\/?$/.test(url.pathname)) {
+    throw new Error("WHATSAPP_CLOUD_URL_INVALID");
+  }
+  return url;
+}
+
 /** Envío directo por WhatsApp Cloud API de Meta. */
 export class WhatsAppCloudProvider implements WhatsAppProvider {
   readonly name = "whatsapp_cloud";
@@ -849,10 +859,7 @@ export class WhatsAppCloudProvider implements WhatsAppProvider {
   constructor(private readonly config: WhatsAppRuntimeConfig) {}
 
   async subirPdf(bytes: Uint8Array, nombre: string): Promise<string> {
-    const url = new URL(this.config.baseUrl);
-    if (url.origin !== "https://graph.facebook.com" || !/\/messages\/?$/.test(url.pathname)) {
-      throw new Error("WHATSAPP_CLOUD_MEDIA_URL_INVALID");
-    }
+    const url = metaMessagesUrl(this.config.baseUrl);
     url.pathname = url.pathname.replace(/\/messages\/?$/, "/media");
     const datos = new FormData();
     datos.set("messaging_product", "whatsapp");
@@ -860,7 +867,7 @@ export class WhatsAppCloudProvider implements WhatsAppProvider {
     datos.set("file", new Blob([Uint8Array.from(bytes)], {type: "application/pdf"}), nombre);
     const respuesta = await fetch(url, {
       method: "POST", headers: {Authorization: `Bearer ${this.config.apiKey}`},
-      body: datos, signal: AbortSignal.timeout(20000),
+      body: datos, signal: AbortSignal.timeout(20000), redirect: "error",
     });
     if (!respuesta.ok) throw new Error(`WHATSAPP_CLOUD_MEDIA_${respuesta.status}`);
     const archivo = await respuesta.json() as {id?: string};
@@ -922,14 +929,15 @@ export class WhatsAppCloudProvider implements WhatsAppProvider {
         type: "text",
         text: { preview_url: false, body: input.mensaje.trim() },
       };
-    const response = await fetch(this.config.baseUrl, {
+    const response = await fetch(metaMessagesUrl(this.config.baseUrl).toString(), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${this.config.apiKey}`,
       },
       body: JSON.stringify(body),
-      ...(input.documento ? {signal: AbortSignal.timeout(12000)} : {}),
+      signal: AbortSignal.timeout(12000),
+      redirect: "error",
     });
     const rawText = await response.text();
     if (!response.ok) {
@@ -1394,7 +1402,7 @@ export function adminControlledTestMetadata(
 }
 
 function metaGraphRoot(config: WhatsAppRuntimeConfig): string {
-  const configured = new URL(config.baseUrl);
+  const configured = metaMessagesUrl(config.baseUrl);
   const version = configured.pathname
     .split("/")
     .filter(Boolean)
@@ -1494,6 +1502,7 @@ async function fetchMetaTemplateStates(
   const response = await fetch(url, {
     headers: { "Authorization": `Bearer ${config.apiKey}` },
     signal: AbortSignal.timeout(15000),
+    redirect: "error",
   });
   const rawText = await response.text();
   if (!response.ok) {
@@ -1661,6 +1670,14 @@ export const whatsappAdminGuardar = functions
         "invalid-argument",
         "La URL debe usar HTTP o HTTPS."
       );
+    }
+    if (isCloudProvider(provider)) {
+      try {
+        metaMessagesUrl(baseUrl);
+      } catch (_) {
+        throw new functions.https.HttpsError("invalid-argument",
+          "Meta requiere HTTPS y una URL de mensajes de graph.facebook.com sin credenciales ni parámetros.");
+      }
     }
     if (["openwa", "openclaw_openwa"].includes(provider) && !sessionId) {
       throw new functions.https.HttpsError(
@@ -1855,6 +1872,7 @@ export const whatsappAdminEnviarPlantillaRevision = functions
             components,
           }),
           signal: AbortSignal.timeout(15000),
+          redirect: "error",
         }
       );
       const rawText = await response.text();
