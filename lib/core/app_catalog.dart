@@ -15,6 +15,7 @@
 import 'package:flutter/material.dart';
 
 const kMantenimientoAppId = 'mantenimientodashboard';
+const kPlaneacionAppId = 'planeaciondashboard';
 
 /// Agrupación con la que se le presenta el catálogo a alguien que no es
 /// técnico (Talento Humano). No tiene efecto sobre los permisos.
@@ -122,6 +123,18 @@ class AppCatalogEntry {
 
 /// Módulos de la plataforma, en el orden en que conviene mostrarlos.
 const List<AppCatalogEntry> kAppCatalog = [
+  AppCatalogEntry(
+    appId: kPlaneacionAppId,
+    nombre: 'Planeación',
+    paraQueSirve:
+        'Raciones, recetas, ciclos de consumo, solicitudes a Compras y despachos a producción.',
+    grupo: AppCatalogGroup.areasOperativas,
+    proceso: ProcesoMapa.misional,
+    icono: Icons.calendar_month_outlined,
+    color: Color(0xFF0F766E),
+    notaRolInterno:
+        'Admin asigna Consulta, Planificador, Bodega o Administrador.',
+  ),
   AppCatalogEntry(
     appId: 'tareasdashboard',
     nombre: 'Tareas',

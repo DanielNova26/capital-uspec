@@ -43,6 +43,19 @@ const functions = __importStar(require("firebase-functions/v1"));
 const security_admin_1 = require("./security_admin");
 exports.MODULOS_LIMPIEZA = [
     {
+        id: "planeacion", nombre: "Planeación", tareas: false,
+        registros: [
+            { id: "TBL_PLANEACION_PARTES", nombre: "Raciones por establecimiento" },
+            { id: "TBL_PLANEACION_CICLOS", nombre: "Ciclos" },
+            { id: "TBL_PLANEACION_SOLICITUDES", nombre: "Solicitudes a Compras" },
+            { id: "TBL_PLANEACION_SALIDAS", nombre: "Alistamientos y despachos" },
+        ],
+        maestros: [
+            { id: "TBL_PLANEACION_MENUS", nombre: "Menús y recetas" },
+            { id: "TBL_PLANEACION_PRECIOS", nombre: "Precios y vigencias" },
+        ],
+    },
+    {
         id: "tareas", nombre: "Tareas y notificaciones", tareas: true,
         registros: [], maestros: [],
     },

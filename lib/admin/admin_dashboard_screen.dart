@@ -290,6 +290,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   Map<String, String> _dianRoleByUser = {};
   Map<String, String> _talentoRoleByUser = {};
   Map<String, String> _nutricionRoleByUser = {};
+  Map<String, String> _planeacionRoleByUser = {};
 
   // Catálogos
   List<CentroCostoItem> _centros = [];
@@ -477,6 +478,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             '',
       ),
       PersonalEmpresaEstado.cargar(FirebaseFirestore.instance, selected),
+      _loadModuleRoleMap('TBL_PLANEACION_ROLES', selected),
     ]);
     final users =
         results[0] as List<QueryDocumentSnapshot<Map<String, dynamic>>>;
@@ -553,6 +555,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       _dianRoleByUser = results[13] as Map<String, String>;
       _talentoRoleByUser = results[14] as Map<String, String>;
       _nutricionRoleByUser = results[15] as Map<String, String>;
+      _planeacionRoleByUser = results[19] as Map<String, String>;
 
       _centros = centros;
       _areas = areas;
@@ -602,6 +605,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         _loadModuleRoleMap('TBL_TALENTO_HUMANO_ROLES', empresaId),
         _loadModuleRoleMap('TBL_NUTRICION_ROLES', empresaId),
         PersonalEmpresaEstado.cargar(FirebaseFirestore.instance, empresaId),
+        _loadModuleRoleMap('TBL_PLANEACION_ROLES', empresaId),
       ]);
       if (!mounted ||
           _empresaId != empresaId ||
@@ -648,6 +652,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         _dianRoleByUser = results[7] as Map<String, String>;
         _talentoRoleByUser = results[8] as Map<String, String>;
         _nutricionRoleByUser = results[9] as Map<String, String>;
+        _planeacionRoleByUser = results[11] as Map<String, String>;
         _userApps = {
           for (final user in users)
             user.id: extractUserApps(user.data(), empresaId: empresaId).toSet(),
@@ -3408,6 +3413,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         'tokens_dian' => _dianRoleByUser,
         'talento' => _talentoRoleByUser,
         'nutricion' => _nutricionRoleByUser,
+        'planeacion' => _planeacionRoleByUser,
         _ => const {},
       };
 
@@ -3617,6 +3623,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   String _moduleAssignmentSource(
     _AccessMatrixModule module,
   ) => switch (module.key) {
+    'planeacion' =>
+      'Nivel canónico por empresa en TBL_PLANEACION_ROLES. Roles configurables '
+          'en TBL_ROLES y vínculo rolPlaneacionId. Sin asignación canónica no opera.',
     'tareas' =>
       'Ficha de la empresa: crearTareasTodasAreas y puedeVerEquipo. '
           'Los roles configurables se guardan en TBL_ROLES y se vinculan mediante rolTareasId.',
@@ -5526,6 +5535,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         color: Color(0xFF2563EB),
       ),
       _AccessMatrixModule(
+        key: 'planeacion',
+        label: 'Planeación',
+        appId: 'planeaciondashboard',
+        icon: Icons.calendar_month_outlined,
+        color: Color(0xFF0F766E),
+        roles: planeacionTableRoles.levels,
+      ),
+      _AccessMatrixModule(
         key: 'talento',
         label: 'Talento',
         appId: 'talentohumanodashboard',
@@ -5693,6 +5710,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   String _matrixModulePermissionHint(_AccessMatrixModule module) {
     switch (module.key) {
+      case 'planeacion':
+        return 'Consulta, planificación, alistamiento, despacho y administración';
       case 'tareas':
         return 'Acceso, áreas y vista del equipo';
       case 'compras':
@@ -5737,6 +5756,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     String roleKey,
   ) {
     switch (module.key) {
+      case 'planeacion':
+        return planeacionTableRoles.levelDescription(roleKey);
       case 'tareas':
         for (final role in _taskModuleRoles) {
           if (role.id == roleKey) return role.effectivePermissions.description;
@@ -6103,6 +6124,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         ? _safe(data['cedula'])
         : userDoc.id;
     switch (module.key) {
+      case 'planeacion':
+        if (!_matrixUserHasApp(userDoc, module.appId, empresaId)) return null;
+        return _planeacionRoleByUser[userDoc.id];
       case 'tareas':
         final id = taskRoleIdOf(data, empresaId);
         return id.isEmpty ? null : id;
@@ -16892,6 +16916,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 // Lista canónica de módulos asignables (appId → etiqueta). Fuente única para
 // el editor "Asignar módulos". Si se agrega un módulo nuevo, va aquí.
 const List<({String id, String label})> _kAllModules = [
+  (id: 'planeaciondashboard', label: 'Planeación'),
   (id: 'admindashboard', label: 'Administración'),
   (id: 'talentohumanodashboard', label: 'Talento Humano'),
   (id: 'biometricodashboard', label: 'Biométrico'),

@@ -31,6 +31,7 @@ import 'compras_recepcion_logic.dart';
 import 'compras_service.dart';
 import 'compras_catalog_import_screen.dart';
 import 'compras_access_service.dart';
+import '../planeacion/planeacion_screen.dart';
 import 'compras_req_engine.dart';
 import 'compras_tiempos_calidad.dart';
 import 'compras_validation.dart';
@@ -1114,6 +1115,23 @@ class _ComprasDashboardBody extends StatelessWidget {
             ),
           ),
         ),
+      card(
+        icon: Icons.calendar_month_outlined,
+        titulo: 'Solicitudes de Planeación',
+        subtitulo:
+            'Necesidades por producto, cantidades, costos y seguimiento de compra',
+        color: const Color(0xFF0F766E),
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PlaneacionScreen(
+              empresaId: empresaId,
+              userId: userId,
+              desdeCompras: true,
+            ),
+          ),
+        ),
+      ),
       card(
         icon: Icons.manage_search,
         titulo: 'Consultas',

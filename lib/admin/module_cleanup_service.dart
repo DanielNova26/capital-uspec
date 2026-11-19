@@ -35,6 +35,15 @@ class ModuloLimpiezaInfo {
 
 const kModulosLimpieza = <ModuloLimpiezaInfo>[
   ModuloLimpiezaInfo(
+    id: 'planeacion',
+    nombre: 'Planeación',
+    icono: Icons.calendar_month_outlined,
+    color: Color(0xFF0F766E),
+    descripcion:
+        'Raciones, ciclos, solicitudes y salidas. Maestros: menús, recetas y precios.',
+    maestros: true,
+  ),
+  ModuloLimpiezaInfo(
     id: 'tareas',
     nombre: 'Tareas y notificaciones',
     icono: Icons.task_alt_rounded,

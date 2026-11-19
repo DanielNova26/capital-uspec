@@ -7,6 +7,7 @@ import {planDeEntrega} from "./notification_catalog";
 // API aislada de pruebas de comunicación para ESP32.
 export {marcacionesPrueba} from "./marcaciones_prueba";
 export {biometricoGestion, biometricoDispositivo} from "./biometrico";
+export {planeacionOperar} from "./planeacion";
 export {talentoCargarPersonal} from "./talento_personal_import";
 export {mantenimientoOrden} from "./mantenimiento_ordenes";
 export {mantenimientoInventario} from "./mantenimiento_inventario";

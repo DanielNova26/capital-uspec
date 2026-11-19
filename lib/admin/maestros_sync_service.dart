@@ -52,6 +52,16 @@ class ModuloMaestrosInfo {
 
 const kModulosMaestros = <ModuloMaestrosInfo>[
   ModuloMaestrosInfo(
+    id: 'planeacion',
+    nombre: 'Planeación',
+    icono: Icons.calendar_month_outlined,
+    color: Color(0xFF0F766E),
+    maestros: [
+      MaestroInfo('TBL_PLANEACION_MENUS', 'Menús y recetas'),
+      MaestroInfo('TBL_PLANEACION_PRECIOS', 'Precios y vigencias'),
+    ],
+  ),
+  ModuloMaestrosInfo(
     id: 'compras',
     nombre: 'Compras',
     icono: Icons.shopping_bag_outlined,

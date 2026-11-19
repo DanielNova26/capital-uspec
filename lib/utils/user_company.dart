@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 const Map<String, String> kAppIdNormalizationMap = {
   'tareas': 'tareasdashboard',
   'compras': 'comprasdashboard',
+  'planeacion': 'planeaciondashboard',
   'correo': 'correodashboard',
   'admin': 'admindashboard',
   'talento': 'talentohumanodashboard',

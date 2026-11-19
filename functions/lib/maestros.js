@@ -59,6 +59,17 @@ const security_admin_1 = require("./security_admin");
 const acceso_1 = require("./acceso");
 exports.MODULOS_MAESTROS = [
     {
+        id: "planeacion", nombre: "Planeación",
+        maestros: [
+            // Referencias por código de Compras, nunca IDs de otra empresa.
+            // Al operar se exige un producto único del mismo código en el destino.
+            { id: "TBL_PLANEACION_MENUS", nombre: "Menús y recetas", tipo: "coleccion",
+                clave: ["codigo"], omitir: ["actualizadoPor"] },
+            { id: "TBL_PLANEACION_PRECIOS", nombre: "Precios y vigencias", tipo: "coleccion",
+                clave: ["productoCodigo", "desde"], omitir: ["actualizadoPor"] },
+        ],
+    },
+    {
         id: "compras", nombre: "Compras",
         maestros: [
             // El período de consumo de Abastecimiento se copia; quién y cuándo

@@ -368,6 +368,9 @@ service cloud.firestore {
     // Sin mirar la empresa: va después de un `belongsToCompany`.
     function adminDeModuloTablaEn(empresaId, moduleId) {
       return (moduleId == 'comprasdashboard' && esAdminComprasEn(empresaId))
+        || (moduleId == 'planeaciondashboard'
+          && tieneAppsEn(empresaId, ['planeaciondashboard', 'planeacion'], false)
+          && rolEnTabla('TBL_PLANEACION_ROLES', empresaId) == 'administrador')
         || (moduleId == 'rutasdashboard'
           && rolEnTabla('TBL_RUTAS_ROLES', empresaId) in ['admin', 'admin_calidad'])
         || (moduleId == 'interventoriadashboard'
@@ -611,13 +614,14 @@ service cloud.firestore {
     // tablas tienen el mismo contrato y van en un solo `match` (6 oct 2026).
     function esTablaDeRoles(collection) {
       return collection.matches(
-        'TBL_(DIAN_TOKEN_ROLES|TALENTO_HUMANO_ROLES|NUTRICION_ROLES|BIOMETRICO_ROLES)');
+        'TBL_(DIAN_TOKEN_ROLES|TALENTO_HUMANO_ROLES|NUTRICION_ROLES|BIOMETRICO_ROLES|PLANEACION_ROLES)');
     }
 
     // Niveles de los módulos con tabla de roles; son también los roles base
     // válidos de sus roles configurables (`rolDeModuloValido`).
     function nivelesDeModulo(moduleId) {
-      return moduleId == 'biometricodashboard' ? ['consulta','gestor','administrador']
+      return moduleId == 'planeaciondashboard' ? ['consulta','planificador','bodega','administrador']
+        : moduleId == 'biometricodashboard' ? ['consulta','gestor','administrador']
         : moduleId == 'tokensdiandashboard'
         ? ['consulta','operador','administrador']
         : (moduleId == 'talentohumanodashboard'
@@ -1927,7 +1931,7 @@ service cloud.firestore {
             'interventoriadashboard', 'visitasdashboard',
             'tokensdiandashboard', 'talentohumanodashboard', 'biometricodashboard',
             'nutriciondashboard', 'facturaciondashboard',
-            'gerenciadashboard']
+            'gerenciadashboard', 'planeaciondashboard']
           && (nivelesDeModulo(data.moduleId).size() == 0
             || data.get('baseRole', '') in nivelesDeModulo(data.moduleId))
           && data.get('enabled', null) is bool
@@ -2813,6 +2817,27 @@ service cloud.firestore {
     }
 
     // ── Colecciones agrupadas en un `match` con comodín ──────────────────
+    // Planeación: el cliente solo consulta. Las funciones recalculan cantidades
+    // y comprueban niveles, empresa, vigencias y transiciones en el servidor.
+    match /{collection}/{docId} {
+      function leePlaneacion(empresaId) {
+        let app = /databases/$(database)/documents/TBL_APPS/$(empresaId + '_planeaciondashboard');
+        return belongsToCompany(empresaId)
+          && tieneAppsEn(empresaId, ['planeaciondashboard', 'planeacion'], false)
+          && get(app).data.enabled == true
+          && rolEnTabla('TBL_PLANEACION_ROLES', empresaId) in ['consulta','planificador','bodega','administrador'];
+      }
+      function leeSolicitudCompras(empresaId) {
+        let app = /databases/$(database)/documents/TBL_APPS/$(empresaId + '_comprasdashboard');
+        return belongsToCompany(empresaId) && tieneAppComprasEn(empresaId)
+          && (!exists(app) || get(app).data.get('enabled', true) != false);
+      }
+      allow read: if collection.matches('TBL_PLANEACION_(MENUS|PRECIOS|PARTES|CICLOS|SOLICITUDES|SALIDAS)')
+        && (leePlaneacion(resource.data.empresaId)
+          || (collection == 'TBL_PLANEACION_SOLICITUDES' && leeSolicitudCompras(resource.data.empresaId)));
+      allow write: if false;
+    }
+
     // Van al final, justo antes de la regla general (6 oct 2026). Firestore
     // evalúa las reglas que coinciden en el orden del archivo y suma lo que
     // cuesta cada una hasta que alguna permite: en medio del archivo, el
@@ -2866,7 +2891,8 @@ service cloud.firestore {
     // (`esTablaDeRoles`).
     match /{collection}/{docId} {
       function moduloDeTablaDeRoles(collection) {
-        return collection == 'TBL_DIAN_TOKEN_ROLES' ? 'tokensdiandashboard'
+        return collection == 'TBL_PLANEACION_ROLES' ? 'planeaciondashboard'
+          : collection == 'TBL_DIAN_TOKEN_ROLES' ? 'tokensdiandashboard'
           : (collection == 'TBL_BIOMETRICO_ROLES' ? 'biometricodashboard'
             : (collection == 'TBL_TALENTO_HUMANO_ROLES' ? 'talentohumanodashboard'
               : 'nutriciondashboard'));
@@ -2913,6 +2939,7 @@ service cloud.firestore {
         && !esColeccionNutricion(collection)
         && !esColeccionDeSuEmpresa(collection)
         && !esTablaDeRoles(collection)
+        && !collection.matches('TBL_PLANEACION_.*')
         && !collection.matches('TBL_(TAREAS|TAREAS_CONTADORES|TAREAS_RECURRENTES'
           + '|COMPRAS_ROLES|COMPRAS_CONFIG|NOTIFICACIONES_CONFIG|NOTIFICACIONES_PREFERENCIAS|COBERTURA_LOTES'
           + '|WHATSAPP_CONFIG|WHATSAPP_AUDITORIA|WHATSAPP_META_ESTADOS|WHATSAPP_COLA|WHATSAPP_CONSUMO'

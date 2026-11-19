@@ -319,7 +319,37 @@ const biometricoTableRoles = TableModuleRoleConfig(
   removeAppOnClear: true,
 );
 
+const planeacionTableRoles = TableModuleRoleConfig(
+  moduleKey: 'planeacion',
+  appId: 'planeaciondashboard',
+  slug: 'planeacion',
+  moduleName: 'Planeación',
+  collection: 'TBL_PLANEACION_ROLES',
+  fichaField: 'rolPlaneacion',
+  levels: {
+    'consulta': 'Consulta',
+    'planificador': 'Planificador',
+    'bodega': 'Bodega',
+    'administrador': 'Administrador',
+  },
+  levelDescriptions: {
+    'consulta': 'Consulta menús, raciones, costos, ciclos y salidas.',
+    'planificador':
+        'Edita recetas, precios, raciones y ciclos; envía solicitudes a Compras.',
+    'bodega':
+        'Consulta la planeación y registra alistamientos y despachos a producción.',
+    'administrador':
+        'Gestiona Planeación y sus roles, incluidos alistamientos y despachos.',
+  },
+  inactiveLevel: 'consulta',
+  inactiveDescription:
+      'Solo consulta. Conceder acceso de nuevo no recupera privilegios anteriores.',
+  adminLevels: {'administrador'},
+  removeAppOnClear: true,
+);
+
 const tableModuleRoleConfigs = <TableModuleRoleConfig>[
+  planeacionTableRoles,
   biometricoTableRoles,
   rutasTableRoles,
   interventoriaTableRoles,

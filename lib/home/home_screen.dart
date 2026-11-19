@@ -29,6 +29,7 @@ import 'library_management_screen.dart';
 import '../gestion_documental/planillas/pp_module_screen.dart';
 import '../nutricion/nutricion_dashboard_screen.dart';
 import '../compras/compras_dashboard_screen.dart';
+import '../planeacion/planeacion_screen.dart';
 import '../compras/compras_models.dart';
 import '../compras/compras_service.dart';
 import '../compras/abastecimiento_models.dart';
@@ -2123,6 +2124,36 @@ class _HomeScreenState extends State<HomeScreen> {
             color: const Color(0xFF2563EB),
             compact: !isWeb,
             onTap: () => _abrirCompras(context, cedula, empresaId, userData),
+          ),
+        ),
+
+      if (_moduleVisible(apps, isDev, kPlaneacionAppId, disabledAppIds))
+        _HomeModulo(
+          kPlaneacionAppId,
+          ModuleCard(
+            width: cardWidth,
+            title: 'Planeación',
+            icon: Icons.calendar_month_outlined,
+            color: const Color(0xFF0F766E),
+            compact: !isWeb,
+            onTap: () async {
+              final permitido = await _guardModuleNavigation(
+                userData: userData,
+                empresaId: empresaId,
+                appId: kPlaneacionAppId,
+                deniedMessage: 'Sin acceso a Planeación.',
+              );
+              if (!permitido || !mounted) return;
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PlaneacionScreen(
+                    empresaId: empresaId,
+                    userId: cedula,
+                  ),
+                ),
+              );
+            },
           ),
         ),
 
