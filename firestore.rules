@@ -898,21 +898,22 @@ service cloud.firestore {
       allow delete: if isSignedIn() && !appMantenimiento(resource.data);
     }
 
-    function idMantenimiento(id) {
-      return id is string && id.matches('[^/]{1,200}');
-    }
-
-    function centroMantenimiento(id) {
-      return /databases/$(database)/documents/TBL_CENTROS_COSTOS/$(id);
-    }
-
-    function centroMantenimientoValido(empresaId, id) {
-      let path = centroMantenimiento(id);
-      return idMantenimiento(id) && get(path).data.empresaId == empresaId
-        && get(path).data.get('enabled', true) != false;
-    }
-
     match /TBL_MANTENIMIENTO_EQUIPOS/{id} {
+      // Auxiliares exclusivos de equipos: no se heredan en los demás matches.
+      function idMantenimiento(id) {
+        return id is string && id.matches('[^/]{1,200}');
+      }
+
+      function centroMantenimiento(id) {
+        return /databases/$(database)/documents/TBL_CENTROS_COSTOS/$(id);
+      }
+
+      function centroMantenimientoValido(empresaId, id) {
+        let path = centroMantenimiento(id);
+        return idMantenimiento(id) && get(path).data.empresaId == empresaId
+          && get(path).data.get('enabled', true) != false;
+      }
+
       function fichaValida(d) {
         return d.codigo is string && d.codigo.trim().size() > 0 && d.codigo.size() <= 60
           && d.nombre is string && d.nombre.trim().size() > 0 && d.nombre.size() <= 120

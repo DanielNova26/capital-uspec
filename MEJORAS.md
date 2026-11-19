@@ -1,5 +1,11 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-19 — Demo online y publicación 2.8.39+93 (Codex)
+
+- Trasladada la copia local guardada a la empresa Demo existente: 43 cuentas, cargos, jefaturas, módulos, 141 tareas con sus hallazgos, acta, históricos y tres adjuntos. Conservados los registros online y la contraseña de Gerencia. Sin transferencia de sesiones ni reproducción de colas de notificación. Planeación habilitada con niveles explícitos para los perfiles de pruebas.
+- Web general 2.8.39+93 y cinco funciones de Mantenimiento, Maestros, Limpieza y Planeación publicadas; índices y reglas activados. Tres auxiliares exclusivos de equipos localizados dentro de su colección para reducir la complejidad del compilador remoto, con permisos conservados. Maps y aislamiento de WhatsApp verificados.
+- Ingreso online de las 43 cuentas comprobado. Excel privado con credenciales y 148 asignaciones; correos ausentes señalados. AAB 2.8.39+93 firmado con el mismo certificado de la versión 92, validado y listo para Play Console. 33 pruebas backend, 77 Flutter y 14 de reglas aprobadas; dos pruebas de reglas omitidas. [Alcance y validación](docs/publicacion_2.8.39_93.md).
+
 ## 2026-11-19 — Nuevo módulo de Planeación conectado con Compras (Codex)
 
 - Interpretados los dos Excel entregados: partes por establecimiento, menús diarios con recetas por tiempo de comida, precios con vigencia, ciclos con programación por establecimiento y fecha, solicitud a Compras, alistamiento y despacho a producción. Reutiliza productos, códigos, categorías, unidades y centros existentes. El servidor calcula cantidades y costos por fecha; los precios faltantes quedan explícitos y bloquean el envío. La solicitud enviada conserva el histórico de receta, raciones, cantidades y costos.
