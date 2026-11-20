@@ -6495,6 +6495,25 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
                           ),
                         );
                       }),
+                  // ── Fichas técnicas por producto ────────────────
+                  _sectionHeader('Fichas técnicas por producto'),
+                  if (isNew)
+                    Text(
+                      'Guarda el proveedor para subir sus fichas técnicas '
+                      'por producto y marca.',
+                      style: TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 12,
+                        color: Colors.grey.shade700,
+                      ),
+                    )
+                  else
+                    _FichasTecnicasProveedorSection(
+                      empresaId: widget.empresaId,
+                      svc: widget.svc,
+                      proveedor: widget.existing!,
+                      userId: widget.userId,
+                    ),
                   const SizedBox(height: 30),
                 ],
               ),
@@ -8239,6 +8258,10 @@ class _FichaProveedorCard extends StatelessWidget {
   final String marcaId;
   final String marcaNombre;
 
+  /// Encabezado de la tarjeta. Por defecto, el proveedor (vista por producto);
+  /// desde la edición del proveedor se muestra el producto y la marca.
+  final String? titulo;
+
   const _FichaProveedorCard({
     required this.ficha,
     required this.svc,
@@ -8249,6 +8272,7 @@ class _FichaProveedorCard extends StatelessWidget {
     required this.productoCategoria,
     required this.marcaId,
     required this.marcaNombre,
+    this.titulo,
   });
 
   Future<void> _cargarSoporte(
@@ -8342,7 +8366,7 @@ class _FichaProveedorCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    ficha.proveedorNombre,
+                    titulo ?? ficha.proveedorNombre,
                     style: const TextStyle(
                       fontFamily: _kFont,
                       fontWeight: FontWeight.w700,
@@ -8456,6 +8480,38 @@ class _FichaProveedorCard extends StatelessWidget {
                 ),
               ],
             ],
+            if (doc?.fechaSubida != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: _FechaYAutorFicha(
+                  etiqueta: 'Cargada',
+                  fecha: doc!.fechaSubida!,
+                  userId: doc.subidoPor ?? '',
+                ),
+              ),
+            if (ficha.historial.isNotEmpty)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () => _mostrarHistorialFichaTecnica(
+                    context,
+                    ficha,
+                    titulo: titulo ?? ficha.proveedorNombre,
+                  ),
+                  icon: const Icon(Icons.history, size: 14),
+                  label: Text(
+                    'Histórico (${ficha.historial.length} '
+                    '${ficha.historial.length == 1 ? 'versión anterior' : 'versiones anteriores'})',
+                    style: const TextStyle(fontFamily: _kFont, fontSize: 12),
+                  ),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                  ),
+                ),
+              ),
             const SizedBox(height: 8),
             Row(
               children: [
@@ -8506,7 +8562,7 @@ class _FichaProveedorCard extends StatelessWidget {
                     color: Color(0xFF0277BD),
                   ),
                   label: Text(
-                    doc != null && doc.tieneDoc ? 'Actualizar' : 'Subir',
+                    doc != null && doc.tieneDoc ? 'Reemplazar' : 'Subir',
                     style: const TextStyle(
                       fontFamily: _kFont,
                       fontSize: 12,
@@ -8592,6 +8648,474 @@ class _FichaProveedorCard extends StatelessWidget {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// FICHAS TÉCNICAS DESDE LA EDICIÓN DEL PROVEEDOR (20 nov 2026)
+// Una ficha por producto + marca que vende el proveedor. En cada compra
+// quincenal se reemplaza; la anterior queda en el histórico de la ficha.
+// ══════════════════════════════════════════════════════════════════════════════
+
+class _FechaYAutorFicha extends StatelessWidget {
+  final String etiqueta;
+  final Timestamp fecha;
+  final String userId;
+
+  const _FechaYAutorFicha({
+    required this.etiqueta,
+    required this.fecha,
+    required this.userId,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const style = TextStyle(
+      fontFamily: _kFont,
+      fontSize: 11,
+      color: Colors.black45,
+    );
+    final cuando =
+        '$etiqueta el ${DateFormat('dd/MM/yyyy HH:mm').format(fecha.toDate())}';
+    if (userId.trim().isEmpty) return Text(cuando, style: style);
+    return UserNameText(userId, prefix: '$cuando · por ', style: style);
+  }
+}
+
+String _estadoVersionFichaLabel(String estado) => switch (estado) {
+  'aprobado' => 'Aprobada',
+  'aprobado_con_requerimientos' => 'Aprobada con requerimientos',
+  'rechazado' => 'Rechazada',
+  '' => 'Sin revisión',
+  _ => 'Pendiente de Calidad',
+};
+
+Future<void> _mostrarHistorialFichaTecnica(
+  BuildContext context,
+  FichaTecnicaDoc ficha, {
+  required String titulo,
+}) {
+  final versiones = historialFichaTecnicaReciente(ficha);
+  return _showComprasAdaptiveSheet<void>(
+    context: context,
+    title: 'Histórico de fichas · $titulo',
+    builder: (ctx) => SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Versiones reemplazadas, de la más reciente a la más antigua. '
+            'La ficha vigente está en la tarjeta del producto.',
+            style: TextStyle(
+              fontFamily: _kFont,
+              fontSize: 12,
+              color: Colors.grey.shade700,
+            ),
+          ),
+          const SizedBox(height: 10),
+          PagedListSection<FichaTecnicaHistorial>(
+            items: versiones,
+            etiqueta: 'versiones',
+            itemBuilder: (itemCtx, h, i) => Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
+                child: Row(
+                  children: [
+                    const Icon(Icons.history, color: Colors.black38),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            h.nombre.isEmpty ? 'Ficha técnica' : h.nombre,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          _FechaYAutorFicha(
+                            etiqueta: 'Reemplazada',
+                            fecha: h.fecha,
+                            userId: h.actualizadoPor,
+                          ),
+                          if (h.observacion.trim().isNotEmpty)
+                            Text(
+                              'Motivo: ${h.observacion}',
+                              style: const TextStyle(
+                                fontFamily: _kFont,
+                                fontSize: 11,
+                                color: Colors.black54,
+                              ),
+                            ),
+                          Text(
+                            'Estado al reemplazarla: '
+                            '${_estadoVersionFichaLabel(h.estadoCalidadFinal)}',
+                            style: const TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 11,
+                              color: Colors.black45,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (h.url.isNotEmpty)
+                      IconButton(
+                        tooltip: 'Ver documento',
+                        onPressed: () => _abrirUrl(itemCtx, h.url),
+                        icon: const Icon(
+                          Icons.open_in_new,
+                          size: 18,
+                          color: kComprasPrimary,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+/// Sección de la edición del proveedor con sus fichas por producto y marca.
+class _FichasTecnicasProveedorSection extends StatelessWidget {
+  final String empresaId;
+  final ComprasService svc;
+  final ProveedorDoc proveedor;
+  final String userId;
+
+  const _FichasTecnicasProveedorSection({
+    required this.empresaId,
+    required this.svc,
+    required this.proveedor,
+    required this.userId,
+  });
+
+  String _titulo(FichaTecnicaDoc f) {
+    final producto = f.productoNombre.trim().isEmpty
+        ? 'Producto sin nombre'
+        : f.productoNombre.trim();
+    final marca = f.marcaNombre.trim();
+    return marca.isEmpty ? producto : '$producto · $marca';
+  }
+
+  void _abrirCarga(
+    BuildContext context, {
+    required String productoId,
+    required String productoNombre,
+    required String productoCategoria,
+    required String marcaId,
+    required String marcaNombre,
+    FichaTecnicaDoc? existente,
+  }) {
+    _showComprasAdaptiveSheet<void>(
+      context: context,
+      title: existente == null
+          ? 'Agregar ficha técnica'
+          : 'Reemplazar ficha técnica',
+      builder: (_) => _SubirFichaSheet(
+        empresaId: empresaId,
+        svc: svc,
+        productoId: productoId,
+        productoNombre: productoNombre,
+        productoCategoria: productoCategoria,
+        marcaId: marcaId,
+        marcaNombre: marcaNombre,
+        userId: userId,
+        fichasExistentes: const [],
+        fichaExistente: existente,
+        proveedorFijo: proveedor,
+      ),
+    );
+  }
+
+  Future<void> _agregar(
+    BuildContext context,
+    List<FichaTecnicaDoc> fichasProveedor,
+  ) async {
+    final opcion =
+        await _showComprasAdaptiveSheet<
+          ({ProductoDoc producto, MarcaRef? marca})
+        >(
+          context: context,
+          title: 'Producto y marca de la ficha',
+          builder: (_) => _ElegirProductoFichaSheet(
+            empresaId: empresaId,
+            svc: svc,
+            proveedor: proveedor,
+            fichasProveedor: fichasProveedor,
+          ),
+        );
+    if (opcion == null || !context.mounted) return;
+    final marcaId = opcion.marca?.marcaId ?? '';
+    final marcaNombre = opcion.marca?.descripcion ?? '';
+    // Si ya existe la combinación, se reemplaza para conservar el histórico.
+    final existente = buscarFichaTecnicaProveedorProductoMarca(
+      fichasProveedor,
+      proveedorId: proveedor.id,
+      nit: proveedor.nit,
+      productoId: opcion.producto.id,
+      productoNombre: opcion.producto.nombre,
+      marcaId: marcaId,
+      marcaNombre: marcaNombre,
+    );
+    _abrirCarga(
+      context,
+      productoId: opcion.producto.id,
+      productoNombre: opcion.producto.nombre,
+      productoCategoria: opcion.producto.categoria,
+      marcaId: marcaId,
+      marcaNombre: marcaNombre,
+      existente: existente,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<FichaTecnicaDoc>>(
+      stream: svc.streamFichasTecnicas(empresaId),
+      builder: (ctx, snap) {
+        if (snap.hasError) {
+          return Text(
+            'No se pudieron cargar las fichas técnicas: ${snap.error}',
+            style: const TextStyle(fontFamily: _kFont, color: kComprasRed),
+          );
+        }
+        if (!snap.hasData) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: LinearProgressIndicator(),
+          );
+        }
+        final fichas = fichasTecnicasDelProveedor(
+          snap.data!,
+          proveedorId: proveedor.id,
+          nit: proveedor.nit,
+        );
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Sube una ficha por cada producto y marca que vende este '
+              'proveedor. En cada compra usa "Reemplazar": la ficha anterior '
+              'queda guardada en el histórico.',
+              style: TextStyle(
+                fontFamily: _kFont,
+                fontSize: 12,
+                color: Colors.grey.shade700,
+              ),
+            ),
+            const SizedBox(height: 10),
+            if (fichas.isEmpty)
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: const Text(
+                  'Este proveedor aún no tiene fichas técnicas por producto.',
+                  style: TextStyle(fontFamily: _kFont, fontSize: 13),
+                ),
+              )
+            else
+              PagedListSection<FichaTecnicaDoc>(
+                items: fichas,
+                etiqueta: 'fichas',
+                itemBuilder: (_, f, _) => _FichaProveedorCard(
+                  ficha: f,
+                  svc: svc,
+                  userId: userId,
+                  empresaId: empresaId,
+                  productoId: f.productoId,
+                  productoNombre: f.productoNombre,
+                  productoCategoria: f.productoCategoria,
+                  marcaId: f.marcaId,
+                  marcaNombre: f.marcaNombre,
+                  titulo: _titulo(f),
+                ),
+              ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: () => _agregar(ctx, fichas),
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text(
+                  'Agregar ficha técnica',
+                  style: TextStyle(fontFamily: _kFont),
+                ),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Color(0xFF0277BD)),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 10,
+                    horizontal: 14,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Selector de producto + marca (con búsqueda) para una ficha del proveedor.
+class _ElegirProductoFichaSheet extends StatefulWidget {
+  final String empresaId;
+  final ComprasService svc;
+  final ProveedorDoc proveedor;
+  final List<FichaTecnicaDoc> fichasProveedor;
+
+  const _ElegirProductoFichaSheet({
+    required this.empresaId,
+    required this.svc,
+    required this.proveedor,
+    required this.fichasProveedor,
+  });
+
+  @override
+  State<_ElegirProductoFichaSheet> createState() =>
+      _ElegirProductoFichaSheetState();
+}
+
+class _ElegirProductoFichaSheetState extends State<_ElegirProductoFichaSheet> {
+  final _buscarCtrl = TextEditingController();
+  late final Future<List<ProductoDoc>> _productos = widget.svc
+      .streamProductos(widget.empresaId)
+      .first;
+  String _q = '';
+
+  @override
+  void dispose() {
+    _buscarCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        16,
+        12,
+        16,
+        16 + MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: _buscarCtrl,
+            autofocus: kIsWeb,
+            decoration: const InputDecoration(
+              prefixIcon: Icon(Icons.search),
+              hintText: 'Buscar producto o marca',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            onChanged: (v) =>
+                setState(() => _q = normalizarClaveCatalogoCompras(v)),
+          ),
+          const SizedBox(height: 10),
+          Flexible(
+            child: FutureBuilder<List<ProductoDoc>>(
+              future: _productos,
+              builder: (ctx, snap) {
+                if (snap.hasError) {
+                  return Text(
+                    'No se pudieron cargar los productos: ${snap.error}',
+                    style: const TextStyle(color: kComprasRed),
+                  );
+                }
+                if (!snap.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final opciones = opcionesFichaProductoMarca(snap.data!)
+                    .where(
+                      (o) =>
+                          _q.isEmpty ||
+                          normalizarClaveCatalogoCompras(
+                            '${o.producto.nombre} ${o.producto.codigo} '
+                            '${o.marca?.descripcion ?? ''}',
+                          ).contains(_q),
+                    )
+                    .toList();
+                if (opciones.isEmpty) {
+                  return const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      'No hay productos que coincidan. Créalos primero en '
+                      'Productos, con su marca.',
+                      style: TextStyle(fontFamily: _kFont, fontSize: 13),
+                    ),
+                  );
+                }
+                return SingleChildScrollView(
+                  child:
+                      PagedListSection<
+                        ({ProductoDoc producto, MarcaRef? marca})
+                      >(
+                        items: opciones,
+                        etiqueta: 'productos',
+                        itemBuilder: (_, o, _) {
+                          final yaTiene =
+                              buscarFichaTecnicaProveedorProductoMarca(
+                                widget.fichasProveedor,
+                                proveedorId: widget.proveedor.id,
+                                nit: widget.proveedor.nit,
+                                productoId: o.producto.id,
+                                productoNombre: o.producto.nombre,
+                                marcaId: o.marca?.marcaId ?? '',
+                                marcaNombre: o.marca?.descripcion ?? '',
+                              ) !=
+                              null;
+                          return ListTile(
+                            dense: true,
+                            leading: const Icon(Icons.inventory_2_outlined),
+                            title: Text(
+                              o.producto.nombre,
+                              style: const TextStyle(fontFamily: _kFont),
+                            ),
+                            subtitle: Text(
+                              [
+                                o.marca == null
+                                    ? 'Sin marca'
+                                    : 'Marca: ${o.marca!.descripcion}',
+                                if (yaTiene) 'ya tiene ficha: se reemplaza',
+                              ].join(' · '),
+                              style: const TextStyle(fontFamily: _kFont),
+                            ),
+                            trailing: Icon(
+                              yaTiene ? Icons.sync : Icons.chevron_right,
+                              color: kComprasPrimary,
+                            ),
+                            onTap: () => Navigator.pop(context, o),
+                          );
+                        },
+                      ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // SUBIR / ACTUALIZAR FICHA TÉCNICA — bottom sheet
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -8614,6 +9138,10 @@ class _SubirFichaSheet extends StatefulWidget {
   /// Tarea de corrección que debe pasar a revisión tras guardar esta ficha.
   final String? correccionTaskId;
 
+  /// Proveedor ya definido (carga desde la edición del proveedor): no se
+  /// muestra el selector.
+  final ProveedorDoc? proveedorFijo;
+
   const _SubirFichaSheet({
     required this.empresaId,
     required this.svc,
@@ -8626,6 +9154,7 @@ class _SubirFichaSheet extends StatefulWidget {
     required this.fichasExistentes,
     this.fichaExistente,
     this.correccionTaskId,
+    this.proveedorFijo,
   });
 
   @override
@@ -8654,7 +9183,12 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
   @override
   void initState() {
     super.initState();
-    _cargarProveedores();
+    if (widget.proveedorFijo != null && !isUpdate) {
+      _proveedor = widget.proveedorFijo;
+      _loadingProvs = false;
+    } else {
+      _cargarProveedores();
+    }
     if (kIsWeb) {
       WebDragDrop.instance.enable();
       _wDragSub = WebDragDrop.instance.isDragging.listen((v) {
@@ -9129,7 +9663,7 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
           ),
           const SizedBox(height: 16),
           // Proveedor
-          if (!isUpdate)
+          if (!isUpdate && widget.proveedorFijo == null)
             _loadingProvs
                 ? const LinearProgressIndicator()
                 : DropdownButtonFormField<ProveedorDoc>(
@@ -9166,8 +9700,9 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
                         .toList(),
                     onChanged: (v) => setState(() => _proveedor = v),
                   ),
-          if (!isUpdate) const SizedBox(height: 12),
-          if (isUpdate)
+          if (!isUpdate && widget.proveedorFijo == null)
+            const SizedBox(height: 12),
+          if (isUpdate || widget.proveedorFijo != null)
             Container(
               padding: const EdgeInsets.all(10),
               margin: const EdgeInsets.only(bottom: 12),
@@ -9181,7 +9716,8 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      widget.fichaExistente!.proveedorNombre,
+                      widget.fichaExistente?.proveedorNombre ??
+                          widget.proveedorFijo!.razonSocial,
                       style: const TextStyle(
                         fontFamily: _kFont,
                         fontSize: 13,
@@ -9215,6 +9751,30 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
             ),
             style: const TextStyle(fontFamily: _kFont, fontSize: 13),
           ),
+          if (isUpdate) ...[
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: [
+                for (final motivo in const [
+                  'COMPRA QUINCENAL',
+                  'NUEVA VERSIÓN DEL PROVEEDOR',
+                  'CORRECCIÓN SOLICITADA POR CALIDAD',
+                ])
+                  ActionChip(
+                    label: Text(
+                      motivo,
+                      style: const TextStyle(fontFamily: _kFont, fontSize: 11),
+                    ),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: _subiendo
+                        ? null
+                        : () => setState(() => _obsCtrl.text = motivo),
+                  ),
+              ],
+            ),
+          ],
           const SizedBox(height: 12),
           // Archivo (botón normal en móvil, zona drag-and-drop en web)
           _buildFileZone(),
