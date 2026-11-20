@@ -51,6 +51,25 @@ test('Admin local no concede Desarrollo global ni modifica otra empresa', async 
   await assertSucceeds(updateDoc(doc(db, 'TBL_USUARIOS/ana'), {'empresasDetalle.A.apps': ['comprasdashboard', 'rutasdashboard']}));
   await assertFails(updateDoc(doc(db, 'TBL_USUARIOS/ana'), {'empresasDetalle.B.apps': ['admindashboard']}));
 });
+test('escrituras propias legítimas siguen permitidas y Talento Humano no concede administración', async () => {
+  await env.withSecurityRulesDisabled(async c => {
+    await setDoc(doc(c.firestore(), 'TBL_USUARIOS/th'), {...person, empresasDetalle: {A: {activo: true, apps: ['talentohumanodashboard']}}});
+    await setDoc(doc(c.firestore(), 'TBL_USUARIOS/foreign'), {...person, empresaId: 'B', empresas: ['B'], empresasDetalle: {B: {activo: true, apps: []}}});
+    await setDoc(doc(c.firestore(), 'TBL_USUARIOS/emp'), {...person, empresasDetalle: {A: {activo: true, apps: []}}, apps: []});
+  });
+  const db = env.authenticatedContext('ana', claims).firestore();
+  await assertSucceeds(updateDoc(doc(db, 'TBL_USUARIOS/ana'), {lastLoginAt: new Date(), lastLoginEmpresaId: 'A',
+    lastLoginSource: 'web', lastLoginPlatform: 'web', lastLoginIsWeb: true, lastLoginDevice: {tipo: 'pc'},
+    'empresasDetalle.A.lastLoginAt': new Date(), 'empresasDetalle.A.lastLoginSource': 'web'}));
+  await assertSucceeds(updateDoc(doc(db, 'TBL_USUARIOS/ana'), {carnetToken: 'x', carnetEmpresaId: 'A', firmaNutricionUrl: 'u'}));
+  await assertFails(updateDoc(doc(db, 'TBL_USUARIOS/ana'), {lastLoginEmpresaId: 'A',
+    'empresasDetalle.A.apps': ['admindashboard'], 'empresasDetalle.A.lastLoginAt': new Date()}));
+  const th = env.authenticatedContext('th', {...claims, userDocId: 'th'}).firestore();
+  await assertSucceeds(updateDoc(doc(th, 'TBL_USUARIOS/emp'), {'empresasDetalle.A.apps': ['comprasdashboard'], apps: ['comprasdashboard'], updatedAt: new Date()}));
+  await assertFails(updateDoc(doc(th, 'TBL_USUARIOS/emp'), {'empresasDetalle.A.apps': ['admindashboard'], apps: ['admindashboard']}));
+  await assertFails(updateDoc(doc(th, 'TBL_USUARIOS/emp'), {developer: true}));
+  await assertFails(updateDoc(doc(th, 'TBL_USUARIOS/foreign'), {'empresasDetalle.A.apps': ['comprasdashboard']}));
+});
 test('Storage rechaza anónimos, empresa ajena, módulo ajeno, SVG, HTML y archivos grandes', async () => {
   const bytes = new Uint8Array([1, 2, 3]);
   const storage = env.authenticatedContext('ana', claims).storage();

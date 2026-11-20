@@ -500,6 +500,42 @@ service cloud.firestore {
           && detalle.diff(anterior).affectedKeys().hasOnly([e])
           && !marcaDesarrollo(detalle.get(e, {}));
       }
+      // Auditoría de ingreso: solo las marcas de ingreso de la empresa en uso.
+      function ingresoPropio() {
+        let d = request.resource.data;
+        let cambios = d.diff(resource.data).affectedKeys();
+        let e = d.get('lastLoginEmpresaId', '');
+        let antes = resource.data.get('empresasDetalle', {});
+        let despues = d.get('empresasDetalle', {});
+        return userId == request.auth.token.userDocId
+          && cambios.hasOnly(['lastLoginAt', 'lastLoginEmpresaId', 'lastLoginSource',
+            'lastLoginPlatform', 'lastLoginIsWeb', 'lastLoginDevice', 'empresasDetalle'])
+          && (!cambios.hasAny(['empresasDetalle'])
+            || (despues.diff(antes).affectedKeys().hasOnly([e])
+              && despues.get(e, {}).diff(antes.get(e, {})).affectedKeys().hasOnly([
+                'lastLoginAt', 'lastLoginSource', 'lastLoginPlatform', 'lastLoginDevice'])))
+          && !cuentaInhabilitada(currentUser());
+      }
+      // Talento Humano gestiona accesos de su empresa activa, sin conceder
+      // administración ni Desarrollo ni tocar otras empresas.
+      function edicionTalentoLimitada() {
+        let e = empresaActivaAdmin();
+        let d = request.resource.data;
+        let cambios = d.diff(resource.data).affectedKeys();
+        let detalle = d.get('empresasDetalle', {});
+        let anterior = resource.data.get('empresasDetalle', {});
+        return cambios.hasOnly(['empresasDetalle', 'apps', 'appsPorEmpresa', 'empresas',
+            'accesosActualizadoAt', 'accesosActualizadoPor', 'updatedAt'])
+          && detalle.diff(anterior).affectedKeys().hasOnly([e])
+          && !detalle.get(e, {}).get('apps', []).hasAny(['admindashboard', 'admin'])
+          && !d.get('apps', []).hasAny(['admindashboard', 'admin'])
+          && !marcaDesarrollo(detalle.get(e, {}))
+          && (!cambios.hasAny(['apps', 'appsPorEmpresa'])
+            || (resource.data.get('empresaId', '') == e && d.get('appsPorEmpresa', false) == true))
+          && d.get('empresas', []).toSet().difference(resource.data.get('empresas', []).toSet()).hasOnly([e])
+          && resource.data.get('empresas', []).toSet().difference(d.get('empresas', []).toSet()).hasOnly([])
+          && tieneAppTalentoEn(e) && belongsToCompany(e) && fichaPertenece(resource.data, e);
+      }
       // Los editores de niveles mantienen un espejo en la ficha; el nivel
       // canónico se comprueba con getAfter en la misma transacción.
       function espejoModulo(module, table, field) {
@@ -535,8 +571,13 @@ service cloud.firestore {
           && !marcaDesarrollo(request.resource.data)
           && !marcaDesarrollo(request.resource.data.get('empresasDetalle', {}).get(empresaActivaAdmin(), {}))));
       allow update: if isSignedIn() && sinSecretos(request.resource.data)
-        && (espejoModulo('interventoriadashboard', 'TBL_INTERVENTORIA_ROLES', 'rolInterventoria')
-          || isDeveloper() || edicionAdminLimitada()
+        && (
+          ingresoPropio()
+          || (userId == request.auth.token.userDocId
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'carnetToken', 'carnetEmpresaId', 'carnetGeneradoEn', 'firmaNutricionUrl',
+              'selloNutricionUrl', 'firmaNutricionActualizadaEn', 'updatedAt'])
+            && !cuentaInhabilitada(currentUser()))
           || (userId == request.auth.token.userDocId && !cuentaInhabilitada(currentUser())
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'ultimaEmpresaId', 'ultimaEmpresaNombre', 'updatedAt', 'fcmToken', 'fcmTokens',
@@ -549,7 +590,9 @@ service cloud.firestore {
             && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['estadoHojaDeVida'])
               || request.resource.data.estadoHojaDeVida == 'en_revision')
             && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['ultimaEmpresaId'])
-              || belongsToCompany(request.resource.data.ultimaEmpresaId))));
+              || belongsToCompany(request.resource.data.ultimaEmpresaId)))
+          || espejoModulo('interventoriadashboard', 'TBL_INTERVENTORIA_ROLES', 'rolInterventoria')
+          || isDeveloper() || edicionTalentoLimitada() || edicionAdminLimitada());
       allow delete: if isDeveloper();
       match /hoja_de_vida/{id} {
         allow read, write: if isSignedIn() && userId == request.auth.token.userDocId
