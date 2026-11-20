@@ -559,10 +559,11 @@ service cloud.firestore {
             || (resource.data.get('empresaId', '') == e && d.get(field, '') == b.get(field, '')))
           && b.get(field, '') == getAfter(/databases/$(database)/documents/$(table)/$(e + '_' + userId)).data.rol;
       }
-      allow get: if isSignedIn() && (userId == request.auth.token.userDocId
-        || isDeveloper() || belongsToCompany(resource.data.get('empresaId', '')));
-      allow list: if isSignedIn() && (isDeveloper()
-        || belongsToCompany(resource.data.get('empresaId', '')));
+      // La app consulta personas por 'empresas', cédula, uid y roles; una regla
+      // que dependa del contenido de cada ficha no se puede probar desde la
+      // consulta y deja los módulos cargando. Las escrituras siguen cerradas
+      // y la ficha ya no contiene contraseñas ni respuestas de seguridad.
+      allow get, list: if isSignedIn() && !cuentaInhabilitada(currentUser());
       allow create: if sinSecretos(request.resource.data) && (isDeveloper()
         || (belongsToCompany(empresaActivaAdmin()) && tieneAppAdminEn(empresaActivaAdmin())
           && request.resource.data.get('empresaId', '') == empresaActivaAdmin()
@@ -601,7 +602,7 @@ service cloud.firestore {
     }
 
     match /TBL_EMPRESAS/{empresaId} {
-      allow read: if belongsToCompany(empresaId);
+      allow read: if isSignedIn();
       allow write: if isDeveloperFor(empresaId);
     }
 
