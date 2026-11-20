@@ -3258,6 +3258,32 @@ class ComprasService {
       );
     }
 
+    if (isNew && ficha.proveedorId.trim().isNotEmpty) {
+      // Una sola ficha por proveedor + producto + marca: una segunda partiría
+      // el histórico de versiones. La nueva carga debe reemplazar la vigente.
+      final mismasFichas = await _db
+          .collection('TBL_COMPRAS_FICHAS_TECNICAS')
+          .where('empresaId', isEqualTo: ficha.empresaId)
+          .where('proveedorId', isEqualTo: ficha.proveedorId.trim())
+          .get();
+      final repetida = buscarFichaTecnicaProveedorProductoMarca(
+        mismasFichas.docs.map((d) => FichaTecnicaDoc.fromMap(d.id, d.data())),
+        proveedorId: ficha.proveedorId,
+        productoId: ficha.productoId,
+        productoNombre: ficha.productoNombre,
+        marcaId: ficha.marcaId,
+        marcaNombre: ficha.marcaNombre,
+      );
+      if (repetida != null) {
+        throw StateError(
+          'Este proveedor ya tiene ficha técnica para '
+          '${ficha.productoNombre}'
+          '${ficha.marcaNombre.isEmpty ? '' : ' (${ficha.marcaNombre})'}. '
+          'Usa "Reemplazar" para conservar la anterior en el histórico.',
+        );
+      }
+    }
+
     final ref = isNew
         ? _db.collection('TBL_COMPRAS_FICHAS_TECNICAS').doc()
         : _db.collection('TBL_COMPRAS_FICHAS_TECNICAS').doc(ficha.id);

@@ -448,3 +448,116 @@ List<FilaProductoProveedor> filasProductoMarcaProveedor({
   }
   return filas;
 }
+
+// ─── Fichas técnicas desde la edición del proveedor (20 nov 2026) ───────────
+// Compras sube una ficha por cada producto y marca que vende el proveedor.
+// En cada compra quincenal la ficha se reemplaza: la vigente pasa al
+// histórico (`historial`) con fecha, usuario y motivo. Nunca se crea una
+// segunda ficha para la misma combinación, porque partiría el histórico.
+
+bool _fichaEsDelProveedor(
+  FichaTecnicaDoc ficha, {
+  required String proveedorId,
+  String nit = '',
+}) {
+  final id = ficha.proveedorId.trim();
+  if (id.isEmpty) return false;
+  if (proveedorId.trim().isNotEmpty && id == proveedorId.trim()) return true;
+  // Registros antiguos guardaron el NIT como identificador del proveedor.
+  return nit.trim().isNotEmpty && id == nit.trim();
+}
+
+/// Fichas técnicas de un proveedor, ordenadas por producto y marca.
+List<FichaTecnicaDoc> fichasTecnicasDelProveedor(
+  Iterable<FichaTecnicaDoc> fichas, {
+  required String proveedorId,
+  String nit = '',
+}) {
+  return fichas
+      .where((f) => _fichaEsDelProveedor(f, proveedorId: proveedorId, nit: nit))
+      .toList()
+    ..sort((a, b) {
+      final porProducto = normalizarClaveCatalogoCompras(
+        a.productoNombre,
+      ).compareTo(normalizarClaveCatalogoCompras(b.productoNombre));
+      if (porProducto != 0) return porProducto;
+      return normalizarClaveCatalogoCompras(
+        a.marcaNombre,
+      ).compareTo(normalizarClaveCatalogoCompras(b.marcaNombre));
+    });
+}
+
+/// Ficha ya registrada para proveedor + producto + marca. Un producto sin
+/// marca se representa con `marcaId` y `marcaNombre` vacíos.
+FichaTecnicaDoc? buscarFichaTecnicaProveedorProductoMarca(
+  Iterable<FichaTecnicaDoc> fichas, {
+  required String proveedorId,
+  String nit = '',
+  required String productoId,
+  required String productoNombre,
+  required String marcaId,
+  required String marcaNombre,
+}) {
+  final sinMarca = marcaId.trim().isEmpty && marcaNombre.trim().isEmpty;
+  for (final ficha in fichas) {
+    if (!_fichaEsDelProveedor(ficha, proveedorId: proveedorId, nit: nit)) {
+      continue;
+    }
+    if (!fichaTecnicaCorrespondeProducto(
+      ficha,
+      productoId: productoId,
+      productoNombre: productoNombre,
+    )) {
+      continue;
+    }
+    final coincideMarca = sinMarca
+        ? ficha.marcaId.trim().isEmpty && ficha.marcaNombre.trim().isEmpty
+        : fichaTecnicaCorrespondeMarca(
+            ficha,
+            marcaId: marcaId,
+            marcaNombre: marcaNombre,
+          );
+    if (coincideMarca) return ficha;
+  }
+  return null;
+}
+
+/// Versiones anteriores de la ficha, de la más reciente a la más antigua.
+List<FichaTecnicaHistorial> historialFichaTecnicaReciente(
+  FichaTecnicaDoc ficha,
+) => [...ficha.historial]..sort((a, b) => b.fecha.compareTo(a.fecha));
+
+/// Combinaciones producto + marca a las que se les puede subir ficha desde el
+/// proveedor. Un producto sin marcas aparece una vez, con `marca` nula.
+List<({ProductoDoc producto, MarcaRef? marca})> opcionesFichaProductoMarca(
+  Iterable<ProductoDoc> productos,
+) {
+  final opciones = <({ProductoDoc producto, MarcaRef? marca})>[];
+  for (final producto in productos) {
+    final marcas = <String, MarcaRef>{};
+    for (final marca in producto.marcas) {
+      final clave = marca.marcaId.trim().isNotEmpty
+          ? marca.marcaId.trim()
+          : normalizarClaveCatalogoCompras(marca.descripcion);
+      if (clave.isEmpty) continue;
+      marcas.putIfAbsent(clave, () => marca);
+    }
+    if (marcas.isEmpty) {
+      opciones.add((producto: producto, marca: null));
+    } else {
+      for (final marca in marcas.values) {
+        opciones.add((producto: producto, marca: marca));
+      }
+    }
+  }
+  opciones.sort((a, b) {
+    final porProducto = normalizarClaveCatalogoCompras(
+      a.producto.nombre,
+    ).compareTo(normalizarClaveCatalogoCompras(b.producto.nombre));
+    if (porProducto != 0) return porProducto;
+    return normalizarClaveCatalogoCompras(
+      a.marca?.descripcion ?? '',
+    ).compareTo(normalizarClaveCatalogoCompras(b.marca?.descripcion ?? ''));
+  });
+  return opciones;
+}

@@ -1,5 +1,13 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-20 — Fichas técnicas por producto desde la edición del proveedor, versión 2.8.41+95 (Claude)
+
+- Compras › Proveedores › Editar proveedor tiene la sección "Fichas técnicas por producto": una ficha por cada producto + marca que vende el proveedor, enlazada al producto y a la marca. Reutiliza la colección existente `TBL_COMPRAS_FICHAS_TECNICAS` (ya registrada en el catálogo de maestros y en `adminSincronizarMaestros`), Storage `fichas_tecnicas` y el flujo de revisión de Calidad; no se crea otra fuente de datos.
+- "Agregar ficha técnica" abre un buscador de producto + marca (productos sin marca aparecen una vez). Si la combinación ya existe, se abre "Reemplazar" en lugar de crear otra. "Reemplazar" exige motivo (atajos: Compra quincenal, Nueva versión del proveedor, Corrección solicitada por Calidad) y mueve la versión vigente al `historial` con fecha, usuario, motivo y estado de Calidad. El botón "Histórico" lista las versiones anteriores (más reciente primero, 20 por página) con enlace al archivo. Las tarjetas por producto muestran quién y cuándo cargó la vigente.
+- Servidor de datos: `guardarFichaTecnica` rechaza una ficha nueva si ya existe otra para el mismo proveedor + producto + marca, para no partir el histórico. Lógica pura en `compras_catalog_logic.dart` (`fichasTecnicasDelProveedor`, `buscarFichaTecnicaProveedorProductoMarca`, `historialFichaTecnicaReciente`, `opcionesFichaProductoMarca`) con pruebas en `test/compras/compras_fichas_proveedor_test.dart`; incluye proveedores antiguos guardados por NIT.
+- Sin cambios en reglas, índices, permisos ni datos de producción. La consulta de duplicados usa dos igualdades (`empresaId`, `proveedorId`), que no requieren índice compuesto.
+- Pendiente para Codex: (1) las reglas no impiden que un cliente con escritura en la colección reescriba o vacíe `historial`; evaluar una regla que solo permita agregar versiones. (2) No verificado en navegador ni en dispositivos Android/iPhone (solo análisis y pruebas unitarias); revisar 390/768/1024/1366 px, texto aumentado y teclado en el selector de producto.
+
 ## 2026-11-19 — Publicación 2.8.40+94 y AAB de ajustes de Mantenimiento (Codex)
 
 - Publicados los ajustes adicionales del documento noviembre 19 (2): primero `mantenimientoInventario`, después la Web general 2.8.40 (94). Función ACTIVE, versión 4; fuente compilada descargada del despliegue y comparada con la local. Acceso sin sesión rechazado. Ambos dominios de Hosting verificados por versión y comparación de `index.html`/`main.dart.js` contra el build publicado.
