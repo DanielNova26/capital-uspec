@@ -192,8 +192,16 @@ export const mantenimientoInventario = functions.region("us-central1").https.onC
     await autorizar();
     const clase = texto(input.clase, 15, "clase de movimiento", true);
     if (!["traslado", "baja"].includes(clase)) error("invalid-argument", "Selecciona traslados o bajas.");
+    const desde = fechaISO(input.desde, "fecha inicial");
+    const hasta = fechaISO(input.hasta, "fecha final");
+    if (desde && hasta && desde > hasta) error("invalid-argument", "La fecha inicial debe ser anterior o igual a la final.");
+    // Fechas de operación de Colombia: final inclusivo hasta la medianoche siguiente.
+    const inicio = desde ? admin.firestore.Timestamp.fromDate(new Date(`${desde}T00:00:00-05:00`)) : null;
+    const fin = hasta ? admin.firestore.Timestamp.fromMillis(Date.parse(`${hasta}T00:00:00-05:00`) + 86400000) : null;
     let consulta = db.collectionGroup("movimientos").where("empresaId", "==", empresaId)
       .where("accion", "==", clase).orderBy("createdAt", "desc").orderBy(admin.firestore.FieldPath.documentId());
+    if (inicio) consulta = consulta.where("createdAt", ">=", inicio);
+    if (fin) consulta = consulta.where("createdAt", "<", fin);
     if (input.cursor) {
       const path = texto(input.cursor, 600, "página", true);
       if (!/^TBL_MANTENIMIENTO_EQUIPOS\/[^/]+\/movimientos\/[^/]+$/.test(path)) error("invalid-argument", "Página inválida.");
@@ -201,6 +209,9 @@ export const mantenimientoInventario = functions.region("us-central1").https.onC
       if (!cursor.exists || cursor.get("empresaId") !== empresaId || cursor.get("accion") !== clase) {
         error("invalid-argument", "Página inválida.");
       }
+      const momento = cursor.get("createdAt");
+      if (!(momento instanceof admin.firestore.Timestamp) || (inicio && momento.toMillis() < inicio.toMillis()) ||
+        (fin && momento.toMillis() >= fin.toMillis())) error("invalid-argument", "La página no pertenece al período seleccionado.");
       consulta = consulta.startAfter(cursor);
     }
     const registros = await consulta.limit(100).get();

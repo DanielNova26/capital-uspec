@@ -469,3 +469,30 @@ test("consulta de movimientos pagina sin duplicar y no mezcla empresas", async (
   assert.equal(new Set(todas.map((m) => `${m.equipoId}/${m.id}`)).size, todas.length);
   assert.ok(todas.every((m) => m.empresaId === "A"));
 });
+
+test("rango de movimientos aplica antes de paginar, incluye días completos de Bogotá y valida el cursor", async () => {
+  const {mantenimientoInventario} = require("../lib/mantenimiento_inventario");
+  const batch = dbAdmin.batch();
+  const inicio = Date.parse("2026-11-19T00:00:00-05:00");
+  const fin = Date.parse("2026-11-21T00:00:00-05:00");
+  const agregar = (id, instante, empresaId = "A") => batch.set(dbAdmin.doc(`${equipos}/rango/movimientos/${id}`), {
+    empresaId, accion: "traslado", createdAt: admin.firestore.Timestamp.fromMillis(instante),
+  });
+  agregar("anterior", inicio - 1); agregar("inicial", inicio);
+  agregar("final", fin - 1); agregar("siguiente", fin); agregar("ajeno", inicio, "B");
+  for (let i = 0; i < 101; i++) agregar(`pagina-${i}`, inicio + 1000 + i);
+  await batch.commit();
+  const call = (extra = {}) => mantenimientoInventario.run({empresaId: "A", accion: "movimientos", clase: "traslado",
+    desde: "2026-11-19", hasta: "2026-11-20", ...extra},
+  {auth: {uid: "operario", token: {authVersion: 2, userDocId: "operario"}}});
+  const primera = await call();
+  assert.equal(primera.movimientos.length, 100);
+  const segunda = await call({cursor: primera.cursor});
+  const todas = [...primera.movimientos, ...segunda.movimientos];
+  assert.equal(todas.filter((m) => m.equipoId === "rango").length, 103);
+  assert.ok(todas.every((m) => m.fecha >= inicio && m.fecha < fin && m.empresaId === "A"));
+  assert.equal(new Set(todas.map((m) => `${m.equipoId}/${m.id}`)).size, todas.length);
+  await assert.rejects(call({cursor: `${equipos}/rango/movimientos/anterior`}), {code: "invalid-argument"});
+  await assert.rejects(call({desde: "2026-11-21"}), {code: "invalid-argument"});
+  await assert.rejects(call({hasta: "2026-02-30"}), {code: "invalid-argument"});
+});
