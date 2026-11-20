@@ -994,7 +994,7 @@ async function validarPendiente(job, config) {
         let person = await db().collection("TBL_USUARIOS").doc(personId).get();
         if (!person.exists) {
             const historical = await db().collection("TBL_USUARIOS").where("cedula", "==", personId).limit(5).get();
-            const enabled = historical.docs.find(d => puedeRecibirPendiente(d.data(), job.empresaId));
+            const enabled = historical.docs.find((d) => puedeRecibirPendiente(d.data(), job.empresaId));
             if (enabled)
                 person = enabled;
         }

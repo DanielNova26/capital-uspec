@@ -1,0 +1,115 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null && request.auth.token.authVersion == 2
+        && request.auth.token.userDocId is string;
+    }
+    function person() {
+      return firestore.get(/databases/(default)/documents/TBL_USUARIOS/$(request.auth.token.userDocId)).data;
+    }
+    function member(p, e) {
+      let b = p.get('empresasDetalle', {}).get(e, {});
+      return p.get('activo', true) != false
+        && p.get('estado', 'activo') in ['activo', 'active', '']
+        && p.get('status', 'activo') in ['activo', 'active', '']
+        && (e in p.get('empresas', []) || e in p.get('empresasDetalle', {}) || p.get('empresaId', '') == e)
+        && b.get('activo', true) != false
+        && b.get('estadoLaboral', b.get('estado', 'activo')) != 'inactivo';
+    }
+    function hasApp(p, e, apps) {
+      let b = p.get('empresasDetalle', {}).get(e, {});
+      let own = b.get('apps', []);
+      let root = p.get('apps', []);
+      return p.get('appsPorEmpresa', false) == true
+        ? (('apps' in b) ? own.hasAny(apps) : (p.get('empresaId', '') == e && root.hasAny(apps)))
+        : (own.hasAny(apps) || root.hasAny(apps));
+    }
+    function app(e, apps) {
+      let p = person();
+      return signedIn() && member(p, e) && hasApp(p, e, apps);
+    }
+    function role(e, table, levels) {
+      let id = e + '_' + request.auth.token.userDocId;
+      return firestore.get(/databases/(default)/documents/$(table)/$(id)).data.get('rol', '') in levels;
+    }
+    function upload() {
+      return request.resource.size > 0 && request.resource.size <= 25 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp|heic|heif)|application/(pdf|zip|xml|msword|vnd.openxmlformats-officedocument.wordprocessingml.document|vnd.openxmlformats-officedocument.spreadsheetml.sheet|vnd.ms-excel)|text/(plain|csv|xml)|audio/(mpeg|mp4|wav|webm)|video/(mp4|webm)');
+    }
+    function taskAccess(id, write) {
+      let t = firestore.get(/databases/(default)/documents/TBL_TAREAS/$(id)).data;
+      let p = person();
+      let u = request.auth.token.userDocId;
+      let owner = t.get('asignado_uid', t.get('assignedTo', '')) == u;
+      let participant = owner || t.get('creador_id', t.get('creatorId', '')) == u
+        || t.get('aprobador_uid', t.get('approverId', '')) == u
+        || t.get('jefe_inmediato_uid', '') == u || t.get('jefe_uid', t.get('bossId', '')) == u
+        || u in t.get('participantes_uid', []);
+      return signedIn() && member(p, t.empresaId)
+        && (write ? (owner && !(t.get('estado', '') in ['finalizado', 'por_aprobar'])
+          && t.get('solicitud_finalizacion_estado', '') != 'pendiente'
+          && (hasApp(p, t.empresaId, ['tareasdashboard'])
+            || (t.get('sourceModule', '') == 'interventoria' && hasApp(p, t.empresaId, ['interventoriadashboard']))))
+          : (participant || hasApp(p, t.empresaId, ['admindashboard'])));
+    }
+    function personnelFile(userId) {
+      let p = person();
+      let target = firestore.get(/databases/(default)/documents/TBL_USUARIOS/$(userId)).data;
+      let e = p.get('ultimaEmpresaId', p.get('empresaId', ''));
+      return signedIn() && p.get('activo', true) != false
+        && p.get('estado', 'activo') in ['activo', 'active', '']
+        && (userId == request.auth.token.userDocId
+          || (member(p, e) && hasApp(p, e, ['talentohumanodashboard'])
+            && (target.get('empresaId', '') == e || e in target.get('empresas', [])
+              || e in target.get('empresasDetalle', {}))));
+    }
+    match /tareas/{id}/{file=**} {
+      allow read: if taskAccess(id, false);
+      allow create, update: if taskAccess(id, true) && upload();
+    }
+    match /{module}/{empresa}/{file=**} {
+      function authorized() {
+        return (module == 'compras' && app(empresa, ['comprasdashboard']))
+          || (module == 'facturacion' && app(empresa, ['facturaciondashboard']))
+          || (module == 'rutas' && app(empresa, ['rutasdashboard']))
+          || (module == 'visitas' && app(empresa, ['visitasdashboard']))
+          || (module == 'interventoria' && app(empresa, ['interventoriadashboard']))
+          || (module == 'mantenimiento' && app(empresa, ['mantenimientodashboard']))
+          || (module in ['pacientes', 'nutricion'] && app(empresa, ['nutriciondashboard']))
+          || (module == 'documentos' && app(empresa, ['bibliotecadocumentaldashboard']))
+          || (module == 'firmas_doc' && app(empresa, ['bibliotecadocumentaldashboard', 'planillaspagodashboard']))
+          || (module == 'planillas_pago' && app(empresa, ['planillaspagodashboard']))
+          || (module == 'empresas' && app(empresa, ['admindashboard', 'talentohumanodashboard']));
+      }
+      function writes() {
+        return (module == 'compras' && role(empresa, 'TBL_COMPRAS_ROLES', ['admin', 'calidad', 'compras', 'bodega']))
+          || (module == 'rutas' && role(empresa, 'TBL_RUTAS_ROLES', ['conductor', 'calidad', 'admin', 'admin_calidad', 'desarrollador', 'developer']))
+          || (module == 'interventoria' && role(empresa, 'TBL_INTERVENTORIA_ROLES', ['registrador_interventoria', 'revisor_interventoria', 'calidad_interventoria', 'gerente_interventoria', 'admin_interventoria']))
+          || (module in ['pacientes', 'nutricion'] && role(empresa, 'TBL_NUTRICION_ROLES', ['clinico', 'coordinador', 'administrador']))
+          || (module in ['visitas', 'facturacion', 'mantenimiento', 'documentos', 'firmas_doc', 'planillas_pago', 'empresas']);
+      }
+      allow read: if signedIn() && authorized();
+      allow create, update: if signedIn() && authorized() && writes() && upload();
+      allow delete: if signedIn() && app(empresa, ['admindashboard']);
+    }
+    match /{module}/{userId}/{file=**} {
+      allow read: if module in ['hojas', 'empleados'] && personnelFile(userId);
+      allow create, update: if module in ['hojas', 'empleados'] && personnelFile(userId) && upload();
+    }
+    match /talento_humano/{kind}/{empresa}/{file=**} {
+      allow read: if app(empresa, ['talentohumanodashboard']);
+      allow create, update: if app(empresa, ['talentohumanodashboard']) && upload();
+      allow delete: if app(empresa, ['admindashboard']);
+    }
+    match /talento_humano/finalizacion/plantillas/{empresa}/{file=**} {
+      allow read: if app(empresa, ['talentohumanodashboard']);
+      allow create, update: if app(empresa, ['talentohumanodashboard']) && upload();
+    }
+    match /gestion_documental/correspondencia/{empresa}/{file=**} {
+      allow read: if app(empresa, ['gestiondocumentaldashboard']);
+      allow create, update: if app(empresa, ['gestiondocumentaldashboard']) && upload();
+    }
+    // Unknown paths and all anonymous requests are denied by default.
+  }
+}

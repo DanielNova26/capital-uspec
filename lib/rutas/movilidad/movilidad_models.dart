@@ -673,8 +673,8 @@ class MovConfigDoc {
         fuente: (m['fuente'] ?? 'google').toString(),
         compararFuentes: m['compararFuentes'] as bool? ?? false,
         // 'apiKey' es el nombre legacy de la key de Google.
-        apiKeyGoogle: (m['apiKeyGoogle'] ?? m['apiKey'] ?? '').toString(),
-        apiKeyTomtom: (m['apiKeyTomtom'] ?? '').toString(),
+        apiKeyGoogle: '',
+        apiKeyTomtom: '',
         updatedAt: m['updatedAt'] as Timestamp?,
       );
 
@@ -693,8 +693,6 @@ class MovConfigDoc {
         'alertaCedulas': alertaCedulas,
         'fuente': fuente,
         'compararFuentes': compararFuentes,
-        'apiKeyGoogle': apiKeyGoogle.trim(),
-        'apiKeyTomtom': apiKeyTomtom.trim(),
         'updatedAt': FieldValue.serverTimestamp(),
       };
 

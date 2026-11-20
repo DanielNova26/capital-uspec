@@ -34,7 +34,7 @@ const {
 
 const projectId = "capital-uspec-visitas-fecha";
 const rules = fs.readFileSync(
-  path.resolve(__dirname, "../../firestore.rules"),
+  process.env.FIRESTORE_RULES_FILE || path.resolve(__dirname, "../../firestore.rules"),
   "utf8"
 );
 
@@ -183,6 +183,10 @@ test.before(async () => {
         firmaEstablecimiento: null,
         solicitudCambioFecha: solicitud(),
       })),
+      setDoc(doc(db, "TBL_VISITAS/cursoAyerCierre"), visita({
+        ...inicio, ...conFormato, fechaProgramada: dia(-1),
+        firmaProfesional: null, firmaEstablecimiento: null,
+      })),
       setDoc(doc(db, "TBL_VISITAS/pedida"), visita({
         fechaProgramada: dia(1), solicitudCambioFecha: solicitud(),
       })),
@@ -280,13 +284,13 @@ test("un inicio rechazado no se publica como visita en curso", {timeout: 15000},
   }
 });
 
-test("se cierra el mismo día; al día siguiente no", async () => {
+test("se cierra el mismo día y se puede cerrar al recuperar conexión otro día", async () => {
   const db = auth("prof");
   const cierre = {
     estado: "terminada", fin: {at: new Date()}, cumplimiento: 100,
     tareasCreadas: [], cerradaPor: "prof",
   };
-  await assertFails(updateDoc(doc(db, "TBL_VISITAS/cursoAyer"), cierre));
+  await assertSucceeds(updateDoc(doc(db, "TBL_VISITAS/cursoAyerCierre"), cierre));
   await assertSucceeds(updateDoc(doc(db, "TBL_VISITAS/cursoHoy"), cierre));
 });
 

@@ -74,6 +74,8 @@ test.before(async () => {
         docId: "doc_a",
         numero: 1,
       }),
+      setDoc(doc(db, "TBL_DOCUMENTOS/doc_a"), {empresaId: "EMP_A"}),
+      setDoc(doc(db, "TBL_DOCUMENTOS/doc_b"), {empresaId: "EMP_B"}),
     ]);
   });
 });
@@ -132,4 +134,5 @@ test("las versiones de un documento se listan solo por docId", async () => {
     where("docId", "==", "doc_a")
   )));
   assert.equal(snap.size, 1);
+  await assertFails(getDocs(query(collection(db, "TBL_DOCUMENTOS_VERSIONES"), where("docId", "==", "doc_b"))));
 });

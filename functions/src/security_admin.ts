@@ -6,6 +6,7 @@ import {
   scrypt as nodeScrypt,
 } from "crypto";
 import {promisify} from "util";
+import {assertTrustedOrigin} from "./security_policy";
 import {appsDeEmpresa, raizEsDeEmpresa} from "./apps_por_empresa";
 import {empresasSeleccionables, motivoAccesoBloqueado} from "./acceso";
 import {
@@ -121,10 +122,7 @@ function isAdminForCompany(
     scoped?.roleId,
     scoped?.role,
     scoped?.rol,
-    data.roleKey,
-    data.role,
-    data.rol,
-    data.tipoUsuario,
+    ...(raizEsDeEmpresa(data, empresaId) ? [data.roleKey, data.role, data.rol, data.tipoUsuario] : []),
   ].map(normalized);
   if (roles.some((role) =>
     ["administrador", "admin", "superadmin", "administrador_sistema"].includes(role) ||
@@ -138,6 +136,7 @@ export async function requireAdmin(
   data: any,
   context: functions.https.CallableContext
 ): Promise<Caller> {
+  assertTrustedOrigin(context);
   const empresaId = clean(data?.empresaId, 160);
   const userDocId = clean(context.auth?.token?.userDocId, 512);
   if (

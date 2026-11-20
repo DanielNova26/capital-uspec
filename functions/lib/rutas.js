@@ -35,10 +35,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.rutasGenerarZip = exports.rutasGenerarInforme = exports.rutasResumenEvidencia = void 0;
 const admin = __importStar(require("firebase-admin"));
+const security_policy_1 = require("./security_policy");
 const functions = __importStar(require("firebase-functions/v1"));
 const pdf_lib_1 = require("pdf-lib");
 const jszip_1 = __importDefault(require("jszip"));
-const crypto_1 = require("crypto");
 const db = () => admin.firestore();
 const bucket = () => admin.storage().bucket();
 const REGION = "us-central1";
@@ -79,18 +79,10 @@ function asTs(v) {
  * @return {Promise<string>} URL de descarga estable vía token.
  */
 async function uploadConToken(path, data, contentType) {
-    const token = (0, crypto_1.randomUUID)();
     const file = bucket().file(path);
-    await file.save(data, {
-        metadata: {
-            contentType,
-            metadata: { firebaseStorageDownloadTokens: token },
-        },
-        resumable: false,
-    });
-    const encoded = encodeURIComponent(path);
-    return (`https://firebasestorage.googleapis.com/v0/b/${bucket().name}/o/` +
-        `${encoded}?alt=media&token=${token}`);
+    await file.save(data, { metadata: { contentType }, resumable: false });
+    const [url] = await file.getSignedUrl({ action: "read", expires: Date.now() + 15 * 60 * 1000 });
+    return url;
 }
 function slug(s) {
     const base = s.trim() || "NA";
@@ -495,7 +487,9 @@ function gruposDesdeDatos(evidencias, resumenes, rutas, asignaciones) {
 exports.rutasGenerarInforme = functions
     .region(REGION)
     .runWith({ memory: "512MB", timeoutSeconds: 120 })
-    .https.onCall(async (req) => {
+    .https.onCall(async (req, context) => {
+    const caller = await (0, security_policy_1.requireRutas)(context, str(req?.empresaId));
+    await (0, security_policy_1.reserveRequest)(context, `rutas-report:${caller.userDocId}`, 10);
     const empresaId = str(req.empresaId);
     const desde = str(req.fechaDesde);
     const hasta = str(req.fechaHasta);
@@ -791,12 +785,14 @@ exports.rutasGenerarInforme = functions
 exports.rutasGenerarZip = functions
     .region(REGION)
     .runWith({ memory: "1GB", timeoutSeconds: 540 })
-    .https.onCall(async (req) => {
+    .https.onCall(async (req, context) => {
+    const caller = await (0, security_policy_1.requireRutas)(context, str(req?.empresaId));
+    await (0, security_policy_1.reserveRequest)(context, `rutas-zip:${caller.userDocId}`, 5);
     const empresaId = str(req.empresaId);
     if (!empresaId) {
         throw new functions.https.HttpsError("invalid-argument", "empresaId es obligatorio.");
     }
-    const max = Math.min(num(req.max) || 400, 600);
+    const max = Math.max(1, Math.min(num(req.max) || 100, 200));
     const matches = (data, campo, val) => !val || str(data[campo]) === val;
     const snap = await db()
         .collection(EVIDENCIAS)
@@ -819,13 +815,21 @@ exports.rutasGenerarZip = functions
     }
     const zip = new jszip_1.default();
     let agregadas = 0;
+    let zipBytes = 0;
     for (const d of docs) {
         const data = d.data();
         const path = str(data.storagePath);
-        if (!path)
+        if (!path.startsWith(`rutas/${empresaId}/`) || path.includes(".."))
             continue;
         try {
-            const [buf] = await bucket().file(path).download();
+            const file = bucket().file(path);
+            const [metadata] = await file.getMetadata();
+            if (Number(metadata.size) > 12 * 1024 * 1024)
+                continue;
+            const [buf] = await file.download();
+            if (zipBytes + buf.length > 100 * 1024 * 1024)
+                break;
+            zipBytes += buf.length;
             const carpeta = `${slug(str(data.rutaCodigo))}/` +
                 `${slug(str(data.paradaNombre))}/${slug(str(data.comida))}`;
             const nombre = path.split("/").pop() || `${d.id}.jpg`;

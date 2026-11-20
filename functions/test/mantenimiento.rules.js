@@ -142,9 +142,12 @@ test("una ficha alterada no concede acceso ni permite habilitar la app", async (
   const appRef = `TBL_APPS/A_${app}`;
   const permiso = `${accesos}/A_sinapp`;
   const data = {empresaId: "A", userId: "sinapp", operador: true, updatedAt: serverTimestamp()};
-  await assertSucceeds(updateDoc(doc(db, "TBL_USUARIOS/sinapp"), {
+  await assertFails(updateDoc(doc(db, "TBL_USUARIOS/sinapp"), {
     apps: [app, "admindashboard"], desarrollador: true,
   }));
+  // También conserva la defensa para una ficha histórica alterada desde un
+  // origen privilegiado; el cliente actual ya no puede crear esa alteración.
+  await dbAdmin.doc("TBL_USUARIOS/sinapp").update({apps: [app, "admindashboard"], desarrollador: true});
   await assertFails(getDoc(doc(db, equipos, "equipo-A")));
   await assertFails(setDoc(doc(db, permiso), data));
   await assertFails(updateDoc(doc(db, appRef), {enabled: false}));

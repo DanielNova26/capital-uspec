@@ -48,6 +48,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.rutasMovilidadMedirAhora = exports.rutasMovilidadTick = exports.ETIQUETA_INCIDENTE = void 0;
 const admin = __importStar(require("firebase-admin"));
+const security_policy_1 = require("./security_policy");
 const functions = __importStar(require("firebase-functions/v1"));
 const db = () => admin.firestore();
 const REGION = "us-central1";
@@ -816,10 +817,8 @@ async function ejecutarCorrida(op) {
     // Keys por fuente: la de la empresa manda sobre la del backend (.env).
     // 'apiKey' es el nombre legacy de la key de Google.
     const keys = {
-        google: String(config.apiKeyGoogle ?? config.apiKey ?? "").trim() ||
-            String(process.env.MOVILIDAD_GOOGLE_API_KEY ?? "").trim(),
-        tomtom: String(config.apiKeyTomtom ?? "").trim() ||
-            String(process.env.MOVILIDAD_TOMTOM_API_KEY ?? "").trim(),
+        google: String(process.env.MOVILIDAD_GOOGLE_API_KEY ?? "").trim(),
+        tomtom: String(process.env.MOVILIDAD_TOMTOM_API_KEY ?? "").trim(),
     };
     if (!keys[fuente]) {
         throw new Error(`No hay API key configurada para la fuente "${fuente}" ` +
@@ -1367,13 +1366,15 @@ exports.rutasMovilidadTick = functions
 exports.rutasMovilidadMedirAhora = functions
     .region(REGION)
     .runWith({ timeoutSeconds: 540, memory: "512MB" })
-    .https.onCall(async (data) => {
+    .https.onCall(async (data, context) => {
+    const caller = await (0, security_policy_1.requireRutas)(context, String(data?.empresaId || ""), true);
+    await (0, security_policy_1.reserveRequest)(context, `rutas-measure:${caller.userDocId}`, 5);
     const empresaId = String(data?.empresaId ?? "").trim();
     if (!empresaId) {
         throw new functions.https.HttpsError("invalid-argument", "empresaId es obligatorio.");
     }
     const puntoId = String(data?.puntoId ?? "").trim() || undefined;
-    const cedula = String(data?.cedula ?? "").trim() || "manual";
+    const cedula = caller.userDocId;
     const ahora = bogotaNow();
     const escenario = escenarioAutomatico(isoWeekday(ahora), ahora.getUTCHours() * 60 + ahora.getUTCMinutes());
     const runRef = db().collection(COL_RUNS).doc();

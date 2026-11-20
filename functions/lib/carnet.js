@@ -65,7 +65,7 @@ const esc = (value) => String(value ?? "")
  */
 const fotoSegura = (raw) => {
     const url = String(raw ?? "").trim();
-    return /^https?:\/\//i.test(url) ? url : "";
+    return /^https:\/\//i.test(url) ? url : "";
 };
 const pagina = (cuerpo) => `<!doctype html>
 <html lang="es"><head>
@@ -110,7 +110,15 @@ exports.carnetPublico = functions
     .region(REGION)
     .https.onRequest(async (req, res) => {
     // Es una página pública de solo lectura; no hay estado que proteger.
-    res.set("Cache-Control", "public, max-age=300");
+    res.set("Cache-Control", "no-store");
+    res.set("X-Content-Type-Options", "nosniff");
+    res.set("Referrer-Policy", "no-referrer");
+    res.set("X-Frame-Options", "DENY");
+    res.set("Content-Security-Policy", "default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'");
+    if (req.method !== "GET" && req.method !== "HEAD") {
+        res.status(405).send("Method not allowed");
+        return;
+    }
     try {
         const desdeRuta = String(req.path ?? "").split("/").filter(Boolean).pop();
         const token = String(req.query?.t ?? desdeRuta ?? "").trim();

@@ -55,6 +55,17 @@ functions/.secret.local
 .env
 *.env
 !*.env.example
+**/.env.*
+!**/.env.example
+**/.secret*
+**/node_modules/
+*.pem
+*.p12
+*.p8
+*.jks
+*.keystore
+**/key.properties
+**/*service-account*.json
 
 # Artefactos generados del instructivo: se rehacen con el script y pesan 65 MB
 outputs/

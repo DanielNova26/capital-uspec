@@ -7,10 +7,11 @@
 //                            organizado por PUNTO/COMIDA y devuelve un enlace.
 
 import * as admin from "firebase-admin";
+import {requireRutas, reserveRequest} from "./security_policy";
 import * as functions from "firebase-functions/v1";
 import {PDFDocument, StandardFonts, rgb} from "pdf-lib";
 import JSZip from "jszip";
-import {randomUUID} from "crypto";
+
 
 const db = () => admin.firestore();
 const bucket = () => admin.storage().bucket();
@@ -64,20 +65,10 @@ async function uploadConToken(
   data: Buffer,
   contentType: string,
 ): Promise<string> {
-  const token = randomUUID();
   const file = bucket().file(path);
-  await file.save(data, {
-    metadata: {
-      contentType,
-      metadata: {firebaseStorageDownloadTokens: token},
-    },
-    resumable: false,
-  });
-  const encoded = encodeURIComponent(path);
-  return (
-    `https://firebasestorage.googleapis.com/v0/b/${bucket().name}/o/` +
-    `${encoded}?alt=media&token=${token}`
-  );
+  await file.save(data, {metadata: {contentType}, resumable: false});
+  const [url] = await file.getSignedUrl({action: "read", expires: Date.now() + 15 * 60 * 1000});
+  return url;
 }
 
 function slug(s: string): string {
@@ -573,7 +564,9 @@ function gruposDesdeDatos(
 export const rutasGenerarInforme = functions
   .region(REGION)
   .runWith({memory: "512MB", timeoutSeconds: 120})
-  .https.onCall(async (req: InformeReq) => {
+  .https.onCall(async (req: InformeReq, context) => {
+    const caller = await requireRutas(context, str(req?.empresaId));
+    await reserveRequest(context, `rutas-report:${caller.userDocId}`, 10);
     const empresaId = str(req.empresaId);
     const desde = str(req.fechaDesde);
     const hasta = str(req.fechaHasta);
@@ -978,7 +971,9 @@ interface ZipReq {
 export const rutasGenerarZip = functions
   .region(REGION)
   .runWith({memory: "1GB", timeoutSeconds: 540})
-  .https.onCall(async (req: ZipReq) => {
+  .https.onCall(async (req: ZipReq, context) => {
+    const caller = await requireRutas(context, str(req?.empresaId));
+    await reserveRequest(context, `rutas-zip:${caller.userDocId}`, 5);
     const empresaId = str(req.empresaId);
     if (!empresaId) {
       throw new functions.https.HttpsError(
@@ -986,7 +981,7 @@ export const rutasGenerarZip = functions
         "empresaId es obligatorio.",
       );
     }
-    const max = Math.min(num(req.max) || 400, 600);
+    const max = Math.max(1, Math.min(num(req.max) || 100, 200));
 
     const matches = (
       data: admin.firestore.DocumentData,
@@ -1020,13 +1015,19 @@ export const rutasGenerarZip = functions
 
     const zip = new JSZip();
     let agregadas = 0;
+    let zipBytes = 0;
 
     for (const d of docs) {
       const data = d.data();
       const path = str(data.storagePath);
-      if (!path) continue;
+      if (!path.startsWith(`rutas/${empresaId}/`) || path.includes("..")) continue;
       try {
-        const [buf] = await bucket().file(path).download();
+        const file = bucket().file(path);
+        const [metadata] = await file.getMetadata();
+        if (Number(metadata.size) > 12 * 1024 * 1024) continue;
+        const [buf] = await file.download();
+        if (zipBytes + buf.length > 100 * 1024 * 1024) break;
+        zipBytes += buf.length;
         const carpeta = `${slug(str(data.rutaCodigo))}/` +
           `${slug(str(data.paradaNombre))}/${slug(str(data.comida))}`;
         const nombre = path.split("/").pop() || `${d.id}.jpg`;

@@ -23,6 +23,7 @@
 // geocodificado). El origen vive en TBL_RUTAS_MOV_CONFIG.
 
 import * as admin from "firebase-admin";
+import {requireRutas, reserveRequest} from "./security_policy";
 import * as functions from "firebase-functions/v1";
 
 const db = () => admin.firestore();
@@ -933,10 +934,8 @@ async function ejecutarCorrida(
   // 'apiKey' es el nombre legacy de la key de Google.
   const keys: Record<string, string> = {
     google:
-      String(config.apiKeyGoogle ?? config.apiKey ?? "").trim() ||
       String(process.env.MOVILIDAD_GOOGLE_API_KEY ?? "").trim(),
     tomtom:
-      String(config.apiKeyTomtom ?? "").trim() ||
       String(process.env.MOVILIDAD_TOMTOM_API_KEY ?? "").trim(),
   };
   if (!keys[fuente]) {
@@ -1573,7 +1572,9 @@ export const rutasMovilidadTick = functions
 export const rutasMovilidadMedirAhora = functions
   .region(REGION)
   .runWith({timeoutSeconds: 540, memory: "512MB"})
-  .https.onCall(async (data) => {
+  .https.onCall(async (data, context) => {
+    const caller = await requireRutas(context, String(data?.empresaId || ""), true);
+    await reserveRequest(context, `rutas-measure:${caller.userDocId}`, 5);
     const empresaId = String(data?.empresaId ?? "").trim();
     if (!empresaId) {
       throw new functions.https.HttpsError(
@@ -1582,7 +1583,7 @@ export const rutasMovilidadMedirAhora = functions
       );
     }
     const puntoId = String(data?.puntoId ?? "").trim() || undefined;
-    const cedula = String(data?.cedula ?? "").trim() || "manual";
+    const cedula = caller.userDocId;
 
     const ahora = bogotaNow();
     const escenario = escenarioAutomatico(

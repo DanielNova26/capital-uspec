@@ -17,7 +17,6 @@
 // Solo Desarrollo y Gerencia: son quienes cargan el maestro de ubicaciones,
 // igual que exigen las reglas de TBL_VISITAS_UBICACIONES.
 
-import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
 import {requireManager} from "./visitas_cleanup";
 
@@ -102,25 +101,11 @@ export function primeraClave(...candidatas: unknown[]): string {
  * La clave de Google del servidor, la misma de Rutas: una propia de Visitas
  * si se configuró, si no la de la empresa en el estudio de movilidad y por
  * último la del backend.
- * @param {string} empresaId Empresa activa.
+ * @param {string} _empresaId Empresa activa.
  * @return {Promise<string>} La clave, o vacío si no hay ninguna.
  */
-async function claveGoogle(empresaId: string): Promise<string> {
-  let config: Record<string, unknown> = {};
-  try {
-    const snap = await admin.firestore()
-      .collection("TBL_RUTAS_MOV_CONFIG").doc(empresaId).get();
-    config = snap.data() ?? {};
-  } catch (_) {
-    // Sin la configuración de Rutas se sigue con la del backend.
-  }
-  // 'apiKey' es el nombre viejo de la clave de Google en Rutas.
-  return primeraClave(
-    process.env.VISITAS_GOOGLE_API_KEY,
-    config.apiKeyGoogle,
-    config.apiKey,
-    process.env.MOVILIDAD_GOOGLE_API_KEY,
-  );
+async function claveGoogle(_empresaId: string): Promise<string> {
+  return primeraClave(process.env.VISITAS_GOOGLE_API_KEY, process.env.MOVILIDAD_GOOGLE_API_KEY);
 }
 
 export const visitasBuscarLugar = functions.region(REGION)

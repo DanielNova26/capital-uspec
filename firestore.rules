@@ -220,11 +220,10 @@ service cloud.firestore {
     }
 
     function administraVisitasAreaEn(empresaId, areaId) {
-      return isDeveloper() || isDeveloperIn(empresaId)
-        || (areaId is string && areaId.size() > 0
+      return (areaId is string && areaId.size() > 0
           && rolVisitasEn(empresaId, ['jefe'])
           && areaVisitasUsuario(empresaId, request.auth.token.userDocId) == areaId)
-        || gerenciaVisitasEn(empresaId);
+        || gerenciaVisitasEn(empresaId) || isDeveloper() || isDeveloperIn(empresaId);
     }
 
     function administraVisitasArea(empresaId, areaId) {
@@ -469,6 +468,100 @@ service cloud.firestore {
     // Sin `match` propio: la regla general las excluye y ninguna otra las
     // abre (6 oct 2026, reglas más compactas).
 
+    // La ficha es la fuente de autoridad: nunca se permite que una persona
+    // se asigne apps, empresa, UID, estado o privilegios a sí misma.
+    match /TBL_USUARIOS/{userId} {
+      function empresaActivaAdmin() {
+        let u = currentUser();
+        return u.get('ultimaEmpresaId', u.get('empresaId', ''));
+      }
+      function adminDeFicha() {
+        let e = empresaActivaAdmin();
+        return belongsToCompany(e) && tieneAppAdminEn(e)
+          && fichaPertenece(resource.data, e);
+      }
+      function sinSecretos(d) {
+        return !d.keys().hasAny(['password', 'respuesta_seguridad_1', 'respuesta_seguridad_2',
+          'passwordHash', 'passwordSalt', 'recoveryAnswer1Hash', 'recoveryAnswer2Hash']);
+      }
+      function edicionAdminLimitada() {
+        let e = empresaActivaAdmin();
+        let d = request.resource.data;
+        let cambios = d.diff(resource.data).affectedKeys();
+        let detalle = d.get('empresasDetalle', {});
+        let anterior = resource.data.get('empresasDetalle', {});
+        return adminDeFicha()
+          && !cambios.hasAny(['developer', 'desarrollador', 'role', 'rol', 'roleKey', 'roleId',
+            'tipoUsuario', 'uid', 'authVersion', 'empresas', 'empresaId', 'empresa',
+            'permissions', 'permisos', 'activo', 'estado', 'status',
+            'needsPasswordChange', 'authMigratedAt'])
+          && (!cambios.hasAny(['apps', 'appsPorEmpresa'])
+            || (resource.data.get('empresaId', '') == e && d.get('appsPorEmpresa', false) == true))
+          && detalle.diff(anterior).affectedKeys().hasOnly([e])
+          && !marcaDesarrollo(detalle.get(e, {}));
+      }
+      // Los editores de niveles mantienen un espejo en la ficha; el nivel
+      // canónico se comprueba con getAfter en la misma transacción.
+      function espejoModulo(module, table, field) {
+        let e = empresaActivaAdmin();
+        let d = request.resource.data;
+        let antes = resource.data.get('empresasDetalle', {});
+        let despues = d.get('empresasDetalle', {});
+        let b = despues.get(e, {});
+        let a = antes.get(e, {});
+        let cambio = b.diff(a).affectedKeys();
+        return d.diff(resource.data).affectedKeys().hasOnly(['empresasDetalle', 'apps', 'appsPorEmpresa', 'updatedAt', field])
+          && cambio.hasOnly([field, field + 'Id', field + 'Nombre', field + 'Version', 'apps'])
+          && cambio.hasAny([field, field + 'Id', field + 'Nombre', field + 'Version'])
+          && despues.diff(antes).affectedKeys().hasOnly([e])
+          && b.get('apps', []).toSet().difference(a.get('apps', []).toSet()).hasOnly([module])
+          && a.get('apps', []).toSet().difference(b.get('apps', []).toSet()).hasOnly([module])
+          && d.get('apps', []).toSet().difference(resource.data.get('apps', []).toSet()).hasOnly([module])
+          && resource.data.get('apps', []).toSet().difference(d.get('apps', []).toSet()).hasOnly([module])
+          && asignaEnTablaDeModulo(e, userId, module)
+          && (!d.diff(resource.data).affectedKeys().hasAny([field])
+            || (resource.data.get('empresaId', '') == e && d.get(field, '') == b.get(field, '')))
+          && b.get(field, '') == getAfter(/databases/$(database)/documents/$(table)/$(e + '_' + userId)).data.rol;
+      }
+      allow get: if isSignedIn() && (userId == request.auth.token.userDocId
+        || isDeveloper() || belongsToCompany(resource.data.get('empresaId', '')));
+      allow list: if isSignedIn() && (isDeveloper()
+        || belongsToCompany(resource.data.get('empresaId', '')));
+      allow create: if sinSecretos(request.resource.data) && (isDeveloper()
+        || (belongsToCompany(empresaActivaAdmin()) && tieneAppAdminEn(empresaActivaAdmin())
+          && request.resource.data.get('empresaId', '') == empresaActivaAdmin()
+          && request.resource.data.get('empresas', []).hasOnly([empresaActivaAdmin()])
+          && request.resource.data.get('empresasDetalle', {}).keys().hasOnly([empresaActivaAdmin()])
+          && !marcaDesarrollo(request.resource.data)
+          && !marcaDesarrollo(request.resource.data.get('empresasDetalle', {}).get(empresaActivaAdmin(), {}))));
+      allow update: if isSignedIn() && sinSecretos(request.resource.data)
+        && (espejoModulo('interventoriadashboard', 'TBL_INTERVENTORIA_ROLES', 'rolInterventoria')
+          || isDeveloper() || edicionAdminLimitada()
+          || (userId == request.auth.token.userDocId && !cuentaInhabilitada(currentUser())
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'ultimaEmpresaId', 'ultimaEmpresaNombre', 'updatedAt', 'fcmToken', 'fcmTokens',
+              'fcmDevices', 'ultimoIngresoAt', 'lastLogin', 'lastLoginAt', 'dispositivo',
+              'fotoUrl', 'fotoPath', 'telefono', 'celular', 'direccion',
+              'primerNombre', 'segundoNombre', 'primerApellido', 'segundoApellido',
+              'estadoHojaDeVida', 'registered', 'needsRevision', 'revisionNote',
+              'correctionStatus', 'correctionSubmittedAt', 'correctionUpdatedAt'
+            ])
+            && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['estadoHojaDeVida'])
+              || request.resource.data.estadoHojaDeVida == 'en_revision')
+            && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['ultimaEmpresaId'])
+              || belongsToCompany(request.resource.data.ultimaEmpresaId))));
+      allow delete: if isDeveloper();
+      match /hoja_de_vida/{id} {
+        allow read, write: if isSignedIn() && userId == request.auth.token.userDocId
+          && !cuentaInhabilitada(currentUser());
+      }
+    }
+
+    match /TBL_EMPRESAS/{empresaId} {
+      allow read: if belongsToCompany(empresaId);
+      allow write: if isDeveloperFor(empresaId);
+    }
+
     // Registro de ingresos (29 sep 2026): cada quien agrega el suyo al
     // entrar, con su equipo; lo lee Admin de esa empresa o Desarrollo. Antes
     // estaba en la regla general: cualquiera veía y borraba los ingresos (y
@@ -481,7 +574,8 @@ service cloud.firestore {
         && request.resource.data.get('userId', '')
           == request.auth.token.userDocId
         && request.resource.data.get('empresaId', '') is string
-        && request.resource.data.empresaId.size() > 0;
+        && request.resource.data.empresaId.size() > 0
+        && belongsToCompany(request.resource.data.empresaId);
       allow update, delete: if false;
     }
 
@@ -2260,6 +2354,9 @@ service cloud.firestore {
     match /TBL_RUTAS_MOV_CONFIG/{empresaId} {
       allow get: if resource == null || administraRutas(empresaId);
       allow create, update: if request.resource.data.empresaId == empresaId
+        && request.resource.data.get('apiKey', '') == ''
+        && request.resource.data.get('apiKeyGoogle', '') == ''
+        && request.resource.data.get('apiKeyTomtom', '') == ''
         && administraRutas(empresaId);
       allow delete: if false;
     }
@@ -2927,6 +3024,28 @@ service cloud.firestore {
         && documentoDeSuEmpresa();
     }
 
+    // Las versiones y el flujo heredan la empresa del documento padre;
+    // sus consultas históricas filtran por docId.
+    match /{collection}/{id} {
+      function empresaDocumento(data) {
+        return get(/databases/$(database)/documents/TBL_DOCUMENTOS/$(data.docId)).data.empresaId;
+      }
+      allow read: if collection in ['TBL_DOCUMENTOS_VERSIONES', 'TBL_DOCUMENTOS_FLUJO']
+        && belongsToCompany(empresaDocumento(resource.data));
+      allow create: if collection in ['TBL_DOCUMENTOS_VERSIONES', 'TBL_DOCUMENTOS_FLUJO']
+        && request.resource.data.empresaId == empresaDocumento(request.resource.data)
+        && belongsToCompany(request.resource.data.empresaId);
+      allow update, delete: if collection in ['TBL_DOCUMENTOS_VERSIONES', 'TBL_DOCUMENTOS_FLUJO']
+        && belongsToCompany(empresaDocumento(resource.data))
+        && (request.method == 'delete' || (empresaSeConserva()
+          && request.resource.data.docId == resource.data.docId));
+    }
+
+    match /{catalogo}/{id} {
+      allow read: if catalogo in ['TBL_DEPARTAMENTOS', 'TBL_CIUDADES'] && isSignedIn();
+      allow write: if catalogo in ['TBL_DEPARTAMENTOS', 'TBL_CIUDADES'] && isDeveloper();
+    }
+
     // Todo lo que no tiene regla propia. Las colecciones con regla propia se
     // excluyen aquí: si no, esta regla las volvería a abrir (Firestore deja
     // pasar si CUALQUIER regla que coincide lo permite). Una expresión
@@ -2935,6 +3054,8 @@ service cloud.firestore {
     // 1000 (6 oct 2026: la lista de cien colecciones costaba cien).
     match /{collection}/{document=**} {
       allow read, write: if isSignedIn()
+        && collection != 'TBL_USUARIOS' && collection != 'TBL_EMPRESAS'
+        && !(collection in ['TBL_DOCUMENTOS_VERSIONES', 'TBL_DOCUMENTOS_FLUJO', 'TBL_DEPARTAMENTOS', 'TBL_CIUDADES'])
         && collection != 'TBL_ESTRUCTURA_ORGANIZACIONAL'
         && !esColeccionCompras(collection)
         && !esColeccionNutricion(collection)
@@ -2944,7 +3065,7 @@ service cloud.firestore {
         && !collection.matches('TBL_(TAREAS|TAREAS_CONTADORES|TAREAS_RECURRENTES'
           + '|COMPRAS_ROLES|COMPRAS_CONFIG|NOTIFICACIONES_CONFIG|NOTIFICACIONES_PREFERENCIAS|COBERTURA_LOTES'
           + '|WHATSAPP_CONFIG|WHATSAPP_AUDITORIA|WHATSAPP_META_ESTADOS|WHATSAPP_COLA|WHATSAPP_CONSUMO'
-          + '|CORREO_ALERTAS|CORREO_LISTADOS|CORREO_REGLAS|CORREO_ROLES'
+          + '|CORREO_ALERTAS|CORREO_LISTADOS|CORREO_REGLAS|CORREO_ROLES|CORREO_CREDENCIALES|CORREO_OAUTH_STATES|CORREO_LOCKS'
           + '|GD_EXPEDIENTES|GD_TIPOS_DOCUMENTALES|GD_EXPEDIENTES_EVENTOS|GD_COLABORACION|GD_VINCULOS|GD_CONTADORES'
           + '|INTERVENTORIA_VISITAS|INTERVENTORIA_PLANES|INTERVENTORIA_PLAN_ITEMS|INTERVENTORIA_PLAN_AUDITORIA|INTERVENTORIA_HALLAZGOS|INTERVENTORIA_ROLES|INTERVENTORIA_CONFIG|INTERVENTORIA_SOLICITUDES_ELIMINACION|INTERVENTORIA_CONCEPTOS_SANITARIOS'
           + '|VISITAS|VISITAS_FORMATOS|VISITAS_ROLES|VISITAS_UBICACIONES|VISITAS_GRUPOS|VISITAS_ESTABLECIMIENTOS|VISITAS_CONTADORES|VISITAS_OFFLINE'
@@ -2962,7 +3083,7 @@ service cloud.firestore {
           + '|CITAS_NUTRICION|HISTORIAL_NUTRICION'
           + '|FAC_CONFIG'
           + '|APPS|MANTENIMIENTO_(ACCESOS|EQUIPOS|ORDENES|ARCHIVOS|CONTADORES|MINIMOS|CLASIFICACIONES)'
-          + ')');
+          + ')') && documentoDeSuEmpresa();
     }
   }
 }

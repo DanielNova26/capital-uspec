@@ -27,12 +27,18 @@
       "site": "to-do-gestion",
       "public": "build/web",
       "predeploy": [
-        "node tool/verificar_build_web.js"
+        "node tool/verificar_build_web.js",
+        "node tool/verificar_seguridad_web.cjs --build"
       ],
       "ignore": [
         "firebase.json",
         "**/.*",
-        "**/node_modules/**"
+        "**/node_modules/**",
+        "**/*.map",
+        "**/*.env*",
+        "**/*.pem",
+        "**/*.key",
+        "**/*service-account*.json"
       ],
       "rewrites": [
         {
@@ -71,6 +77,35 @@
         }
       ],
       "headers": [
+        {
+          "source": "**",
+          "headers": [
+            {
+              "key": "Strict-Transport-Security",
+              "value": "max-age=31536000; includeSubDomains"
+            },
+            {
+              "key": "X-Content-Type-Options",
+              "value": "nosniff"
+            },
+            {
+              "key": "X-Frame-Options",
+              "value": "DENY"
+            },
+            {
+              "key": "Referrer-Policy",
+              "value": "strict-origin-when-cross-origin"
+            },
+            {
+              "key": "Permissions-Policy",
+              "value": "camera=(self), microphone=(self), geolocation=(self)"
+            },
+            {
+              "key": "Content-Security-Policy",
+              "value": "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests; script-src 'self' 'wasm-unsafe-eval' https://maps.googleapis.com https://maps.gstatic.com https://www.gstatic.com https://cdnjs.cloudflare.com 'sha256-2XaEe4KABnNshCzwl8CrhkcJjX5hychjGCAJUR6tp7g=' 'sha256-D72KCfQC6koyEDH7CckIEbocJaUDbHmkOllc/SnFKAU=' 'sha256-wv/MkaW+e2bdw8mgY/lUXEmxvFXYRbAowmoG67zWVw4=' 'sha256-Es/H8bnAYEcwfgwk5d4gg6L+E55oQsvfP3BwN2FA8yQ=' 'sha256-/CylKjx4HxkC/e+Cmu2QjhDR7osdiQNiObjFi7+OQsQ=' 'sha256-LKe0G7+/Le6MRl9LOE3uM9tJEeSwTA3+ygvVpX7a81Y=' 'sha256-iUChzM4z6bbvSXkbYe8hD79t8kb348nnRfvEhqB+cRw=' 'sha256-BNgYFeuVgEO92/C/7l4Y9XRDYdsKwP5GqwEB6EwOna4=' 'sha256-58neYKTFOWGVnqxi2GzcvVtfo1znAnQ08wI5CseQLGw=' 'sha256-NdUyTcImpCO+Lpm4FpouL/jlLy51Z9jlPSZKgCaE2gw=' 'sha256-X6Scj2CxtCGTiYfFsglfaS9gJHaGoc/iHm5EoFfx1Yk=' 'sha256-gXDm/07lFfRJMSLvFMXgAb3T5Jz+h6s4LtKwKMJtHaU=' 'sha256-Ot+KPirQXBBKrI+SzpdMqK29m/VuGxsFLY/5x49zlEA=' 'sha256-f+0A7BM6wcNhRXaui3nUJPcni3cngZhLc+Ro6zSt79U=' 'sha256-rH1zMkGIZH0dOFleLm8PWvTXzAjBg7QpNeuAXRsyIak=' 'sha256-/R6TC+LAbelV/Lr/gfzM9bjCT5u6aTcQ52D88sAScuo='; worker-src 'self' blob: https://cdnjs.cloudflare.com"
+            }
+          ]
+        },
         {
           "source": "/",
           "headers": [
@@ -169,5 +204,8 @@
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
   }
 }

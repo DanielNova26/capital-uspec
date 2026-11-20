@@ -145,7 +145,7 @@ test.before(async () => {
         empresaId: "EMP_A", userId: "conductorR", lat: 4.6, lng: -74.1,
       }),
       setDoc(doc(db, "TBL_RUTAS_MOV_CONFIG/EMP_A"), {
-        empresaId: "EMP_A", apiKeyGoogle: "clave-secreta", apiKeyTomtom: "otra",
+        empresaId: "EMP_A", activo: true,
       }),
       setDoc(doc(db, "TBL_RUTAS_MOV_HORARIOS/h1"), {empresaId: "EMP_A", hora: 7}),
       // TBL_TAREAS ya tiene regla propia (2 oct 2026): el ejemplo de la regla
@@ -230,17 +230,20 @@ test("Desarrollo asigna cualquier rol; la empresa lee la lista", async () => {
   );
 });
 
-test("las claves del estudio de movilidad solo las ve Administración de Rutas", async () => {
+test("Administración configura movilidad sin guardar secretos en documentos del cliente", async () => {
   for (const id of ["conductorR", "calidadR", "th", "ajeno"]) {
     await assertFails(getDoc(doc(auth(id), "TBL_RUTAS_MOV_CONFIG/EMP_A")));
   }
   await assertSucceeds(getDoc(doc(auth("adminR"), "TBL_RUTAS_MOV_CONFIG/EMP_A")));
   await assertSucceeds(getDoc(doc(auth("dev"), "TBL_RUTAS_MOV_CONFIG/EMP_A")));
-  await assertSucceeds(
+  await assertFails(
     setDoc(doc(auth("adminCal"), "TBL_RUTAS_MOV_CONFIG/EMP_A"), {
       empresaId: "EMP_A", apiKeyGoogle: "nueva",
     }, {merge: true})
   );
+  await assertSucceeds(setDoc(doc(auth("adminCal"), "TBL_RUTAS_MOV_CONFIG/EMP_A"), {
+    empresaId: "EMP_A", activo: false,
+  }, {merge: true}));
   await assertFails(
     setDoc(doc(auth("calidadR"), "TBL_RUTAS_MOV_CONFIG/EMP_A"), {
       empresaId: "EMP_A", apiKeyGoogle: "mia",

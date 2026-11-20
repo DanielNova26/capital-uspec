@@ -28,6 +28,8 @@ exports.visitasRevalidarOffline = exports.visitasPrepararOffline = exports.visit
 exports.notifyTaskNews = exports.notifyTaskCompleted = exports.sendTestPushHttp = exports.registerDeviceToken = exports.sendTestPush = exports.citasNutricionRecordatorios0800 = exports.onTaskUpdated = exports.onTaskCreated = exports.retryPendingNotificationDeliveries = exports.onNotificationCreated = exports.comprasGenerarReporteAbastecimiento = exports.comprasReporteAbastecimiento1700 = exports.rutasMovilidadMedirAhora = exports.rutasMovilidadTick = exports.rutasGenerarZip = exports.rutasGenerarInforme = exports.rutasResumenEvidencia = exports.visitasCoordinadoresAlCambiarGrupo = exports.visitasCoordinadoresAlCrear = exports.visitasNumerarHistoricas = exports.visitasAsignarNumero = exports.visitasBuscarLugar = exports.visitasSincronizarOffline = exports.visitasSubirFotoOffline = void 0;
 // functions/src/index.ts
 const functions = __importStar(require("firebase-functions/v1")); // compat v1
+const security_policy_1 = require("./security_policy");
+const security_admin_1 = require("./security_admin");
 const crypto_1 = require("crypto");
 const acceso_1 = require("./acceso");
 const notification_catalog_1 = require("./notification_catalog");
@@ -54,15 +56,15 @@ Object.defineProperty(exports, "authPrepararRecuperacion", { enumerable: true, g
 Object.defineProperty(exports, "authCompletarRecuperacion", { enumerable: true, get: function () { return auth_1.authCompletarRecuperacion; } });
 Object.defineProperty(exports, "authCerrarSesionInhabilitado", { enumerable: true, get: function () { return auth_1.authCerrarSesionInhabilitado; } });
 // Centro de Seguridad — operaciones administrativas sin exponer secretos.
-var security_admin_1 = require("./security_admin");
-Object.defineProperty(exports, "securityAdminOverview", { enumerable: true, get: function () { return security_admin_1.securityAdminOverview; } });
-Object.defineProperty(exports, "securityAdminRequirePasswordChange", { enumerable: true, get: function () { return security_admin_1.securityAdminRequirePasswordChange; } });
-Object.defineProperty(exports, "securityAdminRevokeSessions", { enumerable: true, get: function () { return security_admin_1.securityAdminRevokeSessions; } });
-Object.defineProperty(exports, "securityAdminRevokeDisabledSessions", { enumerable: true, get: function () { return security_admin_1.securityAdminRevokeDisabledSessions; } });
-Object.defineProperty(exports, "securityAdminResetTemporaryPassword", { enumerable: true, get: function () { return security_admin_1.securityAdminResetTemporaryPassword; } });
-Object.defineProperty(exports, "securityAdminClearLoginBlocks", { enumerable: true, get: function () { return security_admin_1.securityAdminClearLoginBlocks; } });
-Object.defineProperty(exports, "securityAdminAssignInitialPassword", { enumerable: true, get: function () { return security_admin_1.securityAdminAssignInitialPassword; } });
-Object.defineProperty(exports, "securityRegistrarUsuarioNuevo", { enumerable: true, get: function () { return security_admin_1.securityRegistrarUsuarioNuevo; } });
+var security_admin_2 = require("./security_admin");
+Object.defineProperty(exports, "securityAdminOverview", { enumerable: true, get: function () { return security_admin_2.securityAdminOverview; } });
+Object.defineProperty(exports, "securityAdminRequirePasswordChange", { enumerable: true, get: function () { return security_admin_2.securityAdminRequirePasswordChange; } });
+Object.defineProperty(exports, "securityAdminRevokeSessions", { enumerable: true, get: function () { return security_admin_2.securityAdminRevokeSessions; } });
+Object.defineProperty(exports, "securityAdminRevokeDisabledSessions", { enumerable: true, get: function () { return security_admin_2.securityAdminRevokeDisabledSessions; } });
+Object.defineProperty(exports, "securityAdminResetTemporaryPassword", { enumerable: true, get: function () { return security_admin_2.securityAdminResetTemporaryPassword; } });
+Object.defineProperty(exports, "securityAdminClearLoginBlocks", { enumerable: true, get: function () { return security_admin_2.securityAdminClearLoginBlocks; } });
+Object.defineProperty(exports, "securityAdminAssignInitialPassword", { enumerable: true, get: function () { return security_admin_2.securityAdminAssignInitialPassword; } });
+Object.defineProperty(exports, "securityRegistrarUsuarioNuevo", { enumerable: true, get: function () { return security_admin_2.securityRegistrarUsuarioNuevo; } });
 // Limpieza por módulo de Admin: datos de prueba, con vista previa.
 var limpieza_1 = require("./limpieza");
 Object.defineProperty(exports, "adminLimpiezaModulo", { enumerable: true, get: function () { return limpieza_1.adminLimpiezaModulo; } });
@@ -1082,7 +1084,13 @@ exports.citasNutricionRecordatorios0800 = functions
 // --------------------------- Endpoints de prueba ---------------------------
 exports.sendTestPush = functions
     .region("us-central1")
-    .https.onCall(async (data, _context) => {
+    .https.onCall(async (data, context) => {
+    const caller = await (0, security_admin_1.requireAdmin)(data, context);
+    await (0, security_policy_1.reserveRequest)(context, `test-push:${caller.userDocId}`, 5);
+    const target = await db.collection("TBL_USUARIOS").doc(String(data?.userId || "invalid")).get();
+    if (!(0, acceso_1.empresasSeleccionables)(target.data() || {}).includes(caller.empresaId)) {
+        throw new functions.https.HttpsError("permission-denied", "Destinatario no autorizado.");
+    }
     const userId = (data?.userId || "").toString().trim();
     const title = (data?.title || "⚡ Test push").toString();
     const body = (data?.body || "Hola").toString();
@@ -1103,76 +1111,28 @@ exports.sendTestPush = functions
 });
 exports.registerDeviceToken = functions
     .region("us-central1")
-    .https.onCall(async (data, _context) => {
-    const cedula = (data?.cedula || "").toString().trim();
-    const token = (data?.token || "").toString().trim();
-    const platform = (data?.platform || "").toString().trim();
-    const deviceName = (data?.deviceName || "").toString().trim();
-    if (!cedula || !token) {
-        throw new functions.https.HttpsError("invalid-argument", "Parámetros: cedula y token");
+    .https.onCall(async (data, context) => {
+    const caller = await (0, security_policy_1.requireActiveUser)(context);
+    await (0, security_policy_1.reserveRequest)(context, `fcm-register:${caller.userDocId}`, 30);
+    const cedula = data?.cedula;
+    const token = data?.token;
+    if (typeof cedula !== "string" || ![caller.userDocId, caller.user.cedula].includes(cedula) ||
+        typeof token !== "string" || token.length < 20 || token.length > 4096 || !/^[A-Za-z0-9_:-]+$/.test(token)) {
+        throw new functions.https.HttpsError("invalid-argument", "Dispositivo o identidad inválidos.");
     }
-    const basePayload = {
+    await caller.ref.set({
         fcmToken: token,
         fcmTokens: admin.firestore.FieldValue.arrayUnion(token),
-        [`fcmDevices.${token}`]: {
-            platform: platform || "unknown",
-            deviceName: deviceName || null,
-            updatedAt: Date.now(),
-        },
-    };
-    const cedulaRef = db.collection("TBL_USUARIOS").doc(cedula);
-    await cedulaRef.set(basePayload, { merge: true });
-    // Si la cédula enviada corresponde al uid del usuario, sincroniza también
-    // el documento encontrado por uid para evitar duplicados.
-    const cedulaDoc = await cedulaRef.get();
-    if (!cedulaDoc.exists) {
-        const byUid = await db.collection("TBL_USUARIOS").where("uid", "==", cedula).limit(1).get();
-        if (!byUid.empty) {
-            await byUid.docs[0].ref.set(basePayload, { merge: true });
-        }
-    }
-    console.log("[registerDeviceToken] cedula:", cedula, "token length:", token.length);
+        fcmDevices: { [token]: { platform: String(data?.platform || "unknown").slice(0, 30),
+                deviceName: String(data?.deviceName || "").slice(0, 150), updatedAt: Date.now() } },
+    }, { merge: true });
     return { ok: true };
 });
-exports.sendTestPushHttp = functions
-    .region("us-central1")
-    .https.onRequest(async (req, res) => {
-    try {
-        const isPost = req.method === "POST";
-        const userId = (isPost ? req.body?.userId : req.query.userId) || "";
-        const title = (isPost ? req.body?.title : req.query.title) || "⚡ Test push";
-        const body = (isPost ? req.body?.body : req.query.body) || "Hola";
-        const taskId = (isPost ? req.body?.taskId : req.query.taskId) || "TEST";
-        const empresaId = ((isPost ? req.body?.empresaId : req.query.empresaId) || "").toString().trim();
-        const skipSave = (isPost ? req.body?.skipSave : req.query.skipSave) || "0";
-        if (!userId) {
-            res.status(400).json({ error: "userId requerido" });
-            return;
-        }
-        if (skipSave !== "1" && skipSave?.toLowerCase() !== "true") {
-            try {
-                const payload = { title, description: body, taskId, type: "test" };
-                if (empresaId)
-                    payload.empresaId = empresaId;
-                await saveInAppNotification(userId, payload);
-            }
-            catch (e) {
-                console.error("[sendTestPushHttp] saveInAppNotification ERROR:", e?.message);
-            }
-        }
-        if (skipSave === "1" || skipSave?.toLowerCase() === "true") {
-            const tokens = await getTokensFor(userId);
-            console.log("[sendTestPushHttp] tokens:", tokens.length);
-            const r = await sendPushTo(tokens, { title, body }, { taskId, type: "test", empresaId });
-            res.json({ ok: true, ...r });
-            return;
-        }
-        res.json({ ok: true });
-    }
-    catch (e) {
-        console.error("[sendTestPushHttp] ERROR:", e?.message);
-        res.status(500).json({ error: "internal", message: e?.message });
-    }
+// Retired diagnostic endpoint: never send messages through a public GET/POST.
+exports.sendTestPushHttp = functions.region("us-central1")
+    .https.onRequest((_req, res) => {
+    res.set("Cache-Control", "no-store").set("X-Content-Type-Options", "nosniff");
+    res.status(410).json({ error: "gone" });
 });
 exports.notifyTaskCompleted = functions
     .region("us-central1")

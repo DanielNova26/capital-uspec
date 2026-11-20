@@ -29,6 +29,7 @@ const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 const crypto_1 = require("crypto");
 const util_1 = require("util");
+const security_policy_1 = require("./security_policy");
 const apps_por_empresa_1 = require("./apps_por_empresa");
 const acceso_1 = require("./acceso");
 const ingresos_1 = require("./ingresos");
@@ -116,10 +117,7 @@ function isAdminForCompany(data, empresaId) {
         scoped?.roleId,
         scoped?.role,
         scoped?.rol,
-        data.roleKey,
-        data.role,
-        data.rol,
-        data.tipoUsuario,
+        ...((0, apps_por_empresa_1.raizEsDeEmpresa)(data, empresaId) ? [data.roleKey, data.role, data.rol, data.tipoUsuario] : []),
     ].map(normalized);
     if (roles.some((role) => ["administrador", "admin", "superadmin", "administrador_sistema"].includes(role) ||
         role.endsWith("_administrador") || role.endsWith("_admin")))
@@ -128,6 +126,7 @@ function isAdminForCompany(data, empresaId) {
 }
 // También la usa Limpieza (limpieza.ts): Admin de la empresa activa.
 async function requireAdmin(data, context) {
+    (0, security_policy_1.assertTrustedOrigin)(context);
     const empresaId = clean(data?.empresaId, 160);
     const userDocId = clean(context.auth?.token?.userDocId, 512);
     if (!context.auth ||

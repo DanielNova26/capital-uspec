@@ -1,5 +1,7 @@
 // functions/src/index.ts
 import * as functions from "firebase-functions/v1"; // compat v1
+import {requireActiveUser, reserveRequest} from "./security_policy";
+import {requireAdmin} from "./security_admin";
 import {createHash} from "crypto";
 import {empresasDe, empresasSeleccionables, motivoAccesoBloqueado} from "./acceso";
 import {planDeEntrega} from "./notification_catalog";
@@ -1191,7 +1193,13 @@ export const citasNutricionRecordatorios0800 = functions
 // --------------------------- Endpoints de prueba ---------------------------
 export const sendTestPush = functions
   .region("us-central1")
-  .https.onCall(async (data: any, _context: functions.https.CallableContext) => {
+  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+    const caller = await requireAdmin(data, context);
+    await reserveRequest(context, `test-push:${caller.userDocId}`, 5);
+    const target = await db.collection("TBL_USUARIOS").doc(String(data?.userId || "invalid")).get();
+    if (!empresasSeleccionables(target.data() || {}).includes(caller.empresaId)) {
+      throw new functions.https.HttpsError("permission-denied", "Destinatario no autorizado.");
+    }
     const userId = (data?.userId || "").toString().trim();
     const title = (data?.title || "⚡ Test push").toString();
     const body = (data?.body || "Hola").toString();
@@ -1211,82 +1219,29 @@ export const sendTestPush = functions
 
 export const registerDeviceToken = functions
   .region("us-central1")
-  .https.onCall(async (data: any, _context: functions.https.CallableContext) => {
-    const cedula = (data?.cedula || "").toString().trim();
-    const token = (data?.token || "").toString().trim();
-    const platform = (data?.platform || "").toString().trim();
-    const deviceName = (data?.deviceName || "").toString().trim();
-
-    if (!cedula || !token) {
-      throw new functions.https.HttpsError("invalid-argument", "Parámetros: cedula y token");
+  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+    const caller = await requireActiveUser(context);
+    await reserveRequest(context, `fcm-register:${caller.userDocId}`, 30);
+    const cedula = data?.cedula;
+    const token = data?.token;
+    if (typeof cedula !== "string" || ![caller.userDocId, caller.user.cedula].includes(cedula) ||
+        typeof token !== "string" || token.length < 20 || token.length > 4096 || !/^[A-Za-z0-9_:-]+$/.test(token)) {
+      throw new functions.https.HttpsError("invalid-argument", "Dispositivo o identidad inválidos.");
     }
-
-    const basePayload = {
+    await caller.ref.set({
       fcmToken: token,
       fcmTokens: admin.firestore.FieldValue.arrayUnion(token),
-      [`fcmDevices.${token}`]: {
-        platform: platform || "unknown",
-        deviceName: deviceName || null,
-        updatedAt: Date.now(),
-      },
-    };
-
-    const cedulaRef = db.collection("TBL_USUARIOS").doc(cedula);
-    await cedulaRef.set(basePayload, { merge: true });
-
-    // Si la cédula enviada corresponde al uid del usuario, sincroniza también
-    // el documento encontrado por uid para evitar duplicados.
-    const cedulaDoc = await cedulaRef.get();
-    if (!cedulaDoc.exists) {
-      const byUid = await db.collection("TBL_USUARIOS").where("uid", "==", cedula).limit(1).get();
-      if (!byUid.empty) {
-        await byUid.docs[0].ref.set(basePayload, { merge: true });
-      }
-    }
-
-    console.log("[registerDeviceToken] cedula:", cedula, "token length:", token.length);
-    return { ok: true };
+      fcmDevices: {[token]: {platform: String(data?.platform || "unknown").slice(0, 30),
+        deviceName: String(data?.deviceName || "").slice(0, 150), updatedAt: Date.now()}},
+    }, {merge: true});
+    return {ok: true};
   });
 
-export const sendTestPushHttp = functions
-  .region("us-central1")
-  .https.onRequest(async (req: any, res: any) => {
-    try {
-      const isPost = req.method === "POST";
-      const userId = (isPost ? (req.body?.userId as string) : (req.query.userId as string)) || "";
-      const title = (isPost ? req.body?.title : req.query.title) || "⚡ Test push";
-      const body = (isPost ? req.body?.body : req.query.body) || "Hola";
-      const taskId = (isPost ? req.body?.taskId : req.query.taskId) || "TEST";
-      const empresaId = ((isPost ? req.body?.empresaId : req.query.empresaId) || "").toString().trim();
-      const skipSave = (isPost ? req.body?.skipSave : req.query.skipSave) || "0";
-
-      if (!userId) {
-        res.status(400).json({ error: "userId requerido" });
-        return;
-      }
-
-      if (skipSave !== "1" && skipSave?.toLowerCase() !== "true") {
-        try {
-          const payload: Record<string, unknown> = { title, description: body, taskId, type: "test" };
-          if (empresaId) payload.empresaId = empresaId;
-          await saveInAppNotification(userId, payload);
-        } catch (e) {
-          console.error("[sendTestPushHttp] saveInAppNotification ERROR:", (e as Error)?.message);
-        }
-      }
-      if (skipSave === "1" || skipSave?.toLowerCase() === "true") {
-        const tokens = await getTokensFor(userId);
-        console.log("[sendTestPushHttp] tokens:", tokens.length);
-        const r = await sendPushTo(tokens, { title, body }, { taskId, type: "test", empresaId });
-        res.json({ ok: true, ...r });
-        return;
-      }
-
-      res.json({ ok: true });
-    } catch (e) {
-      console.error("[sendTestPushHttp] ERROR:", (e as Error)?.message);
-      res.status(500).json({ error: "internal", message: (e as Error)?.message });
-    }
+// Retired diagnostic endpoint: never send messages through a public GET/POST.
+export const sendTestPushHttp = functions.region("us-central1")
+  .https.onRequest((_req, res) => {
+    res.set("Cache-Control", "no-store").set("X-Content-Type-Options", "nosniff");
+    res.status(410).json({error: "gone"});
   });
 
 export const notifyTaskCompleted = functions

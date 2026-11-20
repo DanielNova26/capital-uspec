@@ -112,7 +112,7 @@
 
     window._extractPdfText = async function(uint8array) {
       try {
-        const pdf = await pdfjsLib.getDocument({ data: uint8array }).promise;
+        const pdf = await pdfjsLib.getDocument({ data: uint8array, isEvalSupported: false }).promise;
         let fullText = '';
         for (let i = 1; i <= pdf.numPages; i++) {
           const page = await pdf.getPage(i);

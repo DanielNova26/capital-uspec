@@ -28,6 +28,7 @@ const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 const crypto_1 = require("crypto");
 const util_1 = require("util");
+const security_policy_1 = require("./security_policy");
 const acceso_1 = require("./acceso");
 const scrypt = (0, util_1.promisify)(crypto_1.scrypt);
 const credentialsCollection = "TBL_AUTH_CREDENTIALS";
@@ -73,6 +74,8 @@ async function verifyHash(password, saltValue, hashValue) {
     try {
         const salt = Buffer.from(saltValue, "base64");
         const expected = Buffer.from(hashValue, "base64");
+        if (salt.length !== 32 || expected.length !== scryptKeyLength)
+            return false;
         const actual = (await scrypt(password, salt, expected.length));
         return expected.length === actual.length && (0, crypto_1.timingSafeEqual)(expected, actual);
     }
@@ -207,6 +210,7 @@ async function issueToken(match) {
     return { token, uid, userDocId: match.ref.id };
 }
 async function requireOwnUser(context) {
+    (0, security_policy_1.assertTrustedOrigin)(context);
     if (!context.auth || context.auth.token.authVersion !== 2) {
         throw new functions.https.HttpsError("unauthenticated", "La sesión no es válida.");
     }
@@ -226,11 +230,12 @@ exports.authIniciarSesion = functions
     .region("us-central1")
     .runWith({ timeoutSeconds: 60, memory: "512MB" })
     .https.onCall(async (data, context) => {
-    const input = clean(data?.usuario, 160);
-    const password = clean(data?.password, 1024);
+    const input = (0, security_policy_1.boundedText)(data?.usuario, 160, "usuario");
+    const password = (0, security_policy_1.boundedText)(data?.password, 1024, "password");
     if (!input || password.length < 4) {
         throw new functions.https.HttpsError("invalid-argument", "Ingresa usuario y contraseña.");
     }
+    await (0, security_policy_1.reservePublicAuth)(context, input);
     await enforceAttemptLimit(context, input);
     const candidates = await findUsers(input);
     let selected = null;
@@ -252,6 +257,7 @@ exports.authIniciarSesion = functions
         throw new functions.https.HttpsError("permission-denied", bloqueo);
     }
     if (!selected) {
+        functions.logger.warn("security.login_failed", { identifierHash: digest(normalized(input)) });
         await recordFailure(context, input);
         throw new functions.https.HttpsError("permission-denied", "Usuario o contraseña incorrectos.");
     }
@@ -287,7 +293,8 @@ exports.authCambiarClave = functions
     .runWith({ timeoutSeconds: 60, memory: "512MB" })
     .https.onCall(async (data, context) => {
     const current = await requireOwnUser(context);
-    const newPassword = clean(data?.newPassword, 1024);
+    await (0, security_policy_1.reserveRequest)(context, `password-change:${current.userDocId}`, 5);
+    const newPassword = (0, security_policy_1.boundedText)(data?.newPassword, 1024, "newPassword");
     const question1 = clean(data?.question1, 500);
     const question2 = clean(data?.question2, 500);
     const answer1 = clean(data?.answer1, 1000);
@@ -338,9 +345,10 @@ exports.authPrepararRecuperacion = functions
     .region("us-central1")
     .runWith({ timeoutSeconds: 60, memory: "512MB" })
     .https.onCall(async (data, context) => {
-    const input = clean(data?.usuario, 160);
+    const input = (0, security_policy_1.boundedText)(data?.usuario, 160, "usuario");
     if (!input)
         throw new functions.https.HttpsError("invalid-argument", "Ingresa tu usuario o cédula.");
+    await (0, security_policy_1.reservePublicAuth)(context, `recovery:${input}`);
     await enforceAttemptLimit(context, `recovery:${input}`);
     const candidates = await findUsers(input);
     const selected = candidates.find((candidate) => isActive(candidate.data));
@@ -368,25 +376,32 @@ exports.authCompletarRecuperacion = functions
     .region("us-central1")
     .runWith({ timeoutSeconds: 60, memory: "512MB" })
     .https.onCall(async (data, context) => {
-    const challengeId = clean(data?.challengeId, 128);
+    (0, security_policy_1.assertTrustedOrigin)(context);
+    const challengeId = (0, security_policy_1.boundedText)(data?.challengeId, 64, "challengeId");
     const answer1 = clean(data?.answer1, 1000);
     const answer2 = clean(data?.answer2, 1000);
-    const newPassword = clean(data?.newPassword, 1024);
-    if (!challengeId || !answer1 || !answer2 || newPassword.length < 8) {
+    const newPassword = (0, security_policy_1.boundedText)(data?.newPassword, 1024, "newPassword");
+    if (!/^[a-f0-9]{64}$/.test(challengeId) || !answer1 || !answer2 || newPassword.length < 8) {
         throw new functions.https.HttpsError("invalid-argument", "Completa todos los campos. La contraseña debe tener 8 caracteres.");
     }
     const challengeRef = db().collection(recoveryCollection).doc(challengeId);
-    const challenge = await challengeRef.get();
-    const challengeData = challenge.data() || {};
-    const expiresAt = challengeData.expiresAt?.toMillis?.() || 0;
-    if (!challenge.exists || expiresAt < Date.now() || Number(challengeData.attempts || 0) >= maxAttempts) {
-        throw new functions.https.HttpsError("deadline-exceeded", "La recuperación venció. Inicia nuevamente.");
-    }
+    await (0, security_policy_1.reserveRequest)(context, `recovery-ip:${context.rawRequest?.ip || "unknown"}`, 60);
+    const challengeData = await db().runTransaction(async (tx) => {
+        const challenge = await tx.get(challengeRef);
+        const value = challenge.data() || {};
+        if (!challenge.exists || (value.expiresAt?.toMillis?.() || 0) <= Date.now() ||
+            Number(value.attempts || 0) >= maxAttempts) {
+            throw new functions.https.HttpsError("deadline-exceeded", "La recuperación venció. Inicia nuevamente.");
+        }
+        tx.update(challengeRef, { attempts: admin.firestore.FieldValue.increment(1) });
+        return value;
+    });
     const userDocId = clean(challengeData.userDocId, 512);
     const userRef = db().collection("TBL_USUARIOS").doc(userDocId);
     const [userSnap, credential] = await Promise.all([userRef.get(), credentialFor(userDocId)]);
-    if (!userSnap.exists)
-        throw new functions.https.HttpsError("not-found", "Usuario no disponible.");
+    if (!userSnap.exists || !isActive(userSnap.data() || {})) {
+        throw new functions.https.HttpsError("permission-denied", "Usuario no disponible.");
+    }
     const userData = userSnap.data() || {};
     const privateData = credential.data() || {};
     let answersOk = false;
@@ -402,7 +417,6 @@ exports.authCompletarRecuperacion = functions
             safeEqual(normalized(userData.respuesta_seguridad_2), normalized(answer2));
     }
     if (!answersOk) {
-        await challengeRef.set({ attempts: admin.firestore.FieldValue.increment(1) }, { merge: true });
         await recordFailure(context, `recovery:${userDocId}`);
         throw new functions.https.HttpsError("permission-denied", "Las respuestas no son correctas.");
     }
@@ -412,32 +426,37 @@ exports.authCompletarRecuperacion = functions
         answerHash(answer2),
     ]);
     const credentialRef = db().collection(credentialsCollection).doc(credentialId(userDocId));
-    const batch = db().batch();
-    batch.set(credentialRef, {
-        userDocId,
-        authUid: authUid(userDocId),
-        passwordAlgorithm: passwordData.algorithm,
-        passwordSalt: passwordData.salt,
-        passwordHash: passwordData.hash,
-        recoveryQuestion1: clean(privateData.recoveryQuestion1 || userData.pregunta_seguridad_1, 500),
-        recoveryQuestion2: clean(privateData.recoveryQuestion2 || userData.pregunta_seguridad_2, 500),
-        recoveryAnswer1Salt: recoveryAnswer1.salt,
-        recoveryAnswer1Hash: recoveryAnswer1.hash,
-        recoveryAnswer2Salt: recoveryAnswer2.salt,
-        recoveryAnswer2Hash: recoveryAnswer2.hash,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    }, { merge: true });
-    batch.set(userRef, {
-        uid: authUid(userDocId),
-        authVersion: 2,
-        needsPasswordChange: false,
-        password: admin.firestore.FieldValue.delete(),
-        respuesta_seguridad_1: admin.firestore.FieldValue.delete(),
-        respuesta_seguridad_2: admin.firestore.FieldValue.delete(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    }, { merge: true });
-    batch.delete(challengeRef);
-    await batch.commit();
+    await db().runTransaction(async (batch) => {
+        const [liveChallenge, liveUser] = await Promise.all([batch.get(challengeRef), batch.get(userRef)]);
+        if (!liveChallenge.exists || (liveChallenge.data()?.expiresAt?.toMillis?.() || 0) <= Date.now() ||
+            !liveUser.exists || !isActive(liveUser.data() || {})) {
+            throw new functions.https.HttpsError("deadline-exceeded", "La recuperación venció. Inicia nuevamente.");
+        }
+        batch.set(credentialRef, {
+            userDocId,
+            authUid: authUid(userDocId),
+            passwordAlgorithm: passwordData.algorithm,
+            passwordSalt: passwordData.salt,
+            passwordHash: passwordData.hash,
+            recoveryQuestion1: clean(privateData.recoveryQuestion1 || userData.pregunta_seguridad_1, 500),
+            recoveryQuestion2: clean(privateData.recoveryQuestion2 || userData.pregunta_seguridad_2, 500),
+            recoveryAnswer1Salt: recoveryAnswer1.salt,
+            recoveryAnswer1Hash: recoveryAnswer1.hash,
+            recoveryAnswer2Salt: recoveryAnswer2.salt,
+            recoveryAnswer2Hash: recoveryAnswer2.hash,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        batch.set(userRef, {
+            uid: authUid(userDocId),
+            authVersion: 2,
+            needsPasswordChange: false,
+            password: admin.firestore.FieldValue.delete(),
+            respuesta_seguridad_1: admin.firestore.FieldValue.delete(),
+            respuesta_seguridad_2: admin.firestore.FieldValue.delete(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        batch.delete(challengeRef);
+    });
     await admin.auth().revokeRefreshTokens(authUid(userDocId)).catch(() => undefined);
     await clearFailures(context, `recovery:${userDocId}`);
     return { ok: true };

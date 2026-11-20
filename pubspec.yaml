@@ -26,8 +26,6 @@ dependencies:
   # Mensajería y notificaciones
   firebase_messaging: ^16.6.0
   flutter_local_notifications: ^17.2.4
-  android_alarm_manager_plus: ^4.0.8
-
   # Mapas y geoubicación
   google_maps_flutter: ^2.13.1
   geolocator: ^14.0.2
