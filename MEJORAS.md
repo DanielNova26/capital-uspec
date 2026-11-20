@@ -1,6 +1,6 @@
 # Bitácora de Mejoras — Capital USPEC
 
-## 2026-11-20 — Fichas técnicas por producto desde la edición del proveedor (Claude)
+## 2026-11-20 — Fichas técnicas por producto desde la edición del proveedor, versión 2.8.41+95 (Claude)
 
 - Compras › Proveedores › Editar proveedor tiene la sección "Fichas técnicas por producto": una ficha por cada producto + marca que vende el proveedor, enlazada al producto y a la marca. Reutiliza la colección existente `TBL_COMPRAS_FICHAS_TECNICAS` (ya registrada en el catálogo de maestros y en `adminSincronizarMaestros`), Storage `fichas_tecnicas` y el flujo de revisión de Calidad; no se crea otra fuente de datos.
 - "Agregar ficha técnica" abre un buscador de producto + marca (productos sin marca aparecen una vez). Si la combinación ya existe, se abre "Reemplazar" en lugar de crear otra. "Reemplazar" exige motivo (atajos: Compra quincenal, Nueva versión del proveedor, Corrección solicitada por Calidad) y mueve la versión vigente al `historial` con fecha, usuario, motivo y estado de Calidad. El botón "Histórico" lista las versiones anteriores (más reciente primero, 20 por página) con enlace al archivo. Las tarjetas por producto muestran quién y cuándo cargó la vigente.
