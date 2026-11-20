@@ -13,11 +13,10 @@ test('identidad firmada: rechaza anónimo, UID ajeno, versión antigua y rutas e
     assert.throws(() => signedUserId(c), e => e.code === 'unauthenticated');
   }
 });
-test('origen exacto: rechaza dominio parecido, null y localhost en producción', () => {
-  for (const origin of ['https://to-do-gestion.web.app.evil.test', 'null', 'http://localhost:3000']) {
-    assert.throws(() => assertTrustedOrigin({rawRequest: {get: () => origin}}), e => e.code === 'permission-denied');
+test('origen desconocido ya no bloquea el ingreso (solo se registra)', () => {
+  for (const origin of ['https://otro.test', 'null', 'http://localhost:3000', 'https://to-do-gestion.web.app']) {
+    assert.doesNotThrow(() => assertTrustedOrigin({rawRequest: {get: () => origin}}));
   }
-  assert.doesNotThrow(() => assertTrustedOrigin({rawRequest: {get: () => 'https://to-do-gestion.web.app'}}));
 });
 test('formularios rechazan objetos, NUL y exceso de longitud sin truncarlos', () => {
   for (const value of [{toString: () => 'admin'}, 'a'.repeat(161), 'a\0b', null]) {
@@ -29,7 +28,6 @@ test('informes, ZIP y medición de pago no permiten anónimos ni identidad del p
     await assert.rejects(fn.run({empresaId: 'A', cedula: 'admin'}, {}), e => e.code === 'unauthenticated');
   }
 });
-test('recuperación rechaza ID malformado y origen externo antes de consultar datos', async () => {
+test('recuperación rechaza ID malformado antes de consultar datos', async () => {
   await assert.rejects(auth.authCompletarRecuperacion.run({challengeId: '../bad', answer1: 'a', answer2: 'b', newPassword: 'valid1234'}, {}), e => e.code === 'invalid-argument');
-  await assert.rejects(auth.authIniciarSesion.run({usuario: 'ana', password: 'pass'}, {rawRequest: {get: () => 'https://evil.test'}}), e => e.code === 'permission-denied');
 });

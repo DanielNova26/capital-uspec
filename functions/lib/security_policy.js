@@ -43,16 +43,14 @@ const origins = new Set([
 ]);
 const sha256 = (value) => (0, crypto_1.createHash)("sha256").update(value).digest("hex");
 exports.sha256 = sha256;
+// Las llamadas autenticadas viajan con token en cabecera, no con cookies: el
+// origen no es una barrera real y bloquearlo dejó sin ingreso a usuarios
+// legítimos. Solo se registra (sin datos personales) los que no son conocidos.
 function assertTrustedOrigin(context) {
     const origin = context.rawRequest?.get?.("origin");
-    if (!origin)
-        return; // Native SDKs send bearer tokens without browser cookies.
-    if (origins.has(origin))
+    if (!origin || origins.has(origin))
         return;
-    if (process.env.FUNCTIONS_EMULATOR === "true" && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin))
-        return;
-    functions.logger.warn("security.origin_denied");
-    throw new functions.https.HttpsError("permission-denied", "Origen no autorizado.");
+    functions.logger.warn("security.origin_unknown", { origin: String(origin).slice(0, 120) });
 }
 function signedUserId(context) {
     assertTrustedOrigin(context);
