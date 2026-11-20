@@ -17,7 +17,7 @@ El período de la consulta pertenece a cada carga y a su cursor. Al cambiar fech
 
 Validación de esta ampliación: 58 pruebas Flutter y 11 pruebas de servidor/permisos en Firestore/Storage locales, incluido un rango de más de cien movimientos con extremos exactos, fecha final completa, empresas separadas y cursor fuera del rango. TypeScript y lint aprobados; análisis Flutter sin incidencias. Web compilada. Se revisaron capturas en 390, 768, 1024 y 1366 píxeles con texto al 160 %, perfiles Android/iOS y actas PDF de traslado/baja compactas y extensas renderizadas con Poppler. Las evidencias son de prueba y permanecen en `build/mantenimiento_revision`.
 
-Estos ajustes adicionales no se publicaron. Requieren desplegar `mantenimientoInventario` antes de los clientes; no requieren nuevas reglas, maestros, asignaciones ni índices. Queda probar la sesión real y los selectores/archivos en Android e iPhone físicos. No se compilaron binarios nativos; iOS requiere macOS. La publicación anterior 2.8.39+93 se registra en `MEJORAS.md` y no incluye estos cambios posteriores.
+Estos ajustes adicionales se publicaron en la Web 2.8.40+94, desplegando `mantenimientoInventario` antes del cliente. No requirieron nuevas reglas, maestros, asignaciones ni índices. Se generó y validó el AAB Android 94; para iOS el usuario indicó únicamente subir el código a Git para compilar desde su Mac. Queda probar la sesión real y los selectores/archivos en Android e iPhone físicos, además de cargar los binarios móviles en sus tiendas. [Publicación y verificaciones](publicacion_2.8.40_94.md).
 
 ## Cambios anteriores: documentos de noviembre 18
 

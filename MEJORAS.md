@@ -1,5 +1,12 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-19 — Publicación 2.8.40+94 y AAB de ajustes de Mantenimiento (Codex)
+
+- Publicados los ajustes adicionales del documento noviembre 19 (2): primero `mantenimientoInventario`, después la Web general 2.8.40 (94). Función ACTIVE, versión 4; fuente compilada descargada del despliegue y comparada con la local. Acceso sin sesión rechazado. Ambos dominios de Hosting verificados por versión y comparación de `index.html`/`main.dart.js` contra el build publicado.
+- AAB `outputs/android/to-do-gestion-2.8.40-94.aab` generado y validado con Bundletool y Jarsigner: paquete `com.todogestion.app`, versión 2.8.40, código 94 y certificado idéntico al de la versión 93. SHA-256 `65ee23ee5313461249beb4cdf8cf4dc1a5247a68cade4469be6df586c0753306`. Listo para Play Console, sin carga ni publicación en Google Play.
+- Código y versión compartidos subidos a `main`. Para iOS, el usuario indicó únicamente sincronizar Git desde su Mac: no se realizó conexión remota, compilación IPA ni publicación en Apple. Se mantienen los marcadores de versión Flutter existentes de iOS.
+- Compilación release Web y Android con dependencias bloqueadas; guardas de Maps y de secretos/identidades WhatsApp aprobadas. Los cambios funcionales conservan las 58 pruebas Flutter y 11 de servidor/permisos documentadas antes de esta publicación. No se alteraron datos operativos, accesos, reglas, índices ni el aviso de versiones móviles disponibles. Pendientes pruebas de los ajustes con sesión real en navegador y dispositivos Android/iPhone, incluida descarga/compartir PDF, y publicación móvil en sus tiendas. [Detalle y verificaciones](docs/publicacion_2.8.40_94.md).
+
 ## 2026-11-19 — Ajustes adicionales de Equipos y Mantenimiento, documento noviembre 19 (2) (Codex)
 
 - Inventario muestra límites Desde/Hasta para fecha de ingreso. Bajas y Movimientos muestran Fecha inicial/Fecha final independientes, con límites inclusivos y opción de limpiar. El filtro de movimientos se aplica en el servidor antes de paginar, con días completos de Bogotá; rechaza rangos invertidos, fechas inexistentes y cursores de otro período. Cambiar fechas reinicia la paginación y descarta respuestas atrasadas de consultas anteriores.
