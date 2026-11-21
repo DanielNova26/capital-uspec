@@ -1,5 +1,31 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-21 — Rendimiento: esqueletos, búsqueda con retardo y medición real (Claude)
+
+Hecho (sin cambiar lógica, permisos ni datos):
+- Esqueleto de arranque en `web/index.html` (CSS puro, se oculta solo al pintar Flutter) y `EsqueletoCarga`
+  (`lib/widgets/skeleton.dart`) en los cargadores de lista de Visitas, Interventoría, Compras y Mantenimiento.
+- Google Maps con `async defer` (ya no bloquea la página; `rutasDirections` responde error controlado si aún no llegó).
+- Búsqueda con retardo de 300 ms (`lib/core/busqueda_con_retardo.dart`) en 27 campos de 21 pantallas
+  (Compras, Visitas, Nutrición, Planeación, Admin, etc.). El campo muestra el texto al instante; solo se retrasa el filtrado.
+- Caché de 7 días para `/icons/**` y `/favicon.png`. `main.dart.js` y el service worker siguen sin caché a propósito.
+- Firebase Performance (`firebase_performance`, solo release, tras `runApp`): carga de página, red y la traza `arranque_app`.
+  `flutter pub add` subió también `firebase_core` a 4.15.2.
+- Los listados ya se paginan a 20 en cliente (`paged_list.dart`).
+
+No aplica o ya lo da la plataforma: Firebase Hosting ya sirve por CDN, con Brotli/gzip, HTTP/2 y balanceo; CanvasKit
+carga desde gstatic; Firestore no usa pool de conexiones ni SQL (no hay N+1 relacional); OpenTelemetry es de servidor
+(Cloud Functions ya envía trazas a Cloud Trace); SSR no aplica a Flutter Web; las imágenes de la app son 2 MB.
+
+Pendiente (requiere decisión o medición):
+- Hay 162 `.snapshots()` y solo 63 `.limit(` en `lib/`: paginar en servidor las colecciones grandes (Compras, Visitas,
+  Interventoría) con filtro de período, y medir antes con los datos reales de Performance.
+- Firestore no cambia de región; mover las funciones desde `us-central1` exige cambiar todos los clientes y rewrites.
+- El texto sin `kArial` usa Roboto desde gstatic: alojarla cambiaría la tipografía en pantallas sin fuente explícita.
+- `getIdTokenResult(true)` fuerza una llamada de red en cada arranque de `AuthGate`; es de seguridad, no se tocó.
+- Sin verificar: Android, iOS (la dependencia de Performance añade plugin nativo; compilar y probar), el esqueleto de
+  arranque a simple vista y Maps en una carga muy rápida. Pruebas: igual que antes (27 fallos por fecha fija en pruebas).
+
 ## 2026-11-21 — Fichas técnicas: error de Storage al subir y presentación por ficha, versión 2.8.42+96 (Claude)
 
 - Corregido `firebase_storage/unauthorized` al subir fichas (y cualquier adjunto de Compras) para algunos usuarios. `storage.rules` exigía siempre la asignación canónica `TBL_COMPRAS_ROLES/{empresa}_{usuario}`, mientras `firestore.rules` (`comprasEscrituraEn`) y la app aceptan a quien tiene la app sin asignación canónica (compatibilidad) y a Desarrollo. Storage ahora replica esa regla: con asignación canónica exige admin/calidad/compras/bodega; sin ella basta la app de Compras (`comprasdashboard` o `compras`); Desarrollo entra como en la app. También admite `image/jpg`, que la app envía para archivos .jpg. El error se reprodujo en el emulador con las reglas anteriores y la prueba nueva pasa con las corregidas (`functions/test/security_hardening.rules.js`, 8/8).

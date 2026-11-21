@@ -38,6 +38,7 @@ import '../widgets/paged_list.dart';
 import 'visitas_models.dart';
 import 'visitas_service.dart';
 import 'visitas_ubicacion_dispositivo.dart';
+import '../core/busqueda_con_retardo.dart';
 
 const String _kFont = 'Arial';
 const Color _kColor = Color(0xFF7C3AED);
@@ -195,7 +196,7 @@ class _VisitasUbicacionesTabState extends State<VisitasUbicacionesTab> {
                     isDense: true,
                     border: OutlineInputBorder(),
                   ),
-                  onChanged: (v) => setState(() => _filtro = v),
+                  onChanged: debounceBusqueda(this, (v) => setState(() => _filtro = v)),
                 ),
                 if (inactivas > 0)
                   Align(

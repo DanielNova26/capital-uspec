@@ -17,6 +17,7 @@ import 'pp_role_access.dart';
 import 'pp_subir_pdf_screen.dart';
 import 'pp_planilla_detail_screen.dart';
 import 'pp_service.dart';
+import '../../core/busqueda_con_retardo.dart';
 
 enum _AccionFechaFirma { desde, hasta, limpiar }
 
@@ -640,7 +641,7 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
         borderSide: const BorderSide(color: GdPalette.accent, width: 1.5),
       ),
     ),
-    onChanged: (v) => setState(() => _searchQuery = v.trim().toLowerCase()),
+    onChanged: debounceBusqueda(this, (v) => setState(() => _searchQuery = v.trim().toLowerCase())),
   );
 
   Widget _buildFiltroFechaFirma() {

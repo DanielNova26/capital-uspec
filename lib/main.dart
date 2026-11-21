@@ -15,6 +15,7 @@ import 'firebase_options.dart';
 import 'state/empresa_scope.dart';
 import 'login/auth_gate.dart';
 import 'services/notification_service.dart';
+import 'services/rendimiento_service.dart';
 import 'services/startup_permissions_service.dart';
 import 'theme/app_scroll_behavior.dart';
 
@@ -74,6 +75,7 @@ Future<void> _initFirebaseAndPushCore() async {
 }
 
 Future<void> main() async {
+  final cronometro = Stopwatch()..start();
   // Firebase es imprescindible, pero ni siquiera él puede dejar la pantalla en
   // blanco: si falla, la app abre igual y el usuario ve el error al intentar
   // entrar, que es información mucho más útil que un rectángulo vacío.
@@ -91,6 +93,13 @@ Future<void> main() async {
   }
 
   runApp(EmpresaScope(notifier: empresaState, child: const ToDoApp()));
+
+  // Velocidad real de los usuarios (solo release, sin await y sin poder
+  // afectar el arranque).
+  unawaited(RendimientoService.iniciar());
+  WidgetsBinding.instance.addPostFrameCallback(
+    (_) => unawaited(RendimientoService.primerFrame(cronometro.elapsed)),
+  );
 
   // Permisos y notificaciones DESPUÉS de runApp y sin await: los diálogos del
   // sistema y el token de APNs pueden tardar o no llegar nunca. Ninguno debe

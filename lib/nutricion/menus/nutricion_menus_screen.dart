@@ -6,6 +6,7 @@ import 'package:todo/services/nutricion_service.dart';
 import 'package:todo/nutricion/ingredientes/nutricion_ingredientes_screen.dart';
 import 'package:todo/theme/app_typography.dart';
 import '../widgets/nutrition_shared_widgets.dart';
+import '../../core/busqueda_con_retardo.dart';
 
 const List<String> kTiemposComida = ['Desayuno', 'Almuerzo', 'Cena', 'Refrigerio'];
 
@@ -1971,7 +1972,7 @@ class _PickIngredienteDialogState extends State<_PickIngredienteDialog> {
                 ),
                 isDense: true,
               ),
-              onChanged: (v) => setState(() => _busqueda = v.toLowerCase().trim()),
+              onChanged: debounceBusqueda(this, (v) => setState(() => _busqueda = v.toLowerCase().trim())),
             ),
           ),
           SizedBox(

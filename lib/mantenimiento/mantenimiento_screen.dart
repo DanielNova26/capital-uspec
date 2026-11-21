@@ -16,6 +16,7 @@ import 'mantenimiento_report.dart';
 import 'mantenimiento_service.dart';
 import 'mantenimiento_tareas.dart';
 import 'mantenimiento_web_widgets.dart';
+import '../widgets/skeleton.dart';
 
 enum _Seccion {
   resumen('Resumen', Icons.dashboard_outlined, '', mantenimientoAcento),
@@ -1252,7 +1253,7 @@ class _MantenimientoScreenState extends State<MantenimientoScreen> {
           future: _service.hallazgo(id),
           builder: (context, snapshot) {
             if (snapshot.connectionState != ConnectionState.done) {
-              return const Center(child: CircularProgressIndicator());
+              return const EsqueletoCarga();
             }
             final h = snapshot.data;
             return _lista([
@@ -1808,7 +1809,7 @@ class _Datos<T> extends StatelessWidget {
         );
       }
       if (!snapshot.hasData) {
-        return const Center(child: CircularProgressIndicator());
+        return const EsqueletoCarga();
       }
       return builder(snapshot.data as T);
     },

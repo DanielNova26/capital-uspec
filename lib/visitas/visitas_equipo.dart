@@ -30,6 +30,7 @@ import '../widgets/paged_list.dart';
 import '../widgets/user_avatar.dart';
 import 'visitas_models.dart';
 import 'visitas_service.dart';
+import '../core/busqueda_con_retardo.dart';
 
 const String _kFont = 'Arial';
 const Color _kColor = Color(0xFF7C3AED);
@@ -407,7 +408,7 @@ class _VisitasEquipoTabState extends State<VisitasEquipoTab> {
                     hintText: 'Buscar por nombre, cargo o departamento',
                     border: OutlineInputBorder(),
                   ),
-                  onChanged: (v) => setState(() => _busqueda = v),
+                  onChanged: debounceBusqueda(this, (v) => setState(() => _busqueda = v)),
                 ),
               ),
               // Ancho fijo: "Gerencia (ve y administra todo)" desbordaba la

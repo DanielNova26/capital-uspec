@@ -14,6 +14,7 @@ import '../core/area_directory.dart';
 import '../utils/doc_preview.dart';
 import '../utils/user_company.dart';
 import '../widgets/user_avatar.dart';
+import '../core/busqueda_con_retardo.dart';
 
 const Color _thPrimary = Color(0xFFC28942);
 
@@ -160,7 +161,7 @@ class _HojaDeVidaManagementScreenState
                 border: OutlineInputBorder(),
                 isDense: true,
               ),
-              onChanged: (v) => setState(() => _search = v.toLowerCase()),
+              onChanged: debounceBusqueda(this, (v) => setState(() => _search = v.toLowerCase())),
             ),
           ),
           if (hayFiltros)

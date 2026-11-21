@@ -8,6 +8,7 @@ import 'pp_beneficiarios_service.dart';
 import 'pp_archivo_plano.dart';
 import 'pp_cuentas_excel_parser.dart';
 import 'pp_cuentas_models.dart';
+import '../../core/busqueda_con_retardo.dart';
 
 /// Maestro de beneficiarios de pago.
 ///
@@ -96,7 +97,7 @@ class _PpBeneficiariosScreenState extends State<PpBeneficiariosScreen> {
                 border: OutlineInputBorder(),
                 isDense: true,
               ),
-              onChanged: (v) => setState(() => _busqueda = v),
+              onChanged: debounceBusqueda(this, (v) => setState(() => _busqueda = v)),
             ),
           ),
           Expanded(

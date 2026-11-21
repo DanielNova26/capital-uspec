@@ -43,6 +43,8 @@ import '../home/widgets/home_shared_widgets.dart' show CompanyNameWidget;
 import '../utils/text_input_formatters.dart';
 import '../widgets/internal_module_layout.dart';
 import '../widgets/user_avatar.dart' show UserNameText;
+import '../widgets/skeleton.dart';
+import '../core/busqueda_con_retardo.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // COLORES DEL MÓDULO
@@ -1754,7 +1756,7 @@ class _VencimientosScreenState extends State<_VencimientosScreen> {
         future: _future,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
+            return const EsqueletoCarga();
           }
           if (snapshot.hasError) {
             return Center(
@@ -3108,7 +3110,7 @@ class _HistorialCarnicoSheet extends StatelessWidget {
                 stream: svc.streamRecepcionesByProducto(empresaId, producto.id),
                 builder: (context, snap) {
                   if (snap.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
+                    return const EsqueletoCarga();
                   }
                   final recepciones =
                       (snap.data ?? const <RecepcionDoc>[])
@@ -5228,7 +5230,7 @@ class _ProveedoresScreenState extends State<_ProveedoresScreen> {
                     filled: true,
                     fillColor: Colors.white,
                   ),
-                  onChanged: (v) => setState(() => _query = v.toLowerCase()),
+                  onChanged: debounceBusqueda(this, (v) => setState(() => _query = v.toLowerCase())),
                 ),
                 const SizedBox(height: 10),
                 Align(
@@ -5260,7 +5262,7 @@ class _ProveedoresScreenState extends State<_ProveedoresScreen> {
               stream: widget.svc.streamProveedores(widget.empresaId),
               builder: (ctx, snap) {
                 if (snap.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
+                  return const EsqueletoCarga();
                 }
                 final all = snap.data ?? [];
                 final filtered = all.where((p) {
@@ -6621,7 +6623,7 @@ class _ProductosScreenState extends State<_ProductosScreen> {
                 filled: true,
                 fillColor: Colors.white,
               ),
-              onChanged: (v) => setState(() => _query = v.toLowerCase()),
+              onChanged: debounceBusqueda(this, (v) => setState(() => _query = v.toLowerCase())),
             ),
           ),
           // Filtro por categoría
@@ -6652,7 +6654,7 @@ class _ProductosScreenState extends State<_ProductosScreen> {
               stream: widget.svc.streamProductos(widget.empresaId),
               builder: (ctx, snap) {
                 if (snap.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
+                  return const EsqueletoCarga();
                 }
                 final all = snap.data ?? [];
                 var filtered = _query.isEmpty
@@ -8169,7 +8171,7 @@ class _FichasTecnicasPorMarcaSheet extends StatelessWidget {
               stream: svc.streamFichasTecnicas(empresaId),
               builder: (ctx, snap) {
                 if (snap.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
+                  return const EsqueletoCarga();
                 }
                 final fichas =
                     (snap.data ?? [])
@@ -9048,7 +9050,7 @@ class _ElegirProductoFichaSheetState extends State<_ElegirProductoFichaSheet> {
                   );
                 }
                 if (!snap.hasData) {
-                  return const Center(child: CircularProgressIndicator());
+                  return const EsqueletoCarga();
                 }
                 final opciones = opcionesFichaProductoMarca(snap.data!)
                     .where(
@@ -9965,7 +9967,7 @@ class _MarcaSelectorSheetState extends State<_MarcaSelectorSheet> {
               fillColor: Colors.grey.shade50,
             ),
             style: const TextStyle(fontFamily: _kFont, fontSize: 13),
-            onChanged: (v) => setState(() => _q = v.toLowerCase()),
+            onChanged: debounceBusqueda(this, (v) => setState(() => _q = v.toLowerCase())),
           ),
         ),
         ConstrainedBox(
@@ -10282,7 +10284,7 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
           : widget.svc.streamRecepciones(widget.empresaId),
       builder: (ctx, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const EsqueletoCarga();
         }
         if (snap.hasError) {
           return Center(
@@ -11976,7 +11978,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
         ],
       ),
       body: _loadingProvs
-          ? const Center(child: CircularProgressIndicator())
+          ? const EsqueletoCarga()
           : SingleChildScrollView(
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -13658,7 +13660,7 @@ class _ProductoSelectorSheetState extends State<_ProductoSelectorSheet> {
               fillColor: Colors.grey.shade50,
             ),
             style: const TextStyle(fontFamily: _kFont, fontSize: 13),
-            onChanged: (v) => setState(() => _q = v.toLowerCase()),
+            onChanged: debounceBusqueda(this, (v) => setState(() => _q = v.toLowerCase())),
           ),
         ),
         // Nota de filtro por categoría del proveedor
@@ -15344,7 +15346,7 @@ class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
           ),
         Expanded(
           child: _loading
-              ? const Center(child: CircularProgressIndicator())
+              ? const EsqueletoCarga()
               : lista.isEmpty
               ? const Center(
                   child: Text(
@@ -15848,7 +15850,7 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
           ),
         Expanded(
           child: _loading
-              ? const Center(child: CircularProgressIndicator())
+              ? const EsqueletoCarga()
               : lista.isEmpty
               ? const Center(
                   child: Text(
@@ -16373,7 +16375,7 @@ class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
           ),
         Expanded(
           child: _loading
-              ? const Center(child: CircularProgressIndicator())
+              ? const EsqueletoCarga()
               : lista.isEmpty
               ? const Center(
                   child: Text(
@@ -16718,7 +16720,7 @@ class _MarcaDetailSheetState extends State<_MarcaDetailSheet> {
             // Body
             Expanded(
               child: _loading
-                  ? const Center(child: CircularProgressIndicator())
+                  ? const EsqueletoCarga()
                   : _error != null
                   ? Center(
                       child: Text(
@@ -17462,7 +17464,7 @@ class _ConsultaRecepcionesTabState extends State<_ConsultaRecepcionesTab> {
         ],
         Expanded(
           child: _loading
-              ? const Center(child: CircularProgressIndicator())
+              ? const EsqueletoCarga()
               : _todos == null
               ? const Center(
                   child: Text(
@@ -18042,7 +18044,7 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
         ],
         Expanded(
           child: _loading
-              ? const Center(child: CircularProgressIndicator())
+              ? const EsqueletoCarga()
               : _todos == null
               ? const Center(
                   child: Text(
@@ -19445,7 +19447,7 @@ class _MarcasScreenState extends State<_MarcasScreen> {
                   horizontal: 12,
                 ),
               ),
-              onChanged: (v) => setState(() => _query = v.toLowerCase()),
+              onChanged: debounceBusqueda(this, (v) => setState(() => _query = v.toLowerCase())),
             ),
           ),
           // Lista
@@ -19454,7 +19456,7 @@ class _MarcasScreenState extends State<_MarcasScreen> {
               stream: widget.svc.streamMarcas(widget.empresaId),
               builder: (context, snap) {
                 if (snap.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
+                  return const EsqueletoCarga();
                 }
                 if (snap.hasError) {
                   return Center(
@@ -20061,7 +20063,7 @@ class _CalidadScreenState extends State<_CalidadScreen> {
               fillColor: Colors.grey.shade50,
             ),
             style: const TextStyle(fontFamily: _kFont, fontSize: 13),
-            onChanged: (v) => setState(() => _filtroProducto = v.toLowerCase()),
+            onChanged: debounceBusqueda(this, (v) => setState(() => _filtroProducto = v.toLowerCase())),
           );
           final dateActions = Wrap(
             spacing: 4,

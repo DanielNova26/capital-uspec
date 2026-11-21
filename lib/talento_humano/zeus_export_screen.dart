@@ -5,6 +5,7 @@ import '../home/widgets/home_shared_widgets.dart' show CompanyNameWidget;
 import '../widgets/internal_module_layout.dart';
 import '../widgets/user_avatar.dart';
 import 'zeus_export_service.dart';
+import '../core/busqueda_con_retardo.dart';
 
 const Color _zeusPrimary = Color(0xFFC28942);
 const Color _zeusInk = Color(0xFF111827);
@@ -789,7 +790,7 @@ class _ZeusExportScreenState extends State<ZeusExportScreen> {
                     ),
               border: const OutlineInputBorder(),
             ),
-            onChanged: (value) => setState(() => _search = value.trim()),
+            onChanged: debounceBusqueda(this, (value) => setState(() => _search = value.trim())),
           );
           final fields = [
             _FilterField(

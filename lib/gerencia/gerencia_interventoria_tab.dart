@@ -59,6 +59,7 @@ import '../widgets/user_avatar.dart';
 import 'gerencia_areas.dart';
 import 'gerencia_hallazgos_export.dart';
 import 'gerencia_permisos.dart';
+import '../core/busqueda_con_retardo.dart';
 
 const _kInk = Color(0xFF0F172A);
 const _kMuted = Color(0xFF64748B);
@@ -1018,7 +1019,7 @@ class _GerenciaInterventoriaTabState extends State<GerenciaInterventoriaTab> {
           children: [
             TextField(
               controller: _buscarCtrl,
-              onChanged: (v) => setState(() => _texto = v.trim()),
+              onChanged: debounceBusqueda(this, (v) => setState(() => _texto = v.trim())),
               style: const TextStyle(fontFamily: kArial, fontSize: 14),
               decoration: InputDecoration(
                 isDense: true,

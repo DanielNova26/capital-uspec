@@ -10,6 +10,7 @@ import '../utils/excel_download.dart';
 import 'cobertura_excel.dart';
 import 'cobertura_lotes.dart';
 import 'cobertura_personal_logic.dart';
+import '../core/busqueda_con_retardo.dart';
 
 const _border = Color(0xFFE2E8F0);
 const _muted = Color(0xFF64748B);
@@ -689,7 +690,7 @@ class _AdminCoberturaPersonalPanelState
                       border: const OutlineInputBorder(),
                       isDense: true,
                     ),
-                    onChanged: (v) => setState(() => _busqueda = v),
+                    onChanged: debounceBusqueda(this, (v) => setState(() => _busqueda = v)),
                   ),
                 ),
                 SizedBox(

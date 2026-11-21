@@ -21,6 +21,7 @@ import 'package:flutter/material.dart';
 import '../visitas/visitas_models.dart';
 import '../visitas/visitas_service.dart';
 import '../widgets/paged_list.dart';
+import '../core/busqueda_con_retardo.dart';
 
 const String _kFont = 'Arial';
 const Color _kColor = Color(0xFF9D174D);
@@ -195,7 +196,7 @@ class _VisitasEstablecimientosPanelState
         hintText: 'Buscar por nombre o ciudad',
         border: OutlineInputBorder(),
       ),
-      onChanged: (v) => setState(() => _filtro = v),
+      onChanged: debounceBusqueda(this, (v) => setState(() => _filtro = v)),
     );
     final agregar = FilledButton.icon(
       style: FilledButton.styleFrom(backgroundColor: _kColor),

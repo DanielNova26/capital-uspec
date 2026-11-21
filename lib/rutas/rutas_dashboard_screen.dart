@@ -33,6 +33,7 @@ import 'rutas_models.dart';
 import 'rutas_service.dart';
 import '../widgets/paged_list.dart';
 import '../widgets/alto_escalado.dart';
+import '../core/busqueda_con_retardo.dart';
 
 const Color kRutasColor = Color(0xFF15803D); // verde logística
 const double _kCentroOperacionesLat = kRutaOrigenLatDefault;
@@ -3496,7 +3497,7 @@ class _UsoAppRutasTabState extends State<_UsoAppRutasTab> {
                       hintText: 'Buscar conductor o ayudante',
                       border: OutlineInputBorder(),
                     ),
-                    onChanged: (value) => setState(() => _query = value),
+                    onChanged: debounceBusqueda(this, (value) => setState(() => _query = value)),
                   ),
                   const SizedBox(height: 12),
                   Expanded(

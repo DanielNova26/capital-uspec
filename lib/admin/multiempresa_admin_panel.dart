@@ -29,6 +29,7 @@ import '../widgets/user_avatar.dart';
 import 'admin_repository.dart';
 import 'multiempresa_sync_service.dart';
 import 'multiempresa_traslado_screen.dart';
+import '../core/busqueda_con_retardo.dart';
 
 const String _kFont = 'Arial';
 const Color _kAccent = Color(0xFF3B82F6);
@@ -1144,7 +1145,7 @@ class _AdminMultiempresaPanelState extends State<AdminMultiempresaPanel> {
         border: OutlineInputBorder(),
         isDense: true,
       ),
-      onChanged: (v) => setState(() => _busqueda = v),
+      onChanged: debounceBusqueda(this, (v) => setState(() => _busqueda = v)),
     );
     DropdownButtonFormField<String?> selector({
       required String label,

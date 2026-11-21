@@ -9,6 +9,7 @@ import '../../admin/correspondence_module_roles_panel.dart';
 import 'gd_correspondencia_models.dart';
 import 'gd_correspondencia_service.dart';
 import 'gd_permisos.dart';
+import '../../core/busqueda_con_retardo.dart';
 
 const _navy = Color(0xFF17324D);
 const _teal = Color(0xFF157A8A);
@@ -410,7 +411,7 @@ class _GdRolesScreenState extends State<GdRolesScreen> {
                 const SizedBox(height: 16),
                 TextField(
                   controller: _search,
-                  onChanged: (value) => setState(() => _query = value),
+                  onChanged: debounceBusqueda(this, (value) => setState(() => _query = value)),
                   decoration: InputDecoration(
                     hintText: 'Buscar por nombre, cédula, área o cargo',
                     prefixIcon: const Icon(Icons.search),

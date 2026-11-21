@@ -46,6 +46,7 @@ import 'interventoria_programas.dart';
 import 'interventoria_service.dart';
 import 'interventoria_tablero_asignacion.dart';
 import 'web_pdf_view.dart';
+import '../widgets/skeleton.dart';
 
 const Color _kAccent = Color(0xFF0F766E);
 const Color _kWarning = Color(0xFFEAB308);
@@ -281,7 +282,7 @@ class _InterventoriaDashboardScreenState
       pageTitle: 'Interventoria',
       fallbackEmpresaId: widget.empresaId,
       child: !_rolLoaded
-          ? const Center(child: CircularProgressIndicator())
+          ? const EsqueletoCarga()
           : _buildBody(context),
     );
   }
@@ -934,7 +935,7 @@ class _SolicitudesEliminacionTab extends StatelessWidget {
           );
         }
         if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
+          return const EsqueletoCarga();
         }
         final allRequests = snapshot.data!;
         final focused = (focusRequestId ?? '').trim();
@@ -4519,7 +4520,7 @@ class _VisitasTabState extends State<_VisitasTab> {
       ),
       builder: (ctx, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const EsqueletoCarga();
         }
         var visitas = snap.data ?? [];
         if (visitas.isEmpty) {
@@ -5698,7 +5699,7 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
       create: () => widget.service.streamVisitas(widget.empresaId),
       builder: (ctx, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const EsqueletoCarga();
         }
         final visitas = snap.data ?? [];
         final centrosMap = {
@@ -11262,7 +11263,7 @@ class _PorRevisarTab extends StatelessWidget {
       create: () => service.streamActasPendientesRevision(empresaId),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const EsqueletoCarga();
         }
         final actas = snap.data ?? const [];
         if (actas.isEmpty) {

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:todo/services/nutricion_service.dart';
 import 'package:todo/theme/app_typography.dart';
 import '../widgets/nutrition_shared_widgets.dart';
+import '../../core/busqueda_con_retardo.dart';
 
 const List<Map<String, dynamic>> kIngredientesBase = [
   {'nombre': 'Pan', 'categoria': 'Cereal', 'gramosStd': '1 und', 'unidad': 'und', 'tiempos': ['Desayuno', 'Refrigerio']},
@@ -212,7 +213,7 @@ class _NutricionIngredientesScreenState
               focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: NutritionPalette.accent, width: 2)),
               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             ),
-            onChanged: (v) => setState(() => _busqueda = v.toLowerCase().trim()),
+            onChanged: debounceBusqueda(this, (v) => setState(() => _busqueda = v.toLowerCase().trim())),
           ),
           const SizedBox(height: 16),
           SizedBox(

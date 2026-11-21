@@ -7,6 +7,7 @@ import '../widgets/user_avatar.dart';
 import 'cobertura_personal_panel.dart';
 import 'notification_master_panel.dart';
 import 'notification_monitor_service.dart';
+import '../core/busqueda_con_retardo.dart';
 
 const _border = Color(0xFFE2E8F0);
 const _muted = Color(0xFF64748B);
@@ -1204,7 +1205,7 @@ class _DialogoReasignarState extends State<_DialogoReasignar> {
                   border: OutlineInputBorder(),
                   isDense: true,
                 ),
-                onChanged: (v) => setState(() => _q = v),
+                onChanged: debounceBusqueda(this, (v) => setState(() => _q = v)),
               ),
             if (!hay) ...[
               const SizedBox(height: 8),

@@ -17,6 +17,7 @@ import 'personnel_requisition_models.dart';
 import 'personnel_requisition_pdf.dart';
 import 'personnel_requisition_service.dart';
 import '../widgets/paged_list.dart';
+import '../core/busqueda_con_retardo.dart';
 
 const _primary = Color(0xFFC28942);
 const _navy = Color(0xFF173B5E);
@@ -426,7 +427,7 @@ class _PersonnelRequisitionScreenState
           const SizedBox(height: 14),
           TextField(
             controller: _searchController,
-            onChanged: (value) => setState(() => _search = value),
+            onChanged: debounceBusqueda(this, (value) => setState(() => _search = value)),
             decoration: const InputDecoration(
               hintText: 'Cargo o sede',
               prefixIcon: Icon(Icons.search_rounded),
@@ -531,7 +532,7 @@ class _PersonnelRequisitionScreenState
       children: [
         TextField(
           controller: _searchController,
-          onChanged: (value) => setState(() => _search = value),
+          onChanged: debounceBusqueda(this, (value) => setState(() => _search = value)),
           decoration: const InputDecoration(
             hintText: 'Buscar cargo, sede u observación',
             prefixIcon: Icon(Icons.search_rounded),

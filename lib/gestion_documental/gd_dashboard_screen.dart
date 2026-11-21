@@ -13,6 +13,7 @@ import 'gd_role_access.dart';
 import 'gd_service.dart';
 import 'widgets/gd_plantilla_excel_dialog.dart';
 import 'widgets/gd_ui_widgets.dart';
+import '../core/busqueda_con_retardo.dart';
 
 enum _LibraryStatusFilter { todos, publicados, enProceso }
 
@@ -695,7 +696,7 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
         border: Border.all(color: GdPalette.border),
       ),
       child: TextField(
-        onChanged: (v) => setState(() => _searchQuery = v),
+        onChanged: debounceBusqueda(this, (v) => setState(() => _searchQuery = v)),
         decoration: InputDecoration(
           hintText: hint,
           prefixIcon: const Icon(

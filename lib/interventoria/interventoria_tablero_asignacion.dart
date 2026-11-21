@@ -14,6 +14,7 @@ import 'interventoria_asignar_grupo_dialog.dart';
 import 'interventoria_models.dart';
 import 'interventoria_service.dart';
 import 'interventoria_avisos_asignacion.dart';
+import '../core/busqueda_con_retardo.dart';
 
 String _mayuscula(String texto) =>
     texto.isEmpty ? texto : texto[0].toUpperCase() + texto.substring(1);
@@ -1524,7 +1525,7 @@ class InterventoriaSelectorPersonaState
                   TextField(
                     controller: _ctrl,
                     autofocus: true,
-                    onChanged: (v) => setState(() => _query = v),
+                    onChanged: debounceBusqueda(this, (v) => setState(() => _query = v)),
                     decoration: const InputDecoration(
                       hintText: 'Buscar por nombre o cargo',
                       prefixIcon: Icon(Icons.search),

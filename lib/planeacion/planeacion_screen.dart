@@ -9,6 +9,7 @@ import '../widgets/internal_module_layout.dart';
 import 'planeacion_service.dart';
 import 'planeacion_import.dart';
 import 'planeacion_excel.dart';
+import '../core/busqueda_con_retardo.dart';
 
 const _color = Color(0xFF0F766E);
 const _secciones = [
@@ -348,7 +349,7 @@ class _PlaneacionWorkspaceState extends State<PlaneacionWorkspace> {
               const SizedBox(height: 12),
               TextField(
                 key: ValueKey('buscar_$_clave'),
-                onChanged: (v) => setState(() => _busqueda = v),
+                onChanged: debounceBusqueda(this, (v) => setState(() => _busqueda = v)),
                 decoration: const InputDecoration(
                   labelText: 'Buscar',
                   prefixIcon: Icon(Icons.search),

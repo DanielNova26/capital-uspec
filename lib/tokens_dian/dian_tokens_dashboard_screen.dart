@@ -11,6 +11,7 @@ import '../widgets/internal_module_layout.dart';
 import 'dian_tokens_models.dart';
 import 'dian_tokens_service.dart';
 import '../widgets/paged_list.dart';
+import '../core/busqueda_con_retardo.dart';
 
 const kDianTokensAppId = 'tokensdiandashboard';
 const _navy = Color(0xFF102A43);
@@ -435,7 +436,7 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen>
       final compact = constraints.maxWidth < 650;
       final search = TextField(
         controller: _search,
-        onChanged: (value) => setState(() => _query = value),
+        onChanged: debounceBusqueda(this, (value) => setState(() => _query = value)),
         decoration: const InputDecoration(
           hintText: 'Buscar por asunto, remitente, buzón, NIT o usuario',
           prefixIcon: Icon(Icons.search),

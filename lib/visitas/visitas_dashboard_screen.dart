@@ -48,6 +48,7 @@ import 'visitas_programar.dart';
 import 'visitas_service.dart';
 import 'visitas_ubicacion_dispositivo.dart';
 import 'visitas_ubicaciones_screen.dart';
+import '../widgets/skeleton.dart';
 
 const Color kVisitasColor = Color(0xFF7C3AED);
 const String _kFont = 'Arial';
@@ -562,7 +563,7 @@ class VisitasCronogramaState extends State<VisitasCronograma> {
             return Center(child: Text('Error: ${snap.error}'));
           }
           if (!snap.hasData) {
-            return const Center(child: CircularProgressIndicator());
+            return const EsqueletoCarga();
           }
           final ahora = DateTime.now();
           final base = snap.data!;
@@ -1813,7 +1814,7 @@ class _MisVisitasTabState extends State<_MisVisitasTab> {
       builder: (context, snap) {
         if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
         if (!snap.hasData) {
-          return const Center(child: CircularProgressIndicator());
+          return const EsqueletoCarga();
         }
         final ahora = DateTime.now();
         final establecimientos = {
@@ -2056,7 +2057,7 @@ class _RegistroVisitaTabState extends State<_RegistroVisitaTab> {
       builder: (context, snap) {
         if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
         if (!snap.hasData) {
-          return const Center(child: CircularProgressIndicator());
+          return const EsqueletoCarga();
         }
         final visitas = snap.data!;
         final r = visitasParaRegistro(visitas, DateTime.now());
@@ -2948,10 +2949,10 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
             // escoger (28 sep 2026).
             body: v.estado == kVisitaProgramada
                 ? (f == null && (v.tieneFormato || _opcionesFormato == null)
-                      ? const Center(child: CircularProgressIndicator())
+                      ? const EsqueletoCarga()
                       : _pantallaInicio(v, f ?? _formatoElegido))
                 : f == null
-                ? const Center(child: CircularProgressIndicator())
+                ? const EsqueletoCarga()
                 : _pantallaFormato(v, f),
           ),
         );
@@ -6194,7 +6195,7 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
                   style: TextStyle(fontFamily: _kFont, color: Colors.black54),
                 )
               else if (f == null)
-                const Center(child: CircularProgressIndicator())
+                const EsqueletoCarga()
               else ...[
                 Text(
                   'Ítems (${resumen!.cumple} cumple · ${resumen.noCumple} no cumple · ${resumen.noAplica} no aplica · ${resumen.sinResponder} sin responder)',
@@ -7026,7 +7027,7 @@ class _FormatosTabState extends State<_FormatosTab> {
         stream: _stream,
         builder: (context, snap) {
           if (!snap.hasData)
-            return const Center(child: CircularProgressIndicator());
+            return const EsqueletoCarga();
           final formatos = snap.data!;
           final areas = {for (final f in formatos) f.areaNombre}.toList()
             ..sort();
@@ -7350,7 +7351,7 @@ class _PorFirmarTabState extends State<_PorFirmarTab> {
       builder: (context, snap) {
         if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
         if (!snap.hasData) {
-          return const Center(child: CircularProgressIndicator());
+          return const EsqueletoCarga();
         }
         final ahora = DateTime.now();
         final pendientes = [
