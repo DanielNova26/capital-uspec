@@ -8,14 +8,30 @@ service firebase.storage {
     function person() {
       return firestore.get(/databases/(default)/documents/TBL_USUARIOS/$(request.auth.token.userDocId)).data;
     }
+    // Textos como en firestore.rules (estadoTexto): "Activo " o "ACTIVO" valen
+    // igual que "activo"; un valor que no es texto se lee como vacío.
+    function txt(v) {
+      return v is string ? v.trim().lower() : '';
+    }
+    function cuentaActiva(p) {
+      let estado = txt(p.get('estado', ''));
+      let global = estado != '' ? estado : txt(p.get('status', ''));
+      return p.get('activo', true) != false && global in ['', 'activo', 'active'];
+    }
+    function empresaActiva(p, e) {
+      let d = p.get('empresasDetalle', {});
+      let b = d is map ? d.get(e, {}) : {};
+      let x = b is map ? b : {};
+      let laboral = txt(x.get('estadoLaboral', ''));
+      return x.get('activo', true) != false
+        && (laboral != '' ? laboral : txt(x.get('estado', ''))) != 'inactivo';
+    }
     function member(p, e) {
-      let b = p.get('empresasDetalle', {}).get(e, {});
-      return p.get('activo', true) != false
-        && p.get('estado', 'activo') in ['activo', 'active', '']
-        && p.get('status', 'activo') in ['activo', 'active', '']
-        && (e in p.get('empresas', []) || e in p.get('empresasDetalle', {}) || p.get('empresaId', '') == e)
-        && b.get('activo', true) != false
-        && b.get('estadoLaboral', b.get('estado', 'activo')) != 'inactivo';
+      let d = p.get('empresasDetalle', {});
+      return cuentaActiva(p)
+        && ((p.get('empresas', []) is list && e in p.get('empresas', [])) || (d is map && e in d)
+          || p.get('empresaId', '') == e || p.get('empresa', '') == e)
+        && empresaActiva(p, e);
     }
     function hasApp(p, e, apps) {
       let b = p.get('empresasDetalle', {}).get(e, {});
@@ -46,10 +62,18 @@ service firebase.storage {
     }
     function developer(e) {
       let p = person();
-      return signedIn() && member(p, e)
+      let b = p.get('empresasDetalle', {}).get(e, {});
+      // Como belongsToCompany de firestore.rules: Desarrollo no necesita figurar
+      // en la empresa ni tener la app asignada, solo la cuenta y la empresa activas.
+      return signedIn()
         && (p.get('desarrollador', false) == true || p.get('developer', false) == true
           || devRole(p.get('role', '')) || devRole(p.get('rol', ''))
-          || devRole(p.get('roleKey', '')) || devRole(p.get('roleId', '')));
+          || devRole(p.get('roleKey', '')) || devRole(p.get('roleId', '')))
+        && p.get('activo', true) != false
+        && p.get('estado', 'activo') in ['activo', 'active', '']
+        && p.get('status', 'activo') in ['activo', 'active', '']
+        && b.get('activo', true) != false
+        && b.get('estadoLaboral', b.get('estado', 'activo')) != 'inactivo';
     }
     function comprasWrite(e) {
       let path = /databases/(default)/documents/TBL_COMPRAS_ROLES/$(e + '_' + request.auth.token.userDocId);
@@ -93,7 +117,8 @@ service firebase.storage {
     }
     match /{module}/{empresa}/{file=**} {
       function authorized() {
-        return (module == 'compras' && (app(empresa, ['comprasdashboard', 'compras']) || developer(empresa)))
+        return developer(empresa)
+          || (module == 'compras' && app(empresa, ['comprasdashboard', 'compras']))
           || (module == 'facturacion' && app(empresa, ['facturaciondashboard']))
           || (module == 'rutas' && app(empresa, ['rutasdashboard']))
           || (module == 'visitas' && app(empresa, ['visitasdashboard']))
@@ -106,7 +131,8 @@ service firebase.storage {
           || (module == 'empresas' && app(empresa, ['admindashboard', 'talentohumanodashboard']));
       }
       function writes() {
-        return (module == 'compras' && (comprasWrite(empresa) || developer(empresa)))
+        return developer(empresa)
+          || (module == 'compras' && comprasWrite(empresa))
           || (module == 'rutas' && role(empresa, 'TBL_RUTAS_ROLES', ['conductor', 'calidad', 'admin', 'admin_calidad', 'desarrollador', 'developer']))
           || (module == 'interventoria' && role(empresa, 'TBL_INTERVENTORIA_ROLES', ['registrador_interventoria', 'revisor_interventoria', 'calidad_interventoria', 'gerente_interventoria', 'admin_interventoria']))
           || (module in ['pacientes', 'nutricion'] && role(empresa, 'TBL_NUTRICION_ROLES', ['clinico', 'coordinador', 'administrador']))

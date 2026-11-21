@@ -13425,3 +13425,17 @@ Acta: «La reunión se inició a las 2026_10_15 18_27». Código: `functions/src
 - Actualización 20 nov (tarde): `firestore.rules` PUBLICADAS tras ampliar la autoescritura (ingreso `lastLogin*`, carnet, firmas de Nutrición) y permitir a Talento Humano gestionar accesos de su empresa sin conceder administración ni Desarrollo. 306 pruebas de reglas en serie sin fallos (en paralelo el emulador da fallos aleatorios de "client is offline"). Texto anterior, ya resuelto: las reglas nuevas bloqueaban escrituras del cliente que hoy existen: `session_audit_service.dart` (`lastLogin*` y `empresasDetalle.<e>.lastLogin*`), `carnet_qr.dart` (`carnetToken`, `carnetEmpresaId`, `carnetGeneradoEn`) y los editores de Talento Humano (`personnel_access_service.dart`). Antes de publicar hay que ampliar la lista de autoescritura o mover esas escrituras al servidor y repetir la regresión. Mientras tanto la autoescalada por Firestore sigue abierta.
 - Pendiente: rotar las credenciales del `.env` histórico (Google OAuth/Gmail, Microsoft, ICD-11, TomTom y la clave de cifrado de Correo; esta última exige migrar los buzones antes) y publicar la Web con la CSP.
 - 20 nov (noche): las lecturas de `TBL_USUARIOS` y `TBL_EMPRESAS` volvieron a cualquier persona con sesión activa: las consultas de la app (`empresas` array-contains, cédula, uid, roles por empresa) no se pueden probar contra reglas que lean el contenido de cada ficha y dejaban los módulos cargando. Las escrituras siguen restringidas. Para restringir lecturas por empresa hay que mover esas consultas al servidor.
+
+## Sesión 2026-11-21 — Storage `unauthorized` en subidas de varios módulos
+
+- `storage.rules` ahora replica a `firestore.rules` en lo que decidía distinto:
+  Desarrollo (marca en la ficha, cuenta y empresa activas) sube en cualquier módulo
+  de su empresa sin necesitar la app asignada; estados "Activo "/"ACTIVO" se leen
+  como en Firestore (`trim().lower()`); `empresa` legado cuenta como pertenencia;
+  `apps` con tipos raros ya no rompe la regla.
+- **Pendiente:** publicar con `firebase deploy --only storage`. La causa exacta en
+  producción no está confirmada: si tras publicar sigue fallando, revisar que el
+  agente de servicio de reglas tenga acceso a Firestore (consola › Storage › Reglas).
+- La prueba nueva de `security_hardening.rules.js` no pudo confirmarse aquí: en
+  el emulador local `firestore.get` de Storage devuelve nulo (también con las reglas
+  anteriores), así que la prueba está sin verificar.

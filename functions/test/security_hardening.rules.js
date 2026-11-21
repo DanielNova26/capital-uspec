@@ -29,6 +29,7 @@ test.before(async () => {
     await setDoc(doc(c.firestore(), 'TBL_USUARIOS/legado'), person);
     await setDoc(doc(c.firestore(), 'TBL_USUARIOS/consulta'), person);
     await setDoc(doc(c.firestore(), 'TBL_COMPRAS_ROLES/A_consulta'), {empresaId: 'A', userId: 'consulta', rol: 'consultas'});
+    await setDoc(doc(c.firestore(), 'TBL_USUARIOS/dev'), {...person, apps: [], role: 'desarrollador'});
     await setDoc(doc(c.firestore(), 'TBL_AUTH_CREDENTIALS/private'), {passwordHash: 'secret'});
     await setDoc(doc(c.firestore(), 'TBL_CUSTOM/other'), {empresaId: 'B'});
   });
@@ -99,6 +100,13 @@ test('Storage de Compras sigue el mismo nivel que Firestore (fichas técnicas, 2
   await assertFails(uploadBytes(ref(as('admin'), 'compras/A/fichas_tecnicas/admin.pdf'), bytes, {contentType: 'application/pdf'}));
   // La app envía image/jpg para archivos .jpg.
   await assertSucceeds(uploadBytes(ref(as('ana'), 'compras/A/fichas_tecnicas/foto.jpg'), bytes, {contentType: 'image/jpg'}));
+});
+test('Storage: Desarrollo sube en cualquier módulo de su empresa activa, no en otra (21 nov 2026)', async () => {
+  const bytes = new Uint8Array([1, 2, 3]);
+  const st = env.authenticatedContext('dev', {...claims, userDocId: 'dev'}).storage();
+  for (const m of ['interventoria', 'visitas', 'rutas', 'facturacion', 'documentos'])
+    await assertSucceeds(uploadBytes(ref(st, `${m}/A/dev.pdf`), bytes, {contentType: 'application/pdf'}));
+  await assertFails(uploadBytes(ref(env.authenticatedContext('off', {...claims, userDocId: 'off'}).storage(), 'interventoria/A/x.pdf'), bytes, {contentType: 'application/pdf'}));
 });
 test('límite transaccional mantiene el máximo con solicitudes simultáneas', async () => {
   const scope = `test:${Date.now()}`;
