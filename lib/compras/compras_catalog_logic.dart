@@ -481,14 +481,19 @@ List<FichaTecnicaDoc> fichasTecnicasDelProveedor(
         a.productoNombre,
       ).compareTo(normalizarClaveCatalogoCompras(b.productoNombre));
       if (porProducto != 0) return porProducto;
-      return normalizarClaveCatalogoCompras(
+      final porMarca = normalizarClaveCatalogoCompras(
         a.marcaNombre,
       ).compareTo(normalizarClaveCatalogoCompras(b.marcaNombre));
+      if (porMarca != 0) return porMarca;
+      return normalizarPresentacionFicha(
+        a.presentacion,
+      ).compareTo(normalizarPresentacionFicha(b.presentacion));
     });
 }
 
-/// Ficha ya registrada para proveedor + producto + marca. Un producto sin
-/// marca se representa con `marcaId` y `marcaNombre` vacíos.
+/// Ficha ya registrada para proveedor + producto + marca + presentación. Un
+/// producto sin marca se representa con `marcaId` y `marcaNombre` vacíos; una
+/// ficha sin presentación, con `presentacion` vacía.
 FichaTecnicaDoc? buscarFichaTecnicaProveedorProductoMarca(
   Iterable<FichaTecnicaDoc> fichas, {
   required String proveedorId,
@@ -497,9 +502,14 @@ FichaTecnicaDoc? buscarFichaTecnicaProveedorProductoMarca(
   required String productoNombre,
   required String marcaId,
   required String marcaNombre,
+  String presentacion = '',
 }) {
   final sinMarca = marcaId.trim().isEmpty && marcaNombre.trim().isEmpty;
+  final clavePresentacion = normalizarPresentacionFicha(presentacion);
   for (final ficha in fichas) {
+    if (normalizarPresentacionFicha(ficha.presentacion) != clavePresentacion) {
+      continue;
+    }
     if (!_fichaEsDelProveedor(ficha, proveedorId: proveedorId, nit: nit)) {
       continue;
     }
@@ -521,6 +531,13 @@ FichaTecnicaDoc? buscarFichaTecnicaProveedorProductoMarca(
   }
   return null;
 }
+
+/// Clave comparable de la presentación: ignora mayúsculas, tildes, espacios
+/// y puntos ("500 g a 2 kg" == "500G A 2KG" == "500 g a 2 kg.").
+String normalizarPresentacionFicha(String presentacion) =>
+    normalizarClaveCatalogoCompras(
+      presentacion,
+    ).replaceAll(RegExp(r'[\s.]'), '');
 
 /// Versiones anteriores de la ficha, de la más reciente a la más antigua.
 List<FichaTecnicaHistorial> historialFichaTecnicaReciente(

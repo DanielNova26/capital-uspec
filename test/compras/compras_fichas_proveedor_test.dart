@@ -121,6 +121,48 @@ void main() {
     );
   });
 
+  test('una ficha por presentación del mismo producto y marca', () {
+    final conPresentacion = [
+      ...fichas,
+      FichaTecnicaDoc(
+        id: 'f5',
+        empresaId: 'e1',
+        proveedorId: 'prov-1',
+        proveedorNombre: 'Comercializadora',
+        productoId: 'p-bicarbonato',
+        productoNombre: 'Bicarbonato de sodio',
+        marcaId: 'm-tipicos',
+        marcaNombre: 'Comestibles y Condimentos Típicos',
+        presentacion: '60 g y 500 g',
+        creadoPor: 'u1',
+        createdAt: cero,
+      ),
+    ];
+    FichaTecnicaDoc? buscar(String presentacion) =>
+        buscarFichaTecnicaProveedorProductoMarca(
+          conPresentacion,
+          proveedorId: 'prov-1',
+          productoId: 'p-bicarbonato',
+          productoNombre: 'Bicarbonato de sodio',
+          marcaId: 'm-tipicos',
+          marcaNombre: 'Comestibles y Condimentos Típicos',
+          presentacion: presentacion,
+        );
+    // Misma presentación escrita distinto: es la misma ficha.
+    expect(buscar('60G Y 500G')?.id, 'f5');
+    expect(buscar('60 g y 500 g.')?.id, 'f5');
+    // Otra presentación, o sin presentación, es otra ficha.
+    expect(buscar('1 kg'), isNull);
+    expect(buscar(''), isNull);
+    // La presentación se guarda y se lee de Firestore.
+    expect(conPresentacion.last.toMap()['presentacion'], '60 g y 500 g');
+    final leida = FichaTecnicaDoc.fromMap('f5', const {
+      'presentacion': '60 g y 500 g',
+    });
+    expect(leida.presentacion, '60 g y 500 g');
+    expect(FichaTecnicaDoc.fromMap('x', const {}).presentacion, '');
+  });
+
   test(
     'el histórico se muestra de la versión más reciente a la más antigua',
     () {
