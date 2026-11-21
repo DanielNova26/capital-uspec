@@ -8366,7 +8366,11 @@ class _FichaProveedorCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    titulo ?? ficha.proveedorNombre,
+                    titulo ??
+                        (ficha.presentacion.trim().isEmpty
+                            ? ficha.proveedorNombre
+                            : '${ficha.proveedorNombre} · '
+                                  '${ficha.presentacion.trim()}'),
                     style: const TextStyle(
                       fontFamily: _kFont,
                       fontWeight: FontWeight.w700,
@@ -8786,6 +8790,28 @@ Future<void> _mostrarHistorialFichaTecnica(
   );
 }
 
+bool _fichaEsDeProductoMarca(
+  FichaTecnicaDoc f, {
+  required ProductoDoc producto,
+  required MarcaRef? marca,
+}) {
+  if (!fichaTecnicaCorrespondeProducto(
+    f,
+    productoId: producto.id,
+    productoNombre: producto.nombre,
+  )) {
+    return false;
+  }
+  if (marca == null) {
+    return f.marcaId.trim().isEmpty && f.marcaNombre.trim().isEmpty;
+  }
+  return fichaTecnicaCorrespondeMarca(
+    f,
+    marcaId: marca.marcaId,
+    marcaNombre: marca.descripcion,
+  );
+}
+
 /// Sección de la edición del proveedor con sus fichas por producto y marca.
 class _FichasTecnicasProveedorSection extends StatelessWidget {
   final String empresaId;
@@ -8804,38 +8830,12 @@ class _FichasTecnicasProveedorSection extends StatelessWidget {
     final producto = f.productoNombre.trim().isEmpty
         ? 'Producto sin nombre'
         : f.productoNombre.trim();
-    final marca = f.marcaNombre.trim();
-    return marca.isEmpty ? producto : '$producto · $marca';
-  }
-
-  void _abrirCarga(
-    BuildContext context, {
-    required String productoId,
-    required String productoNombre,
-    required String productoCategoria,
-    required String marcaId,
-    required String marcaNombre,
-    FichaTecnicaDoc? existente,
-  }) {
-    _showComprasAdaptiveSheet<void>(
-      context: context,
-      title: existente == null
-          ? 'Agregar ficha técnica'
-          : 'Reemplazar ficha técnica',
-      builder: (_) => _SubirFichaSheet(
-        empresaId: empresaId,
-        svc: svc,
-        productoId: productoId,
-        productoNombre: productoNombre,
-        productoCategoria: productoCategoria,
-        marcaId: marcaId,
-        marcaNombre: marcaNombre,
-        userId: userId,
-        fichasExistentes: const [],
-        fichaExistente: existente,
-        proveedorFijo: proveedor,
-      ),
-    );
+    final partes = [
+      producto,
+      if (f.marcaNombre.trim().isNotEmpty) f.marcaNombre.trim(),
+      if (f.presentacion.trim().isNotEmpty) f.presentacion.trim(),
+    ];
+    return partes.join(' · ');
   }
 
   Future<void> _agregar(
@@ -8858,24 +8858,32 @@ class _FichasTecnicasProveedorSection extends StatelessWidget {
     if (opcion == null || !context.mounted) return;
     final marcaId = opcion.marca?.marcaId ?? '';
     final marcaNombre = opcion.marca?.descripcion ?? '';
-    // Si ya existe la combinación, se reemplaza para conservar el histórico.
-    final existente = buscarFichaTecnicaProveedorProductoMarca(
-      fichasProveedor,
-      proveedorId: proveedor.id,
-      nit: proveedor.nit,
-      productoId: opcion.producto.id,
-      productoNombre: opcion.producto.nombre,
-      marcaId: marcaId,
-      marcaNombre: marcaNombre,
-    );
-    _abrirCarga(
-      context,
-      productoId: opcion.producto.id,
-      productoNombre: opcion.producto.nombre,
-      productoCategoria: opcion.producto.categoria,
-      marcaId: marcaId,
-      marcaNombre: marcaNombre,
-      existente: existente,
+    // Fichas ya cargadas de este producto y marca (una por presentación): el
+    // formulario impide repetir una presentación y remite a "Reemplazar".
+    final mismasFichas = fichasProveedor
+        .where(
+          (f) => _fichaEsDeProductoMarca(
+            f,
+            producto: opcion.producto,
+            marca: opcion.marca,
+          ),
+        )
+        .toList();
+    _showComprasAdaptiveSheet<void>(
+      context: context,
+      title: 'Agregar ficha técnica',
+      builder: (_) => _SubirFichaSheet(
+        empresaId: empresaId,
+        svc: svc,
+        productoId: opcion.producto.id,
+        productoNombre: opcion.producto.nombre,
+        productoCategoria: opcion.producto.categoria,
+        marcaId: marcaId,
+        marcaNombre: marcaNombre,
+        userId: userId,
+        fichasExistentes: mismasFichas,
+        proveedorFijo: proveedor,
+      ),
     );
   }
 
@@ -9070,17 +9078,16 @@ class _ElegirProductoFichaSheetState extends State<_ElegirProductoFichaSheet> {
                         items: opciones,
                         etiqueta: 'productos',
                         itemBuilder: (_, o, _) {
-                          final yaTiene =
-                              buscarFichaTecnicaProveedorProductoMarca(
-                                widget.fichasProveedor,
-                                proveedorId: widget.proveedor.id,
-                                nit: widget.proveedor.nit,
-                                productoId: o.producto.id,
-                                productoNombre: o.producto.nombre,
-                                marcaId: o.marca?.marcaId ?? '',
-                                marcaNombre: o.marca?.descripcion ?? '',
-                              ) !=
-                              null;
+                          final cargadas = widget.fichasProveedor
+                              .where(
+                                (f) => _fichaEsDeProductoMarca(
+                                  f,
+                                  producto: o.producto,
+                                  marca: o.marca,
+                                ),
+                              )
+                              .length;
+                          final yaTiene = cargadas > 0;
                           return ListTile(
                             dense: true,
                             leading: const Icon(Icons.inventory_2_outlined),
@@ -9093,12 +9100,15 @@ class _ElegirProductoFichaSheetState extends State<_ElegirProductoFichaSheet> {
                                 o.marca == null
                                     ? 'Sin marca'
                                     : 'Marca: ${o.marca!.descripcion}',
-                                if (yaTiene) 'ya tiene ficha: se reemplaza',
+                                if (yaTiene)
+                                  cargadas == 1
+                                      ? '1 ficha cargada'
+                                      : '$cargadas fichas cargadas',
                               ].join(' · '),
                               style: const TextStyle(fontFamily: _kFont),
                             ),
                             trailing: Icon(
-                              yaTiene ? Icons.sync : Icons.chevron_right,
+                              Icons.chevron_right,
                               color: kComprasPrimary,
                             ),
                             onTap: () => Navigator.pop(context, o),
@@ -9163,6 +9173,9 @@ class _SubirFichaSheet extends StatefulWidget {
 
 class _SubirFichaSheetState extends State<_SubirFichaSheet> {
   final _obsCtrl = TextEditingController();
+  late final TextEditingController _presentacionCtrl = TextEditingController(
+    text: widget.fichaExistente?.presentacion ?? '',
+  );
   bool get isUpdate => widget.fichaExistente != null;
 
   // Proveedor seleccionado (sólo para fichas nuevas)
@@ -9201,6 +9214,7 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
   @override
   void dispose() {
     _obsCtrl.dispose();
+    _presentacionCtrl.dispose();
     if (kIsWeb) WebDragDrop.instance.disable();
     _wDragSub?.cancel();
     _wFileSub?.cancel();
@@ -9530,6 +9544,35 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
       );
       return;
     }
+    final presentacion = _presentacionCtrl.text.trim();
+    if (!isUpdate && widget.proveedorFijo != null) {
+      final repetida = buscarFichaTecnicaProveedorProductoMarca(
+        widget.fichasExistentes,
+        proveedorId: widget.proveedorFijo!.id,
+        nit: widget.proveedorFijo!.nit,
+        productoId: widget.productoId,
+        productoNombre: widget.productoNombre,
+        marcaId: widget.marcaId,
+        marcaNombre: widget.marcaNombre,
+        presentacion: presentacion,
+      );
+      if (repetida != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              presentacion.isEmpty
+                  ? 'Ya hay una ficha sin presentación para este producto y '
+                        'marca. Escribe la presentación o usa "Reemplazar" en '
+                        'su tarjeta.'
+                  : 'Ya hay una ficha para la presentación "$presentacion". '
+                        'Usa "Reemplazar" en su tarjeta.',
+              style: const TextStyle(fontFamily: _kFont),
+            ),
+          ),
+        );
+        return;
+      }
+    }
     setState(() => _subiendo = true);
     try {
       final ext = _fileName?.split('.').last.toLowerCase() ?? 'pdf';
@@ -9569,6 +9612,9 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
         productoCategoria: widget.productoCategoria,
         marcaId: widget.marcaId,
         marcaNombre: widget.marcaNombre,
+        presentacion: isUpdate
+            ? widget.fichaExistente!.presentacion
+            : presentacion,
         documentoActual: doc,
         documentoAprobado: isUpdate
             ? widget.fichaExistente!.documentoAprobado
@@ -9728,6 +9774,30 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
                 ],
               ),
             ),
+          // Presentación o medidas que cubre la ficha (texto libre).
+          TextFormField(
+            controller: _presentacionCtrl,
+            enabled: !isUpdate && !_subiendo,
+            textCapitalization: TextCapitalization.characters,
+            inputFormatters: const [UpperCaseTextFormatter()],
+            decoration: InputDecoration(
+              labelText: 'Presentación (opcional)',
+              labelStyle: const TextStyle(fontFamily: _kFont),
+              hintText: 'Ej.: 60 G Y 500 G, o 500 G A 2 KG',
+              helperText: isUpdate
+                  ? 'Se conserva la presentación de la ficha que reemplazas.'
+                  : 'Las medidas que cubre esta ficha. Puedes subir una '
+                        'ficha por cada presentación.',
+              helperMaxLines: 2,
+              border: const OutlineInputBorder(),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
+            ),
+            style: const TextStyle(fontFamily: _kFont, fontSize: 13),
+          ),
+          const SizedBox(height: 12),
           // Observación
           TextFormField(
             controller: _obsCtrl,

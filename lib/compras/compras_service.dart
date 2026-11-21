@@ -3259,8 +3259,9 @@ class ComprasService {
     }
 
     if (isNew && ficha.proveedorId.trim().isNotEmpty) {
-      // Una sola ficha por proveedor + producto + marca: una segunda partiría
-      // el histórico de versiones. La nueva carga debe reemplazar la vigente.
+      // Una sola ficha por proveedor + producto + marca + presentación: otra
+      // igual partiría el histórico de versiones. La nueva carga debe
+      // reemplazar la vigente.
       final mismasFichas = await _db
           .collection('TBL_COMPRAS_FICHAS_TECNICAS')
           .where('empresaId', isEqualTo: ficha.empresaId)
@@ -3273,13 +3274,16 @@ class ComprasService {
         productoNombre: ficha.productoNombre,
         marcaId: ficha.marcaId,
         marcaNombre: ficha.marcaNombre,
+        presentacion: ficha.presentacion,
       );
       if (repetida != null) {
         throw StateError(
           'Este proveedor ya tiene ficha técnica para '
           '${ficha.productoNombre}'
-          '${ficha.marcaNombre.isEmpty ? '' : ' (${ficha.marcaNombre})'}. '
-          'Usa "Reemplazar" para conservar la anterior en el histórico.',
+          '${ficha.marcaNombre.isEmpty ? '' : ' (${ficha.marcaNombre})'}'
+          '${ficha.presentacion.trim().isEmpty ? '' : ', presentación ${ficha.presentacion.trim()}'}. '
+          'Usa "Reemplazar" en su tarjeta para conservar la anterior en el '
+          'histórico.',
         );
       }
     }

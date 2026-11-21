@@ -1,5 +1,11 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-21 — Fichas técnicas: error de Storage al subir y presentación por ficha, versión 2.8.42+96 (Claude)
+
+- Corregido `firebase_storage/unauthorized` al subir fichas (y cualquier adjunto de Compras) para algunos usuarios. `storage.rules` exigía siempre la asignación canónica `TBL_COMPRAS_ROLES/{empresa}_{usuario}`, mientras `firestore.rules` (`comprasEscrituraEn`) y la app aceptan a quien tiene la app sin asignación canónica (compatibilidad) y a Desarrollo. Storage ahora replica esa regla: con asignación canónica exige admin/calidad/compras/bodega; sin ella basta la app de Compras (`comprasdashboard` o `compras`); Desarrollo entra como en la app. También admite `image/jpg`, que la app envía para archivos .jpg. El error se reprodujo en el emulador con las reglas anteriores y la prueba nueva pasa con las corregidas (`functions/test/security_hardening.rules.js`, 8/8).
+- Fichas por proveedor: campo de texto libre "Presentación" (p. ej. "60 g y 500 g", "500 g a 2 kg"). La unicidad pasa a proveedor + producto + marca + presentación, comparando sin mayúsculas, espacios ni puntos; así un producto no se duplica por gramaje y cada presentación conserva su propio histórico. Al reemplazar se mantiene la presentación de la ficha. Pruebas Flutter de Compras: 199 aprobadas.
+- Pendiente para Codex: mostrar la presentación en Consultas › Fichas y su Excel; el flujo desde el producto (`_FichasTecnicasPorMarcaSheet`) aún oculta proveedores que ya tienen una ficha para esa marca. Sigue sin verificar en dispositivos Android/iPhone.
+
 ## 2026-11-20 — Fichas técnicas por producto desde la edición del proveedor, versión 2.8.41+95 (Claude)
 
 - Compras › Proveedores › Editar proveedor tiene la sección "Fichas técnicas por producto": una ficha por cada producto + marca que vende el proveedor, enlazada al producto y a la marca. Reutiliza la colección existente `TBL_COMPRAS_FICHAS_TECNICAS` (ya registrada en el catálogo de maestros y en `adminSincronizarMaestros`), Storage `fichas_tecnicas` y el flujo de revisión de Calidad; no se crea otra fuente de datos.

@@ -33,9 +33,32 @@ service firebase.storage {
       let id = e + '_' + request.auth.token.userDocId;
       return firestore.get(/databases/(default)/documents/$(table)/$(id)).data.get('rol', '') in levels;
     }
+    // Compras igual que firestore.rules (comprasEscrituraEn): quien tiene la
+    // app y aún no tiene asignación canónica conserva la compatibilidad; si
+    // la tiene, su nivel debe permitir gestión. Antes Storage exigía siempre
+    // la asignación canónica y rechazaba con `unauthorized` a usuarios que sí
+    // podían guardar el registro (fichas técnicas, 20 nov 2026).
+    // Espejo de marcaDesarrollo/esRolDeDesarrollo de firestore.rules: la app
+    // trata a Desarrollo como administrador de Compras en sus empresas.
+    function devRole(v) {
+      return v is string
+        && v.matches('desarrollador|developer|superadmin|administrador_sistema|.*_(desarrollador|developer)');
+    }
+    function developer(e) {
+      let p = person();
+      return signedIn() && member(p, e)
+        && (p.get('desarrollador', false) == true || p.get('developer', false) == true
+          || devRole(p.get('role', '')) || devRole(p.get('rol', ''))
+          || devRole(p.get('roleKey', '')) || devRole(p.get('roleId', '')));
+    }
+    function comprasWrite(e) {
+      let path = /databases/(default)/documents/TBL_COMPRAS_ROLES/$(e + '_' + request.auth.token.userDocId);
+      return !firestore.exists(path)
+        || firestore.get(path).data.get('rol', '') in ['admin', 'calidad', 'compras', 'bodega'];
+    }
     function upload() {
       return request.resource.size > 0 && request.resource.size <= 25 * 1024 * 1024
-        && request.resource.contentType.matches('image/(jpeg|png|webp|heic|heif)|application/(pdf|zip|xml|msword|vnd.openxmlformats-officedocument.wordprocessingml.document|vnd.openxmlformats-officedocument.spreadsheetml.sheet|vnd.ms-excel)|text/(plain|csv|xml)|audio/(mpeg|mp4|wav|webm)|video/(mp4|webm)');
+        && request.resource.contentType.matches('image/(jpeg|jpg|png|webp|heic|heif)|application/(pdf|zip|xml|msword|vnd.openxmlformats-officedocument.wordprocessingml.document|vnd.openxmlformats-officedocument.spreadsheetml.sheet|vnd.ms-excel)|text/(plain|csv|xml)|audio/(mpeg|mp4|wav|webm)|video/(mp4|webm)');
     }
     function taskAccess(id, write) {
       let t = firestore.get(/databases/(default)/documents/TBL_TAREAS/$(id)).data;
@@ -70,7 +93,7 @@ service firebase.storage {
     }
     match /{module}/{empresa}/{file=**} {
       function authorized() {
-        return (module == 'compras' && app(empresa, ['comprasdashboard']))
+        return (module == 'compras' && (app(empresa, ['comprasdashboard', 'compras']) || developer(empresa)))
           || (module == 'facturacion' && app(empresa, ['facturaciondashboard']))
           || (module == 'rutas' && app(empresa, ['rutasdashboard']))
           || (module == 'visitas' && app(empresa, ['visitasdashboard']))
@@ -83,7 +106,7 @@ service firebase.storage {
           || (module == 'empresas' && app(empresa, ['admindashboard', 'talentohumanodashboard']));
       }
       function writes() {
-        return (module == 'compras' && role(empresa, 'TBL_COMPRAS_ROLES', ['admin', 'calidad', 'compras', 'bodega']))
+        return (module == 'compras' && (comprasWrite(empresa) || developer(empresa)))
           || (module == 'rutas' && role(empresa, 'TBL_RUTAS_ROLES', ['conductor', 'calidad', 'admin', 'admin_calidad', 'desarrollador', 'developer']))
           || (module == 'interventoria' && role(empresa, 'TBL_INTERVENTORIA_ROLES', ['registrador_interventoria', 'revisor_interventoria', 'calidad_interventoria', 'gerente_interventoria', 'admin_interventoria']))
           || (module in ['pacientes', 'nutricion'] && role(empresa, 'TBL_NUTRICION_ROLES', ['clinico', 'coordinador', 'administrador']))

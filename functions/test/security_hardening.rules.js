@@ -26,6 +26,9 @@ test.before(async () => {
     await setDoc(doc(c.firestore(), 'TBL_USUARIOS/admin'), {...person, empresasDetalle: {A: {apps: ['admindashboard']}}});
     await setDoc(doc(c.firestore(), 'TBL_USUARIOS/off'), {...person, activo: false});
     await setDoc(doc(c.firestore(), 'TBL_COMPRAS_ROLES/A_ana'), {empresaId: 'A', userId: 'ana', rol: 'compras'});
+    await setDoc(doc(c.firestore(), 'TBL_USUARIOS/legado'), person);
+    await setDoc(doc(c.firestore(), 'TBL_USUARIOS/consulta'), person);
+    await setDoc(doc(c.firestore(), 'TBL_COMPRAS_ROLES/A_consulta'), {empresaId: 'A', userId: 'consulta', rol: 'consultas'});
     await setDoc(doc(c.firestore(), 'TBL_AUTH_CREDENTIALS/private'), {passwordHash: 'secret'});
     await setDoc(doc(c.firestore(), 'TBL_CUSTOM/other'), {empresaId: 'B'});
   });
@@ -84,6 +87,18 @@ test('Storage rechaza anónimos, empresa ajena, módulo ajeno, SVG, HTML y archi
   }
   await assertFails(uploadBytes(ref(storage, 'compras/A/huge.pdf'), new Uint8Array(26 * 1024 * 1024), {contentType: 'application/pdf'}));
   await assertFails(uploadBytes(ref(env.authenticatedContext('off', {...claims, userDocId: 'off'}).storage(), 'compras/A/off.pdf'), bytes, {contentType: 'application/pdf'}));
+});
+test('Storage de Compras sigue el mismo nivel que Firestore (fichas técnicas, 20 nov 2026)', async () => {
+  const bytes = new Uint8Array([1, 2, 3]);
+  const as = (id) => env.authenticatedContext(id, {...claims, userDocId: id}).storage();
+  // Con la app y sin asignación canónica: compatibilidad, igual que comprasEscrituraEn.
+  await assertSucceeds(uploadBytes(ref(as('legado'), 'compras/A/fichas_tecnicas/legado.pdf'), bytes, {contentType: 'application/pdf'}));
+  // Asignación canónica de solo consulta: no sube.
+  await assertFails(uploadBytes(ref(as('consulta'), 'compras/A/fichas_tecnicas/consulta.pdf'), bytes, {contentType: 'application/pdf'}));
+  // Sin la app de Compras: no sube.
+  await assertFails(uploadBytes(ref(as('admin'), 'compras/A/fichas_tecnicas/admin.pdf'), bytes, {contentType: 'application/pdf'}));
+  // La app envía image/jpg para archivos .jpg.
+  await assertSucceeds(uploadBytes(ref(as('ana'), 'compras/A/fichas_tecnicas/foto.jpg'), bytes, {contentType: 'image/jpg'}));
 });
 test('límite transaccional mantiene el máximo con solicitudes simultáneas', async () => {
   const scope = `test:${Date.now()}`;

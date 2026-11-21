@@ -1511,6 +1511,11 @@ class FichaTecnicaDoc {
   final String marcaId;
   final String marcaNombre;
 
+  /// Presentación o rango de gramaje que cubre la ficha (p. ej. "500 g a
+  /// 2 kg"). '' cuando la ficha aplica al producto sin distinguir medidas.
+  /// Un mismo producto y marca puede tener una ficha por presentación.
+  final String presentacion;
+
   /// Ficha vigente con su estado de calidad.
   final DocAdjunto? documentoActual;
 
@@ -1536,6 +1541,7 @@ class FichaTecnicaDoc {
     this.productoCategoria = '',
     this.marcaId = '',
     this.marcaNombre = '',
+    this.presentacion = '',
     this.documentoActual,
     this.documentoAprobado,
     this.historial = const [],
@@ -1586,6 +1592,7 @@ class FichaTecnicaDoc {
           .toString(),
       marcaId: (m['marcaId'] ?? m['marca_id'] ?? '').toString(),
       marcaNombre: (m['marcaNombre'] ?? m['marca'] ?? '').toString(),
+      presentacion: (m['presentacion'] ?? '').toString(),
       documentoActual: actual,
       documentoAprobado: aprobado,
       historial: historial,
@@ -1604,6 +1611,7 @@ class FichaTecnicaDoc {
     'productoCategoria': productoCategoria,
     'marcaId': marcaId,
     'marcaNombre': marcaNombre,
+    'presentacion': presentacion,
     'documentoActual': documentoActual?.toMap(),
     'documentoAprobado': documentoAprobado?.toMap(),
     'historial': historial.map((h) => h.toMap()).toList(),
@@ -1622,6 +1630,7 @@ class FichaTecnicaDoc {
     String? productoCategoria,
     String? marcaId,
     String? marcaNombre,
+    String? presentacion,
     DocAdjunto? documentoActual,
     bool clearDocumentoActual = false,
     DocAdjunto? documentoAprobado,
@@ -1640,6 +1649,7 @@ class FichaTecnicaDoc {
     productoCategoria: productoCategoria ?? this.productoCategoria,
     marcaId: marcaId ?? this.marcaId,
     marcaNombre: marcaNombre ?? this.marcaNombre,
+    presentacion: presentacion ?? this.presentacion,
     documentoActual: clearDocumentoActual
         ? null
         : (documentoActual ?? this.documentoActual),
