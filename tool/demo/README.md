@@ -11,10 +11,10 @@ Abre la [Demo local](http://127.0.0.1:8787) en este computador. Usa la cédula d
 | Facturación | `9900001013` | `9900001014` | `9900001015` | Facturación |
 | Gerencia | `9900001016` | `9900001017` | `9900001018` | Gerencia de su área y Biblioteca |
 | Jurídica | `9900001019` | `9900001020` | `9900001021` | Correo, Correspondencia y Biblioteca |
-| Logística | `9900001022` | `9900001023` | `9900001024` | Compras y Rutas |
+| Logística | `9900001022` | `9900001023` | `9900001024` | Compras, Rutas y Planeación (Bodega, analista) |
 | Mantenimiento | `9900001025` | `9900001026` | `9900001027` | Mantenimiento y Visitas |
 | Operaciones | `9900001028` | `9900001029` | `9900001030` | Interventoría, Facturación, Nutrición y Visitas |
-| Planeación | `9900001031` | `9900001032` | `9900001033` | Gerencia de su área y Visitas para director y coordinador |
+| Planeación | `9900001031` | `9900001032` | `9900001033` | Planeación (Administrador, Planificador y Consulta), Gerencia de su área y Visitas para director y coordinador |
 | Sistemas | `9900001034` | `9900001035` | `9900001036` | Biblioteca |
 | Talento Humano | `9900001037` | `9900001038` | `9900001039` | Talento Humano y Biométrico |
 | Gestión de Proyectos | `9900001040` | `9900001041` | `9900001042` | Tareas |
@@ -48,4 +48,4 @@ $env:FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080'
 node tool/demo/poblar.cjs
 ```
 
-La carga puede repetirse y agrega las reglas de Interventoría y los accesos de Mantenimiento que falten. Para guardar tus pruebas al terminar, detén el emulador con `Ctrl+C` y espera a que exporte los datos. El siguiente arranque recupera esa exportación. Usa `-Recompilar` para actualizar la web local después de cambiar el código de la app.
+La carga puede repetirse y agrega las reglas de Interventoría, los accesos de Mantenimiento y la app y los niveles de Planeación que falten, sin pisar los ya guardados. Para guardar tus pruebas al terminar, detén el emulador con `Ctrl+C` y espera a que exporte los datos. El siguiente arranque recupera esa exportación. Usa `-Recompilar` para actualizar la web local después de cambiar el código de la app.

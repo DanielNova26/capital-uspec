@@ -29,6 +29,7 @@ const modulos = {
   mantenimiento: ['mantenimientodashboard', 'Mantenimiento'],
   nutricion: ['nutriciondashboard', 'Nutrición', 'rolNutricion', 'TBL_NUTRICION_ROLES'],
   rutas: ['rutasdashboard', 'Rutas', 'rolRutas', 'TBL_RUTAS_ROLES'],
+  planeacion: ['planeaciondashboard', 'Planeación', 'rolPlaneacion', 'TBL_PLANEACION_ROLES'],
   gerencia: ['gerenciadashboard', 'Gerencia'],
   admin: ['admindashboard', 'Administración'],
 };
@@ -56,7 +57,8 @@ const areas = [
     correo: ['clasificador', 'clasificador', 'operador'],
     correspondencia: ['', '', ''], biblioteca: ['aprobador', 'revisor', 'redactor'],
   }],
-  ['logistica', 'Logística', {compras: ['consultas', 'bodega', 'bodega'], rutas: ['admin', 'calidad', 'conductor']}],
+  ['logistica', 'Logística', {compras: ['consultas', 'bodega', 'bodega'], rutas: ['admin', 'calidad', 'conductor'],
+    planeacion: [null, null, 'bodega']}],
   ['mantenimiento', 'Mantenimiento', {mantenimiento: ['', '', ''], visitas: ['jefe', 'coordinador', 'profesional']}],
   ['operaciones', 'Operaciones', {
     interventoria: ['directivo_interventoria', 'revisor_interventoria', 'registrador_interventoria'],
@@ -64,7 +66,10 @@ const areas = [
     nutricion: ['consulta', 'coordinador', 'clinico'],
     visitas: ['jefe', 'coordinador', 'profesional'],
   }],
-  ['planeacion', 'Planeación', {gerencia: ['', '', null], visitas: ['consulta', 'consulta', null]}],
+  ['planeacion', 'Planeación', {
+    planeacion: ['administrador', 'planificador', 'consulta'],
+    gerencia: ['', '', null], visitas: ['consulta', 'consulta', null],
+  }],
   ['sistemas', 'Sistemas', {biblioteca: ['consulta', 'consulta', 'consulta']}],
   ['talento_humano', 'Talento Humano', {
     talento: ['administrador', 'gestor', 'reclutador'], biometrico: ['administrador', 'gestor', 'consulta'],
@@ -76,7 +81,7 @@ const nivelesGerente = {
   compras: 'consultas', interventoria: 'gerente_interventoria', visitas: 'gerencia',
   facturacion: 'visor_fac', correo: 'visor', correspondencia: '', biblioteca: 'firmante',
   planillas: 'gerencia', dian: 'consulta', talento: 'consulta', biometrico: 'consulta',
-  mantenimiento: '', nutricion: 'consulta', rutas: 'calidad', gerencia: '',
+  mantenimiento: '', nutricion: 'consulta', rutas: 'calidad', planeacion: 'consulta', gerencia: '',
 };
 
 const puesto = (titulo, area) => `${titulo} de ${area}`;
@@ -162,6 +167,45 @@ async function cargarAccesosMantenimiento(db, listado) {
   });
 }
 
+// Planeación se habilita expresamente por empresa (planeacionOperar exige
+// TBL_APPS.enabled === true). Agrega app, apps de la persona y nivel solo
+// donde falten; nunca pisa un nivel ya guardado.
+async function cargarPlaneacion(db, listado) {
+  const [appId, nombre, campo, tabla] = modulos.planeacion;
+  const appRef = db.collection('TBL_APPS').doc(`${empresaId}_${appId}`);
+  const asignaciones = listado.filter((persona) => Object.hasOwn(persona.roles, 'planeacion'));
+  return db.runTransaction(async (tx) => {
+    const [empresa, app, ...docs] = await tx.getAll(db.collection('TBL_EMPRESAS').doc(empresaId), appRef,
+      ...asignaciones.flatMap(({id}) => [db.collection('TBL_USUARIOS').doc(id),
+        db.collection(tabla).doc(`${empresaId}_${id}`), db.collection('TBL_EMPLEADOS').doc(`${empresaId}_${id}`)]));
+    if (empresa.get('esDemo') !== true) throw new Error('La empresa de pruebas no está disponible.');
+    let cambios = 0;
+    if (!app.exists || app.get('enabled') !== true) {
+      tx.set(appRef, {empresaId, appId, nombre, enabled: true, updatedAt: FieldValue.serverTimestamp(),
+        ...(app.exists ? {} : {createdAt: FieldValue.serverTimestamp()})}, {merge: true});
+      cambios++;
+    }
+    for (const [i, persona] of asignaciones.entries()) {
+      const [usuario, rol, empleado] = docs.slice(i * 3, i * 3 + 3);
+      if (!usuario.exists || usuario.get('empresas')?.length !== 1 || usuario.get('empresas')[0] !== empresaId) continue;
+      const apps = [...new Set([...(usuario.get('apps') ?? []), appId])].sort();
+      const nivel = rol.exists ? rol.get('rol') : persona.roles.planeacion;
+      if (!rol.exists) {
+        tx.create(rol.ref, {empresaId, userId: persona.id, cedula: persona.id, nombre: persona.nombre,
+          rol: nivel, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp()});
+        cambios++;
+      }
+      if (!(usuario.get('apps') ?? []).includes(appId)) {
+        tx.update(usuario.ref, {apps, [campo]: nivel, [`empresasDetalle.${empresaId}.apps`]: apps,
+          [`empresasDetalle.${empresaId}.${campo}`]: nivel});
+        if (empleado.exists) tx.update(empleado.ref, {apps});
+        cambios++;
+      }
+    }
+    return cambios;
+  });
+}
+
 async function cargarConfiguracionDemo(db, listado) {
   const empresaRef = db.collection('TBL_EMPRESAS').doc(empresaId);
   await db.runTransaction(async (tx) => {
@@ -172,8 +216,9 @@ async function cargarConfiguracionDemo(db, listado) {
   });
   const reglas = await cargarMaestroInterventoria(db);
   const accesos = await cargarAccesosMantenimiento(db, listado);
+  const planeacion = await cargarPlaneacion(db, listado);
   const jefes = await cargarJefesHallazgos(db, listado);
-  return `Reglas de Interventoría agregadas: ${reglas}. Accesos de Mantenimiento agregados: ${accesos}. Tareas con jefatura actualizada: ${jefes}.`;
+  return `Reglas de Interventoría agregadas: ${reglas}. Accesos de Mantenimiento agregados: ${accesos}. Tareas con jefatura actualizada: ${jefes}. Cambios de Planeación: ${planeacion}.`;
 }
 
 async function cargarJefesHallazgos(db, listado) {
