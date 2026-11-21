@@ -957,6 +957,24 @@ void main() {
     );
   }
 
+  for (final (caso, logo) in [
+    ('con logo PNG', img.encodePng(img.Image(width: 8, height: 4))),
+    ('con logo ilegible (SVG/WebP/dañado)', Uint8List.fromList([1, 2, 3])),
+  ]) {
+    test('el informe se genera $caso con nombre de empresa', () async {
+      final bytes = await generarInformeMantenimiento(
+        empresaId: 'A',
+        empresaNombre: 'Empresa de prueba',
+        empresaLogo: logo,
+        alcance: 'Sede Norte',
+        ordenes: [_orden],
+        centros: {'sede': 'Sede Norte'},
+        equipos: {_equipo.id: _equipo},
+      );
+      expect(ascii.decode(bytes.take(5).toList()), '%PDF-');
+    });
+  }
+
   test('el PDF individual incluye fotografías y el cierre', () async {
     final orden = OrdenMantenimiento('pdf', {
       'tipo': 'preventivo',

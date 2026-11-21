@@ -12,6 +12,8 @@ import 'mantenimiento_service.dart';
 
 const _tinta = PdfColor.fromInt(0xff173c4a);
 const _fondo = PdfColor.fromInt(0xffedf4f5);
+const _gris = PdfColor.fromInt(0xff5f6f75);
+const _linea = PdfColor.fromInt(0xffcdd9dc);
 
 Future<({String nombre, Uint8List? logo})> marcaMantenimiento(
   String empresaId,
@@ -25,41 +27,69 @@ Future<({String nombre, Uint8List? logo})> marcaMantenimiento(
   return (nombre: nombre, logo: logo);
 }
 
+/// Imagen del logo, o null si los bytes no son PNG/JPEG decodificables
+/// (SVG, WebP, archivo dañado): un logo malo nunca debe tumbar el PDF.
+pw.MemoryImage? _imagenSegura(Uint8List? bytes) {
+  if (bytes == null || bytes.isEmpty) return null;
+  try {
+    return pw.MemoryImage(bytes);
+  } catch (_) {
+    return null;
+  }
+}
+
 pw.Widget membreteMantenimiento(
   String titulo, {
   String nombre = '',
   Uint8List? logo,
-}) => pw.Container(
-  padding: const pw.EdgeInsets.all(14),
-  decoration: const pw.BoxDecoration(color: _fondo),
-  child: pw.Row(
-    children: [
-      if (logo != null) ...[
-        pw.Image(
-          pw.MemoryImage(logo),
-          width: 72,
-          height: 48,
-          fit: pw.BoxFit.contain,
+  String subtitulo = '',
+}) {
+  final imagen = _imagenSegura(logo);
+  return pw.Container(
+    padding: const pw.EdgeInsets.fromLTRB(14, 12, 14, 10),
+    decoration: const pw.BoxDecoration(
+      color: _fondo,
+      border: pw.Border(bottom: pw.BorderSide(color: _tinta, width: 2)),
+    ),
+    child: pw.Row(
+      crossAxisAlignment: pw.CrossAxisAlignment.center,
+      children: [
+        if (imagen != null) ...[
+          pw.SizedBox(
+            width: 84,
+            height: 54,
+            child: pw.Image(imagen, fit: pw.BoxFit.contain),
+          ),
+          pw.SizedBox(width: 14),
+        ],
+        pw.Expanded(
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              if (nombre.isNotEmpty)
+                pw.Text(
+                  nombre.toUpperCase(),
+                  style: const pw.TextStyle(fontSize: 10, color: _tinta),
+                ),
+              pw.SizedBox(height: 3),
+              pw.Text(
+                titulo,
+                style: const pw.TextStyle(fontSize: 19, color: _tinta),
+              ),
+              if (subtitulo.isNotEmpty) ...[
+                pw.SizedBox(height: 2),
+                pw.Text(
+                  subtitulo,
+                  style: const pw.TextStyle(fontSize: 9, color: _gris),
+                ),
+              ],
+            ],
+          ),
         ),
-        pw.SizedBox(width: 14),
       ],
-      pw.Expanded(
-        child: pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            if (nombre.isNotEmpty)
-              pw.Text(nombre, style: const pw.TextStyle(fontSize: 10)),
-            pw.SizedBox(height: 4),
-            pw.Text(
-              titulo,
-              style: const pw.TextStyle(fontSize: 20, color: _tinta),
-            ),
-          ],
-        ),
-      ),
-    ],
-  ),
-);
+    ),
+  );
+}
 
 Future<Uint8List> generarInformeMantenimiento({
   required String empresaId,
@@ -77,13 +107,15 @@ Future<Uint8List> generarInformeMantenimiento({
     ordenIndividual ? 'Orden de trabajo' : 'Informe de órdenes de trabajo',
     nombre: empresaNombre.isEmpty ? empresaId : empresaNombre,
     logo: empresaLogo,
+    subtitulo: alcance,
   );
   final fuente = pw.Font.ttf(await rootBundle.load('assets/arial.ttf'));
   final evidencias = <ArchivoOrden, pw.MemoryImage>{};
   if (fotos != null) {
     for (final orden in ordenes) {
       for (final archivo in orden.archivos.where((a) => a.clase.soloFotos)) {
-        evidencias[archivo] = pw.MemoryImage(await fotos(archivo));
+        final foto = _imagenSegura(await fotos(archivo));
+        if (foto != null) evidencias[archivo] = foto;
       }
     }
   }
@@ -96,34 +128,73 @@ Future<Uint8List> generarInformeMantenimiento({
       maxPages: ordenes.length * 6 + 4,
       theme: pw.ThemeData.withFont(base: fuente, bold: fuente),
       header: (_) => membrete,
-      footer: (context) => pw.Align(
-        alignment: pw.Alignment.centerRight,
-        child: pw.Text('${context.pageNumber} / ${context.pagesCount}'),
+      footer: (context) => pw.Container(
+        padding: const pw.EdgeInsets.only(top: 4),
+        decoration: const pw.BoxDecoration(
+          border: pw.Border(top: pw.BorderSide(color: _linea, width: 0.5)),
+        ),
+        child: pw.Row(
+          children: [
+            pw.Expanded(
+              child: pw.Text(
+                '${empresaNombre.isEmpty ? empresaId : empresaNombre}'
+                ' · Generado el ${fecha(DateTime.now())}',
+                style: const pw.TextStyle(fontSize: 8, color: _gris),
+              ),
+            ),
+            pw.Text(
+              'Página ${context.pageNumber} de ${context.pagesCount}',
+              style: const pw.TextStyle(fontSize: 8, color: _gris),
+            ),
+          ],
+        ),
       ),
       build: (_) => [
         pw.SizedBox(height: 14),
-        pw.Paragraph(text: alcance),
         if (!ordenIndividual)
-          pw.Paragraph(
-            text:
-                'Generado el ${fecha(DateTime.now())} · ${ordenes.length} órdenes',
-          ),
-        if (!ordenIndividual)
-          pw.Paragraph(
-            text: EstadoOrden.values
-                .map(
-                  (estado) =>
-                      '${estado.label}: '
-                      '${ordenes.where((orden) => orden.estado == estado).length}',
-                )
-                .join('   |   '),
+          pw.Inseparable(
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text(
+                  'Resumen · ${ordenes.length} '
+                  '${ordenes.length == 1 ? 'orden' : 'órdenes'}',
+                  style: const pw.TextStyle(fontSize: 12, color: _tinta),
+                ),
+                pw.SizedBox(height: 5),
+                pw.TableHelper.fromTextArray(
+                  headers: [
+                    for (final estado in EstadoOrden.values) estado.label,
+                  ],
+                  data: [
+                    [
+                      for (final estado in EstadoOrden.values)
+                        '${ordenes.where((o) => o.estado == estado).length}',
+                    ],
+                  ],
+                  headerStyle: const pw.TextStyle(
+                    fontSize: 9,
+                    color: PdfColors.white,
+                  ),
+                  headerDecoration: const pw.BoxDecoration(color: _tinta),
+                  cellStyle: const pw.TextStyle(fontSize: 11),
+                  cellAlignment: pw.Alignment.center,
+                  cellPadding: const pw.EdgeInsets.all(5),
+                  border: pw.TableBorder.all(color: _linea, width: 0.5),
+                ),
+                pw.SizedBox(height: 6),
+              ],
+            ),
           ),
         for (final orden in ordenes) ...[
           pw.Container(
             width: double.infinity,
             margin: const pw.EdgeInsets.symmetric(vertical: 8),
             padding: const pw.EdgeInsets.all(9),
-            color: _fondo,
+            decoration: const pw.BoxDecoration(
+              color: _fondo,
+              border: pw.Border(left: pw.BorderSide(color: _tinta, width: 3)),
+            ),
             child: pw.Text(
               'Orden ${orden.referencia} · ${orden.tipo.label} · ${orden.estado.label}',
               style: const pw.TextStyle(color: _tinta, fontSize: 12),
