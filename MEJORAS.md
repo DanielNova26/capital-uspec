@@ -13439,3 +13439,13 @@ Acta: «La reunión se inició a las 2026_10_15 18_27». Código: `functions/src
 - La prueba nueva de `security_hardening.rules.js` no pudo confirmarse aquí: en
   el emulador local `firestore.get` de Storage devuelve nulo (también con las reglas
   anteriores), así que la prueba está sin verificar.
+
+### 2026-11-21 (continuación) — Causa real del `storage/unauthorized`
+
+- La cuenta de servicio de Storage (`service-379551786878@gcp-sa-firebasestorage.iam.gserviceaccount.com`)
+  no tenía `roles/firebaserules.firestoreServiceAgent`. Sin ese rol, `firestore.get` de
+  `storage.rules` falla y Storage rechaza todas las subidas, en todos los módulos y para todos los usuarios.
+- Las reglas publicadas se probaron con la API de pruebas de reglas y los datos reales de
+  `TBL_USUARIOS/9900001030`: la subida de actas en Interventoría da SUCCESS.
+- Rol concedido el 21 nov 2026 en `integra360-94704`. Si se recrea el proyecto o el bucket,
+  volver a concederlo (el CLI lo ofrece al publicar reglas con lecturas cruzadas).
