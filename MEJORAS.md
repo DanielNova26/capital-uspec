@@ -13486,4 +13486,4 @@ Acta: «La reunión se inició a las 2026_10_15 18_27». Código: `functions/src
   tamaño están inactivos en la empresa o no tienen ficha, que es lo esperado.
 - Subsanaciones: `doc`/`docx` se enviaban como `application/octet-stream` y Storage los
   rechazaba; ahora llevan su tipo correcto. Cambio solo en la app: requiere publicar Web.
-- **Pendiente:** publicar `storage.rules` (`firebase deploy --only storage`).
+- Reglas publicadas el 21 nov 2026.
