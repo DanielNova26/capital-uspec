@@ -13475,3 +13475,15 @@ Acta: «La reunión se inició a las 2026_10_15 18_27». Código: `functions/src
   `TBL_USUARIOS/9900001030`: la subida de actas en Interventoría da SUCCESS.
 - Rol concedido el 21 nov 2026 en `integra360-94704`. Si se recrea el proyecto o el bucket,
   volver a concederlo (el CLI lo ofrece al publicar reglas con lecturas cruzadas).
+
+### 2026-11-21 — Actas de Interventoría de más de 25 MB (Túquerres, EMPRESA_002)
+
+- El tope de 25 MB de `storage.rules` (endurecimiento del 20 nov 2026) rechazaba con
+  `unauthorized` las actas escaneadas grandes: 137 de 1.401 archivos históricos de
+  Interventoría superan 25 MB (máximo 91 MB). Interventoría queda en 100 MB; el resto, en 25 MB.
+- Probado con la API de pruebas de reglas y los datos reales de los 47 usuarios con rol de
+  escritura de EMPRESA_002: 90 MB pasa y 110 MB se rechaza. Los 9 rechazados en cualquier
+  tamaño están inactivos en la empresa o no tienen ficha, que es lo esperado.
+- Subsanaciones: `doc`/`docx` se enviaban como `application/octet-stream` y Storage los
+  rechazaba; ahora llevan su tipo correcto. Cambio solo en la app: requiere publicar Web.
+- **Pendiente:** publicar `storage.rules` (`firebase deploy --only storage`).

@@ -80,9 +80,14 @@ service firebase.storage {
       return !firestore.exists(path)
         || firestore.get(path).data.get('rol', '') in ['admin', 'calidad', 'compras', 'bodega'];
     }
-    function upload() {
-      return request.resource.size > 0 && request.resource.size <= 25 * 1024 * 1024
+    // Tope en MB. Interventoría admite 100 MB: las actas escaneadas pesan hasta
+    // ~91 MB y el tope de 25 MB del 20 nov 2026 rechazaba una de cada diez.
+    function uploadMax(mb) {
+      return request.resource.size > 0 && request.resource.size <= mb * 1024 * 1024
         && request.resource.contentType.matches('image/(jpeg|jpg|png|webp|heic|heif)|application/(pdf|zip|xml|msword|vnd.openxmlformats-officedocument.wordprocessingml.document|vnd.openxmlformats-officedocument.spreadsheetml.sheet|vnd.ms-excel)|text/(plain|csv|xml)|audio/(mpeg|mp4|wav|webm)|video/(mp4|webm)');
+    }
+    function upload() {
+      return uploadMax(25);
     }
     function taskAccess(id, write) {
       let t = firestore.get(/databases/(default)/documents/TBL_TAREAS/$(id)).data;
@@ -139,7 +144,8 @@ service firebase.storage {
           || (module in ['visitas', 'facturacion', 'mantenimiento', 'documentos', 'firmas_doc', 'planillas_pago', 'empresas']);
       }
       allow read: if signedIn() && authorized();
-      allow create, update: if signedIn() && authorized() && writes() && upload();
+      allow create, update: if signedIn() && authorized() && writes()
+        && uploadMax(module == 'interventoria' ? 100 : 25);
       allow delete: if signedIn() && app(empresa, ['admindashboard']);
     }
     match /{module}/{userId}/{file=**} {

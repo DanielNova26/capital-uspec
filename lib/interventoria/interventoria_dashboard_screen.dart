@@ -281,9 +281,7 @@ class _InterventoriaDashboardScreenState
       appId: kInterventoriaAppId,
       pageTitle: 'Interventoria',
       fallbackEmpresaId: widget.empresaId,
-      child: !_rolLoaded
-          ? const EsqueletoCarga()
-          : _buildBody(context),
+      child: !_rolLoaded ? const EsqueletoCarga() : _buildBody(context),
     );
   }
 
@@ -2181,6 +2179,10 @@ class _SubsanarSheetState extends State<_SubsanarSheet> {
         return 'image/png';
       case 'zip':
         return 'application/zip';
+      case 'doc':
+        return 'application/msword';
+      case 'docx':
+        return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
       default:
         return 'application/octet-stream';
     }
