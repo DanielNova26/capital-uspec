@@ -67,3 +67,108 @@ Tras cerrar la restricción de aplicación de la clave histórica con autorizaci
 Jason indicó después que ya dispone de toda la información y que, al considerar el uso inesperado e involuntario, enviará el caso a Facturación para una revisión de ajuste de cortesía por única vez. Aclaró que cualquier ajuste requiere aprobación final de Facturación; aún no confirmó importe aprobado, aplicación del crédito ni suspensión de cobranza.
 
 En esta revisión adicional se detectaron y bloquearon también las cuotas de Street View y cargas de mapas de pago de ambos SDK móviles. Las cargas básicas quedan limitadas a 1.000 por día y plataforma. La app revisada no utiliza Street View ni Cloud Map IDs. Esto cierra operaciones de pago que aún permitían las APIs de SDK en la clave histórica; no cambia el bloqueo de Geocoding ya aplicado. La auditoría exige ahora también el paquete y las firmas Android en la clave histórica, además de su única API permitida.
+
+## Seguimiento del 23 de noviembre: suspensión y caída de producción
+
+Google notificó el **22 de noviembre a las 14:23 Bogotá** la suspensión de la
+cuenta `0170D4-92CFCA-FB33BD` por cargos pendientes o datos de pago no válidos.
+El aviso advierte que, si no se resuelve en 14 días, puede cancelar la cuenta
+y los proyectos o servicios relacionados. El 23 la consola muestra
+**COP 500.898 de saldo**, con transacción de tarjeta rechazada. La API de
+Billing devuelve `open: false`. El proyecto conserva su vinculación; las
+124 funciones figuran ACTIVE y la portada Web responde HTTP 200. Esas
+respuestas no prueban que los servicios de negocio funcionen: Daniel informa
+que toda la operación está caída.
+
+El caso Maps **77760956** sigue «Atención al cliente de Google en curso».
+En el buzón correcto `desarrollo.software.it.2025@gmail.com`, una búsqueda
+`in:anywhere 77760956` encontró solo el transcript del chat del 18. El buzón
+del conector Gmail corresponde a otra cuenta y no permite descartar respuestas
+en la cuenta del proyecto; por eso se consultó esta última directamente.
+
+La parte final del transcript, no incluida en el resumen técnico inicial,
+identifica a **Arianne Shiela** como agente de Facturación tras Jason.
+Confirmó el traslado a revisión interna, indicó un plazo habitual de
+24–48 horas **o más**, advirtió que el ajuste podría no cubrir el total y
+explicó que no tenía herramientas para pausar los intentos de Collections.
+No había aprobado un crédito ni suspendido la cobranza.
+
+Con autorización expresa de Daniel se respondió al mismo hilo de Google
+Cloud Support el **23 a las 09:45 Bogotá**, solicitando decisión urgente del
+ajuste, revisión de la prioridad P3 por caída total de producción, revisión de
+reapertura temporal/pausa del importe disputado y las condiciones de
+recuperación si requieren pago. Gmail confirmó el envío. La comunicación se
+identifica como Codex asistiendo al administrador; no autoriza cargos.
+
+Se abrió también atención humana de Cloud Billing: **Sravani** confirmó que
+la cuenta estaba cerrada y que el ajuste seguía pendiente, y transfirió la
+conversación a **Jocelyn**, de Maps, a las **09:59 Bogotá**.
+
+Daniel pidió plantear el pago de los demás servicios sin pagar el consumo
+disputado. Se solicitó a Google separar o dejar en espera los
+**COP 474.615,40 de Geocoding**, confirmar el importe legítimo restante y
+evaluar reactivar Firebase pagando solo ese resto. La diferencia aritmética
+respecto del saldo mostrado es **COP 26.282,60**, pero no es una liquidación
+confirmada ni prueba que ese pago baste para reactivar. Tras revisar la cuenta,
+Jocelyn confirmó que el ajuste sigue pendiente del equipo interno. Solicitó al
+equipo especializado mantener el proyecto funcionando mientras revisan el
+ajuste y pidió **5–10 minutos para solicitar la reactivación**. Se confirmó
+que esperamos esa excepción, sin autorizar el cobro del importe disputado.
+
+**Reactivación aprobada:** Jocelyn confirmó que la solicitud fue aprobada.
+La API de Billing pasó de `open: false` a **`open: true`**, comprobado
+independientemente a las **10:19 Bogotá**. Dijo que contactaría a quien lleva
+el ajuste para monitorizar el caso y mantener el proyecto funcionando durante
+la revisión. No se ejecutó ningún pago ni se modificaron métodos de pago.
+No consta todavía aceptación del acuerdo de pago separado, crédito ni pausa
+de cobranza. Se pidieron por escrito la duración de la excepción, la situación
+de los reintentos de cobro y el plazo de la decisión económica.
+
+**Recuperación inicial todavía incompleta:** a las 10:23–10:24, la cuenta
+está abierta y el proyecto tiene `billingEnabled: true`, ligado a la misma
+cuenta; Firebase muestra plan Blaze. Sin embargo, lecturas mínimas de Firestore
+siguen devolviendo HTTP 429 `RESOURCE_EXHAUSTED`, «Quota exceeded».
+Una respuesta aislada 404 de un documento inexistente no se consideró prueba
+de recuperación; la consulta siguiente volvió a devolver 429.
+La consola muestra 81 k lecturas del día frente al tramo gratuito de 50 k.
+Service Usage devuelve los límites gratuitos predeterminados sin overrides
+de consumidor/administrador. Se pidió a Jocelyn verificar la propagación de
+la habilitación de pago y confirmar el plazo o acción necesarios; no se
+aumentaron cuotas ni se cambió el plan. Una cuenta abierta por sí sola no
+demuestra que la operación de la app esté recuperada.
+
+**Recuperación final comprobada:** a las **10:30 Bogotá** una consulta de
+configuración y la lectura de un documento existente volvieron a responder
+HTTP 200. Inicialmente persistió 429 en la búsqueda de un documento
+inexistente. A las **10:38** la verificación completa devuelve cuenta abierta,
+consulta HTTP 200 con un documento, lectura de ese documento HTTP 200 y
+404 normal en el documento inexistente, sin el error de cuota. No se aumentó
+ningún límite ni se cambió la aplicación. Daniel confirmó expresamente:
+«Ya pude entrar». No se probaron por separado todos los módulos ni las tres
+plataformas físicas. Se realizó una sola prueba controlada de rechazo de
+usuario ficticio: 403 `PERMISSION_DENIED`, «Usuario o contraseña incorrectos»,
+sin crear sesión; solo se produjo el rastro técnico del intento fallido. No
+se pidieron ni cambiaron contraseñas de personas reales. No se envió un nuevo
+caso técnico de Firebase, ya que la recuperación se comprobó durante el chat.
+
+**Condiciones económicas al cierre:** Jocelyn comunicó un nuevo plazo de
+**5–10 días hábiles, contados desde el 23 de noviembre**, por alta cantidad
+de casos. El importe del ajuste sigue pendiente de revisión; no se aprobó
+un crédito total ni el acuerdo de pagar solo el resto. Aclaró que los intentos
+automáticos de cobro no pueden detenerse y que, si se cobra antes de finalizar
+el ajuste, tramitarían una devolución. No precisó un importe de devolución:
+no asumir que todo lo reclamado ya fue aprobado ni garantizado. No se
+obtuvo una fecha de vencimiento concreta de la excepción de reactivación.
+Confirmó que ya contactó al responsable del caso para monitorizarlo y mantener
+activa la cuenta. Se pidió conservar abierto **77760956** y cerrar solamente
+el chat/caso adicional de hoy, incorporando el resultado y el plazo al caso
+original y enviando el transcript al administrador.
+
+Evidencias locales ignoradas: `outputs/support/suspension-verificada-2026-11-23.json`,
+`outputs/support/escalacion-suspension-enviada-2026-11-23.jpg` y
+`outputs/support/chat-suspension-2026-11-23.txt`. También:
+`outputs/support/google-reactivacion-aprobada-2026-11-23.jpg`,
+`outputs/support/reactivacion-verificada-2026-11-23.json` y
+`outputs/support/cuotas-firestore-2026-11-23.json`,
+`outputs/support/acceso-verificado-2026-11-23.json` y
+`outputs/support/google-condiciones-reactivacion-2026-11-23.jpg`.
