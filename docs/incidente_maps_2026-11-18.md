@@ -164,6 +164,22 @@ activa la cuenta. Se pidió conservar abierto **77760956** y cerrar solamente
 el chat/caso adicional de hoy, incorporando el resultado y el plazo al caso
 original y enviando el transcript al administrador.
 
+**Confirmación adicional de continuidad:** Daniel pidió volver a preguntar en
+el chat que seguía abierto. Se preguntó explícitamente si mantendrían la
+cuenta y el proyecto activos durante toda la revisión de 5–10 días hábiles,
+hasta una decisión del caso 77760956, sin pagar primero Geocoding, y si existía
+vencimiento o condición de nueva suspensión. Jocelyn respondió por escrito:
+
+> We will monitor your case and make sure to keep your billing account until we have the final feedback from the internal team regarding the adjustment request.
+
+En el contexto de la reapertura y de su confirmación previa de mantener activa
+la cuenta, confirma continuidad hasta la respuesta final del equipo interno.
+No fijó una fecha de vencimiento de calendario ni modificó la aclaración sobre
+los cobros automáticos. No interpretar esta continuidad como aprobación del
+ajuste, como garantía de reembolso total o como garantía de disponibilidad
+de todos los servicios ajena al estado de facturación. Constancia local:
+`outputs/support/google-continuidad-hasta-respuesta-final-2026-11-23.jpg`.
+
 Evidencias locales ignoradas: `outputs/support/suspension-verificada-2026-11-23.json`,
 `outputs/support/escalacion-suspension-enviada-2026-11-23.jpg` y
 `outputs/support/chat-suspension-2026-11-23.txt`. También:
