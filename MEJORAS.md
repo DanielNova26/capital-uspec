@@ -13498,3 +13498,7 @@ Acta: «La reunión se inició a las 2026_10_15 18_27». Código: `functions/src
 - Subsanaciones: `doc`/`docx` se enviaban como `application/octet-stream` y Storage los
   rechazaba; ahora llevan su tipo correcto. Cambio solo en la app: requiere publicar Web.
 - Reglas publicadas el 21 nov 2026.
+
+## 2026-11-23 — AAB Android 2.8.43+97 (Claude)
+
+- Versión subida a 2.8.43+97 (la 96 ya existía sin los cambios posteriores). AAB `outputs/android/to-do-gestion-2.8.43-97.aab` firmado, `jarsigner` verificado; SHA-256 `3c72c25f6b0880d069eae526d19e5ac69dc98c1a4607a4b7465a7d83bfceb8e1`. Notas de versión en `docs/notas_version_2.8.43_97.md`. Pendiente carga en Play Console; no probado en dispositivo físico; iOS sin compilar.
