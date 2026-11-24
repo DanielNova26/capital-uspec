@@ -1,5 +1,26 @@
 # Geocoding: contención del consumo del 18 de noviembre de 2026
 
+## Última respuesta revisada: 24 de noviembre de 2026
+
+Daniel aportó un PDF de 11 páginas con un correo de Google Cloud Support,
+firmado por **Arianne Shiela**, fechado el **23 de noviembre** y referido al
+caso **77760956**. La primera página contiene el mensaje nuevo: confirma que
+remitió la solicitud al equipo interno el **19 de noviembre**, que aún no
+recibe su respuesta y que informará cuando tenga novedades.
+
+El correo no comunica aprobación ni rechazo del ajuste, importe concedido,
+crédito aplicado, nueva fecha de decisión o documentación adicional requerida.
+Tampoco anuncia otra suspensión ni revoca expresamente la continuidad
+confirmada en el chat del 23. Esto describe el contenido del documento; no se
+realizó una nueva auditoría de Cloud ni se deduce disponibilidad actual solo
+de ese correo. El seguimiento del 23 y el transcript del 18 que aparecen
+citados después pertenecen al historial, no son nuevas decisiones.
+
+Fuente: `C:/Users/LENOVO/Downloads/Respuesta.pdf`; páginas renderizadas para
+revisión en `outputs/support/respuesta-2026-11-24/`, ignoradas por Git. Solo se
+leyó y documentó la respuesta; no se enviaron mensajes ni se hicieron pagos
+o cambios en servicios.
+
 Proyecto: `integra360-94704` (379551786878).
 
 ## Evidencia

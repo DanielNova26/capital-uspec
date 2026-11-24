@@ -1,5 +1,11 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-24 — Respuesta por correo del caso de Maps, ajuste aún pendiente (Codex)
+
+- Revisado visualmente el PDF aportado por Daniel, de 11 páginas. El mensaje nuevo de Arianne Shiela, fechado el 23 de noviembre y correspondiente al caso `77760956`, confirma que remitió la solicitud al equipo interno el **19 de noviembre** y que todavía no ha recibido su respuesta; avisará al recibir novedades. No comunica aprobación, rechazo, importe de crédito ni requisitos nuevos.
+- El resto del documento incorpora el seguimiento enviado el 23 y el transcript histórico del 18. Los plazos y advertencias de ese historial no son una nueva decisión. El correo nuevo no anuncia otra suspensión ni modifica expresamente la confirmación de continuidad obtenida en el chat del 23; no se volvió a auditar el estado actual de Cloud en esta lectura.
+- Solo revisión y documentación, sin enviar mensajes, ejecutar pagos ni cambiar la aplicación o sus servicios. No corresponden pruebas de código o plataforma. Fuente local: PDF original en Downloads; páginas renderizadas como evidencia privada ignorada en `outputs/support/respuesta-2026-11-24/`. [Historial del caso](docs/incidente_maps_2026-11-18.md).
+
 ## 2026-11-23 — Suspensión de facturación y escalación del caso de Maps (Codex)
 
 - Comprobada la suspensión de la cuenta `0170D4-92CFCA-FB33BD`: correo oficial del 22 de noviembre por impago/datos de pago no válidos, saldo mostrado COP 500.898 y transacción de tarjeta rechazada. El aviso advierte posible cancelación si no se resuelve en 14 días. La API de Billing devuelve `open: false`; que Hosting responda HTTP 200 y las 124 funciones figuren ACTIVE no demuestra que las operaciones autenticadas estén disponibles. Daniel informa caída total de la operación.
