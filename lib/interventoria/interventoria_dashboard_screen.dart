@@ -44,6 +44,7 @@ import 'interventoria_actas_catalogo.dart';
 import 'interventoria_models.dart';
 import 'interventoria_programas.dart';
 import 'interventoria_service.dart';
+import 'interventoria_guardado_error.dart';
 import 'interventoria_tablero_asignacion.dart';
 import 'web_pdf_view.dart';
 import '../widgets/skeleton.dart';
@@ -9026,6 +9027,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
     setState(() => _saving = true);
     final nuevosAdjuntosSubidos = <InterventoriaAdjunto>[];
     var visitaPersistida = false;
+    var etapaGuardado = 'Comprobar si el acta ya existe';
     try {
       if (!_editando) {
         final duplicada = await widget.service.buscarActaDuplicada(
@@ -9049,6 +9051,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
       final itemsParaGuardar = _itemsParaGuardar();
       final pctGeneral = calcularPorcentajeGeneral(itemsParaGuardar);
       final filesToUpload = <_PickedActa>[];
+      etapaGuardado = 'Preparar el PDF del acta';
       final generatedPdf = await _buildGeneralActaPdf();
       if (generatedPdf != null) filesToUpload.add(generatedPdf);
       filesToUpload.addAll(_files);
@@ -9064,6 +9067,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
             tipoActa: _tipoActa,
             tiempoComida: _tiempoComida,
           );
+      etapaGuardado = 'Subir los archivos del acta';
       for (final f in filesToUpload) {
         nuevosAdjuntosSubidos.add(
           f.base64Data != null
@@ -9129,8 +9133,10 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
         createdAt: existente?.createdAt ?? Timestamp.now(),
       );
       if (existente == null) {
+        etapaGuardado = 'Registrar el acta';
         await widget.service.guardarVisita(visita);
       } else {
+        etapaGuardado = 'Guardar la corrección del acta';
         await widget.service.corregirActaDevuelta(
           visita: visita,
           corregidoPorId: widget.userId,
@@ -9143,6 +9149,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
           ? _buildHallazgosDesdeComentarios(visitaId, itemsParaGuardar)
           : <InterventoriaHallazgo>[];
       if (existente == null && hallazgos.isNotEmpty) {
+        etapaGuardado = 'Guardar los comentarios del acta';
         await widget.service.guardarHallazgos(hallazgos);
       }
 
@@ -9170,9 +9177,16 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
         await widget.service.eliminarAdjuntosStorage(nuevosAdjuntosSubidos);
       }
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error al guardar: $e')));
+        await showDialog<void>(
+          context: context,
+          builder: (_) => PointerInterceptor(
+            child: InterventoriaGuardadoError(
+              error: e,
+              etapa: etapaGuardado,
+              actaPersistida: visitaPersistida,
+            ),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _saving = false);

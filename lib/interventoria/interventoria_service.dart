@@ -13,6 +13,7 @@ import '../core/area_directory.dart';
 import '../core/festivos_colombia.dart';
 import '../core/subcentros_costo.dart';
 import '../core/task_origen.dart';
+import '../core/transaccion_legible.dart';
 import '../services/org_service.dart';
 import '../services/task_service.dart';
 import '../utils/user_company.dart';
@@ -1890,7 +1891,7 @@ class InterventoriaService {
         'Esta acta ya está registrada para el mismo establecimiento, fecha, tipo y tiempo de comida.',
       );
     }
-    await _db.runTransaction((transaction) async {
+    await _db.runTransactionLegible((transaction) async {
       final existing = await transaction.get(ref);
       if (existing.exists) {
         throw StateError(
@@ -1934,7 +1935,7 @@ class InterventoriaService {
     }
     final ref = _db.collection('TBL_INTERVENTORIA_VISITAS').doc(visita.id);
     String correccionTareaId = '';
-    await _db.runTransaction((transaction) async {
+    await _db.runTransactionLegible((transaction) async {
       final snapshot = await transaction.get(ref);
       if (!snapshot.exists) throw StateError('El acta ya no existe.');
       final data = snapshot.data()!;
