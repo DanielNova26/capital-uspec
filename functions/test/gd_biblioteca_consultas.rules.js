@@ -12,8 +12,11 @@ const {
   collection,
   doc,
   getDocs,
+  getDoc,
   query,
   setDoc,
+  updateDoc,
+  writeBatch,
   where,
 } = require("firebase/firestore");
 
@@ -51,6 +54,8 @@ test.before(async () => {
     const db = context.firestore();
     await Promise.all([
       setDoc(doc(db, "TBL_USUARIOS/alice"), {empresas: ["EMP_A"]}),
+      setDoc(doc(db, "TBL_USUARIOS/multi"), {empresas: ["EMP_A", "EMP_B"]}),
+      setDoc(doc(db, "TBL_USUARIOS/inactive"), {empresas: ["EMP_A"], activo: false}),
       setDoc(doc(db, "TBL_GD_VINCULOS/exp_a_doc_a_v1"), {
         empresaId: "EMP_A",
         expedienteId: "exp_a",
@@ -135,4 +140,72 @@ test("las versiones de un documento se listan solo por docId", async () => {
   )));
   assert.equal(snap.size, 1);
   await assertFails(getDocs(query(collection(db, "TBL_DOCUMENTOS_VERSIONES"), where("docId", "==", "doc_b"))));
+});
+
+for (const estado of ["borrador", "vigente"]) {
+  test(`crear documento y versión inicial atómicamente: ${estado}`, async () => {
+    const db = auth("alice");
+    const id = `nuevo_${estado}`;
+    const batch = writeBatch(db);
+    batch.set(doc(db, "TBL_DOCUMENTOS", id), {
+      empresaId: "EMP_A", estado, creadoPor: "alice", codigo: "GER-007",
+    });
+    batch.set(doc(db, "TBL_DOCUMENTOS_VERSIONES", id), {
+      empresaId: "EMP_A", docId: id, estado, numero: 1,
+    });
+    await assertSucceeds(batch.commit());
+    assert.equal((await getDoc(doc(db, "TBL_DOCUMENTOS_VERSIONES", id))).data().docId, id);
+  });
+}
+
+test("versión y evento posteriores conservan acceso al documento existente", async () => {
+  const db = auth("alice");
+  for (const col of ["TBL_DOCUMENTOS_VERSIONES", "TBL_DOCUMENTOS_FLUJO"]) {
+    await assertSucceeds(setDoc(doc(db, col, "posterior"), {
+      empresaId: "EMP_A", docId: "doc_a",
+    }));
+  }
+  await assertSucceeds(updateDoc(doc(db, "TBL_DOCUMENTOS_VERSIONES/posterior"), {
+    urlPdf: "https://example.com/documento.pdf",
+  }));
+});
+
+test("las versiones y eventos sin padre siguen rechazados", async () => {
+  const db = auth("alice");
+  for (const col of ["TBL_DOCUMENTOS_VERSIONES", "TBL_DOCUMENTOS_FLUJO"]) {
+    await assertFails(setDoc(doc(db, col, "huerfano"), {
+      empresaId: "EMP_A", docId: "no_existe",
+    }));
+  }
+});
+
+test("crear en lote no permite mezclar empresas aunque la persona pertenezca a ambas", async () => {
+  const db = auth("multi");
+  const batch = writeBatch(db);
+  batch.set(doc(db, "TBL_DOCUMENTOS/empresa_a"), {empresaId: "EMP_A"});
+  batch.set(doc(db, "TBL_DOCUMENTOS_VERSIONES/empresa_b"), {
+    empresaId: "EMP_B", docId: "empresa_a",
+  });
+  await assertFails(batch.commit());
+});
+
+test("no se crea para otra empresa, una cuenta inactiva ni sin sesión", async () => {
+  for (const [db, empresaId] of [
+    [auth("alice"), "EMP_B"],
+    [auth("inactive"), "EMP_A"],
+    [env.unauthenticatedContext().firestore(), "EMP_A"],
+  ]) {
+    const batch = writeBatch(db);
+    batch.set(doc(db, "TBL_DOCUMENTOS/no_autorizado"), {empresaId});
+    batch.set(doc(db, "TBL_DOCUMENTOS_VERSIONES/no_autorizado"), {
+      empresaId, docId: "no_autorizado",
+    });
+    await assertFails(batch.commit());
+  }
+});
+
+test("no se puede cambiar el padre ni la empresa de una versión existente", async () => {
+  const db = auth("multi");
+  await assertFails(updateDoc(doc(db, "TBL_DOCUMENTOS_VERSIONES/ver_a"), {docId: "doc_b"}));
+  await assertFails(updateDoc(doc(db, "TBL_DOCUMENTOS_VERSIONES/ver_a"), {empresaId: "EMP_B"}));
 });

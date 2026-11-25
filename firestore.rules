@@ -3076,8 +3076,12 @@ service cloud.firestore {
       }
       allow read: if collection in ['TBL_DOCUMENTOS_VERSIONES', 'TBL_DOCUMENTOS_FLUJO']
         && belongsToCompany(empresaDocumento(resource.data));
+      // Crear formato guarda el padre y su primera versión en el mismo lote.
+      // get() ve el estado anterior (padre inexistente); getAfter() comprueba
+      // el padre que dejará el lote, sin permitir versiones de otra empresa.
       allow create: if collection in ['TBL_DOCUMENTOS_VERSIONES', 'TBL_DOCUMENTOS_FLUJO']
-        && request.resource.data.empresaId == empresaDocumento(request.resource.data)
+        && request.resource.data.empresaId == getAfter(
+          /databases/$(database)/documents/TBL_DOCUMENTOS/$(request.resource.data.docId)).data.empresaId
         && belongsToCompany(request.resource.data.empresaId);
       allow update, delete: if collection in ['TBL_DOCUMENTOS_VERSIONES', 'TBL_DOCUMENTOS_FLUJO']
         && belongsToCompany(empresaDocumento(resource.data))

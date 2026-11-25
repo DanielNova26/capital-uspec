@@ -1,5 +1,66 @@
 # Geocoding: contención del consumo del 18 de noviembre de 2026
 
+## Seguimiento del 25 de noviembre de 2026
+
+Daniel informa nueva caída y solicita revisar correos, pedir recuperación si
+hay restricciones y precisar cuánto dura la reactivación. Después aclara que
+falla la carga de archivos. El pantallazo posterior de Milena en Alfa muestra
+`cloud_firestore/permission-denied` al crear un formato en Biblioteca
+documental (reportado desde SST), sin aviso de suspensión. Se reproduce el
+rechazo del lote padre/primera versión y se corrige a `getAfter()` la
+comprobación del padre en la regla de creación de versiones. Once pruebas
+pasan después de corregir; antes fallaban las dos creaciones iniciales. La
+corrección está publicada en producción (ruleset
+`e51a26f6-baaa-4f7c-b8f7-58ab34129dea`), pendiente reintento real de Milena.
+El segundo reporte, actas de Popayán, todavía necesita su pantallazo/mensaje;
+no se atribuye automáticamente a esta misma causa. Detalle en `MEJORAS.md`.
+
+Comprobaciones de solo lectura a las **16:04 Bogotá**: Billing devuelve
+`open: true`, lectura de un documento existente de Firestore HTTP 200 y función
+`authIniciarSesion` ACTIVE. Sus dos ejecuciones más recientes de la última hora
+terminan HTTP 200; no demuestra una sesión actual de Daniel. La web pública
+carga la pantalla de acceso, sin introducir credenciales.
+
+A las **16:10 Bogotá**, el proyecto conserva `billingEnabled: true`, vinculado
+a `0170D4-92CFCA-FB33BD`. El bucket operativo responde HTTP 200 en metadatos,
+listado mínimo y metadatos de un objeto por Firebase Storage; su vínculo a
+Firebase existe y el agente de Storage conserva
+`roles/firebaserules.firestoreServiceAgent`. La consulta final de errores de
+Storage de las últimas 24 horas devuelve HTTP 200 sin entradas (la consulta
+anterior había devuelto 429 y no se interpretó como ausencia de errores).
+Estas lecturas administrativas **no validan una subida ni los permisos de la
+sesión afectada**. No se confirma una nueva suspensión ni se declara resuelto
+el fallo de archivos.
+
+Revisado el buzón del proyecto, no la otra cuenta personal conectada al
+conector. La búsqueda del caso, cuenta y suspensiones desde el 23 solo
+encuentra los mensajes conocidos: última respuesta del ajuste del 23,
+transcripts, alta del caso adicional **77921536** y suspensión del 22. No se
+encontró una nueva decisión ni un nuevo aviso de suspensión en esa búsqueda.
+El correo de actualización legal de Cloud se refiere a condiciones de 2027,
+no constituye una suspensión ni se aceptaron términos.
+
+Con autorización de Daniel, enviado seguimiento al hilo original
+**77760956** a las **16:07 Bogotá**; Gmail muestra el mensaje enviado. Explica
+la caída reportada y las comprobaciones positivas, sin afirmar una suspensión
+no verificada. Solicita revisar restricciones y reactivar si corresponde,
+confirmar continuidad hasta la decisión final o fecha/hora/zona exactas de
+vencimiento, condiciones y aviso previo, además del estado/plazo del ajuste.
+No autoriza pagos. También iniciada atención humana de Cloud Billing:
+**Mohammed Abdul**, asignado a las **16:12 Bogotá**, recibe la misma consulta
+y pide 5–10 minutos para revisar la cuenta y los casos anteriores.
+Tras revisarlos, transfiere a **Jonathan de Maps**, asignado a las
+**16:18 Bogotá**, porque no dispone de herramientas del consumo de Maps.
+Jonathan recibe la consulta de duración y estado del ajuste; se aclara que el
+pantallazo recibido apunta a permisos de Firestore y se está corrigiendo por
+separado, sin afirmar una nueva suspensión.
+
+Evidencias privadas ignoradas: `outputs/support/estado-firebase-2026-11-25.json`,
+`acceso-verificado-2026-11-25.json`, `storage-verificado-2026-11-25.json` y
+`seguimiento-enviado-2026-11-25.txt`. Se publicó únicamente la corrección de
+reglas documentales indicada arriba; no se cambiaron cuotas, credenciales,
+métodos de pago ni datos operativos.
+
 ## Última respuesta revisada: 24 de noviembre de 2026
 
 Daniel aportó un PDF de 11 páginas con un correo de Google Cloud Support,
