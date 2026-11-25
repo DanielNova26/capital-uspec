@@ -11,7 +11,8 @@ rechazo del lote padre/primera versión y se corrige a `getAfter()` la
 comprobación del padre en la regla de creación de versiones. Once pruebas
 pasan después de corregir; antes fallaban las dos creaciones iniciales. La
 corrección está publicada en producción (ruleset
-`e51a26f6-baaa-4f7c-b8f7-58ab34129dea`), pendiente reintento real de Milena.
+`e51a26f6-baaa-4f7c-b8f7-58ab34129dea`); Daniel indica que probarán el reintento
+real de Milena después, por lo que la validación funcional permanece pendiente.
 El segundo reporte, actas de Popayán, todavía necesita su pantallazo/mensaje;
 no se atribuye automáticamente a esta misma causa. Detalle en `MEJORAS.md`.
 
@@ -54,6 +55,28 @@ Tras revisarlos, transfiere a **Jonathan de Maps**, asignado a las
 Jonathan recibe la consulta de duración y estado del ajuste; se aclara que el
 pantallazo recibido apunta a permisos de Firestore y se está corrigiendo por
 separado, sin afirmar una nueva suspensión.
+
+**Nueva confirmación expresa de continuidad:** Jonathan responde por escrito
+a la pregunta de si la reactivación dura hasta la decisión final del ajuste:
+**sí**; añade que por ahora no hay ninguna gestión que hacer porque durará
+hasta esa decisión. No comunica un vencimiento anterior de calendario ni
+aprueba un crédito. Se pidió incorporar esta confirmación al caso original
+`77760956`, enviarla por correo al administrador y confirmar si sigue vigente
+la estimación de 5–10 días hábiles comunicada el 23. El acuse de Google
+identifica el chat adicional de hoy como **78010643**, abierto a las 16:12.
+Constancia privada: `outputs/support/google-confirma-continuidad-2026-11-25.jpg`
+y `chat-continuidad-2026-11-25.txt`.
+
+**Estado económico comunicado por Jonathan:** el equipo interno suele tardar
+**7–10 días hábiles** investigando y todavía no tiene novedades del caso
+`77760956`. Es una estimación habitual, no una fecha garantizada ni aprobación
+del crédito. No precisó desde qué fecha la cuenta; se pidió aclararlo en el
+correo de seguimiento, junto a la confirmación y el transcript. Se agradeció
+y se solicitó conservar abierto el caso original, pudiendo cerrar solamente
+la consulta adicional de hoy tras registrar la confirmación. No se interpreta
+que ya hayan aplicado un ajuste, detenido cobros automáticos o garantizado
+disponibilidad de todos los módulos. Otra evidencia privada:
+`outputs/support/google-estado-ajuste-2026-11-25.jpg`.
 
 Evidencias privadas ignoradas: `outputs/support/estado-firebase-2026-11-25.json`,
 `acceso-verificado-2026-11-25.json`, `storage-verificado-2026-11-25.json` y
