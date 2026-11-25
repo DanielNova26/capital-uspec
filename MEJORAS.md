@@ -1,5 +1,11 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-25 — Diagnóstico pendiente del guardado de actas de Popayán (Codex)
+
+- Recibida foto del reporte de Interventoría. Solo se alcanza a leer `Error al guardar: Error…`; la hoja de registro tapa el resto del mensaje. No permite identificar el código, la etapa ni si coincide con el rechazo de permisos del formato documental. Se solicitó el texto completo y distinguir guardado, subida del PDF o revisión.
+- Revisados el guardado inicial y la corrección de actas, comprobación de duplicados, subida de adjuntos y reglas correspondientes. Las **11 pruebas existentes** de `interventoria_visitas.rules.js` pasan en emulador: registro transaccional, borrador/revisión, sincronización de hallazgos, restricciones entre empresas y tipos de acta. Esto no reproduce ni descarta un fallo del navegador, archivo o datos de la persona afectada. Hosting informa Web 2.8.42+96.
+- No se cambiaron aplicación, permisos, reglas ni datos de producción en este diagnóstico. No se declara corregido el reporte. Pendiente recibir el detalle completo y reproducirlo con su operación/archivo; no se validaron flujos reales en Web ni dispositivos Android/iOS.
+
 ## 2026-11-25 — Formato documental rechazado y seguimiento de continuidad (Codex)
 
 - Pantallazo de Milena en Alfa: `cloud_firestore/permission-denied` al crear un formato de Biblioteca documental (reportado desde SST). Reproducido en emulador: `GdService.crearDocumento` guarda padre y versión inicial en un lote, pero la regla de creación de versiones usaba `get()` sobre el padre todavía inexistente. Corregida únicamente esa comprobación a `getAfter()`; mantiene la igualdad de empresa con el padre y la pertenencia/habilitación de la persona. No se conceden roles ni se cambian accesos individuales.
