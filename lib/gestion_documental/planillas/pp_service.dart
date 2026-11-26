@@ -187,8 +187,10 @@ class PpService {
             _normalizeStoragePath(data['logoPath']) ??
             logos.firstOrNull?['path'],
       );
-    } catch (_) {
-      return (logos: <Map<String, String>>[], logoActivoPath: null);
+    } catch (error) {
+      throw PpException(
+        'No se pudieron consultar los logos de la empresa: $error',
+      );
     }
   }
 
@@ -358,6 +360,7 @@ class PpService {
                       _normalizeStoragePath(rawPath) ??
                       _normalizeStoragePath(rawUrl);
                   return <String, dynamic>{
+                    ...Map<String, dynamic>.from(m),
                     'nombre': (m['nombre'] ?? '').toString(),
                     'path': resolvedPath ?? '',
                     'url': rawUrl ?? '',

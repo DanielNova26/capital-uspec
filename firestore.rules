@@ -1739,6 +1739,32 @@ service cloud.firestore {
       return operaPlanillas(empresaId, ['tesoreria', 'auditoria', 'gerencia', 'admin_doc']);
     }
 
+    // Configuración histórica: la empresa es el ID, no un campo del documento.
+    // logos: lista de mapas {nombre, path, url, b64?}; logoActivoPath: ruta.
+    match /TBL_PP_CONFIG/{empresaId} {
+      function configLogoValida() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(['logos', 'logoActivoPath', 'updatedAt',
+            'empresaId', 'logoPath', 'logoUrl', 'logoNombre'])
+          && d.get('empresaId', empresaId) == empresaId
+          && d.get('logos', []) is list
+          && d.get('logos', []).size() <= 100
+          && d.updatedAt == request.time
+          && (d.get('logoActivoPath', '') == ''
+            || (d.logoActivoPath is string
+              && d.logoActivoPath.matches('planillas_pago/' + empresaId + '/config/[^/]+')))
+          && (resource == null
+            || d.get('logos', []).hasAll(resource.data.get('logos', []))
+            // La pertenencia y acceso ya se comprobaron en operaPlanillas.
+            || planillasRole(empresaId) == 'admin_doc'
+            || isDeveloper() || isDeveloperIn(empresaId));
+      }
+      allow get: if consultaPlanillas(empresaId);
+      allow create, update: if operaPlanillas(empresaId, ['tesoreria', 'admin_doc'])
+        && configLogoValida();
+      allow delete: if false;
+    }
+
     match /TBL_PP_PLANILLAS/{planillaId} {
       function camposEditados() {
         return request.resource.data.diff(resource.data).affectedKeys();
@@ -3126,7 +3152,7 @@ service cloud.firestore {
           + '|BIOMETRICO_DISPOSITIVOS|BIOMETRICO_CREDENCIALES|BIOMETRICO_EVENTOS|BIOMETRICO_HORARIOS|BIOMETRICO_JORNADAS|BIOMETRICO_APROBACIONES|BIOMETRICO_AUDITORIA|BIOMETRICO_PINES'
           + '|LOGIN_SESIONES'
           + '|PAGOS_BENEFICIARIOS|PAGOS_BENEFICIARIOS_CUENTA'
-          + '|PP_PLANILLAS|PP_LOTES|PP_FLUJO'
+          + '|PP_PLANILLAS|PP_LOTES|PP_FLUJO|PP_CONFIG'
           + '|RUTAS|RUTAS_ROLES|RUTAS_ESTABLECIMIENTOS|RUTAS_PLACAS|RUTAS_CONFIG|RUTAS_ASIGNACIONES|RUTAS_EVIDENCIAS|RUTAS_RESUMEN_DIARIO|RUTAS_UBICACIONES|RUTAS_MOV_CONFIG|RUTAS_MOV_HORARIOS|RUTAS_MOV_MEDICIONES|RUTAS_MOV_RUNS'
           + '|CITAS_NUTRICION|HISTORIAL_NUTRICION'
           + '|FAC_CONFIG'

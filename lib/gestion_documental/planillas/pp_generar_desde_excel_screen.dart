@@ -55,6 +55,9 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
   List<Map<String, String>> _logos = const [];
   Map<String, String>? _logoSeleccionado;
   bool _guardandoLogo = false;
+  bool _cargandoLogos = true;
+  String? _errorLogos;
+  int _cargaLogos = 0;
   static const _kSinLogo = {'nombre': 'Sin logo', 'path': '', 'url': ''};
   List<String> _consolidadosIndexados = const <String>[];
   Map<String, List<PpExcelFila>> _filasPorConsolidado =
@@ -77,9 +80,14 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
   }
 
   Future<void> _cargarLogoEmpresa() async {
+    final carga = ++_cargaLogos;
+    setState(() {
+      _cargandoLogos = true;
+      _errorLogos = null;
+    });
     try {
       final config = await _service.getLogoConfig(widget.empresaId);
-      if (!mounted) return;
+      if (!mounted || carga != _cargaLogos) return;
       final seleccionado = config.logos.isNotEmpty
           ? config.logos.firstWhere(
               (l) => l['path'] == config.logoActivoPath,
@@ -90,6 +98,7 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
         _logos = config.logos;
         _logoSeleccionado = seleccionado;
         _logoBytes = (seleccionado['path'] ?? '').isEmpty ? Uint8List(0) : null;
+        _cargandoLogos = false;
       });
       // Precargar bytes del logo activo en la UI para pasarlos directamente al servicio
       if ((seleccionado['path'] ?? '').isNotEmpty) {
@@ -98,11 +107,31 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
           url: seleccionado['url'],
           b64: seleccionado['b64'],
         );
-        if (mounted && bytes != null && bytes.isNotEmpty) {
+        if (mounted &&
+            carga == _cargaLogos &&
+            bytes != null &&
+            bytes.isNotEmpty) {
           setState(() => _logoBytes = bytes);
         }
       }
-    } catch (_) {}
+    } catch (error) {
+      if (!mounted || carga != _cargaLogos) return;
+      setState(() {
+        _cargandoLogos = false;
+        _errorLogos = 'No se pudieron cargar los logos de esta empresa. $error';
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant PpGenerarDesdeExcelScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.empresaId != widget.empresaId) {
+      _logos = const [];
+      _logoSeleccionado = null;
+      _logoBytes = null;
+      _cargarLogoEmpresa();
+    }
   }
 
   Future<
@@ -115,6 +144,11 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
     })
   >
   _resolverLogoSeleccionadoParaGenerar() async {
+    if (_cargandoLogos || _errorLogos != null) {
+      throw const PpException(
+        'Consulta los logos de la empresa antes de generar las planillas.',
+      );
+    }
     final path = _logoPathSeleccionado;
     final url = (_logoSeleccionado?['url'] ?? '').trim();
     final nombre = (_logoSeleccionado?['nombre'] ?? '').trim();
@@ -1190,6 +1224,22 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
   }
 
   Widget _buildLogoSelector() {
+    if (_errorLogos != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(_errorLogos!, style: const TextStyle(color: Colors.red)),
+          TextButton.icon(
+            onPressed: _cargarLogoEmpresa,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Reintentar cargar logos'),
+          ),
+        ],
+      );
+    }
+    if (_cargandoLogos) {
+      return const Text('Cargando logos de la empresa…');
+    }
     if (_guardandoLogo) {
       return const Row(
         children: [
@@ -1326,7 +1376,10 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
           ],
         ),
         const SizedBox(height: 10),
-        Row(
+        Wrap(
+          spacing: 12,
+          runSpacing: 10,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             if (_tieneLogoSeleccionado &&
                 _logoBytes != null &&
@@ -1342,10 +1395,6 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
                 ),
                 child: Image.memory(_logoBytes!, fit: BoxFit.contain),
               ),
-            if (_tieneLogoSeleccionado &&
-                _logoBytes != null &&
-                _logoBytes!.isNotEmpty)
-              const SizedBox(width: 12),
             OutlinedButton.icon(
               onPressed: _pickLogo,
               icon: const Icon(Icons.upload_outlined, size: 18),

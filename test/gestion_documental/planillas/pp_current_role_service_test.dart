@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,6 +10,33 @@ import 'package:todo/gestion_documental/planillas/pp_service.dart';
 import 'package:todo/services/task_service.dart';
 
 import '../../support/memory_firestore.dart';
+
+class _DeniedFirestore extends MemoryFirestore {
+  @override
+  CollectionReference<Map<String, dynamic>> collection(String path) =>
+      _DeniedCollection();
+}
+
+// ignore: subtype_of_sealed_class
+class _DeniedCollection extends Fake
+    implements CollectionReference<Map<String, dynamic>> {
+  @override
+  DocumentReference<Map<String, dynamic>> doc([String? path]) => _DeniedDoc();
+}
+
+// ignore: subtype_of_sealed_class
+class _DeniedDoc extends Fake
+    implements DocumentReference<Map<String, dynamic>> {
+  @override
+  Future<DocumentSnapshot<Map<String, dynamic>>> get([
+    GetOptions? options,
+  ]) async {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'permission-denied',
+    );
+  }
+}
 
 class _Storage extends Fake implements FirebaseStorage {
   final archivos = <String, Uint8List>{};
@@ -91,6 +119,62 @@ void main() {
   });
   Map<String, dynamic> detail() =>
       db.documents['TBL_USUARIOS/persona']!['empresasDetalle']['A'];
+
+  test('un rechazo de lectura no se convierte en lista vacía', () async {
+    final denied = _DeniedFirestore();
+    addTearDown(denied.close);
+    final deniedService = PpService(
+      db: denied,
+      storage: storage,
+      functions: _Functions(),
+      taskService: TaskService(db: denied, storage: storage),
+    );
+    await expectLater(
+      deniedService.getLogoConfig('A'),
+      throwsA(
+        isA<PpException>().having(
+          (e) => e.mensaje,
+          'causa',
+          contains('permission-denied'),
+        ),
+      ),
+    );
+  });
+
+  test(
+    'lee logos históricos por ID y mantiene los bytes de los demás al eliminar',
+    () async {
+      detail()['rolPlanillas'] = 'admin_doc';
+      const pathA = 'planillas_pago/A/config/a.png';
+      const pathB = 'planillas_pago/A/config/b.png';
+      db.documents['TBL_PP_CONFIG/A'] = {
+        'logos': [
+          {'nombre': 'A', 'path': pathA, 'url': '', 'b64': 'AQID'},
+          {'nombre': 'B', 'path': pathB, 'url': '', 'b64': 'BAUG'},
+        ],
+        'logoActivoPath': pathA,
+      };
+      final config = await service.getLogoConfig('A');
+      expect(config.logos.length, 2);
+      expect(config.logoActivoPath, pathA);
+      expect((await service.getLogoConfig('B')).logos, isEmpty);
+      await service.eliminarLogo(
+        empresaId: 'A',
+        actorId: 'persona',
+        logoPath: pathA,
+        rolPlanillas: 'admin_doc',
+      );
+      final remaining = await service.getLogoConfig('A');
+      expect(remaining.logos.single['b64'], 'BAUG');
+      expect(
+        await service.cargarLogoBytes(
+          path: pathB,
+          b64: remaining.logos.single['b64'],
+        ),
+        Uint8List.fromList([4, 5, 6]),
+      );
+    },
+  );
   Future<void> save({String empresaId = 'A', String role = 'tesoreria'}) =>
       service.actualizarNombrePlanilla(
         planillaId: 'doc',
