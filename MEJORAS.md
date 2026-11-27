@@ -1,5 +1,12 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-27 — AAB 2.8.46 (100) listo y código sincronizado (Codex)
+
+- Generado `outputs/android/to-do-gestion-2.8.46-100.aab` desde `9eac65b`, con compilación release y dependencias existentes (`--no-pub`), sin cambiar fuentes ni dependencias. Incluye «Esta tarea no me corresponde», revisión en Interventoría y los cambios compartidos de la entrega Web. La jefatura y las funciones/reglas de esa entrega ya están publicadas.
+- Bundletool valida el bundle y su manifiesto: paquete `com.todogestion.app`, versión **2.8.46**, código **100**. Tamaño **155.162.927 bytes**. Jarsigner termina correctamente (`jar verified`); certificado SHA-256 idéntico al AAB 97: `85:57:11:E8:4A:EA:07:17:BA:99:73:78:CC:A4:5A:7A:DD:9A:77:EB:58:6A:75:BD:C7:E5:BE:DE:69:FB:00:BC`. Conserva los avisos del certificado autofirmado/sin sello de tiempo y de lectura por streaming; no se cambió la firma. La compilación conserva avisos de próxima actualización de Gradle/AGP, sin errores.
+- SHA-256 del AAB: `7737996fd2a8ad17ad873ac499b3058e36ebf2785f9da0f4858de9180a92f43e`, también en el archivo `.aab.sha256` adyacente. Manifiesto, informe de paquete/firma y logs de compilación/validación privados ignorados en `outputs/support/android-2.8.46-*`.
+- Listo para cargar en Play Console; no se cargó ni publicó en Google Play ni se cambió el aviso de versiones móviles. Falta instalarlo y probarlo en un Android físico. Para la Mac, código y versión están en `main`: sincronizar con `git pull origin main` y `flutter pub get`. No se generó IPA ni se publicó iOS. Se mantienen las limitaciones de pruebas funcionales/plataformas de la entrada siguiente.
+
 ## 2026-11-27 — Publicada Web 2.8.46 (100): «Esta tarea no me corresponde» y jefatura vigente (Codex)
 
 - **Mis tareas → acciones del hallazgo → Esta tarea no me corresponde**: el responsable vigente propone grupo, área, persona y motivo (mínimo 8 caracteres). Los catálogos son los existentes de la empresa; las personas se filtran por grupo/área y búsqueda. No cambia la asignación al solicitar. Mientras está pendiente no permite avances, finalización ni otra reasignación. El formulario conserva los datos al fallar y reintenta con el mismo identificador, sin duplicar solicitudes.
