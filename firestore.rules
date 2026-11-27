@@ -3138,8 +3138,19 @@ service cloud.firestore {
           && request.resource.data.docId == resource.data.docId));
     }
 
+    // Admin > Multiempresa consulta estos tres catálogos completos para
+    // traducir puestos entre empresas. Solo Desarrollo global puede hacerlo;
+    // una consulta sin filtro no puede demostrar resource.data.empresaId.
+    // También comprueba documentos aún inexistentes (en especial el espejo
+    // EMPRESA_cédula de Empleados) antes de vincular: null no tiene empresaId.
+    // Esto solo abre lecturas: las escrituras conservan el aislamiento y la
+    // comprobación de inhabilitación de documentoDeSuEmpresa().
     match /{catalogo}/{id} {
-      allow read: if catalogo in ['TBL_DEPARTAMENTOS', 'TBL_CIUDADES'] && isSignedIn();
+      allow read: if (catalogo in ['TBL_DEPARTAMENTOS', 'TBL_CIUDADES'] && isSignedIn())
+        || (catalogo in ['TBL_AREAS', 'TBL_CARGOS', 'TBL_CENTROS_COSTOS']
+          && request.method == 'list' && isDeveloper())
+        || (catalogo in ['TBL_AREAS', 'TBL_CARGOS', 'TBL_CENTROS_COSTOS', 'TBL_EMPLEADOS']
+          && request.method == 'get' && resource == null && isDeveloper());
       allow write: if catalogo in ['TBL_DEPARTAMENTOS', 'TBL_CIUDADES'] && isDeveloper();
     }
 
