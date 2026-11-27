@@ -22,6 +22,9 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import '../core/transaccion_legible.dart';
+import '../utils/user_company.dart';
+
 /// Dominio donde vive la página del carnet. La ruta `/carnet/**` está
 /// redirigida a la función `carnetPublico` en `firebase.json`.
 const String kCarnetBaseUrl = 'https://to-do-gestion.com/carnet';
@@ -53,24 +56,32 @@ Future<String> asegurarTokenCarnet({
 }) async {
   final firestore = db ?? FirebaseFirestore.instance;
   final ref = firestore.collection('TBL_USUARIOS').doc(userId);
-  final snap = await ref.get();
-  final actual = (snap.data()?['carnetToken'] ?? '').toString().trim();
-
-  if (actual.isNotEmpty) {
-    // La empresa puede haber cambiado desde la última vez.
-    if ((snap.data()?['carnetEmpresaId'] ?? '') != empresaId) {
-      await ref.set({'carnetEmpresaId': empresaId}, SetOptions(merge: true));
+  return firestore.runTransactionLegible((transaction) async {
+    final snap = await transaction.get(ref);
+    final data = snap.data();
+    if (data == null || !userBelongsToEmpresa(data, empresaId)) {
+      throw StateError('La persona no pertenece a la empresa del carnet.');
     }
-    return actual;
-  }
-
-  final token = (generador ?? generarTokenCarnet)();
-  await ref.set({
-    'carnetToken': token,
-    'carnetEmpresaId': empresaId,
-    'carnetGeneradoEn': FieldValue.serverTimestamp(),
-  }, SetOptions(merge: true));
-  return token;
+    final actual = (data['carnetToken'] ?? '').toString().trim();
+    if (actual.isNotEmpty) {
+      if ((data['carnetEmpresaId'] ?? '') != empresaId ||
+          data['carnetGeneradoEn'] is! Timestamp) {
+        transaction.update(ref, {
+          'carnetEmpresaId': empresaId,
+          if (data['carnetGeneradoEn'] is! Timestamp)
+            'carnetGeneradoEn': FieldValue.serverTimestamp(),
+        });
+      }
+      return actual;
+    }
+    final token = (generador ?? generarTokenCarnet)();
+    transaction.update(ref, {
+      'carnetToken': token,
+      'carnetEmpresaId': empresaId,
+      'carnetGeneradoEn': FieldValue.serverTimestamp(),
+    });
+    return token;
+  });
 }
 
 /// Genera un token nuevo, invalidando el carnet anterior.

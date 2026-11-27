@@ -5,6 +5,7 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
+import '../utils/person_name.dart';
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 
@@ -1257,20 +1258,7 @@ class _HvDashboardScreenState extends State<HvDashboardScreen>
       return '';
     }
 
-    final nombreCompleto = pick(['nombreCompleto']);
-    final nombres = pick(['nombres']);
-    final apellidos = pick(['apellidos']);
-    final primerNombre = pick(['primerNombre']);
-    final segundoNombre = pick(['segundoNombre']);
-    final primerApellido = pick(['primerApellido']);
-    final segundoApellido = pick(['segundoApellido']);
-    final computedName = nombreCompleto.isNotEmpty
-        ? nombreCompleto
-        : '$nombres $apellidos'.trim().isNotEmpty
-        ? '$nombres $apellidos'.trim()
-        : '$primerNombre $segundoNombre $primerApellido $segundoApellido'
-              .replaceAll(RegExp(r'\s+'), ' ')
-              .trim();
+    final computedName = PersonName.fromMap(data).completo;
 
     return _HvPerson(
       nombre: computedName.isEmpty ? docId : computedName,

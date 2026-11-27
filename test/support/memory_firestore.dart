@@ -198,6 +198,9 @@ class _Document extends Fake
   @override
   String get id => path.split('/').last;
   @override
+  CollectionReference<Map<String, dynamic>> collection(String collectionPath) =>
+      _Collection(db, '$path/$collectionPath');
+  @override
   Stream<DocumentSnapshot<Map<String, dynamic>>> snapshots({
     bool includeMetadataChanges = false,
     ListenSource source = ListenSource.defaultSource,

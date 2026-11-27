@@ -12,6 +12,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:todo/data/firestore_user_repository.dart';
 import 'package:todo/utils/user_company.dart';
+import '../utils/person_name.dart';
 
 import 'carnet_pdf.dart';
 import 'carnet_qr.dart';
@@ -86,6 +87,7 @@ class CarnetService {
 
     final filas = docs.map((doc) {
       final data = doc.data();
+      final nombre = PersonName.fromMap(data);
       final detalle = getUserCompanyDetail(data, id);
       final estadoLaboral = (detalle?['estadoLaboral'] ?? '')
           .toString()
@@ -102,8 +104,8 @@ class CarnetService {
       return CarnetCandidato(
         userId: doc.id,
         cedula: (data['cedula'] ?? doc.id).toString().trim(),
-        nombres: _nombres(data),
-        apellidos: _apellidos(data),
+        nombres: nombre.nombres,
+        apellidos: nombre.apellidos,
         cargo: cargosPorId[cargoCrudo] ?? cargoCrudo,
         fotoUrl: (data['fotoUrl'] ?? '').toString().trim(),
         // El retiro vive en el bloque de la empresa; el `estado` raíz solo
@@ -202,27 +204,5 @@ class CarnetService {
         if ((doc.data()['nombre'] ?? '').toString().trim().isNotEmpty)
           doc.id: (doc.data()['nombre']).toString().trim(),
     };
-  }
-
-  static String _nombres(Map<String, dynamic> data) {
-    final partes = [
-      (data['primerNombre'] ?? '').toString().trim(),
-      (data['segundoNombre'] ?? '').toString().trim(),
-    ].where((p) => p.isNotEmpty).toList();
-    if (partes.isNotEmpty) return partes.join(' ');
-    // Padrón viejo: solo hay un campo con todo junto. Se imprime completo en
-    // el renglón de nombres antes que dejar el carnet en blanco.
-    return (data['nombreCompleto'] ?? data['nombre'] ?? data['nombres'] ?? '')
-        .toString()
-        .trim();
-  }
-
-  static String _apellidos(Map<String, dynamic> data) {
-    final partes = [
-      (data['primerApellido'] ?? '').toString().trim(),
-      (data['segundoApellido'] ?? '').toString().trim(),
-    ].where((p) => p.isNotEmpty).toList();
-    if (partes.isNotEmpty) return partes.join(' ');
-    return (data['apellidos'] ?? '').toString().trim();
   }
 }

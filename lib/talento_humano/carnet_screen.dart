@@ -19,10 +19,12 @@ import '../widgets/internal_module_layout.dart';
 import '../widgets/paged_list.dart';
 import '../widgets/user_avatar.dart';
 import 'carnet_marca.dart';
+import 'carnet_filtros.dart';
 import 'carnet_pdf.dart';
 import 'carnet_preview.dart';
 import 'carnet_service.dart';
 import 'foto_carnet_captura.dart';
+import 'talento_humano_roles.dart';
 
 const Color _khPrimary = Color(0xffc28942);
 const Color _khBorde = Color(0xFFE2E8F0);
@@ -73,6 +75,9 @@ class _CarnetScreenState extends State<CarnetScreen> {
   CarnetFormato _formato = CarnetFormato.tarjeta;
   CarnetSalida _salida = CarnetSalida.hoja;
   bool _soloActivos = true;
+  bool _soloAprobados = false;
+  CarnetFiltroEstado _filtroFoto = CarnetFiltroEstado.todos;
+  CarnetFiltroEstado _filtroCarnet = CarnetFiltroEstado.todos;
   bool _cargando = true;
   bool _guardando = false;
   bool _generando = false;
@@ -97,6 +102,15 @@ class _CarnetScreenState extends State<CarnetScreen> {
       _error = null;
     });
     try {
+      final nivel = await TalentoHumanoRolesService().load(
+        userId: widget.userId,
+        empresaId: widget.empresaId,
+      );
+      if (!nivel.puedeGestionar) {
+        throw StateError(
+          'Tu nivel de Talento Humano no permite generar carnets.',
+        );
+      }
       final marca = await _marcaSvc.cargar(widget.empresaId);
       final candidatos = await _svc.cargarCandidatos(widget.empresaId);
       if (!mounted) return;
@@ -117,15 +131,27 @@ class _CarnetScreenState extends State<CarnetScreen> {
   }
 
   List<CarnetCandidato> get _visibles {
-    final consulta = _buscarCtrl.text;
-    return _candidatos
-        .where((c) => !_soloActivos || c.activo)
-        .where((c) => c.coincideCon(consulta))
-        .toList();
+    final filtros = CarnetFiltros(
+      consulta: _buscarCtrl.text,
+      soloActivos: _soloActivos,
+      soloAprobados: _soloAprobados,
+      foto: _filtroFoto,
+      carnet: _filtroCarnet,
+    );
+    return _candidatos.where(filtros.incluye).toList();
+  }
+
+  void _cambiarFiltros(VoidCallback cambio) {
+    setState(() {
+      cambio();
+      final ids = _visibles.map((c) => c.userId).toSet();
+      _seleccion.removeWhere((id) => !ids.contains(id));
+    });
+    _asegurarRhPreview();
   }
 
   List<CarnetCandidato> get _seleccionados =>
-      _candidatos.where((c) => _seleccion.contains(c.userId)).toList();
+      _visibles.where((c) => _seleccion.contains(c.userId)).toList();
 
   bool get _hayCambiosDeMarca =>
       _marca != null &&
@@ -603,7 +629,7 @@ class _CarnetScreenState extends State<CarnetScreen> {
           const SizedBox(height: 12),
           TextField(
             controller: _buscarCtrl,
-            onChanged: (_) => setState(() {}),
+            onChanged: (_) => _cambiarFiltros(() {}),
             style: const TextStyle(fontFamily: _kFont, fontSize: 13.5),
             decoration: InputDecoration(
               isDense: true,
@@ -614,9 +640,16 @@ class _CarnetScreenState extends State<CarnetScreen> {
                   ? null
                   : IconButton(
                       icon: const Icon(Icons.close, size: 18),
-                      onPressed: () => setState(_buscarCtrl.clear),
+                      onPressed: () => _cambiarFiltros(_buscarCtrl.clear),
                     ),
             ),
+          ),
+          const SizedBox(height: 10),
+          CarnetFiltrosBar(
+            foto: _filtroFoto,
+            carnet: _filtroCarnet,
+            onFotoChanged: (v) => _cambiarFiltros(() => _filtroFoto = v),
+            onCarnetChanged: (v) => _cambiarFiltros(() => _filtroCarnet = v),
           ),
           const SizedBox(height: 10),
           Wrap(
@@ -630,18 +663,25 @@ class _CarnetScreenState extends State<CarnetScreen> {
                   style: TextStyle(fontFamily: _kFont, fontSize: 12),
                 ),
                 selected: _soloActivos,
-                onSelected: (v) => setState(() => _soloActivos = v),
+                onSelected: (v) => _cambiarFiltros(() => _soloActivos = v),
+              ),
+              FilterChip(
+                label: const Text('Solo HV aprobada'),
+                selected: _soloAprobados,
+                onSelected: (v) => _cambiarFiltros(() => _soloAprobados = v),
               ),
               TextButton.icon(
                 onPressed: visibles.isEmpty
                     ? null
                     : () => setState(() {
-                        _seleccion.addAll(visibles.map((c) => c.userId));
+                        _seleccion
+                          ..clear()
+                          ..addAll(visibles.map((c) => c.userId));
                         _asegurarRhPreview();
                       }),
                 icon: const Icon(Icons.done_all, size: 16),
                 label: Text(
-                  'Seleccionar los ${visibles.length} visibles',
+                  'Seleccionar todos los filtrados (${visibles.length})',
                   style: const TextStyle(fontFamily: _kFont, fontSize: 12),
                 ),
               ),
@@ -746,6 +786,7 @@ class _CarnetScreenState extends State<CarnetScreen> {
       title: UserNameText(
         c.userId,
         fallbackName: c.nombreCompleto,
+        maxLines: null,
         style: const TextStyle(
           fontFamily: _kFont,
           fontSize: 13.5,
@@ -837,7 +878,7 @@ class _CarnetScreenState extends State<CarnetScreen> {
   // -------------------------------------------------------------- generar
 
   Widget _barraGenerar() {
-    final n = _seleccion.length;
+    final n = _seleccionados.length;
     final hojas = n == 0
         ? 0
         : _salida == CarnetSalida.hoja
@@ -927,21 +968,40 @@ class _CarnetScreenState extends State<CarnetScreen> {
     required Map<T, String> opciones,
     required ValueChanged<T> onChanged,
   }) {
-    return SegmentedButton<T>(
-      showSelectedIcon: false,
-      style: const ButtonStyle(visualDensity: VisualDensity.compact),
-      segments: [
-        for (final e in opciones.entries)
-          ButtonSegment<T>(
-            value: e.key,
-            label: Text(
-              e.value,
-              style: const TextStyle(fontFamily: _kFont, fontSize: 12),
-            ),
-          ),
-      ],
-      selected: {valor},
-      onSelectionChanged: (s) => onChanged(s.first),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 380 ||
+            MediaQuery.textScalerOf(context).scale(12) > 16) {
+          return DropdownButtonFormField<T>(
+            initialValue: valor,
+            isExpanded: true,
+            decoration: const InputDecoration(border: OutlineInputBorder()),
+            items: [
+              for (final e in opciones.entries)
+                DropdownMenuItem(value: e.key, child: Text(e.value)),
+            ],
+            onChanged: (value) {
+              if (value != null) onChanged(value);
+            },
+          );
+        }
+        return SegmentedButton<T>(
+          showSelectedIcon: false,
+          style: const ButtonStyle(visualDensity: VisualDensity.compact),
+          segments: [
+            for (final e in opciones.entries)
+              ButtonSegment<T>(
+                value: e.key,
+                label: Text(
+                  e.value,
+                  style: const TextStyle(fontFamily: _kFont, fontSize: 12),
+                ),
+              ),
+          ],
+          selected: {valor},
+          onSelectionChanged: (s) => onChanged(s.first),
+        );
+      },
     );
   }
 
@@ -1009,6 +1069,7 @@ class _CarnetScreenState extends State<CarnetScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Revisa antes de imprimir'),
+        scrollable: true,
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,

@@ -536,6 +536,23 @@ service cloud.firestore {
           && resource.data.get('empresas', []).toSet().difference(d.get('empresas', []).toSet()).hasOnly([])
           && tieneAppTalentoEn(e) && belongsToCompany(e) && fichaPertenece(resource.data, e);
       }
+      // Carnet: solo sus tres campos, con empresa y token válidos. No permite
+      // editar identidad, accesos ni el vínculo laboral del destinatario.
+      function edicionCarnetValida() {
+        let d = request.resource.data;
+        let e = d.get('carnetEmpresaId', '');
+        return e is string && e.size() > 0 && e == empresaActivaAdmin()
+          && belongsToCompany(e) && fichaPertenece(resource.data, e)
+          && (userId == request.auth.token.userDocId
+            || nivelTalentoEn(e) in ['gestor', 'administrador'])
+          && d.diff(resource.data).affectedKeys().hasOnly([
+            'carnetToken', 'carnetEmpresaId', 'carnetGeneradoEn'])
+          && d.get('carnetToken', '') is string
+          && d.carnetToken.matches('^[A-Za-z0-9_-]{20,64}$')
+          && d.get('carnetGeneradoEn', null) is timestamp
+          && (!d.diff(resource.data).affectedKeys().hasAny(['carnetGeneradoEn'])
+            || d.carnetGeneradoEn == request.time);
+      }
       // Los editores de niveles mantienen un espejo en la ficha; el nivel
       // canónico se comprueba con getAfter en la misma transacción.
       function espejoModulo(module, table, field) {
@@ -574,9 +591,10 @@ service cloud.firestore {
       allow update: if isSignedIn() && sinSecretos(request.resource.data)
         && (
           ingresoPropio()
+          || edicionCarnetValida()
           || (userId == request.auth.token.userDocId
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-              'carnetToken', 'carnetEmpresaId', 'carnetGeneradoEn', 'firmaNutricionUrl',
+              'firmaNutricionUrl',
               'selloNutricionUrl', 'firmaNutricionActualizadaEn', 'updatedAt'])
             && !cuentaInhabilitada(currentUser()))
           || (userId == request.auth.token.userDocId && !cuentaInhabilitada(currentUser())
@@ -596,6 +614,9 @@ service cloud.firestore {
           || isDeveloper() || edicionTalentoLimitada() || edicionAdminLimitada());
       allow delete: if isDeveloper();
       match /hoja_de_vida/{id} {
+        allow get: if id == 'datos'
+          && nivelTalentoEn(empresaActivaAdmin()) in ['gestor', 'administrador']
+          && fichaPertenece(get(/databases/$(database)/documents/TBL_USUARIOS/$(userId)).data, empresaActivaAdmin());
         allow read, write: if isSignedIn() && userId == request.auth.token.userDocId
           && !cuentaInhabilitada(currentUser());
       }

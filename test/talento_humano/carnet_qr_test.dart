@@ -2,8 +2,66 @@ import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:todo/talento_humano/carnet_qr.dart';
+import '../support/memory_firestore.dart';
 
 void main() {
+  test(
+    'crea y reimprime el mismo QR; cambiar empresa conserva el token',
+    () async {
+      final db = MemoryFirestore();
+      addTearDown(db.close);
+      db.documents['TBL_USUARIOS/ana'] = {
+        'empresaId': 'A',
+        'empresas': ['A', 'B'],
+        'primerNombre': 'Ana',
+      };
+      final token = await asegurarTokenCarnet(
+        userId: 'ana',
+        empresaId: 'A',
+        db: db,
+        generador: () => 'token-de-prueba',
+      );
+      expect(token, 'token-de-prueba');
+      expect(db.writes, 1);
+      expect(
+        await asegurarTokenCarnet(userId: 'ana', empresaId: 'A', db: db),
+        token,
+      );
+      expect(db.writes, 1);
+      expect(
+        await asegurarTokenCarnet(userId: 'ana', empresaId: 'B', db: db),
+        token,
+      );
+      expect(db.documents['TBL_USUARIOS/ana']!['carnetEmpresaId'], 'B');
+      expect(db.documents['TBL_USUARIOS/ana']!['primerNombre'], 'Ana');
+      await expectLater(
+        asegurarTokenCarnet(userId: 'ana', empresaId: 'C', db: db),
+        throwsStateError,
+      );
+      await expectLater(
+        asegurarTokenCarnet(userId: 'inexistente', empresaId: 'A', db: db),
+        throwsStateError,
+      );
+      expect(db.writes, 2);
+    },
+  );
+
+  test('completa la fecha histórica sin rotar el QR existente', () async {
+    final db = MemoryFirestore();
+    addTearDown(db.close);
+    db.documents['TBL_USUARIOS/ana'] = {
+      'empresaId': 'A',
+      'carnetEmpresaId': 'A',
+      'carnetToken': 'token-historico',
+    };
+    expect(
+      await asegurarTokenCarnet(userId: 'ana', empresaId: 'A', db: db),
+      'token-historico',
+    );
+    expect(db.documents['TBL_USUARIOS/ana']!['carnetGeneradoEn'], isNotNull);
+    expect(db.writes, 1);
+  });
+
   group('token del carnet', () {
     test('es largo y usa solo caracteres seguros para una URL', () {
       // La función pública exige entre 20 y 64 caracteres de [A-Za-z0-9_-];

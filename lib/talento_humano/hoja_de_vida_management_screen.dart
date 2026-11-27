@@ -1,4 +1,5 @@
 // lib/talento_humano/hoja_de_vida_management_screen.dart
+import '../utils/person_name.dart';
 import 'package:flutter/material.dart';
 import '../core/direct_managers.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -161,7 +162,10 @@ class _HojaDeVidaManagementScreenState
                 border: OutlineInputBorder(),
                 isDense: true,
               ),
-              onChanged: debounceBusqueda(this, (v) => setState(() => _search = v.toLowerCase())),
+              onChanged: debounceBusqueda(
+                this,
+                (v) => setState(() => _search = v.toLowerCase()),
+              ),
             ),
           ),
           if (hayFiltros)
@@ -267,9 +271,9 @@ class _HojaDeVidaManagementScreenState
                       d.data(),
                       widget.empresaId,
                     );
-                    final nombre =
-                        '${data['primerNombre'] ?? ''} ${data['primerApellido'] ?? ''}'
-                            .toLowerCase();
+                    final nombre = PersonName.fromMap(
+                      data,
+                    ).completo.toLowerCase();
                     final cedula = (data['cedula'] ?? d.id)
                         .toString()
                         .toLowerCase();
@@ -447,11 +451,7 @@ class _EmpleadoTile extends StatelessWidget {
   Widget build(BuildContext context) {
     // Cargo y área de esta empresa, no los de la principal.
     final data = mergeCompanyScopedData(doc.data(), empresaId);
-    final nombre =
-        '${data['primerNombre'] ?? ''} ${data['segundoNombre'] ?? ''} '
-                '${data['primerApellido'] ?? ''} ${data['segundoApellido'] ?? ''}'
-            .trim()
-            .replaceAll(RegExp(r'\s+'), ' ');
+    final nombre = PersonName.fromMap(data).completo;
     final cedula = (data['cedula'] ?? doc.id).toString();
     final cedulaDigits = cedula.replaceAll(RegExp(r'\D'), '');
     bool isCedulaValue(String value) {
@@ -953,8 +953,8 @@ class _HojaDeVidaViewerScreenState extends State<HojaDeVidaViewerScreen> {
       final bytes = await buildCarnetPdf(
         persona: CarnetPersona(
           userId: widget.empleadoId,
-          nombres: _unir([datos['primerNombre'], datos['segundoNombre']]),
-          apellidos: _unir([datos['primerApellido'], datos['segundoApellido']]),
+          nombres: PersonName.fromMap(datos).nombres,
+          apellidos: PersonName.fromMap(datos).apellidos,
           cargo: (datos['cargo'] ?? datos['cargoNombre'] ?? '').toString(),
           cedula: widget.empleadoCedula.trim().isNotEmpty
               ? widget.empleadoCedula.trim()
@@ -980,14 +980,6 @@ class _HojaDeVidaViewerScreenState extends State<HojaDeVidaViewerScreen> {
       if (mounted) setState(() => _generandoCarnet = false);
     }
   }
-
-  /// Junta las partes de un nombre saltando las vacías. El padrón viejo tiene
-  /// personas con segundo nombre en blanco y no puede quedar un espacio doble
-  /// impreso en la tarjeta.
-  static String _unir(List<dynamic> partes) => partes
-      .map((p) => (p ?? '').toString().trim())
-      .where((p) => p.isNotEmpty)
-      .join(' ');
 
   /// Confirma antes de invalidar un carnet ya impreso.
   Future<void> _confirmarRotarCarnet() async {
@@ -1392,11 +1384,7 @@ class _HvReadOnlyBody extends StatelessWidget {
           const SizedBox(height: 16),
 
           _card('Datos Personales', [
-            _row(
-              'Nombre',
-              '${data['primerNombre'] ?? ''} ${data['segundoNombre'] ?? ''} ${data['primerApellido'] ?? ''} ${data['segundoApellido'] ?? ''}'
-                  .trim(),
-            ),
+            _row('Nombre', PersonName.fromMap(data).completo.trim()),
             _row('Lugar expedición', data['lugarExpedicion']),
             _row('Email', data['email']),
             _row('Teléfono', data['telefono']),

@@ -15,6 +15,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
+import '../utils/person_name.dart';
+
 /// Datos mínimos de presentación de un usuario.
 class UserDisplayInfo {
   final String id;
@@ -170,35 +172,9 @@ class UserDirectory {
       _fromUsuario(id, u);
 
   UserDisplayInfo _fromUsuario(String id, Map<String, dynamic> u) {
-    String texto(String key) => (u[key] ?? '').toString().trim();
-    // Un campo presente pero vacío ('nombres': '') no debe tapar al siguiente:
-    // por eso se toma el primero NO vacío, no el primero no nulo.
-    String primero(List<String> keys) {
-      for (final k in keys) {
-        final v = texto(k);
-        if (v.isNotEmpty) return v;
-      }
-      return '';
-    }
-
-    var nombre = primero(['nombres', 'primerNombre']);
-    final segundoNombre = texto('nombres').isEmpty
-        ? texto('segundoNombre')
-        : '';
-    final apellidos = primero(['apellidos', 'primerApellido']);
-    final segundoApellido = texto('apellidos').isEmpty
-        ? texto('segundoApellido')
-        : '';
-    nombre = [
-      nombre,
-      segundoNombre,
-      apellidos,
-      segundoApellido,
-    ].where((s) => s.isNotEmpty).join(' ');
-    if (nombre.isEmpty) nombre = primero(['nombre', 'name', 'nombreCompleto']);
     return UserDisplayInfo(
       id: id,
-      nombre: nombre,
+      nombre: PersonName.fromMap(u).completo,
       fotoUrl: (u['fotoUrl'] as String? ?? '').trim(),
       cargo: (u['cargo'] as String? ?? '').trim(),
     );
