@@ -1,5 +1,11 @@
 # Bitácora de Mejoras — Capital USPEC
 
+## 2026-11-27 — iOS 2.8.46 (100) subido a Apple desde el Mac de Daniel (Codex)
+
+- Captura de Organizer aportada por Daniel: archivo **2.8.46 (100)** y mensaje **Upload completed with warnings** a las 11:37 de Bogotá. Confirma que el proceso en su Mac llegó a generar el archivo y completar su subida, después de actualizar App Check/Pods y resolver el acceso/firma en Xcode. No se ejecutaron esas acciones de Apple desde este equipo Windows.
+- La advertencia mostrada indica que se compiló con SDK iOS 26.0 y anuncia SDK iOS 27/Xcode 27 o posteriores para las subidas desde abril de 2027. La advertencia no impidió esta subida. Queda revisar la actualización de Xcode/SDK antes de ese requisito; no se cambió el mínimo de ejecución iOS 15.5.
+- Pendientes: que Apple procese la compilación, comprobarla en TestFlight con un iPhone real (incluido App Check), asociarla a la versión de App Store Connect y enviarla a revisión. La captura no confirma aprobación ni disponibilidad pública. El `ios/Podfile.lock` generado en la Mac sigue pendiente de revisión/sincronización; no se inventó ni se reemplazó su contenido desde Windows. No se alteraron datos, permisos, backend ni versiones móviles anunciadas en la app.
+
 ## 2026-11-27 — Corrección de dependencia iOS de App Check para el IPA 100 (Codex)
 
 - Recibida captura del Mac: Flutter informa que `FirebaseAppCheck` exige un mínimo mayor al declarado por `firebase_app_check`, y aborta `pod install`. El proyecto ya fija iOS 15.5. Confirmado un conflicto independiente y reproducible en las especificaciones: `firebase_core 4.15.2` selecciona SDK 12.19.3; App Check 0.4.7 pide el pod independiente `FirebaseAppCheck ~> 12.19.3`, mientras CocoaPods publica ese pod como 12.19.0 (HTTP 200; 12.19.3 devuelve 404). El pod y el plugin requieren iOS 15.0, por lo que no se elevó el mínimo.
