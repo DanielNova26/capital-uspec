@@ -141,11 +141,12 @@ export {
   interventoriaEliminarActa,
 } from "./interventoria_deletion";
 export {interventoriaCambiarAprobador, interventoriaCorregirUbicacion, interventoriaReasignarHallazgo} from "./interventoria_aprobador";
+export {interventoriaSolicitudesReasignacion} from "./interventoria_reasignacion";
 export {interventoriaSincronizarMejoras} from "./interventoria_mejoras";
 export {interventoriaPlanes, interventoriaPlanesAvisos} from "./interventoria_planes";
 // Tareas — al cambiar el jefe inmediato de alguien, sus tareas activas pasan
 // al jefe nuevo y a él se le avisa.
-export {tareasReemplazarJefeInmediato, tareasSincronizarJefes} from "./jefe_inmediato_sync";
+export {tareasReemplazarJefeInmediato, tareasSincronizarJefes, tareasActualizarJefeAlAsignar} from "./jefe_inmediato_sync";
 // Tareas — número interno consecutivo por empresa e incorporación de las
 // tareas que ya existían (Admin › Migraciones).
 export {tareasAsignarNumero, tareasNumerarHistoricas} from "./tareas_numero";
@@ -181,6 +182,7 @@ import * as admin from "firebase-admin";
 
 import {avisoAlJefeEsSilencioso, construirMensajePush, esSilenciosa} from "./notification_sound_policy";
 import {syncHallazgoDesdeTarea, textoCanonicoTareaInterventoria} from "./interventoria_task_sync";
+import {sincronizarJefeActualTarea} from "./jefe_inmediato_sync";
 import {
   conNumeroTarea,
   cuerpoPushConNumero,
@@ -886,6 +888,10 @@ export const onTaskCreated = functions
 
     console.log("[onTaskCreated] taskId:", taskId, "assignedId:", assignedId);
     if (!assignedId) return;
+    await sincronizarJefeActualTarea(snap.ref);
+    const vigente = (await snap.ref.get()).data();
+    if (!vigente || getAssignedId(vigente) !== assignedId) return;
+    data = vigente;
     // Tareas creadas en lote (asignación de un acta, reparación del rezago):
     // el módulo manda UN aviso por persona con el resumen, no uno por tarea.
     if ((data as any).notificarCreacion === false) {
@@ -953,7 +959,7 @@ export const onTaskUpdated = functions
   .firestore.document("TBL_TAREAS/{taskId}")
   .onUpdate(async (change: functions.Change<functions.firestore.DocumentSnapshot>, ctx: functions.EventContext) => {
     const before = change.before.data() as admin.firestore.DocumentData | undefined;
-    const after = change.after.data() as admin.firestore.DocumentData | undefined;
+    let after = change.after.data() as admin.firestore.DocumentData | undefined;
 
     // El cierre masivo del Admin ya deja auditoría y marca como leídas las
     // notificaciones del módulo. No generar avisos nuevos por ese mismo cierre.
@@ -964,6 +970,15 @@ export const onTaskUpdated = functions
 
     const prevAssigned = getAssignedId(before || null);
     const newAssigned = getAssignedId(after || null);
+    if (newAssigned && newAssigned !== prevAssigned) {
+      await sincronizarJefeActualTarea(change.after.ref);
+      const vigente = (await change.after.ref.get()).data();
+      if (!vigente || getAssignedId(vigente) !== newAssigned) return;
+      for (const key of ["jefe_inmediato_uid", "jefe_inmediato_nombre", "jefe_uid", "jefe_nombre", "bossId",
+        "aprobador_uid", "aprobador_nombre", "approverId", "approverName"]) {
+        if (Object.prototype.hasOwnProperty.call(vigente, key)) after = {...after, [key]: vigente[key]};
+      }
+    }
 
     const taskId = ctx.params.taskId as string;
     const title = getTaskTitle(after || null);
@@ -972,7 +987,9 @@ export const onTaskUpdated = functions
     );
     const statusBefore = resolveTaskStatus(before || null);
     const statusAfter = resolveTaskStatus(after || null);
-    const statusChanged = statusBefore !== statusAfter;
+    const statusChanged = statusBefore !== statusAfter &&
+      !(after?.solicitud_reasignacion_tipo === "no_corresponde" && prevAssigned === newAssigned &&
+        before?.solicitud_reasignacion_estado !== after?.solicitud_reasignacion_estado);
     const notificationContext = taskNotificationContext(after || null);
 
     console.log("[onTaskUpdated] taskId:", taskId, "prev:", prevAssigned, "new:", newAssigned);

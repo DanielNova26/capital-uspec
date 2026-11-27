@@ -24,8 +24,8 @@ var __importStar = (this && this.__importStar) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.dianBuzonEstado = exports.dianTokenCambiarEstado = exports.dianTokenAbrir = exports.dianTokenAccesos = exports.dianTokensListar = exports.gdRevisarRespuesta = exports.correoEnviarRespuesta = exports.correoGuardarBorradorGmail = exports.correoPrepararExpediente = exports.gdRegistrarRespuestaExterna = exports.gdTerminarExpediente = exports.gdCodificarExpedientesHistoricos = exports.gdAsignarExpediente = exports.correoCrearExpediente = exports.correoMiRol = exports.correoEstadoIntegracion = exports.correoProbarWhatsApp = exports.correoProbarRegla = exports.correoProcesarProgramado = exports.correoProcesarHttp = exports.correoProcesar = exports.correoMicrosoftCallback = exports.correoMicrosoftAuthorize = exports.correoGmailCallback = exports.correoGmailAuthorize = exports.icd11Search = exports.carnetPublico = exports.adminMonitorNotificaciones = exports.adminSincronizarMaestros = exports.adminLimpiezaModulo = exports.securityRegistrarUsuarioNuevo = exports.securityAdminAssignInitialPassword = exports.securityAdminClearLoginBlocks = exports.securityAdminResetTemporaryPassword = exports.securityAdminRevokeDisabledSessions = exports.securityAdminRevokeSessions = exports.securityAdminRequirePasswordChange = exports.securityAdminOverview = exports.authCerrarSesionInhabilitado = exports.authCompletarRecuperacion = exports.authPrepararRecuperacion = exports.authCambiarClave = exports.authIniciarSesion = exports.mantenimientoInventario = exports.mantenimientoOrden = exports.talentoCargarPersonal = exports.planeacionOperar = exports.biometricoDispositivo = exports.biometricoGestion = exports.marcacionesPrueba = void 0;
-exports.visitasRevalidarOffline = exports.visitasPrepararOffline = exports.visitasEliminarPrueba = exports.visitasEliminarFormato = exports.visitasEliminar = exports.tareasRecurrentesGenerar = exports.tareasNumerarHistoricas = exports.tareasAsignarNumero = exports.tareasSincronizarJefes = exports.tareasReemplazarJefeInmediato = exports.interventoriaPlanesAvisos = exports.interventoriaPlanes = exports.interventoriaSincronizarMejoras = exports.interventoriaReasignarHallazgo = exports.interventoriaCorregirUbicacion = exports.interventoriaCambiarAprobador = exports.interventoriaEliminarActa = exports.interventoriaResolverEliminacion = exports.interventoriaSolicitarEliminacion = exports.thNotificarCitacionDescargos = exports.thNotificarPlazosDisciplinarios = exports.whatsappMetaConciliarAuditoria = exports.whatsappMetaWebhook = exports.whatsappProcesarCola = exports.whatsappAdminProbar = exports.whatsappAdminDirectorio = exports.whatsappAdminAsignarListado = exports.whatsappAdminNormalizarNumeros = exports.whatsappAdminGuardarListado = exports.whatsappAdminEnviarPlantillaRevision = exports.whatsappAdminSincronizarPlantillas = exports.whatsappAdminGuardar = exports.whatsappAdminEstado = exports.comprasNotificarVigenciasDocumentales = exports.comprasNotificarRecepcionCalidad = exports.comprasNotificarNuevoProveedorWhatsApp = exports.comprasConsolidarRequerimiento = exports.comprasLimpiarRechazadosVencidos = exports.facturacionWhatsAppDocumentoRechazado = exports.interventoriaWhatsAppNuevaActa = exports.ppWhatsAppCargaPlanilla = exports.ppWhatsAppCambioFirma = exports.ppStampDirectPdf = exports.ppNotificaciones1600 = exports.ppNotificaciones1200 = exports.ppNotificaciones0800 = exports.dianBuzonProgramado = exports.dianBuzonDesconectar = exports.dianBuzonSincronizar = exports.dianBuzonConectar = void 0;
-exports.notifyTaskNews = exports.notifyTaskCompleted = exports.sendTestPushHttp = exports.registerDeviceToken = exports.sendTestPush = exports.citasNutricionRecordatorios0800 = exports.onTaskUpdated = exports.onTaskCreated = exports.retryPendingNotificationDeliveries = exports.onNotificationCreated = exports.comprasGenerarReporteAbastecimiento = exports.comprasReporteAbastecimiento1700 = exports.rutasMovilidadMedirAhora = exports.rutasMovilidadTick = exports.rutasGenerarZip = exports.rutasGenerarInforme = exports.rutasResumenEvidencia = exports.visitasCoordinadoresAlCambiarGrupo = exports.visitasCoordinadoresAlCrear = exports.visitasNumerarHistoricas = exports.visitasAsignarNumero = exports.visitasBuscarLugar = exports.visitasSincronizarOffline = exports.visitasSubirFotoOffline = void 0;
+exports.visitasEliminarPrueba = exports.visitasEliminarFormato = exports.visitasEliminar = exports.tareasRecurrentesGenerar = exports.tareasNumerarHistoricas = exports.tareasAsignarNumero = exports.tareasActualizarJefeAlAsignar = exports.tareasSincronizarJefes = exports.tareasReemplazarJefeInmediato = exports.interventoriaPlanesAvisos = exports.interventoriaPlanes = exports.interventoriaSincronizarMejoras = exports.interventoriaSolicitudesReasignacion = exports.interventoriaReasignarHallazgo = exports.interventoriaCorregirUbicacion = exports.interventoriaCambiarAprobador = exports.interventoriaEliminarActa = exports.interventoriaResolverEliminacion = exports.interventoriaSolicitarEliminacion = exports.thNotificarCitacionDescargos = exports.thNotificarPlazosDisciplinarios = exports.whatsappMetaConciliarAuditoria = exports.whatsappMetaWebhook = exports.whatsappProcesarCola = exports.whatsappAdminProbar = exports.whatsappAdminDirectorio = exports.whatsappAdminAsignarListado = exports.whatsappAdminNormalizarNumeros = exports.whatsappAdminGuardarListado = exports.whatsappAdminEnviarPlantillaRevision = exports.whatsappAdminSincronizarPlantillas = exports.whatsappAdminGuardar = exports.whatsappAdminEstado = exports.comprasNotificarVigenciasDocumentales = exports.comprasNotificarRecepcionCalidad = exports.comprasNotificarNuevoProveedorWhatsApp = exports.comprasConsolidarRequerimiento = exports.comprasLimpiarRechazadosVencidos = exports.facturacionWhatsAppDocumentoRechazado = exports.interventoriaWhatsAppNuevaActa = exports.ppWhatsAppCargaPlanilla = exports.ppWhatsAppCambioFirma = exports.ppStampDirectPdf = exports.ppNotificaciones1600 = exports.ppNotificaciones1200 = exports.ppNotificaciones0800 = exports.dianBuzonProgramado = exports.dianBuzonDesconectar = exports.dianBuzonSincronizar = exports.dianBuzonConectar = void 0;
+exports.notifyTaskNews = exports.notifyTaskCompleted = exports.sendTestPushHttp = exports.registerDeviceToken = exports.sendTestPush = exports.citasNutricionRecordatorios0800 = exports.onTaskUpdated = exports.onTaskCreated = exports.retryPendingNotificationDeliveries = exports.onNotificationCreated = exports.comprasGenerarReporteAbastecimiento = exports.comprasReporteAbastecimiento1700 = exports.rutasMovilidadMedirAhora = exports.rutasMovilidadTick = exports.rutasGenerarZip = exports.rutasGenerarInforme = exports.rutasResumenEvidencia = exports.visitasCoordinadoresAlCambiarGrupo = exports.visitasCoordinadoresAlCrear = exports.visitasNumerarHistoricas = exports.visitasAsignarNumero = exports.visitasBuscarLugar = exports.visitasSincronizarOffline = exports.visitasSubirFotoOffline = exports.visitasRevalidarOffline = exports.visitasPrepararOffline = void 0;
 // functions/src/index.ts
 const functions = __importStar(require("firebase-functions/v1")); // compat v1
 const security_policy_1 = require("./security_policy");
@@ -163,6 +163,8 @@ var interventoria_aprobador_1 = require("./interventoria_aprobador");
 Object.defineProperty(exports, "interventoriaCambiarAprobador", { enumerable: true, get: function () { return interventoria_aprobador_1.interventoriaCambiarAprobador; } });
 Object.defineProperty(exports, "interventoriaCorregirUbicacion", { enumerable: true, get: function () { return interventoria_aprobador_1.interventoriaCorregirUbicacion; } });
 Object.defineProperty(exports, "interventoriaReasignarHallazgo", { enumerable: true, get: function () { return interventoria_aprobador_1.interventoriaReasignarHallazgo; } });
+var interventoria_reasignacion_1 = require("./interventoria_reasignacion");
+Object.defineProperty(exports, "interventoriaSolicitudesReasignacion", { enumerable: true, get: function () { return interventoria_reasignacion_1.interventoriaSolicitudesReasignacion; } });
 var interventoria_mejoras_1 = require("./interventoria_mejoras");
 Object.defineProperty(exports, "interventoriaSincronizarMejoras", { enumerable: true, get: function () { return interventoria_mejoras_1.interventoriaSincronizarMejoras; } });
 var interventoria_planes_1 = require("./interventoria_planes");
@@ -173,6 +175,7 @@ Object.defineProperty(exports, "interventoriaPlanesAvisos", { enumerable: true, 
 var jefe_inmediato_sync_1 = require("./jefe_inmediato_sync");
 Object.defineProperty(exports, "tareasReemplazarJefeInmediato", { enumerable: true, get: function () { return jefe_inmediato_sync_1.tareasReemplazarJefeInmediato; } });
 Object.defineProperty(exports, "tareasSincronizarJefes", { enumerable: true, get: function () { return jefe_inmediato_sync_1.tareasSincronizarJefes; } });
+Object.defineProperty(exports, "tareasActualizarJefeAlAsignar", { enumerable: true, get: function () { return jefe_inmediato_sync_1.tareasActualizarJefeAlAsignar; } });
 // Tareas — número interno consecutivo por empresa e incorporación de las
 // tareas que ya existían (Admin › Migraciones).
 var tareas_numero_1 = require("./tareas_numero");
@@ -214,6 +217,7 @@ Object.defineProperty(exports, "comprasGenerarReporteAbastecimiento", { enumerab
 const admin = __importStar(require("firebase-admin"));
 const notification_sound_policy_1 = require("./notification_sound_policy");
 const interventoria_task_sync_1 = require("./interventoria_task_sync");
+const jefe_inmediato_sync_2 = require("./jefe_inmediato_sync");
 const tareas_avisos_1 = require("./tareas_avisos");
 const tareas_numero_2 = require("./tareas_numero");
 console.log("[BUILD] functions v2025-10-09-#fix-notif-subcollection-jsdoc");
@@ -800,6 +804,11 @@ exports.onTaskCreated = functions
     console.log("[onTaskCreated] taskId:", taskId, "assignedId:", assignedId);
     if (!assignedId)
         return;
+    await (0, jefe_inmediato_sync_2.sincronizarJefeActualTarea)(snap.ref);
+    const vigente = (await snap.ref.get()).data();
+    if (!vigente || getAssignedId(vigente) !== assignedId)
+        return;
+    data = vigente;
     // Tareas creadas en lote (asignación de un acta, reparación del rezago):
     // el módulo manda UN aviso por persona con el resumen, no uno por tarea.
     if (data.notificarCreacion === false) {
@@ -862,7 +871,7 @@ exports.onTaskUpdated = functions
     .firestore.document("TBL_TAREAS/{taskId}")
     .onUpdate(async (change, ctx) => {
     const before = change.before.data();
-    const after = change.after.data();
+    let after = change.after.data();
     // El cierre masivo del Admin ya deja auditoría y marca como leídas las
     // notificaciones del módulo. No generar avisos nuevos por ese mismo cierre.
     const isAdminModuleCloseout = (after?.lastEventType ?? "").toString() === "admin_module_closeout" &&
@@ -871,12 +880,25 @@ exports.onTaskUpdated = functions
         return;
     const prevAssigned = getAssignedId(before || null);
     const newAssigned = getAssignedId(after || null);
+    if (newAssigned && newAssigned !== prevAssigned) {
+        await (0, jefe_inmediato_sync_2.sincronizarJefeActualTarea)(change.after.ref);
+        const vigente = (await change.after.ref.get()).data();
+        if (!vigente || getAssignedId(vigente) !== newAssigned)
+            return;
+        for (const key of ["jefe_inmediato_uid", "jefe_inmediato_nombre", "jefe_uid", "jefe_nombre", "bossId",
+            "aprobador_uid", "aprobador_nombre", "approverId", "approverName"]) {
+            if (Object.prototype.hasOwnProperty.call(vigente, key))
+                after = { ...after, [key]: vigente[key] };
+        }
+    }
     const taskId = ctx.params.taskId;
     const title = getTaskTitle(after || null);
     const description = taskNotificationDescription(after || null, getTaskDescription(after || null) || "Tarea asignada");
     const statusBefore = resolveTaskStatus(before || null);
     const statusAfter = resolveTaskStatus(after || null);
-    const statusChanged = statusBefore !== statusAfter;
+    const statusChanged = statusBefore !== statusAfter &&
+        !(after?.solicitud_reasignacion_tipo === "no_corresponde" && prevAssigned === newAssigned &&
+            before?.solicitud_reasignacion_estado !== after?.solicitud_reasignacion_estado);
     const notificationContext = taskNotificationContext(after || null);
     console.log("[onTaskUpdated] taskId:", taskId, "prev:", prevAssigned, "new:", newAssigned);
     // Conjunto de usuarios ya notificados en este update para evitar duplicados.

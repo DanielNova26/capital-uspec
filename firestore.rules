@@ -2721,7 +2721,6 @@ service cloud.firestore {
             // aprobador del maestro por el jefe del nuevo responsable.
             || (evento == 'solicitud_reasignacion'
               && antes.get('sourceModule', '') != 'interventoria'
-              && antes.get('solicitud_reasignacion_estado', '') != 'pendiente'
               && d.get('solicitud_reasignacion_estado', '') == 'pendiente'
               && d.get('solicitud_reasignacion_by_uid', '')
                 == request.auth.token.userDocId
@@ -2747,6 +2746,7 @@ service cloud.firestore {
           && esResponsableTarea(antes)
           && !(actual in ['finalizado', 'por_aprobar'])
           && antes.get('solicitud_finalizacion_estado', '') != 'pendiente'
+          && antes.get('solicitud_reasignacion_estado', '') != 'pendiente'
           && d.get('estado', '') == 'en_progreso'
           && d.get('reasignada_por_uid', '') == request.auth.token.userDocId
           && d.get('reasignada_desde_uid', '') == antes.get('asignado_uid', '')
@@ -2790,6 +2790,7 @@ service cloud.firestore {
                 'solicitud_finalizacion_at', 'solicitud_finalizacion_by_uid',
                 'solicitud_finalizacion_by_nombre']))
             || (evento == 'reasignacion_aprobada'
+              && antes.get('solicitud_reasignacion_tipo', '') != 'no_corresponde'
               && antes.get('sourceModule', '') != 'interventoria'
               && antes.get('solicitud_reasignacion_estado', '') == 'pendiente'
               && d.get('solicitud_reasignacion_estado', '') == 'aprobada'
@@ -2809,6 +2810,7 @@ service cloud.firestore {
               // aprobación solo puede llevar a ese destino: no se vuelve a leer.
               && tareaConservaParticipantes(antes, d))
             || (evento == 'reasignacion_rechazada'
+              && antes.get('solicitud_reasignacion_tipo', '') != 'no_corresponde'
               && antes.get('solicitud_reasignacion_estado', '') == 'pendiente'
               && d.get('solicitud_reasignacion_estado', '') == 'rechazada'
               && d.get('asignado_uid', '') == antes.get('asignado_uid', '')

@@ -49,6 +49,7 @@ Future<bool> _openInterventoriaFromNotification(
   required String userId,
   String? empresaId,
   String? deleteRequestId,
+  bool reassignRequests = false,
 }) async {
   final eid = (empresaId ?? '').trim();
   if (eid.isEmpty) {
@@ -66,6 +67,7 @@ Future<bool> _openInterventoriaFromNotification(
         userId: userId,
         empresaId: eid,
         openDeleteRequests: deleteRequestId != null,
+        openReassignRequests: reassignRequests,
         focusedDeleteRequestId: deleteRequestId,
       ),
     ),
@@ -110,6 +112,14 @@ Future<bool> _openNotificationTask(
   required String cedula,
   String? empresaId,
 }) async {
+  if (type.trim().toLowerCase() == 'interventoria_no_corresponde') {
+    return _openInterventoriaFromNotification(
+      context,
+      userId: cedula,
+      empresaId: empresaId,
+      reassignRequests: true,
+    );
+  }
   if (_isInterventoriaActaEliminada(type)) {
     return _openInterventoriaFromNotification(
       context,

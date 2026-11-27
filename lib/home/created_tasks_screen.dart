@@ -1754,7 +1754,10 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     // inmediato del responsable o, en su defecto, quien la asignó). Quien la
     // asignó sin ser el aprobador ve que está en espera y de quién.
     final aprobadorId = taskAprobadorId(data);
-    final soyAprobador = taskAprobadoresId(data).any(_misIds.contains);
+    final soyAprobador =
+        taskAprobadoresId(data).any(_misIds.contains) &&
+        !(taskReasignacionPendiente(data) &&
+            taskReasignacionEnInterventoria(data));
     final requiereEvidencias = () {
       final raw = data['requiere_adjunto'] ?? data['requiereAdjunto'];
       if (raw == null) return true;

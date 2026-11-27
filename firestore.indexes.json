@@ -1,6 +1,15 @@
 {
   "indexes": [
     {
+      "collectionGroup": "TBL_TAREAS",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "empresaId", "order": "ASCENDING"},
+        {"fieldPath": "solicitud_reasignacion_tipo", "order": "ASCENDING"},
+        {"fieldPath": "solicitud_reasignacion_estado", "order": "ASCENDING"}
+      ]
+    },
+    {
       "collectionGroup": "movimientos",
       "queryScope": "COLLECTION_GROUP",
       "fields": [

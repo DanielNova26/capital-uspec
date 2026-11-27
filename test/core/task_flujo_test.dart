@@ -18,6 +18,24 @@ Map<String, dynamic> _tarea([Map<String, dynamic> extra = const {}]) => {
 };
 
 void main() {
+  test(
+    'no corresponde se revisa en Interventoría, no por el aprobador de la subsanación',
+    () {
+      final tarea = <String, dynamic>{
+        'empresaId': 'e',
+        'estado': 'pendiente',
+        'sourceModule': 'interventoria',
+        'hallazgoId': 'h',
+        'asignado_uid': 'marcela',
+        'aprobador_uid': 'aprobador',
+        'jefe_inmediato_uid': 'jefe',
+        'solicitud_reasignacion_estado': 'pendiente',
+        'solicitud_reasignacion_tipo': 'no_corresponde',
+      };
+      expect(taskReasignacionEnEspera(tarea)!.revisionInterventoria, isTrue);
+      expect(taskEsperaDecisionDe(tarea, ['aprobador', 'jefe']), isFalse);
+    },
+  );
   group('aprobador efectivo', () {
     test('la finalización la aprueba quien asignó la tarea', () {
       expect(taskAprobadorId(_tarea()), 'oscar');

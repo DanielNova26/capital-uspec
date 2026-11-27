@@ -25,6 +25,7 @@ import '../interventoria/interventoria_hallazgo_panel.dart';
 import '../interventoria/interventoria_models.dart';
 import '../interventoria/interventoria_service.dart';
 import '../interventoria/interventoria_planes_screen.dart';
+import '../interventoria/interventoria_reasignacion.dart';
 import '../gestion_documental/correspondencia/gd_correspondencia_screen.dart';
 import 'complete_task_screen.dart' hide kArial;
 import 'notify_avances_screen.dart' hide kArial;
@@ -1092,7 +1093,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     );
     final taskId = doc.id;
     final esInterventoria =
-        (data['origen'] ?? '').toString() == 'interventoria' ||
+        taskModuloOrigen(data) == 'interventoria' ||
         data['permite_reasignacion_director'] == true;
     final esCorreccionCompras =
         (data['origen'] ?? '').toString() == 'compras_correccion';
@@ -1483,6 +1484,32 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                           await _requestReassign(doc);
                         },
                 ),
+                if (esInterventoria && _hallazgoDeTarea(data).isNotEmpty)
+                  _ActionTile(
+                    icon: Icons.person_off_outlined,
+                    color: Colors.deepOrange,
+                    title: 'Esta tarea no me corresponde',
+                    subtitle: hasPendingReassign
+                        ? 'Ya hay una solicitud pendiente de revisión.'
+                        : !canComplete
+                        ? 'Solo puede solicitarlo el responsable actual.'
+                        : 'Propón grupo, área y persona. Interventoría aprueba el cambio.',
+                    onTap:
+                        !canComplete ||
+                            hasPendingReassign ||
+                            finishPending ||
+                            estadoVisible == TaskEstadoVisible.terminada
+                        ? null
+                        : () async {
+                            Navigator.of(sheetContext).pop();
+                            if (!mounted) return;
+                            await mostrarReasignacionInterventoria(
+                              context,
+                              empresaId: _str(data, ['empresaId']),
+                              taskId: taskId,
+                            );
+                          },
+                  ),
                 // El hallazgo de ESTA tarea, no el módulo completo (4 oct
                 // 2026: "mostrar el hallazgo específico, no mostrar el
                 // módulo"). Sin hallazgo vinculado no se ofrece el botón.

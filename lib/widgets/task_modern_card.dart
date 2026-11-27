@@ -522,7 +522,12 @@ class TaskReasignacionEsperaNota extends StatelessWidget {
               Icon(Icons.verified_user_outlined, size: 14, color: color),
               const SizedBox(width: 4),
               Flexible(
-                child: espera.aprobadorId.isEmpty
+                child: espera.revisionInterventoria
+                    ? Text(
+                        'Revisa: Administración o Gerencia de Interventoría',
+                        style: estilo,
+                      )
+                    : espera.aprobadorId.isEmpty
                     ? Text('Sin aprobador definido', style: estilo)
                     : UserNameText(
                         espera.aprobadorId,

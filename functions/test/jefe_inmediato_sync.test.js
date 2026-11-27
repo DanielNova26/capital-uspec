@@ -29,8 +29,10 @@ test('detecta el cambio de jefe solo en la empresa donde cambió', () => {
   ]);
 });
 
-test('quitar el jefe sin poner otro no es un reemplazo', () => {
-  assert.deepEqual(cambiosDeJefe(persona('j1'), persona(''), 'p1'), []);
+test('quitar el jefe neutraliza la jefatura anterior', () => {
+  assert.deepEqual(cambiosDeJefe(persona('j1'), persona(''), 'p1'), [
+    {empresaId: 'emp1', anteriorId: 'j1', nuevo: {id: '', nombre: ''}},
+  ]);
 });
 
 test('sin cambio de jefe no hay nada que hacer', () => {
@@ -44,7 +46,14 @@ test('la raíz solo cuenta para la empresa principal', () => {
 });
 
 test('nadie queda como su propio jefe', () => {
-  assert.deepEqual(cambiosDeJefe(persona('j1'), persona('p1'), 'p1'), []);
+  assert.deepEqual(cambiosDeJefe(persona('j1'), persona('p1'), 'p1'), [
+    {empresaId: 'emp1', anteriorId: 'j1', nuevo: {id: '', nombre: ''}},
+  ]);
+});
+
+test('vacío explícito en la empresa no hereda un jefe antiguo de la raíz', () => {
+  assert.deepEqual(jefeEnEmpresa({empresaId: 'emp1', jefeId: 'antiguo',
+    empresasDetalle: {emp1: {jefeId: ''}}}, 'emp1'), {id: '', nombre: ''});
 });
 
 const cambio = {empresaId: 'emp1', anteriorId: 'j1', nuevo: {id: 'j2', nombre: 'Nuevo'}};

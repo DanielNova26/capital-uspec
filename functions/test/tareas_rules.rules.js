@@ -25,7 +25,7 @@ const {
 } = require("firebase/firestore");
 
 const rules = fs.readFileSync(
-  path.resolve(__dirname, "../../firestore.rules"),
+  process.env.FIRESTORE_RULES_SOURCE || path.resolve(__dirname, "../../firestore.rules"),
   "utf8"
 );
 let env;
@@ -81,10 +81,13 @@ function reglasConMargen(margen) {
       `allow update: if ${relleno}tareaActualizacionValida();`],
     ["&& puedeCrearEventoTarea(taskId, tipo);", `&& ${relleno}puedeCrearEventoTarea(taskId, tipo);`],
   ];
-  return cambios.reduce((texto, [antes, despues]) => {
+  const original = fs.readFileSync(path.resolve(__dirname, '../../firestore.rules'), 'utf8');
+  const padded = cambios.reduce((texto, [antes, despues]) => {
     assert.ok(texto.includes(antes), `No está en las reglas: ${antes}`);
     return texto.replace(antes, despues);
-  }, rules);
+  }, original);
+  return process.env.FIRESTORE_RULES_SOURCE ?
+    require('../../tool/compactar_reglas_firestore').prepararReglas(padded) : padded;
 }
 
 test.before(async () => {
@@ -362,6 +365,17 @@ test("reasignación directa conserva participantes y valida destino", async () =
     solicitud_reasignacion_to_uid: "destino",
     lastEventType: "solicitud_reasignacion",
   }));
+  // La solicitud revisada desde Interventoría tampoco se salta con el cliente
+  // antiguo de reasignación directa. Al resolverse, ese camino vuelve a valer.
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await updateDoc(doc(ctx.firestore(), "TBL_TAREAS/inter1"), {
+      solicitud_reasignacion_estado: "pendiente", solicitud_reasignacion_tipo: "no_corresponde",
+    });
+  });
+  await assertFails(updateDoc(root, cambio("destino")));
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await updateDoc(doc(ctx.firestore(), "TBL_TAREAS/inter1"), {solicitud_reasignacion_estado: "rechazada"});
+  });
   await assertSucceeds(updateDoc(root, cambio("destino")));
   await assertSucceeds(getDoc(doc(auth("destino"), "TBL_TAREAS/inter1")));
   // Quien la tenía sigue viendo su historial.

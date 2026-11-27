@@ -50,7 +50,8 @@ export const interventoriaReasignarHallazgo = functions.region(REGION).https.onC
     const ref = db.collection(TAREAS).doc(tareaId);
     const tarea = (await tx.get(ref)).data();
     if (tarea?.empresaId !== actor.empresaId || (tarea.hallazgoId || tarea.sourceEntityId) !== hallazgoId ||
-        !tareaActiva(tarea) || tarea.solicitud_finalizacion_estado === "pendiente") {
+        !tareaActiva(tarea) || tarea.solicitud_finalizacion_estado === "pendiente" ||
+        tarea.solicitud_reasignacion_estado === "pendiente") {
       throw new functions.https.HttpsError("failed-precondition", "La tarea ya está cerrada o en aprobación.");
     }
     const anterior = texto(tarea.asignado_uid || tarea.assignedTo);

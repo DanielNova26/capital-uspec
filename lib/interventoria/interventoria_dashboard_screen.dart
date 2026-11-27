@@ -45,6 +45,7 @@ import 'interventoria_models.dart';
 import 'interventoria_programas.dart';
 import 'interventoria_service.dart';
 import 'interventoria_guardado_error.dart';
+import 'interventoria_reasignacion.dart';
 import 'interventoria_tablero_asignacion.dart';
 import 'web_pdf_view.dart';
 import '../widgets/skeleton.dart';
@@ -137,6 +138,7 @@ class InterventoriaDashboardScreen extends StatefulWidget {
   final String empresaId;
   final String? rolInterventoria;
   final bool openDeleteRequests;
+  final bool openReassignRequests;
   final String? focusedDeleteRequestId;
   final String? focusedCorrectionId;
 
@@ -146,6 +148,7 @@ class InterventoriaDashboardScreen extends StatefulWidget {
     required this.empresaId,
     this.rolInterventoria,
     this.openDeleteRequests = false,
+    this.openReassignRequests = false,
     this.focusedDeleteRequestId,
     this.focusedCorrectionId,
   });
@@ -343,6 +346,11 @@ class _InterventoriaDashboardScreenState
         label: 'Subsanaciones',
         icon: Icons.grid_on_rounded,
       ),
+      if (canReasignar)
+        const InternalModuleTabItem(
+          label: 'Reasignaciones',
+          icon: Icons.person_off_outlined,
+        ),
       // Actas de concepto higiénico sanitario (28 sep 2026). Las ve todo el
       // módulo; las sube quien escribe en él.
       const InternalModuleTabItem(
@@ -377,6 +385,10 @@ class _InterventoriaDashboardScreenState
       }
     }
     if (_tab >= tabs.length) _tab = 0;
+    if (widget.openReassignRequests && !_initialTabApplied && canReasignar) {
+      _tab = tabs.indexWhere((tab) => tab.label == 'Reasignaciones');
+      _initialTabApplied = true;
+    }
 
     return InternalModuleLayout(
       title: 'Interventoria',
@@ -572,6 +584,11 @@ class _InterventoriaDashboardScreenState
                   },
                 ),
                 // Tab: Concepto sanitario — mismo índice que en `tabs`.
+                if (canReasignar)
+                  SolicitudesReasignacionInterventoriaPanel(
+                    key: ValueKey('reasignaciones:${widget.empresaId}'),
+                    empresaId: widget.empresaId,
+                  ),
                 InterventoriaConceptosSanitariosTab(
                   service: _svc,
                   empresaId: widget.empresaId,

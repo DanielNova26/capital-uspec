@@ -683,6 +683,11 @@ class TaskService {
           'Selecciona una persona diferente al responsable actual.',
         );
       }
+      if (taskReasignacionPendiente(t)) {
+        throw StateError(
+          'La tarea tiene una solicitud de reasignación pendiente.',
+        );
+      }
       if (TaskContract.normalizeStatus(t['estado'] ?? t['status']) ==
               'finalizado' ||
           (t['solicitud_finalizacion_estado'] ?? '').toString() ==

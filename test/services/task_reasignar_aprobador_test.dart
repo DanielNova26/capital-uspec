@@ -54,6 +54,23 @@ void main() {
     expect(db.documents['TBL_TAREAS/t1']!['asignado_uid'], 'admin');
   });
 
+  test(
+    'no salta una revisión pendiente mediante la reasignación directa',
+    () async {
+      db.documents['TBL_TAREAS/t1']!['solicitud_reasignacion_estado'] =
+          'pendiente';
+      await expectLater(
+        service.reassignTask(
+          taskId: 't1',
+          newAssignedTo: 'auxiliar',
+          byUserId: 'admin',
+        ),
+        throwsStateError,
+      );
+      expect(db.documents['TBL_TAREAS/t1']!['asignado_uid'], 'admin');
+    },
+  );
+
   test('a otra persona sí, y el aprobador se conserva', () async {
     await service.reassignTask(
       taskId: 't1',

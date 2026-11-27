@@ -360,7 +360,8 @@ class NotificationsService {
       );
       return;
     }
-    if (_isInterventoriaActaEliminada(notifType)) {
+    if (_isInterventoriaActaEliminada(notifType) ||
+        notifType == 'interventoria_no_corresponde') {
       final eid = (notifEmpresaId ?? '').trim();
       if (eid.isEmpty) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
@@ -374,8 +375,11 @@ class NotificationsService {
       }
       navigator.push(
         MaterialPageRoute(
-          builder: (_) =>
-              InterventoriaDashboardScreen(userId: cedula, empresaId: eid),
+          builder: (_) => InterventoriaDashboardScreen(
+            userId: cedula,
+            empresaId: eid,
+            openReassignRequests: notifType == 'interventoria_no_corresponde',
+          ),
         ),
       );
       return;

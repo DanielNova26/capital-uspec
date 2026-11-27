@@ -99,6 +99,9 @@ String taskAprobadorNombre(Map<String, dynamic> data) {
 bool taskReasignacionPendiente(Map<String, dynamic> data) =>
     _t(data['solicitud_reasignacion_estado']).toLowerCase() == 'pendiente';
 
+bool taskReasignacionEnInterventoria(Map<String, dynamic> data) =>
+    _t(data['solicitud_reasignacion_tipo']) == 'no_corresponde';
+
 /// El responsable la dio por terminada y espera aprobación.
 bool taskFinalizacionPendiente(Map<String, dynamic> data) =>
     taskEstadoVisible(data) == TaskEstadoVisible.porAprobar;
@@ -109,6 +112,10 @@ bool taskFinalizacionPendiente(Map<String, dynamic> data) =>
 /// Es el criterio de "Tareas por aprobar" (4 oct 2026: "deben salir solo las
 /// tareas que este usuario tiene por APROBAR").
 bool taskEsperaDecisionDe(Map<String, dynamic> data, Iterable<String> ids) {
+  if (taskReasignacionPendiente(data) &&
+      taskReasignacionEnInterventoria(data)) {
+    return false;
+  }
   final mios = ids.map((id) => id.trim()).where((id) => id.isNotEmpty);
   if (!taskAprobadoresId(data).any(mios.contains)) return false;
   if (resolveTaskStatus(data) == 'finalizado') return false;
@@ -178,12 +185,14 @@ class TaskReasignacionEnEspera {
   final String destinoNombre;
   final String aprobadorId;
   final String aprobadorNombre;
+  final bool revisionInterventoria;
 
   const TaskReasignacionEnEspera({
     required this.destinoId,
     required this.destinoNombre,
     required this.aprobadorId,
     required this.aprobadorNombre,
+    this.revisionInterventoria = false,
   });
 }
 
@@ -194,6 +203,7 @@ TaskReasignacionEnEspera? taskReasignacionEnEspera(Map<String, dynamic> data) {
     destinoNombre: _t(data['solicitud_reasignacion_to_nombre']),
     aprobadorId: taskAprobadorId(data),
     aprobadorNombre: taskAprobadorNombre(data),
+    revisionInterventoria: taskReasignacionEnInterventoria(data),
   );
 }
 
