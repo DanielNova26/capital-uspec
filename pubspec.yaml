@@ -20,7 +20,7 @@ dependencies:
   cloud_firestore: ^6.9.0
   firebase_auth: ^6.6.1
   firebase_storage: ^13.5.0
-  firebase_app_check: ^0.4.7
+  firebase_app_check: ^0.4.9
   cloud_functions: ^6.4.0
 
   # Mensajería y notificaciones
