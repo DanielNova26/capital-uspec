@@ -34,6 +34,9 @@ class TaskModernCard extends StatefulWidget {
   final bool compact;
   final TaskCardPersona persona;
 
+  /// Consulta del responsable anterior en Mis tareas.
+  final bool reassignedFromMe;
+
   const TaskModernCard({
     super.key,
     required this.data,
@@ -44,6 +47,7 @@ class TaskModernCard extends StatefulWidget {
     this.chips = const [],
     this.compact = false,
     this.persona = TaskCardPersona.responsable,
+    this.reassignedFromMe = false,
   });
 
   @override
@@ -69,7 +73,9 @@ class _TaskModernCardState extends State<TaskModernCard> {
     final compact = widget.compact;
     final title = _str(data, ['titulo', 'title'], def: '(Sin título)');
     final desc = _str(data, ['descripcion', 'description']);
-    final estado = taskEstadoVisible(data);
+    final estado = widget.reassignedFromMe
+        ? TaskEstadoVisible.reasignada
+        : taskEstadoVisible(data);
     final devuelta =
         estado == TaskEstadoVisible.pendiente && taskFueDevuelta(data);
     final modulo = taskModuloOrigenNombre(taskModuloOrigen(data));
@@ -286,6 +292,10 @@ class _TaskModernCardState extends State<TaskModernCard> {
                             ),
                           ],
                         ),
+                        if (widget.reassignedFromMe) ...[
+                          const SizedBox(height: 8),
+                          TaskReasignadaConsultaNota(data: data),
+                        ],
                         SizedBox(height: compact ? 10 : 20),
                         Container(
                           padding: EdgeInsets.symmetric(
@@ -419,6 +429,38 @@ class _TaskModernCardState extends State<TaskModernCard> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Explica por qué una tarea que se conserva para seguimiento ya no permite
+/// acciones operativas del responsable anterior.
+class TaskReasignadaConsultaNota extends StatelessWidget {
+  const TaskReasignadaConsultaNota({super.key, required this.data});
+
+  final Map<String, dynamic> data;
+
+  @override
+  Widget build(BuildContext context) {
+    final id = (data['asignado_uid'] ?? data['assignedTo'] ?? '').toString();
+    final nombre = (data['asignado_nombre'] ?? data['assignedToName'] ?? '')
+        .toString();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        UserNameText(
+          id,
+          fallbackName: nombre.isEmpty
+              ? 'Sin responsable identificado'
+              : nombre,
+          prefix: 'Responsable actual: ',
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'Ya no está a tu cargo. Se conserva para consulta; '
+          'solo el responsable actual puede gestionarla o volver a reasignarla.',
+        ),
+      ],
     );
   }
 }

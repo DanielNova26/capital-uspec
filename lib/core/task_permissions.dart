@@ -70,6 +70,24 @@ bool isTaskAssignedToUser(
   return knownIds.contains(assignedId);
 }
 
+/// Conserva el seguimiento de las reasignaciones sin confundirlo con una
+/// asignación vigente. Si la tarea vuelve realmente al usuario, deja de ser
+/// una consulta del responsable anterior.
+bool isTaskReassignedFromUser(
+  Map<String, dynamic> taskData,
+  Iterable<String> userIds,
+) {
+  final ids = userIds
+      .map((id) => id.trim())
+      .where((id) => id.isNotEmpty)
+      .toSet();
+  if (isTaskAssignedToUser(taskData, ids)) return false;
+  final anteriores = taskData['reasignada_desde_uids'];
+  return ids.contains(taskData['reasignada_desde_uid']) ||
+      ids.contains(taskData['reasignada_por_uid']) ||
+      (anteriores is Iterable && anteriores.any(ids.contains));
+}
+
 /// Define si un usuario puede crear tareas para cualquier área de la empresa
 /// activa. El rol desarrollador mantiene el mismo bypass funcional que el
 /// guard central de módulos, sin saltarse el contexto de empresa seleccionado.

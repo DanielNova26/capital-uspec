@@ -2,6 +2,46 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:todo/core/task_permissions.dart';
 
 void main() {
+  group('seguimiento del responsable anterior', () {
+    const reasignada = {
+      'asignado_uid': 'jarod',
+      // Un alias histórico no debe devolver la propiedad operativa.
+      'assignedTo': 'marcela',
+      'reasignada_desde_uid': 'marcela',
+      'reasignada_desde_uids': ['marcela', 'segunda-persona'],
+      'reasignada_por_uid': 'marcela',
+    };
+
+    test('seguir visible no devuelve la tarea ni habilita su gestión', () {
+      expect(isTaskReassignedFromUser(reasignada, ['marcela']), isTrue);
+      expect(isTaskAssignedToUser(reasignada, ['marcela']), isFalse);
+      expect(isTaskReassignedFromUser(reasignada, ['segunda-persona']), isTrue);
+      expect(isTaskReassignedFromUser(reasignada, ['ajeno']), isFalse);
+      expect(isTaskReassignedFromUser(reasignada, ['jarod']), isFalse);
+      expect(isTaskAssignedToUser(reasignada, ['jarod']), isTrue);
+    });
+
+    test(
+      'si vuelve realmente a su responsable anterior, puede gestionarla',
+      () {
+        final devuelta = {...reasignada, 'asignado_uid': 'marcela'};
+        expect(isTaskReassignedFromUser(devuelta, ['marcela']), isFalse);
+        expect(isTaskAssignedToUser(devuelta, ['marcela']), isTrue);
+      },
+    );
+
+    test(
+      'admite alias y no considera un id vacío como responsable anterior',
+      () {
+        expect(
+          isTaskReassignedFromUser(reasignada, ['uid', ' marcela ']),
+          isTrue,
+        );
+        expect(isTaskReassignedFromUser(const {}, ['', 'uid']), isFalse);
+      },
+    );
+  });
+
   test('permisos raíz de la empresa principal no habilitan otra empresa', () {
     final user = {
       'empresaId': 'A',

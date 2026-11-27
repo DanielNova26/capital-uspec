@@ -58,7 +58,7 @@ class AssignedTasksScreen extends StatefulWidget {
 class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   // filtros
   final _searchCtrl = TextEditingController();
-  String _statusFilter = 'todas';
+  String _statusFilter = 'a_mi_cargo';
   String _areaFilter = 'todas';
   AreaCatalogo _catalogoAreas = const AreaCatalogo.vacio();
   bool _groupByArea = false;
@@ -955,12 +955,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   }
 
   bool _reasignadaPorMi(Map<String, dynamic> data) =>
-      !isTaskAssignedToUser(data, _currentUserIds()) &&
-      (_currentUserIds().contains(data['reasignada_desde_uid']) ||
-          _currentUserIds().contains(data['reasignada_por_uid']) ||
-          (data['reasignada_desde_uids'] as List? ?? const []).any(
-            _currentUserIds().contains,
-          ));
+      isTaskReassignedFromUser(data, _currentUserIds());
 
   TaskEstadoVisible _estadoParaMi(Map<String, dynamic> data) =>
       _reasignadaPorMi(data)
@@ -1010,7 +1005,11 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _applyFilters(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> sinEstado,
   ) {
-    final filtered = _statusFilter == 'todas'
+    final filtered = _statusFilter == 'a_mi_cargo'
+        ? sinEstado
+              .where((d) => isTaskAssignedToUser(d.data(), _currentUserIds()))
+              .toList()
+        : _statusFilter == 'todas'
         ? [...sinEstado]
         : sinEstado
               .where((d) => _estadoParaMi(d.data()).clave == _statusFilter)
@@ -1168,7 +1167,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     // novedad o avance quedan inhabilitados hasta que se resuelva.
     final reasignacionEnEspera = taskReasignacionEnEspera(data);
 
-    final estadoVisible = taskEstadoVisible(data);
+    final estadoVisible = _estadoParaMi(data);
     final numeroTexto = taskNumeroTexto(data);
     final moduloNombre = taskModuloOrigenNombre(taskModuloOrigen(data));
     final asignador = taskAsignador(data);
@@ -1273,6 +1272,10 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                         TaskReasignacionEsperaNota(
                           espera: reasignacionEnEspera,
                         ),
+                      ],
+                      if (_reasignadaPorMi(data)) ...[
+                        const SizedBox(height: 12),
+                        TaskReasignadaConsultaNota(data: data),
                       ],
                     ],
                   ),
@@ -1395,7 +1398,9 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                   icon: Icons.markunread_mailbox_rounded,
                   color: Colors.indigo,
                   title: 'Reportar novedad',
-                  subtitle: hasPendingReassign
+                  subtitle: !canComplete
+                      ? 'Solo el responsable actual puede reportar novedades.'
+                      : hasPendingReassign
                       ? 'Inhabilitado mientras se aprueba la reasignación.'
                       : 'Comunica una novedad o inconveniente.',
                   onTap: !canComplete || hasPendingReassign || finishPending
@@ -1419,7 +1424,9 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                   icon: Icons.trending_up_rounded,
                   color: Colors.blue,
                   title: 'Reportar avance',
-                  subtitle: hasPendingReassign
+                  subtitle: !canComplete
+                      ? 'Solo el responsable actual puede reportar avances.'
+                      : hasPendingReassign
                       ? 'Inhabilitado mientras se aprueba la reasignación.'
                       : 'Notifica progreso realizado hoy.',
                   onTap: !canComplete || hasPendingReassign || finishPending
@@ -1460,7 +1467,9 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                       : esInterventoria
                       ? 'Reasignar tarea'
                       : 'Solicitar reasignación',
-                  subtitle: hasPendingReassign
+                  subtitle: !canComplete
+                      ? 'Solo el responsable actual puede volver a reasignarla.'
+                      : hasPendingReassign
                       ? 'Ya existe una solicitud de reasignación pendiente.'
                       : finishPending
                       ? 'La finalización está pendiente de aprobación.'
@@ -1589,7 +1598,9 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
               title: 'Mis tareas',
               subtitle: focusMode
                   ? 'Mostrando únicamente la tarea seleccionada'
-                  : 'Tareas asignadas a ti',
+                  : _statusFilter == 'a_mi_cargo'
+                  ? 'Tareas asignadas a ti'
+                  : 'Tareas a tu cargo y seguimiento de reasignaciones',
               header: focusMode ? _buildHighlightHeader() : null,
               filters: _buildFilters(activas, sinEstado),
               content: filtered.isEmpty && focusMode
@@ -1623,6 +1634,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                         data: doc.data(),
                         compact: compact,
                         persona: TaskCardPersona.asignador,
+                        reassignedFromMe: _reasignadaPorMi(doc.data()),
                         onTap: () => _showActionsSheet(doc),
                         badge: (_finishPending(doc.data()) ? 1 : 0),
                       ),
@@ -1664,7 +1676,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
 
   bool get _hasActiveFilters =>
       _searchCtrl.text.isNotEmpty ||
-      _statusFilter != 'todas' ||
+      _statusFilter != 'a_mi_cargo' ||
       _areaFilter != 'todas' ||
       _moduloFilter != 'todos';
 
@@ -1674,7 +1686,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   void _limpiarFiltros() => setState(() {
     _showAllTasks = true;
     _searchCtrl.clear();
-    _statusFilter = 'todas';
+    _statusFilter = 'a_mi_cargo';
     _areaFilter = 'todas';
     _moduloFilter = 'todos';
     _groupByArea = false;
@@ -1719,6 +1731,13 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       }),
       searchHint: 'Buscar por título, número o quién asignó...',
       quickFilters: [
+        TaskQuickFilter(
+          label: 'A mi cargo',
+          value: 'a_mi_cargo',
+          count: sinEstado
+              .where((d) => isTaskAssignedToUser(d.data(), _currentUserIds()))
+              .length,
+        ),
         TaskQuickFilter(
           label: 'Todos',
           value: 'todas',

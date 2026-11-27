@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:todo/core/task_flujo.dart';
+import 'package:todo/core/task_permissions.dart';
 import 'package:todo/widgets/task_modern_card.dart';
 import 'package:todo/widgets/task_numero_aviso.dart';
 
@@ -8,6 +9,69 @@ import 'package:todo/widgets/task_numero_aviso.dart';
 // a quién se reasigna y quién aprueba la reasignación en espera.
 
 void main() {
+  for (final platform in [
+    TargetPlatform.windows,
+    TargetPlatform.android,
+    TargetPlatform.iOS,
+  ]) {
+    for (final width in [390.0, 768.0, 1024.0, 1366.0]) {
+      testWidgets(
+        'reasignada vencida para consulta: $platform, $width, texto 200%',
+        (tester) async {
+          tester.view.physicalSize = Size(width, 1100);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.reset);
+          final data = {
+            'titulo': 'Rionegro · Hallazgo histórico',
+            'estado': 'en_progreso',
+            'fecha_limite': DateTime(2020),
+            'asignado_uid': 'jarod',
+            'asignado_nombre': 'Jarod Andres Nieto Chaux',
+            'reasignada_desde_uid': 'marcela',
+            'creador_nombre': 'Interventoría',
+          };
+          Future<void> mostrar(String usuario) => tester.pumpWidget(
+            MaterialApp(
+              theme: ThemeData(platform: platform),
+              home: MediaQuery(
+                data: MediaQueryData(
+                  size: Size(width, 1100),
+                  textScaler: TextScaler.linear(2),
+                ),
+                child: Scaffold(
+                  body: SingleChildScrollView(
+                    child: TaskModernCard(
+                      data: data,
+                      compact: true,
+                      reassignedFromMe: isTaskReassignedFromUser(data, [
+                        usuario,
+                      ]),
+                      persona: TaskCardPersona.asignador,
+                      onTap: () {},
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          await mostrar('marcela');
+          expect(find.text('REASIGNADA'), findsOneWidget);
+          expect(find.text('RETRASADA'), findsNothing);
+          expect(
+            find.text('Responsable actual: Jarod Andres Nieto Chaux'),
+            findsOneWidget,
+          );
+          expect(find.textContaining('Ya no está a tu cargo.'), findsOneWidget);
+          expect(tester.takeException(), isNull);
+          await mostrar('jarod');
+          expect(find.text('RETRASADA'), findsOneWidget);
+          expect(find.byType(TaskReasignadaConsultaNota), findsNothing);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
+
   testWidgets('número de tarea en rojo en el aviso', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(
